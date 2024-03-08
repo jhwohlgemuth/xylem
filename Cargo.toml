@@ -1,0 +1,23 @@
+[package]
+name = "midas"
+version = "0.0.1"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.4.2", features = ["derive"] }
+console = { version = "0.15.7", default-features = false, features = ["ansi-parsing"] }
+dotenv = "0.15.0"
+env_logger = "0.10.0"
+glob = "0.3.1"
+indicatif = "0.17.6"
+is-terminal = "0.4.9"
+log = "0.4.20"
+rayon = "1.7.0"
+regex = "1.9.5"
+serde = { version = "1.0.188", features = ["derive"] }
+serde_json = "1.0.107"
+
+[dev-dependencies]
+cargo-watch = "8.4.1"
