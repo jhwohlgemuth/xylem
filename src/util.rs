@@ -99,7 +99,7 @@ pub fn has_extension(extension: &str, path: &Path) -> bool {
 }
 /// Check if stdin is piped
 ///
-/// Example: echo "hello world" | gerber
+/// Example: echo "hello world" | midas
 pub fn is_stdin_piped() -> StdinIsPipedResult {
     if !io::stdin().is_terminal() {
         StdinIsPipedResult::StdinIsPiped
@@ -109,7 +109,7 @@ pub fn is_stdin_piped() -> StdinIsPipedResult {
 }
 /// Check if stdout is piped
 ///
-/// Example: gerber | process
+/// Example: midas | process
 pub fn is_stdout_piped() -> StdoutIsPipedResult {
     if !io::stdout().is_terminal() {
         StdoutIsPipedResult::StdoutIsPiped

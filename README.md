@@ -23,7 +23,7 @@ Contributing
     git clone git@code.ornl.gov:GSHS/common/midas/core.git
     ```
 - Midas development involves mulitple tasks:
-    - `cargo run` - Execute gerber code
+    - `cargo run` - Execute Midas code
         - `cargo run -- help` - Print Midas CLI help
         - `cargo run -- check --help` - Print Midas check command CLI help
     - `cargo fmt` -  Format code
