@@ -21,11 +21,11 @@ const MIDAS_LOG_LEVEL: &str = "MIDAS_LOG_LEVEL";
 const MIDAS_LOG_STYLE: &str = "MIDAS_LOG_STYLE";
 /// Multi-tool for verifying myriad aspects of data processing pipelines
 ///
-/// ███    ███ ██ ██████   █████  ███████ 
+/// ███    ███ ██ ██████   █████  ███████
 /// ████  ████ ██ ██   ██ ██   ██ ██      
-/// ██ ████ ██ ██ ██   ██ ███████ ███████ 
-/// ██  ██  ██ ██ ██   ██ ██   ██      ██ 
-/// ██      ██ ██ ██████  ██   ██ ███████ 
+/// ██ ████ ██ ██ ██   ██ ███████ ███████
+/// ██  ██  ██ ██ ██   ██ ██   ██      ██
+/// ██      ██ ██ ██████  ██   ██ ███████
 ///
 #[derive(Debug, Parser)]
 #[command(author, version, about, verbatim_doc_comment)]

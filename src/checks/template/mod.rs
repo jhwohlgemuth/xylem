@@ -7,6 +7,4 @@ pub fn run(item: &Path, _: Option<Parameters>) -> Output {
 }
 
 #[cfg(test)]
-mod tests {
-    
-}
+mod tests {}
