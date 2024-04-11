@@ -90,11 +90,7 @@ pub fn get_parent(path: PathBuf) -> PathBuf {
 }
 /// Check if a file has a given file extension
 pub fn has_extension(extension: &str, path: &Path) -> bool {
-    let file_extension = path
-        .extension()
-        .unwrap_or_default()
-        .to_str()
-        .unwrap_or_default();
+    let file_extension = path.extension().unwrap_or_default().to_str().unwrap_or_default();
     extension == file_extension
 }
 /// Check if stdin is piped

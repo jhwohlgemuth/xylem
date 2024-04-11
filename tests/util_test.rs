@@ -9,26 +9,14 @@ mod tests {
 
     #[test]
     fn test_add_forward_slash() {
-        assert_eq!(
-            add_forward_slash(PathBuf::from("foo")),
-            PathBuf::from("foo/")
-        );
-        assert_eq!(
-            add_forward_slash(PathBuf::from("foo/bar")),
-            PathBuf::from("foo/bar/")
-        );
-        assert_eq!(
-            add_forward_slash(PathBuf::from("foo/bar.json")),
-            PathBuf::from("foo/bar.json")
-        );
+        assert_eq!(add_forward_slash(PathBuf::from("foo")), PathBuf::from("foo/"));
+        assert_eq!(add_forward_slash(PathBuf::from("foo/bar")), PathBuf::from("foo/bar/"));
+        assert_eq!(add_forward_slash(PathBuf::from("foo/bar.json")), PathBuf::from("foo/bar.json"));
     }
 
     #[test]
     fn test_get_parent() {
-        assert_eq!(
-            get_parent(PathBuf::from("foo/bar.json")),
-            PathBuf::from("foo")
-        );
+        assert_eq!(get_parent(PathBuf::from("foo/bar.json")), PathBuf::from("foo"));
     }
 
     #[test]

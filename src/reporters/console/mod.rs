@@ -6,49 +6,31 @@ pub fn run(output: Output, parameters: Option<Parameters>) -> Void {
     let mut count = 0;
     for details in output {
         match details {
-            Some(Details {
+            | Some(Details {
                 condition: false,
                 description,
                 error,
                 ..
             }) => {
                 let err = match error {
-                    Some(e) => e.to_string(),
-                    None => "".to_owned(),
+                    | Some(e) => e.to_string(),
+                    | None => "".to_owned(),
                 };
                 if let Some(msg) = description {
-                    if let Some(Parameters {
-                        pass: false,
-                        minimal,
-                        ..
-                    }) = parameters
-                    {
+                    if let Some(Parameters { pass: false, minimal, .. }) = parameters {
                         print_fail(msg, err, minimal);
                         count += 1;
                     }
                 };
             }
-            Some(Details {
-                description: Some(msg),
-                ..
-            }) => {
-                if let Some(Parameters {
-                    all: true, minimal, ..
-                })
-                | Some(Parameters {
-                    pass: true,
-                    minimal,
-                    ..
-                }) = parameters
-                {
+            | Some(Details { description: Some(msg), .. }) => {
+                if let Some(Parameters { all: true, minimal, .. }) | Some(Parameters { pass: true, minimal, .. }) = parameters {
                     print_pass(msg, minimal);
                     count += 1;
                 };
             }
-            Some(Details {
-                description: None, ..
-            }) => (),
-            None => (),
+            | Some(Details { description: None, .. }) => (),
+            | None => (),
         }
     }
     if count > 0 {

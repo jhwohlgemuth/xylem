@@ -88,7 +88,7 @@ fn main() -> Void {
         },
     ];
     let pipeline_input: Option<String> = match is_stdin_piped() {
-        StdinIsPipedResult::StdinIsPiped => {
+        | StdinIsPipedResult::StdinIsPiped => {
             let stdin = io::stdin();
             let reader = stdin.lock();
             let lines = reader.lines();
@@ -96,12 +96,12 @@ fn main() -> Void {
             info!("Received input from stdin");
             Some(result)
         }
-        StdinIsPipedResult::StdinIsNotPiped => None,
+        | StdinIsPipedResult::StdinIsNotPiped => None,
     };
     let args = Arguments::parse();
     let current_dir = env::current_dir()?;
     match &args.command {
-        Some(Commands::Check {
+        | Some(Commands::Check {
             path,
             reporter,
             output,
@@ -125,34 +125,34 @@ fn main() -> Void {
                 parameters: Some(parameters.clone()),
             };
             match reporter {
-                Some(values) => {
+                | Some(values) => {
                     for value in values {
                         let name = value.to_uppercase();
                         info!("Using {} reporter", name);
                         match name.as_str() {
-                            "CONSOLE" => reporters.push(default_reporter.clone()),
-                            "JSON" => reporters.push(Reporter {
+                            | "CONSOLE" => reporters.push(default_reporter.clone()),
+                            | "JSON" => reporters.push(Reporter {
                                 name: ReporterType::Json,
                                 run: reporters::json::run,
                                 parameters: Some(parameters.clone()),
                             }),
-                            _ => {
+                            | _ => {
                                 todo!("{} reporter not yet implemented", name)
                             }
                         }
                     }
                 }
-                None => {
+                | None => {
                     let name = default_reporter.name.to_string().to_uppercase();
                     info!("Using {} reporter", name);
                     reporters.push(default_reporter)
                 }
             }
             let working_dir = match pipeline_input {
-                Some(x) => x,
-                None => match &path {
-                    Some(x) => x.to_str().unwrap_or(".").to_string(),
-                    None => current_dir.to_str().unwrap_or(".").to_string(),
+                | Some(x) => x,
+                | None => match &path {
+                    | Some(x) => x.to_str().unwrap_or(".").to_string(),
+                    | None => current_dir.to_str().unwrap_or(".").to_string(),
                 },
             };
             info!("Working directory: {}", working_dir);
@@ -186,6 +186,6 @@ fn main() -> Void {
             });
             Ok(())
         }
-        None => Ok(()),
+        | None => Ok(()),
     }
 }
