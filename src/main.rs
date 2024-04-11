@@ -21,12 +21,11 @@ const MIDAS_LOG_LEVEL: &str = "MIDAS_LOG_LEVEL";
 const MIDAS_LOG_STYLE: &str = "MIDAS_LOG_STYLE";
 /// Multi-tool for verifying myriad aspects of data processing pipelines
 ///
-███    ███ ██ ██████   █████  ███████ 
-████  ████ ██ ██   ██ ██   ██ ██      
-██ ████ ██ ██ ██   ██ ███████ ███████ 
-██  ██  ██ ██ ██   ██ ██   ██      ██ 
-██      ██ ██ ██████  ██   ██ ███████ 
-///
+/// ███    ███ ██ ██████   █████  ███████ 
+/// ████  ████ ██ ██   ██ ██   ██ ██      
+/// ██ ████ ██ ██ ██   ██ ███████ ███████ 
+/// ██  ██  ██ ██ ██   ██ ██   ██      ██ 
+/// ██      ██ ██ ██████  ██   ██ ███████ 
 ///
 #[derive(Debug, Parser)]
 #[command(author, version, about, verbatim_doc_comment)]
@@ -81,6 +80,12 @@ fn main() -> Void {
     env_logger::init_from_env(env);
     let rules: Vec<_> = vec![
         // Rule definitions go here
+        Rule {
+            name: "template",
+            run: template::run,
+            expression: r"/**/",
+            parameters: None,
+        },
     ];
     let pipeline_input: Option<String> = match is_stdin_piped() {
         StdinIsPipedResult::StdinIsPiped => {

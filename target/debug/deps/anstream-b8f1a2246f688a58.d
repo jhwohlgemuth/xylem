@@ -1,0 +1,14 @@
+/root/dev/midas/target/debug/deps/libanstream-b8f1a2246f688a58.rmeta: /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/lib.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/adapter/mod.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/adapter/strip.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/adapter/wincon.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/stream.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/buffer.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/macros.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/auto.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/fmt.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/strip.rs
+
+/root/dev/midas/target/debug/deps/anstream-b8f1a2246f688a58.d: /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/lib.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/adapter/mod.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/adapter/strip.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/adapter/wincon.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/stream.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/buffer.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/macros.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/auto.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/fmt.rs /root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/strip.rs
+
+/root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/lib.rs:
+/root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/adapter/mod.rs:
+/root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/adapter/strip.rs:
+/root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/adapter/wincon.rs:
+/root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/stream.rs:
+/root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/buffer.rs:
+/root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/macros.rs:
+/root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/auto.rs:
+/root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/fmt.rs:
+/root/.cargo/registry/src/index.crates.io-6f17d22bba15001f/anstream-0.6.13/src/strip.rs:

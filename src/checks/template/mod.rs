@@ -1,8 +1,9 @@
+use crate::util::{Output, Parameters};
 use std::path::Path;
-use crate::Parameters;
 
-pub fn run(item: &Path, parameters: Parameters) -> Option<(bool, Option<String>)> {
-    Some((true, None))
+/// Process check on a given path to a directory
+pub fn run(item: &Path, _: Option<Parameters>) -> Output {
+    vec![]
 }
 
 #[cfg(test)]
