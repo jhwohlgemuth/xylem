@@ -17,15 +17,15 @@ use checks::*;
 use util::{is_stdin_piped, Parameters, Reporter, ReporterType, Rule, StdinIsPipedResult, Void};
 
 // Environment variables
-const MIDAS_LOG_LEVEL: &str = "MIDAS_LOG_LEVEL";
-const MIDAS_LOG_STYLE: &str = "MIDAS_LOG_STYLE";
+const PIPE_LOG_LEVEL: &str = "PIPE_LOG_LEVEL";
+const PIPE_LOG_STYLE: &str = "PIPE_LOG_STYLE";
 /// Multi-tool for verifying myriad aspects of data processing pipelines
 ///
-/// ███    ███ ██ ██████   █████  ███████
-/// ████  ████ ██ ██   ██ ██   ██ ██      
-/// ██ ████ ██ ██ ██   ██ ███████ ███████
-/// ██  ██  ██ ██ ██   ██ ██   ██      ██
-/// ██      ██ ██ ██████  ██   ██ ███████
+// ██████  ██ ██████  ███████ 
+// ██   ██ ██ ██   ██ ██      
+// ██████  ██ ██████  █████   
+// ██      ██ ██      ██      
+// ██      ██ ██      ███████ 
 ///
 #[derive(Debug, Parser)]
 #[command(author, version, about, verbatim_doc_comment)]
@@ -38,11 +38,11 @@ struct Arguments {
 enum Commands {
     /// Run checks on a given path to a directory
     ///
-    ///     $> midas check /path/to/folder
+    ///     $> pipe check /path/to/folder
     ///
-    ///     $> echo /path/to/folder | midas check -pm
+    ///     $> echo /path/to/folder | pipe check -pm
     ///
-    ///     $> midas check /path/to/folder --reporter json console --output results.json
+    ///     $> pipe check /path/to/folder --reporter json console --output results.json
     ///
     #[clap(verbatim_doc_comment)]
     Check {
@@ -75,8 +75,8 @@ enum Commands {
 fn main() -> Void {
     dotenv().ok();
     let env = Env::default()
-        .filter_or(MIDAS_LOG_LEVEL, "error")
-        .write_style_or(MIDAS_LOG_STYLE, "always");
+        .filter_or(PIPE_LOG_LEVEL, "error")
+        .write_style_or(PIPE_LOG_STYLE, "always");
     env_logger::init_from_env(env);
     let rules: Vec<_> = vec![
         // Rule definitions go here

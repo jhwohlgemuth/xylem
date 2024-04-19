@@ -30,7 +30,7 @@ pub fn run(output: Output, parameters: Option<Parameters>) -> Void {
             drop(stdout);
         }
         | StdoutIsPipedResult::StdoutIsNotPiped => {
-            let default_filename = "midas_results.json";
+            let default_filename = "pipe_results.json";
             let default_dir = match env::var("PWD") {
                 | Ok(pwd) => PathBuf::from(pwd).join(default_filename),
                 | Err(_) => env::current_dir()?.with_file_name(default_filename),
