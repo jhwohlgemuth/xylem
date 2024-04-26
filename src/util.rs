@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use clap::ValueEnum;
 use is_terminal::IsTerminal;
 use serde::{Deserialize, Serialize};

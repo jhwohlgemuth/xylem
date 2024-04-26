@@ -21,11 +21,11 @@ const PIPE_LOG_LEVEL: &str = "PIPE_LOG_LEVEL";
 const PIPE_LOG_STYLE: &str = "PIPE_LOG_STYLE";
 /// Multi-tool for verifying myriad aspects of data processing pipelines
 ///
-// ██████  ██ ██████  ███████ 
-// ██   ██ ██ ██   ██ ██      
-// ██████  ██ ██████  █████   
-// ██      ██ ██      ██      
-// ██      ██ ██      ███████ 
+/// ██████  ██ ██████  ███████
+/// ██   ██ ██ ██   ██ ██
+/// ██████  ██ ██████  █████
+/// ██      ██ ██      ██
+/// ██      ██ ██      ███████
 ///
 #[derive(Debug, Parser)]
 #[command(author, version, about, verbatim_doc_comment)]
@@ -36,6 +36,26 @@ struct Arguments {
 #[derive(Debug, Subcommand)]
 #[command(long_about = None)]
 enum Commands {
+    /// Execute module(s)
+    ///
+    ///     $> pipe run /path/to/module/code --config /path/to/config
+    ///
+    ///     $> echo /path/to/module/code | pipe run
+    ///
+    ///     $> pipe check /path/to/module/code --reporter json console
+    ///
+    #[clap(verbatim_doc_comment)]
+    Run {
+        /// Path to module(s)
+        #[arg(value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        path: Option<std::path::PathBuf>,
+        /// Reporter(s) to use to output the results - console (default) and/or json
+        #[arg(short = 'r', long = "reporter", value_name = "STRING", num_args=0..=2)]
+        reporter: Option<Vec<String>>,
+        /// Destination path for reporters that use one
+        #[arg(short = 'o', long = "output", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        output: Option<std::path::PathBuf>,
+    },
     /// Run checks on a given path to a directory
     ///
     ///     $> pipe check /path/to/folder
@@ -74,9 +94,7 @@ enum Commands {
 }
 fn main() -> Void {
     dotenv().ok();
-    let env = Env::default()
-        .filter_or(PIPE_LOG_LEVEL, "error")
-        .write_style_or(PIPE_LOG_STYLE, "always");
+    let env = Env::default().filter_or(PIPE_LOG_LEVEL, "error").write_style_or(PIPE_LOG_STYLE, "always");
     env_logger::init_from_env(env);
     let rules: Vec<_> = vec![
         // Rule definitions go here
@@ -101,6 +119,7 @@ fn main() -> Void {
     let args = Arguments::parse();
     let current_dir = env::current_dir()?;
     match &args.command {
+        | Some(Commands::Run { .. }) => Ok(()),
         | Some(Commands::Check {
             path,
             reporter,
