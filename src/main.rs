@@ -36,26 +36,6 @@ struct Arguments {
 #[derive(Debug, Subcommand)]
 #[command(long_about = None)]
 enum Commands {
-    /// Execute module(s)
-    ///
-    ///     $> pipe run /path/to/module/code --config /path/to/config
-    ///
-    ///     $> echo /path/to/module/code | pipe run
-    ///
-    ///     $> pipe check /path/to/module/code --reporter json console
-    ///
-    #[clap(verbatim_doc_comment)]
-    Run {
-        /// Path to module(s)
-        #[arg(value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
-        path: Option<std::path::PathBuf>,
-        /// Reporter(s) to use to output the results - console (default) and/or json
-        #[arg(short = 'r', long = "reporter", value_name = "STRING", num_args=0..=2)]
-        reporter: Option<Vec<String>>,
-        /// Destination path for reporters that use one
-        #[arg(short = 'o', long = "output", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
-        output: Option<std::path::PathBuf>,
-    },
     /// Run checks on a given path to a directory
     ///
     ///     $> pipe check /path/to/folder
@@ -69,6 +49,9 @@ enum Commands {
         /// Path to check
         #[arg(value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         path: Option<std::path::PathBuf>,
+        /// Path to configuration file
+        #[arg(short = 'c', long = "config", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        config: Option<std::path::PathBuf>,
         /// Exclude certain files
         #[arg(short = 'e', long = "exclude", value_name = "STRING")]
         exclude: Option<String>,
@@ -90,6 +73,46 @@ enum Commands {
         /// Deduplicate results
         #[arg(short = 'u', long = "unique", value_name = "BOOL")]
         unique: bool,
+    },
+    /// Check environment parameters and verify PIPE requirements are met
+    ///
+    ///     $> pipe doctor --config /path/to/config
+    ///
+    ///     $> pipe doctor --fix
+    ///
+    #[clap(verbatim_doc_comment)]
+    Doctor {
+        /// Path to configuration file
+        ///
+        /// Validate PIPE requirements are met for a given configuration
+        #[arg(short = 'c', long = "config", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        config: Option<std::path::PathBuf>,
+        /// Scan environment and attempt to fix unmet requirements
+        #[arg(short = 'f', long = "fix", value_name = "BOOL")]
+        fix: bool,
+    },
+    /// Execute module(s)
+    ///
+    ///     $> pipe run /path/to/module/code --config /path/to/config
+    ///
+    ///     $> echo /path/to/module/code | pipe run
+    ///
+    ///     $> pipe check /path/to/module/code --reporter json console
+    ///
+    #[clap(verbatim_doc_comment)]
+    Run {
+        /// Path to module(s)
+        #[arg(value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        path: Option<std::path::PathBuf>,
+        /// Path to configuration file
+        #[arg(short = 'c', long = "config", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        config: Option<std::path::PathBuf>,
+        /// Reporter(s) to use to output the results - console (default) and/or json
+        #[arg(short = 'r', long = "reporter", value_name = "STRING", num_args=0..=2)]
+        reporter: Option<Vec<String>>,
+        /// Destination path for reporters that use one
+        #[arg(short = 'o', long = "output", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        output: Option<std::path::PathBuf>,
     },
 }
 fn main() -> Void {
@@ -119,7 +142,6 @@ fn main() -> Void {
     let args = Arguments::parse();
     let current_dir = env::current_dir()?;
     match &args.command {
-        | Some(Commands::Run { .. }) => Ok(()),
         | Some(Commands::Check {
             path,
             reporter,
@@ -205,6 +227,8 @@ fn main() -> Void {
             });
             Ok(())
         }
+        | Some(Commands::Doctor { .. }) => Ok(()),
+        | Some(Commands::Run { .. }) => Ok(()),
         | None => Ok(()),
     }
 }
