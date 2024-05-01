@@ -4,8 +4,14 @@ mod util;
 
 #[cfg(test)]
 mod tests {
-    use crate::util::{add_forward_slash, get_parent, has_extension, Details};
+    use crate::util::{add_forward_slash, get_parent, has_extension, import_config, Details};
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn test_import_config() {
+        let content = import_config(PathBuf::from("tests/fixtures/config.json"));
+        assert!(content.is_ok());
+    }
 
     #[test]
     fn test_add_forward_slash() {

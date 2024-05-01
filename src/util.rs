@@ -2,14 +2,48 @@
 use clap::ValueEnum;
 use is_terminal::IsTerminal;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::error::Error;
 use std::fmt;
+use std::fs::File;
 use std::io;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub type Void = Result<(), Box<dyn Error>>;
 pub type Output = Vec<Option<Details>>;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum Script {
+    String,
+    Vec(String),
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Module {
+    name: String,
+    description: Option<String>,
+    variables: Option<Map<String, Value>>,
+    before_script: Option<Script>,
+    run: Option<Script>,
+    script: Option<Script>,
+    after_script: Option<Script>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Config {
+    requirements: Vec<String>,
+    tags: Option<Vec<String>>,
+    modules: Vec<Module>,
+    variables: Option<Map<String, Value>>,
+}
+pub fn import_config(path: PathBuf) -> serde_json::Result<Config> {
+    let mut file = File::open(path).unwrap();
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).unwrap();
+    let json: serde_json::Result<Config> = serde_json::from_str(&contents);
+    println!("Imported config: {:?}", json);
+    json
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Parameters {
     /// Path to save the results, when required
