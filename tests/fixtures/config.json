@@ -1,0 +1,8 @@
+{
+    "requirements": [],
+    "modules": [
+        {
+            "name": "foo"
+        }
+    ]
+}
