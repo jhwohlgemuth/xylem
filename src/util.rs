@@ -13,28 +13,50 @@ use std::path::{Path, PathBuf};
 pub type Void = Result<(), Box<dyn Error>>;
 pub type Output = Vec<Option<Details>>;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-enum Script {
-    String,
-    Vec(String),
-}
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Module {
-    name: String,
-    description: Option<String>,
-    variables: Option<Map<String, Value>>,
-    before_script: Option<Script>,
-    run: Option<Script>,
-    script: Option<Script>,
-    after_script: Option<Script>,
-}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     requirements: Vec<String>,
     tags: Option<Vec<String>>,
     modules: Vec<Module>,
     variables: Option<Map<String, Value>>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ModuleLanguage {
+    Binary,
+    Csharp,
+    JavaScript,
+    Julia,
+    Python,
+    Rust,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum ModuleType {
+    Script {
+        language: ModuleLanguage,
+        uri: String
+    },
+    #[serde(alias = "wasm")]
+    WebAssembly {
+        run: String,
+    },
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Module {
+    name: String,
+    #[serde(flatten)]
+    module_type: ModuleType,
+    description: Option<String>,
+    variables: Option<Map<String, Value>>,
+    before_script: Option<Script>,
+    after_script: Option<Script>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum Script {
+    String,
+    Vec(String),
 }
 pub fn import_config(path: PathBuf) -> serde_json::Result<Config> {
     let mut file = File::open(path).unwrap();

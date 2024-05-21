@@ -1,5 +1,7 @@
 {
-    "requirements": [],
+    "requirements": [
+        "python"
+    ],
     "tags": [],
     "variables": {
         "TOKEN": "123456789",
@@ -7,7 +9,21 @@
     },
     "modules": [
         {
-            "name": "foo"
+            "name": "foo",
+            "type": "wasm",
+            "run": "wasm-module-name"
+        },
+        {
+            "name": "bar",
+            "type": "script",
+            "language": "python",
+            "uri": "https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
+        },
+        {
+            "name": "baz",
+            "type": "script",
+            "language": "binary",
+            "uri": "file:///path/to/binary"
         }
     ]
 }
