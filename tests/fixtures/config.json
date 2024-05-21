@@ -1,5 +1,10 @@
 {
     "requirements": [],
+    "tags": [],
+    "variables": {
+        "TOKEN": "123456789",
+        "ANSWER": 42
+    },
     "modules": [
         {
             "name": "foo"
