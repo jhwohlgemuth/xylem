@@ -10,6 +10,7 @@ use std::env;
 use std::io::{self, BufRead};
 
 mod checks;
+mod doctor;
 mod reporters;
 mod util;
 
