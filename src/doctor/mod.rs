@@ -8,7 +8,7 @@ pub struct Command<'a> {
     pub conda_environment: Option<&'a str>,
 }
 pub fn is_command(value: Command) -> bool {
-    const ERROR_MESSAGE: &'static str = "[ERROR] => Failed to execute process";
+    const ERROR_MESSAGE: &str = "[ERROR] => Failed to execute process";
     let output = if cfg!(target_os = "windows") {
         match value.conda_environment {
             | Some(name) => process::Command::new("conda")
@@ -33,7 +33,7 @@ pub fn is_command(value: Command) -> bool {
         }
     };
     match output {
-        | process::Output { stdout, .. } if stdout.len() > 0 => {
+        | process::Output { stdout, .. } if !stdout.is_empty() => {
             let path = String::from_utf8_lossy(&stdout);
             info!("Command found at {:?}", path.trim());
             return PathBuf::from(path.trim()).exists();
