@@ -10,8 +10,18 @@ pub struct Command<'a> {
 pub fn is_command(value: Command) -> bool {
     const ERROR_MESSAGE: &'static str = "[ERROR] => Failed to execute process";
     let output = if cfg!(target_os = "windows") {
-        // TODO: pwsh -NoProfile -Command command value
-        todo!()
+        match value.conda_environment {
+            | Some(name) => process::Command::new("conda")
+                .args(["run", "--name", name, "pwsh", "-NoProfile", "-Command", "command"])
+                .arg(value.name)
+                .output()
+                .expect(ERROR_MESSAGE),
+            | None => process::Command::new("pwsh")
+                .args(["-NoProfile", "-Command", "command"])
+                .arg(value.name)
+                .output()
+                .expect(ERROR_MESSAGE),
+        }
     } else {
         match value.conda_environment {
             | Some(name) => process::Command::new("conda")
