@@ -1,0 +1,12 @@
+{
+    "command": "python",
+    "environment": "base",
+    "arguments": [
+        "-m",
+        "lib",
+        "--directory",
+        "{{INPUT_DIRECTORY}}",
+        "--output",
+        "{{OUTPUT_DIRECTORY}}"
+    ]
+}

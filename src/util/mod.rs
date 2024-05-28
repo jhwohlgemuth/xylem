@@ -3,7 +3,6 @@ use clap::ValueEnum;
 use is_terminal::IsTerminal;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use std::error::Error;
 use std::fmt;
 use std::fs::File;
@@ -14,76 +13,19 @@ use std::path::{Path, PathBuf};
 pub type Void = Result<(), Box<dyn Error>>;
 pub type Output = Vec<Option<Details>>;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Config {
-    requirements: Vec<String>,
-    tags: Option<Vec<String>>,
-    modules: Vec<Module>,
-    variables: Option<Map<String, Value>>,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum ModuleLanguage {
-    Binary,
-    Csharp,
-    JavaScript,
-    Julia,
-    Python,
-    Rust,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-enum ModuleType {
-    Script {
-        language: ModuleLanguage,
-        uri: String,
-    },
-    #[serde(alias = "wasm")]
-    WebAssembly {
-        run: String,
-    },
-}
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Module {
-    name: String,
-    #[serde(flatten)]
-    module_type: ModuleType,
-    description: Option<String>,
-    variables: Option<Map<String, Value>>,
-    before_script: Option<Script>,
-    after_script: Option<Script>,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-enum Script {
-    String,
-    Vec(String),
-}
 pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
     let mut content = String::new();
     let _ = match File::open(path.clone()) {
         | Ok(mut file) => {
             info!("Read file: {:?}", path);
             file.read_to_string(&mut content)
-        },
+        }
         | Err(err) => {
             error!("Failed to read file: {:?}", path);
             Err(err)
-        },
+        }
     };
     Ok(content)
-}
-pub fn import_config(path: PathBuf) -> serde_json::Result<Config> {
-    let content = match read_file(path.clone()) {
-        | Ok(value) => value,
-        | Err(_) => {
-            error!("Failed to read config file: {:?}", path);
-            "".to_string()
-        },
-    };
-    let json: serde_json::Result<Config> = serde_json::from_str(&content);
-    info!("Imported config: {:?}", json);
-    json
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Parameters {
@@ -188,6 +130,9 @@ pub fn is_stdout_piped() -> StdoutIsPipedResult {
     } else {
         StdoutIsPipedResult::StdoutIsNotPiped
     }
+}
+pub fn to_string(values: Vec<&str>) -> Vec<String> {
+    values.iter().map(|s| s.to_string()).collect()
 }
 
 #[cfg(test)]

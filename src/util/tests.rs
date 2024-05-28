@@ -2,14 +2,6 @@ use crate::util::*;
 use std::path::{Path, PathBuf};
 
 #[test]
-fn test_import_config() {
-    let path = "tests/fixtures/config.json";
-    let content = import_config(PathBuf::from(path)).expect("[ERROR] => Cannot import config in tests");
-    assert_eq!(content.variables.unwrap().get("ANSWER").unwrap(), 42);
-    assert_eq!(content.modules.len(), 3);
-}
-
-#[test]
 fn test_add_forward_slash() {
     assert_eq!(add_forward_slash(PathBuf::from("foo")), PathBuf::from("foo/"));
     assert_eq!(add_forward_slash(PathBuf::from("foo/bar")), PathBuf::from("foo/bar/"));
@@ -66,4 +58,11 @@ fn test_details() {
     let mut results = vec![good_foo, good_bar, bad_foo, bad_foo_too, bad_bar, bad_baz];
     results.dedup();
     assert_eq!(results.len(), 5);
+}
+
+#[test]
+fn test_to_string() {
+    let input = vec!["a", "b", "c"];
+    let expected_output = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+    assert_eq!(to_string(input), expected_output);
 }
