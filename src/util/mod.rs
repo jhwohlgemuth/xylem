@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use clap::ValueEnum;
 use is_terminal::IsTerminal;
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::error::Error;
@@ -58,12 +59,30 @@ enum Script {
     String,
     Vec(String),
 }
+pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
+    let mut content = String::new();
+    let _ = match File::open(path.clone()) {
+        | Ok(mut file) => {
+            info!("Read file: {:?}", path);
+            file.read_to_string(&mut content)
+        },
+        | Err(err) => {
+            error!("Failed to read file: {:?}", path);
+            Err(err)
+        },
+    };
+    Ok(content)
+}
 pub fn import_config(path: PathBuf) -> serde_json::Result<Config> {
-    let mut file = File::open(path).unwrap();
-    let mut contents = String::new();
-    file.read_to_string(&mut contents).unwrap();
-    let json: serde_json::Result<Config> = serde_json::from_str(&contents);
-    println!("Imported config: {:?}", json);
+    let content = match read_file(path.clone()) {
+        | Ok(value) => value,
+        | Err(_) => {
+            error!("Failed to read config file: {:?}", path);
+            "".to_string()
+        },
+    };
+    let json: serde_json::Result<Config> = serde_json::from_str(&content);
+    info!("Imported config: {:?}", json);
     json
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]

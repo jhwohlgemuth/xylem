@@ -3,8 +3,10 @@ use std::path::{Path, PathBuf};
 
 #[test]
 fn test_import_config() {
-    let content = import_config(PathBuf::from("tests/fixtures/config.json"));
-    assert!(content.is_ok());
+    let path = "tests/fixtures/config.json";
+    let content = import_config(PathBuf::from(path)).expect("[ERROR] => Cannot import config in tests");
+    assert_eq!(content.variables.unwrap().get("ANSWER").unwrap(), 42);
+    assert_eq!(content.modules.len(), 3);
 }
 
 #[test]
