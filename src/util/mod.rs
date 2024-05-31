@@ -111,6 +111,12 @@ pub fn has_extension(extension: &str, path: &Path) -> bool {
     let file_extension = path.extension().unwrap_or_default().to_str().unwrap_or_default();
     extension == file_extension
 }
+pub fn is_handlebars_template(value: &str) -> bool {
+    unimplemented!();
+}
+pub fn parse_handlebars_string(value: &str) -> String {
+    unimplemented!()
+}
 /// Check if stdin is piped
 ///
 /// Example: echo "hello world" | pipe
