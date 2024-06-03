@@ -1,1 +1,0 @@
-/root/dev/command/target/debug/pipe: /root/dev/command/src/checks/mod.rs /root/dev/command/src/checks/template/mod.rs /root/dev/command/src/main.rs /root/dev/command/src/reporters/console/mod.rs /root/dev/command/src/reporters/json/mod.rs /root/dev/command/src/reporters/mod.rs /root/dev/command/src/reporters/stdout/mod.rs /root/dev/command/src/util.rs
