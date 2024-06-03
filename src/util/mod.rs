@@ -2,6 +2,7 @@
 use clap::ValueEnum;
 use is_terminal::IsTerminal;
 use log::{error, info};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;
@@ -111,11 +112,22 @@ pub fn has_extension(extension: &str, path: &Path) -> bool {
     let file_extension = path.extension().unwrap_or_default().to_str().unwrap_or_default();
     extension == file_extension
 }
+/// Check if a string is a handlebars template
 pub fn is_handlebars_template(value: &str) -> bool {
-    unimplemented!();
+    match Regex::new(r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$") {
+        | Ok(re) => re.is_match(value),
+        | Err(_) => false,
+    }
 }
-pub fn parse_handlebars_string(value: &str) -> String {
-    unimplemented!()
+/// Get variable name from a handlebars template
+pub fn parse_handlebars_template(value: &str) -> String {
+    match Regex::new(r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$") {
+        | Ok(re) => match re.captures(value) {
+            | Some(captures) => captures["variable"].trim().to_string(),
+            | None => "".to_string(),
+        },
+        | _ => "".to_string(),
+    }
 }
 /// Check if stdin is piped
 ///

@@ -61,6 +61,31 @@ fn test_details() {
 }
 
 #[test]
+fn test_handlebars_templates() {
+    // invalid string values
+    let not_upper_case = "{{ not_upper_case }}";
+    let not_snake_case = "{{ NOT-SNAKE-CASE }}";
+    let pascal_case = "{{ PascalCase }}";
+    // is_handlebars_template
+    assert!(is_handlebars_template("{{FOO}}"));
+    assert!(is_handlebars_template("{{INPUT_DIRECTORY}}"));
+    assert!(is_handlebars_template("{{ INPUT_DIRECTORY }}"));
+    assert!(!is_handlebars_template(not_upper_case));
+    assert!(!is_handlebars_template(not_snake_case));
+    assert!(!is_handlebars_template(pascal_case));
+    assert!(!is_handlebars_template("Not a handlebars template"));
+    // parse_handlebars_template
+    assert_eq!(parse_handlebars_template("{{FOO}}"), "FOO");
+    assert_eq!(parse_handlebars_template("{{ FOO }}"), "FOO");
+    assert_eq!(parse_handlebars_template("{{BAR}}"), "BAR");
+    assert_eq!(parse_handlebars_template("{{  BAR   }}"), "BAR");
+    assert_eq!(parse_handlebars_template("BAZ"), "");
+    assert_eq!(parse_handlebars_template(not_upper_case), "");
+    assert_eq!(parse_handlebars_template(not_snake_case), "");
+    assert_eq!(parse_handlebars_template(pascal_case), "");
+}
+
+#[test]
 fn test_to_string() {
     let input = vec!["a", "b", "c"];
     let expected_output = vec!["a".to_string(), "b".to_string(), "c".to_string()];
