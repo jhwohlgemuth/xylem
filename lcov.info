@@ -11,12 +11,10 @@ end_of_record
 TN:
 SF:/root/dev/command/src/doctor/mod.rs
 FN:73,fmt
-FN:99,{closure#0}
 FN:112,import_config
 FN:124,is_command
-FNF:4
+FNF:3
 FNDA:0,fmt
-FNDA:3,{closure#0}
 FNDA:1,import_config
 FNDA:1,is_command
 DA:73,0
@@ -40,7 +38,7 @@ DA:104,1
 DA:106,3
 DA:107,5
 DA:108,0
-DA:109,1
+DA:109,2
 DA:112,1
 DA:113,2
 DA:114,1
@@ -271,7 +269,7 @@ FNDA:3,to_string
 FNDA:8,{closure#0}
 DA:17,1
 DA:18,1
-DA:19,4
+DA:19,3
 DA:20,1
 DA:21,3
 DA:22,1
