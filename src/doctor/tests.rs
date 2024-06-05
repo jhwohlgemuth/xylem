@@ -3,14 +3,7 @@ use crate::util::to_string;
 
 #[test]
 fn test_script_from_template() {
-    let expected_value: Vec<String> = to_string(vec![
-        "-m",
-        "lib",
-        "--directory",
-        "{{INPUT_DIRECTORY}}",
-        "--output",
-        "{{OUTPUT_DIRECTORY}}",
-    ]);
+    let expected_value: Vec<String> = to_string(vec!["-m", "lib", "--input", "{{INPUT_DIRECTORY}}", "--output", "{{OUTPUT_DIRECTORY}}"]);
     // "shell" format arguments
     let path = "tests/fixtures/template.json";
     let script = Script::from_template(PathBuf::from(path));

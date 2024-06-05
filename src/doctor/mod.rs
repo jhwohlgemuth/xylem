@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::util::{read_file, to_string};
+use crate::util::{read_file, to_string, trim_handlebars_template};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -96,8 +96,11 @@ impl<'a> Script {
         let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
         let template = json.expect("[ERROR] => Failed to parse script template").clone();
         let arguments = match template.arguments {
-            | Instruction::ShellFormat(value) => value.split_whitespace().map(|s| s.to_owned()).collect::<Vec<_>>(),
-            | Instruction::ExecFormat(values) => values,
+            | Instruction::ShellFormat(value) => trim_handlebars_template(value)
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect::<Vec<_>>(),
+            | Instruction::ExecFormat(values) => values.into_iter().map(trim_handlebars_template).collect(),
         };
         Script::new(template.command, arguments)
     }

@@ -75,14 +75,27 @@ fn test_handlebars_templates() {
     assert!(!is_handlebars_template(pascal_case));
     assert!(!is_handlebars_template("Not a handlebars template"));
     // parse_handlebars_template
-    assert_eq!(parse_handlebars_template("{{FOO}}"), "FOO");
-    assert_eq!(parse_handlebars_template("{{ FOO }}"), "FOO");
-    assert_eq!(parse_handlebars_template("{{BAR}}"), "BAR");
-    assert_eq!(parse_handlebars_template("{{  BAR   }}"), "BAR");
-    assert_eq!(parse_handlebars_template("BAZ"), "");
-    assert_eq!(parse_handlebars_template(not_upper_case), "");
-    assert_eq!(parse_handlebars_template(not_snake_case), "");
-    assert_eq!(parse_handlebars_template(pascal_case), "");
+    assert_eq!(get_variable_from_handlebars_template("{{FOO}}"), "FOO");
+    assert_eq!(get_variable_from_handlebars_template("{{ FOO }}"), "FOO");
+    assert_eq!(get_variable_from_handlebars_template("{{BAR}}"), "BAR");
+    assert_eq!(get_variable_from_handlebars_template("{{  BAR   }}"), "BAR");
+    assert_eq!(get_variable_from_handlebars_template("BAZ"), "");
+    assert_eq!(get_variable_from_handlebars_template(not_upper_case), "");
+    assert_eq!(get_variable_from_handlebars_template(not_snake_case), "");
+    assert_eq!(get_variable_from_handlebars_template(pascal_case), "");
+    // trim_handlebars_template
+    let expected = "{{FOO}}";
+    assert_eq!(trim_handlebars_template("{{FOO}}".to_owned()), expected);
+    assert_eq!(trim_handlebars_template("{{FOO  }}".to_owned()), expected);
+    assert_eq!(trim_handlebars_template("{{  FOO}}".to_owned()), expected);
+    assert_eq!(trim_handlebars_template("{{  FOO  }}".to_owned()), expected);
+    let expected = "FOO {{BAR}} BAZ";
+    assert_eq!(trim_handlebars_template("FOO {{BAR}} BAZ".to_owned()), expected);
+    assert_eq!(trim_handlebars_template("FOO {{ BAR }} BAZ".to_owned()), expected);
+    assert_eq!(
+        trim_handlebars_template("FOO {{ BAR }} BAZ {{ BIN }}".to_owned()),
+        "FOO {{BAR}} BAZ {{BIN}}"
+    );
 }
 
 #[test]

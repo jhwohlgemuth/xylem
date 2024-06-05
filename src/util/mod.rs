@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 use clap::ValueEnum;
+use fancy_regex::Regex;
 use is_terminal::IsTerminal;
 use log::{error, info};
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;
@@ -112,21 +112,32 @@ pub fn has_extension(extension: &str, path: &Path) -> bool {
     let file_extension = path.extension().unwrap_or_default().to_str().unwrap_or_default();
     extension == file_extension
 }
+/// Get variable name from a handlebars template
+pub fn get_variable_from_handlebars_template(value: &str) -> String {
+    match Regex::new(r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$") {
+        | Ok(re) => match re.captures(value) {
+            | Ok(Some(captures)) => captures["variable"].trim().to_string(),
+            | _ => "".to_string(),
+        },
+        | _ => "".to_string(),
+    }
+}
 /// Check if a string is a handlebars template
 pub fn is_handlebars_template(value: &str) -> bool {
     match Regex::new(r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$") {
-        | Ok(re) => re.is_match(value),
+        | Ok(re) => match re.is_match(value) {
+            | Ok(value) => value,
+            | _ => false,
+        },
         | Err(_) => false,
     }
 }
-/// Get variable name from a handlebars template
-pub fn parse_handlebars_template(value: &str) -> String {
-    match Regex::new(r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$") {
-        | Ok(re) => match re.captures(value) {
-            | Some(captures) => captures["variable"].trim().to_string(),
-            | None => "".to_string(),
-        },
-        | _ => "".to_string(),
+/// Remove spaces around variable name within a handlebars template
+/// Example: {{  variable  }} => {{variable}}
+pub fn trim_handlebars_template(value: String) -> String {
+    match Regex::new(r"((?<=\{\{) *(?=[A-Z])|(?<=[A-Z]) *(?=\}\}))") {
+        | Ok(re) => re.replace_all(&value, "").to_string(),
+        | Err(err) => err.to_string(),
     }
 }
 /// Check if stdin is piped

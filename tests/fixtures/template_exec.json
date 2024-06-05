@@ -4,8 +4,8 @@
     "arguments": [
         "-m",
         "lib",
-        "--directory",
-        "{{INPUT_DIRECTORY}}",
+        "--input",
+        "{{ INPUT_DIRECTORY }}",
         "--output",
         "{{OUTPUT_DIRECTORY}}"
     ]
