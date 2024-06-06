@@ -1,4 +1,4 @@
-use crate::doctor::*;
+use crate::commands::doctor::*;
 use crate::util::to_string;
 
 #[test]
