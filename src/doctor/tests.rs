@@ -5,13 +5,13 @@ use crate::util::to_string;
 fn test_script_from_template() {
     let expected_value: Vec<String> = to_string(vec!["-m", "lib", "--input", "{{INPUT_DIRECTORY}}", "--output", "{{OUTPUT_DIRECTORY}}"]);
     // "shell" format arguments
-    let path = "tests/fixtures/template.json";
-    let script = Script::from_template(PathBuf::from(path));
+    let path = PathBuf::from("tests/fixtures/template.json");
+    let script = Script::from_template(path);
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
     // "exec" format arguments
-    let path = "tests/fixtures/template_exec.json";
-    let script = Script::from_template(PathBuf::from(path));
+    let path = PathBuf::from("tests/fixtures/template_exec.json");
+    let script = Script::from_template(path);
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
 }
@@ -27,6 +27,9 @@ fn test_script_run() {
     };
     let output = script.run();
     assert_eq!(String::from_utf8_lossy(&output.stdout), "hello world\n");
+    let path = PathBuf::from("tests/fixtures/template_run.json");
+    let script = Script::from_template(path);
+    assert_eq!(script.run().stdout, b"hello world\n");
 }
 
 #[test]
