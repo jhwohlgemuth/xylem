@@ -83,6 +83,7 @@ pub struct Command {
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
+    version: String,
     requirements: Vec<String>,
     tags: Option<Vec<String>>,
     modules: Vec<Module>,
@@ -141,6 +142,18 @@ pub struct Rule<'a> {
     /// Options to pass to the checker
     pub parameters: Option<Parameters>,
 }
+/// Semantic version
+///
+/// see <https://semver.org/>
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SemanticVersion {
+    /// Version when you make incompatible API changes
+    pub major: u32,
+    /// Version when you add functionality in a backward compatible manner
+    pub minor: u32,
+    /// Version when you make backward compatible bug fixes
+    pub patch: u32,
+}
 #[derive(Clone, Debug)]
 pub struct Script {
     pub command: Command,
@@ -167,6 +180,20 @@ impl fmt::Display for Script {
         fmt::Debug::fmt(self, f)
     }
 }
+impl fmt::Display for SemanticVersion {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+impl SemanticVersion {
+    pub fn from_string(version: &str) -> SemanticVersion {
+        let mut parts = version.split('.');
+        let major = parts.next().unwrap().parse::<u32>().unwrap();
+        let minor = parts.next().unwrap().parse::<u32>().unwrap();
+        let patch = parts.next().unwrap().parse::<u32>().unwrap();
+        SemanticVersion { major, minor, patch }
+    }
+}
 impl<'a> Script {
     pub fn new(command: String, arguments: Vec<String>) -> Script {
         Script {
@@ -179,25 +206,9 @@ impl<'a> Script {
     }
     /// Create a script from a template JSON file in [ScriptTemplate] format.
     ///
-    /// Given a `template.json` file,
+    /// You can easily import the script with
     /// ```
-    /// {
-    ///   "command": "python",
-    ///   "environment": "base",
-    ///   "arguments": [
-    ///     "-m",
-    ///     "lib",
-    ///     "--input",
-    ///     "{{ INPUT_DIRECTORY }}",
-    ///     "--output",
-    ///     "{{ OUTPUT_DIRECTORY }}"
-    ///   ]
-    /// }
-    /// ```
-    ///
-    /// you can easily import the script with
-    /// ```
-    /// let path = PathBuf::from("/path/to/template.json");
+    /// let path = PathBuf::from("./tests/fixtures/template.json");
     /// let script = Script::from_template(path);
     /// ```
     ///
@@ -259,6 +270,7 @@ pub fn get_variable_from_handlebars_template(value: &str) -> String {
 /// # Examples
 /// ```
 /// use std::path::Path;
+/// use pipe::util::has_extension;
 ///
 /// assert!(has_extension("txt", Path::new("hello.txt")));
 /// assert!(!has_extension("txt", Path::new("hello.md")));
@@ -294,6 +306,8 @@ pub fn import_config(path: PathBuf) -> serde_json::Result<Config> {
 ///
 /// # Examples
 /// ```
+/// use pipe::util::{is_command, Command};
+///
 /// let command = Command {
 ///     name: "ls".to_owned(),
 ///     conda_environment: None
@@ -364,6 +378,8 @@ pub fn is_command(value: Command) -> bool {
 ///
 /// # Examples
 /// ```
+/// use pipe::util::is_handlebars_template;
+///
 /// // OK
 /// assert!(is_handlebars_template("{{INPUT_DIRECTORY}}"));
 /// assert!(is_handlebars_template("{{ OUTPUT_DIRECTORY }}"));
@@ -413,8 +429,9 @@ pub fn is_stdout_piped() -> StdoutIsPipedResult {
 /// # Examples
 /// ```
 /// use std::path::PathBuf;
+/// use pipe::util::read_file;
 ///
-/// let path = PathBuf::from("/path/to/template.json");
+/// let path = PathBuf::from("./tests/fixtures/template.json");
 /// let content = read_file(path).unwrap();
 pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
     let mut content = String::new();
@@ -437,6 +454,8 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
 ///
 /// # Examples
 /// ```
+/// use pipe::util::remove_handlebars_spaces;
+///
 /// remove_handlebars_spaces("{{ variable }}".to_owned());   // "{{variable}}"
 /// remove_handlebars_spaces("{{ variable   }}".to_owned()); // "{{variable}}"
 /// remove_handlebars_spaces("{{variable}}".to_owned());     // "{{variable}}"

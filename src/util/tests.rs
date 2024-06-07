@@ -127,6 +127,15 @@ fn test_is_command() {
 }
 
 #[test]
+fn test_semantic_version() {
+    let version = SemanticVersion::from_string("1.2.3");
+    assert_eq!(version.major, 1);
+    assert_eq!(version.minor, 2);
+    assert_eq!(version.patch, 3);
+    assert_eq!(format!("{}", version), "1.2.3");
+}
+
+#[test]
 fn test_script_from_template() {
     let expected_value: Vec<String> = to_string(vec!["-m", "lib", "--input", "{{INPUT_DIRECTORY}}", "--output", "{{OUTPUT_DIRECTORY}}"]);
     // "shell" format arguments

@@ -1,5 +1,8 @@
 [package]
 name = "pipe"
+readme = "README.md"
+homepage = "https://pipe.ornl.gov"
+repository = "https://code.ornl.gov/GSHS/common/pipe/command"
 version = "0.0.1"
 edition = "2021"
 
@@ -22,3 +25,11 @@ serde_json = "1.0.107"
 
 [dev-dependencies]
 cargo-watch = "8.4.1"
+
+[lib]
+name = "pipe"
+path = "src/lib.rs"
+test = false
+
+[lints.rust]
+unsafe_code = "forbid"
