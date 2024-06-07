@@ -19,43 +19,11 @@ pub type CommandResult = Result<(), Box<(dyn StdError + 'static)>>;
 pub type Void = Result<(), Box<dyn Error>>;
 pub type Output = Vec<Option<Details>>;
 
-#[derive(Clone, Debug)]
-pub struct Command {
-    pub name: String,
-    pub conda_environment: Option<String>,
-}
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Config {
-    requirements: Vec<String>,
-    tags: Option<Vec<String>>,
-    modules: Vec<Module>,
-    variables: Option<Map<String, Value>>,
-}
-#[derive(Clone, Debug, Deserialize, Eq, Serialize, PartialOrd, Ord)]
-pub struct Details {
-    // Results of applying check to given path
-    pub condition: bool,
-    // Description of what was checked (typically a file/folder path)
-    pub description: Option<String>,
-    // Explanation of why the check failed (null when condition is true)
-    pub error: Option<String>,
-}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 enum Instruction {
     ShellFormat(String),
     ExecFormat(Vec<String>),
-}
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Module {
-    name: String,
-    #[serde(flatten)]
-    module_type: ModuleType,
-    description: Option<String>,
-    variables: Option<Map<String, Value>>,
-    before_script: Option<Instruction>,
-    after_script: Option<Instruction>,
-    template: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -79,6 +47,52 @@ enum ModuleType {
         run: String,
     },
 }
+#[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ReporterType {
+    Console,
+    Json,
+    Stdout,
+}
+pub enum StdinIsPipedResult {
+    StdinIsPiped,
+    StdinIsNotPiped,
+}
+pub enum StdoutIsPipedResult {
+    StdoutIsPiped,
+    StdoutIsNotPiped,
+}
+#[derive(Clone, Debug)]
+pub struct Command {
+    pub name: String,
+    pub conda_environment: Option<String>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Config {
+    requirements: Vec<String>,
+    tags: Option<Vec<String>>,
+    modules: Vec<Module>,
+    variables: Option<Map<String, Value>>,
+}
+#[derive(Clone, Debug, Deserialize, Eq, Serialize, PartialOrd, Ord)]
+pub struct Details {
+    // Results of applying check to given path
+    pub condition: bool,
+    // Description of what was checked (typically a file/folder path)
+    pub description: Option<String>,
+    // Explanation of why the check failed (null when condition is true)
+    pub error: Option<String>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Module {
+    name: String,
+    #[serde(flatten)]
+    module_type: ModuleType,
+    description: Option<String>,
+    variables: Option<Map<String, Value>>,
+    before_script: Option<Instruction>,
+    after_script: Option<Instruction>,
+    template: Option<String>,
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Parameters {
     /// Path to save the results, when required
@@ -101,12 +115,6 @@ pub struct Reporter {
     /// Options to pass to the reporter
     pub parameters: Option<Parameters>,
 }
-#[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
-pub enum ReporterType {
-    Console,
-    Json,
-    Stdout,
-}
 #[derive(Clone, Debug)]
 pub struct Rule<'a> {
     /// Name of the rule (displayed by the progress bar)
@@ -128,14 +136,6 @@ pub struct ScriptTemplate {
     command: String,
     environment: Option<String>,
     arguments: Instruction,
-}
-pub enum StdinIsPipedResult {
-    StdinIsPiped,
-    StdinIsNotPiped,
-}
-pub enum StdoutIsPipedResult {
-    StdoutIsPiped,
-    StdoutIsNotPiped,
 }
 impl PartialEq for Details {
     fn eq(&self, other: &Self) -> bool {
