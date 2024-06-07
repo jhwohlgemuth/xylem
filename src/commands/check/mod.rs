@@ -118,3 +118,6 @@ pub fn run(
     });
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
