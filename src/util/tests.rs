@@ -17,6 +17,7 @@ fn test_get_parent() {
 fn test_has_extension() {
     assert!(has_extension("txt", Path::new("foo.txt")));
     assert!(has_extension("txt", Path::new("foo/bar.txt")));
+    assert!(!has_extension("txt", Path::new("foo/bar.md")));
     assert!(has_extension("", Path::new("foo")));
     assert!(has_extension("", Path::new("foo/bar")));
     assert!(has_extension("", Path::new(".foo")));
@@ -85,15 +86,15 @@ fn test_handlebars_templates() {
     assert_eq!(get_variable_from_handlebars_template(pascal_case), "");
     // trim_handlebars_template
     let expected = "{{FOO}}";
-    assert_eq!(trim_handlebars_template("{{FOO}}".to_owned()), expected);
-    assert_eq!(trim_handlebars_template("{{FOO  }}".to_owned()), expected);
-    assert_eq!(trim_handlebars_template("{{  FOO}}".to_owned()), expected);
-    assert_eq!(trim_handlebars_template("{{  FOO  }}".to_owned()), expected);
+    assert_eq!(remove_handlebars_spaces("{{FOO}}".to_owned()), expected);
+    assert_eq!(remove_handlebars_spaces("{{FOO  }}".to_owned()), expected);
+    assert_eq!(remove_handlebars_spaces("{{  FOO}}".to_owned()), expected);
+    assert_eq!(remove_handlebars_spaces("{{  FOO  }}".to_owned()), expected);
     let expected = "FOO {{BAR}} BAZ";
-    assert_eq!(trim_handlebars_template("FOO {{BAR}} BAZ".to_owned()), expected);
-    assert_eq!(trim_handlebars_template("FOO {{ BAR }} BAZ".to_owned()), expected);
+    assert_eq!(remove_handlebars_spaces("FOO {{BAR}} BAZ".to_owned()), expected);
+    assert_eq!(remove_handlebars_spaces("FOO {{ BAR }} BAZ".to_owned()), expected);
     assert_eq!(
-        trim_handlebars_template("FOO {{ BAR }} BAZ {{ BIN }}".to_owned()),
+        remove_handlebars_spaces("FOO {{ BAR }} BAZ {{ BIN }}".to_owned()),
         "FOO {{BAR}} BAZ {{BIN}}"
     );
 }

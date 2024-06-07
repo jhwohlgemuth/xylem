@@ -21,13 +21,28 @@ pub type Output = Vec<Option<Details>>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
-enum Instruction {
+pub enum Instruction {
+    /// Shell arguments as a string
+    /// ```text
+    /// "-m lib --input {{ INPUT_DIRECTORY }} --output {{ OUTPUT_DIRECTORY }}"
+    /// ```
     ShellFormat(String),
+    /// Shell arguments as a list of strings
+    /// ```json
+    /// [
+    ///   "-m",
+    ///   "lib",
+    ///   "--input",
+    ///   "{{ INPUT_DIRECTORY }}",
+    ///   "--output",
+    ///   "{{ OUTPUT_DIRECTORY }}"
+    /// ]
+    /// ```
     ExecFormat(Vec<String>),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum ModuleLanguage {
+pub enum ModuleLanguage {
     Binary,
     Csharp,
     JavaScript,
@@ -37,7 +52,7 @@ enum ModuleLanguage {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
-enum ModuleType {
+pub enum ModuleType {
     Script {
         language: ModuleLanguage,
         uri: String,
@@ -162,8 +177,35 @@ impl<'a> Script {
             arguments,
         }
     }
+    /// Create a script from a template JSON file in [ScriptTemplate] format.
+    ///
+    /// Given a `template.json` file,
+    /// ```
+    /// {
+    ///   "command": "python",
+    ///   "environment": "base",
+    ///   "arguments": [
+    ///     "-m",
+    ///     "lib",
+    ///     "--input",
+    ///     "{{ INPUT_DIRECTORY }}",
+    ///     "--output",
+    ///     "{{ OUTPUT_DIRECTORY }}"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// you can easily import the script with
+    /// ```
+    /// let path = PathBuf::from("/path/to/template.json");
+    /// let script = Script::from_template(path);
+    /// ```
+    ///
+    /// and execute `python -m lib --input $INPUT_DIRECTORY --output $OUTPUT_DIRECTORY` with
+    /// ```
+    /// let output = script.run();
+    /// ```
     fn from_template(path: PathBuf) -> Script {
-        println!("{:?}", path.display());
         let content = match read_file(path.clone()) {
             | Ok(value) => value,
             | Err(_) => {
@@ -174,11 +216,11 @@ impl<'a> Script {
         let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
         let template = json.expect("[ERROR] => Failed to parse script template").clone();
         let arguments = match template.arguments {
-            | Instruction::ShellFormat(value) => trim_handlebars_template(value)
+            | Instruction::ShellFormat(value) => remove_handlebars_spaces(value)
                 .split_whitespace()
                 .map(|s| s.to_owned())
                 .collect::<Vec<_>>(),
-            | Instruction::ExecFormat(values) => values.into_iter().map(trim_handlebars_template).collect(),
+            | Instruction::ExecFormat(values) => values.into_iter().map(remove_handlebars_spaces).collect(),
         };
         Script::new(template.command, arguments)
     }
@@ -213,10 +255,24 @@ pub fn get_variable_from_handlebars_template(value: &str) -> String {
     }
 }
 /// Check if a file has a given file extension
+///
+/// # Examples
+/// ```
+/// use std::path::Path;
+///
+/// assert!(has_extension("txt", Path::new("hello.txt")));
+/// assert!(!has_extension("txt", Path::new("hello.md")));
+/// assert!(!has_extension("", Path::new("/path/to/folder")));
+/// ```
 pub fn has_extension(extension: &str, path: &Path) -> bool {
     let file_extension = path.extension().unwrap_or_default().to_str().unwrap_or_default();
     extension == file_extension
 }
+/// Import PIPE configuration file
+///
+/// See the [PIPE configuration syntax wiki page](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Configuration-Syntax)
+/// for more information configuration files
+///
 pub fn import_config(path: PathBuf) -> serde_json::Result<Config> {
     let content = match read_file(path.clone()) {
         | Ok(value) => value,
@@ -229,6 +285,28 @@ pub fn import_config(path: PathBuf) -> serde_json::Result<Config> {
     info!("Imported config: {:?}", json);
     json
 }
+/// Check if a command exists in current command line context
+///
+/// Can also be used to check if a command exists within a [conda](https://conda.io/projects/conda/en/latest/user-guide/getting-started.html) environment
+///
+/// # Parameters
+/// - `value` - [Command] value to check
+///
+/// # Examples
+/// ```
+/// let command = Command {
+///     name: "ls".to_owned(),
+///     conda_environment: None
+/// };
+/// assert!(is_command(command));
+///
+/// // Using conda environment
+/// let command = Command {
+///     name: "pip".to_owned(),
+///     conda_environment: Some("base".to_owned())
+/// };
+/// assert!(is_command(command));
+/// ```
 pub fn is_command(value: Command) -> bool {
     let script = if cfg!(target_os = "windows") {
         match value.conda_environment {
@@ -276,6 +354,23 @@ pub fn is_command(value: Command) -> bool {
     }
 }
 /// Check if a string is a handlebars template
+///
+/// Template looks like `"{{ VARIABLE_NAME }}"`
+///
+/// - Template must start with "{{" and end with "}}"
+/// - Template variable name must be in upper snake case format
+/// - Template variable name must not contain any spaces
+/// - Template can have any number of spaces at before and after the variable name
+///
+/// # Examples
+/// ```
+/// // OK
+/// assert!(is_handlebars_template("{{INPUT_DIRECTORY}}"));
+/// assert!(is_handlebars_template("{{ OUTPUT_DIRECTORY }}"));
+/// // NG
+/// assert!(!is_handlebars_template("{{ MustBeUpperSnakeCase }}"));
+/// assert!(!is_handlebars_template("hello world"));
+/// ```
 pub fn is_handlebars_template(value: &str) -> bool {
     match Regex::new(r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$") {
         | Ok(re) => match re.is_match(value) {
@@ -287,7 +382,11 @@ pub fn is_handlebars_template(value: &str) -> bool {
 }
 /// Check if stdin is piped
 ///
-/// Example: echo "hello world" | pipe
+/// # Examples
+/// ```
+/// // Using pipe command line tool
+/// echo "hello world" | pipe
+/// ```
 pub fn is_stdin_piped() -> StdinIsPipedResult {
     if !io::stdin().is_terminal() {
         StdinIsPipedResult::StdinIsPiped
@@ -297,7 +396,11 @@ pub fn is_stdin_piped() -> StdinIsPipedResult {
 }
 /// Check if stdout is piped
 ///
-/// Example: pipe | process
+/// # Examples
+/// ```
+/// // Using pipe command line tool
+/// pipe | process
+/// ```
 pub fn is_stdout_piped() -> StdoutIsPipedResult {
     if !io::stdout().is_terminal() {
         StdoutIsPipedResult::StdoutIsPiped
@@ -305,6 +408,14 @@ pub fn is_stdout_piped() -> StdoutIsPipedResult {
         StdoutIsPipedResult::StdoutIsNotPiped
     }
 }
+/// Read content of a file to a string
+///
+/// # Examples
+/// ```
+/// use std::path::PathBuf;
+///
+/// let path = PathBuf::from("/path/to/template.json");
+/// let content = read_file(path).unwrap();
 pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
     let mut content = String::new();
     let _ = match File::open(path.clone()) {
@@ -320,8 +431,17 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
     Ok(content)
 }
 /// Remove spaces around variable name within a handlebars template
-/// Example: {{  variable  }} => {{variable}}
-pub fn trim_handlebars_template(value: String) -> String {
+///
+/// # Parameters
+/// - `value` - string that contains 0 or more handlebars templates
+///
+/// # Examples
+/// ```
+/// remove_handlebars_spaces("{{ variable }}".to_owned());   // "{{variable}}"
+/// remove_handlebars_spaces("{{ variable   }}".to_owned()); // "{{variable}}"
+/// remove_handlebars_spaces("{{variable}}".to_owned());     // "{{variable}}"
+/// ```
+pub fn remove_handlebars_spaces(value: String) -> String {
     match Regex::new(r"((?<=\{\{) *(?=[A-Z])|(?<=[A-Z]) *(?=\}\}))") {
         | Ok(re) => re.replace_all(&value, "").to_string(),
         | Err(err) => err.to_string(),
