@@ -84,6 +84,7 @@ pub struct Command {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     version: String,
+    #[serde(alias = "doc")]
     description: String,
     requirements: Vec<String>,
     tags: Option<Vec<String>>,
