@@ -53,14 +53,21 @@ pub enum ModuleLanguage {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ModuleType {
+    /// Compiled "black boxes" that are used via a command line interface
+    #[serde(alias = "bin")]
+    Binary { uri: String },
+    /// Nested workflow module that allows for grouping modules
+    #[serde(alias = "config")]
+    Configuration { uri: String },
+    /// Provides legacy support for exceuting scripts (e.g. Python projects like [Module A](https://code.ornl.gov/GSHS/common/pipe/module-a))
     Script {
-        language: ModuleLanguage,
+        #[serde(alias = "programmingLanguage")]
+        programming_language: ModuleLanguage,
         uri: String,
     },
+    /// Module exported in .wasm WASI-compliant format and accessed via a command line interface
     #[serde(alias = "wasm")]
-    WebAssembly {
-        run: String,
-    },
+    WebAssembly { run: String },
 }
 #[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ReporterType {
@@ -83,11 +90,13 @@ pub struct Command {
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
+    /// Configuration version in semver format
     version: String,
     #[serde(alias = "doc")]
     description: String,
     requirements: Vec<String>,
-    tags: Option<Vec<String>>,
+    /// Keywords or tags used to describe this module
+    keywords: Option<Vec<String>>,
     modules: Vec<Module>,
     variables: Option<Map<String, Value>>,
 }

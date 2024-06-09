@@ -4,7 +4,7 @@
     "requirements": [
         "python"
     ],
-    "tags": [],
+    "keywords": [],
     "variables": {
         "TOKEN": "123456789",
         "ANSWER": 42
@@ -18,13 +18,12 @@
         {
             "name": "bar",
             "type": "script",
-            "language": "python",
+            "programmingLanguage": "python",
             "uri": "https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
         },
         {
             "name": "baz",
-            "type": "script",
-            "language": "binary",
+            "type": "binary",
             "uri": "file:///path/to/binary"
         }
     ]
