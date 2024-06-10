@@ -186,6 +186,36 @@ pub struct ScriptTemplate {
     environment: Option<String>,
     arguments: Instruction,
 }
+impl Config {
+    /// Import PIPE configuration JSON file
+    ///
+    /// See the [PIPE configuration syntax wiki page](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Configuration-Syntax)
+    /// for more information configuration files
+    ///
+    pub fn read_json(path: PathBuf) -> serde_json::Result<Config> {
+        let content = match read_file(path.clone()) {
+            | Ok(value) => value,
+            | Err(_) => {
+                error!("Failed to read config file: {:?}", path);
+                "".to_owned()
+            }
+        };
+        let json: serde_json::Result<Config> = serde_json::from_str(&content);
+        info!("Imported config: {:?}", json);
+        json
+    }
+    pub fn set_environment_variables(self) -> Void {
+        match self.variables {
+            | Some(variables) => {
+                for (key, _value) in variables {
+                    println!("{:?}", key);
+                }
+            }
+            | None => (),
+        }
+        unimplemented!("set_environment_variables")
+    }
+}
 impl PartialEq for Details {
     fn eq(&self, other: &Self) -> bool {
         (self.description == other.description) && (self.condition == other.condition)
@@ -312,23 +342,6 @@ pub fn get_variable_from_handlebars_template(value: &str) -> String {
 pub fn has_extension(extension: &str, path: &Path) -> bool {
     let file_extension = path.extension().unwrap_or_default().to_str().unwrap_or_default();
     extension == file_extension
-}
-/// Import PIPE configuration file
-///
-/// See the [PIPE configuration syntax wiki page](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Configuration-Syntax)
-/// for more information configuration files
-///
-pub fn import_config(path: PathBuf) -> serde_json::Result<Config> {
-    let content = match read_file(path.clone()) {
-        | Ok(value) => value,
-        | Err(_) => {
-            error!("Failed to read config file: {:?}", path);
-            "".to_owned()
-        }
-    };
-    let json: serde_json::Result<Config> = serde_json::from_str(&content);
-    info!("Imported config: {:?}", json);
-    json
 }
 /// Check if a command exists in current command line context
 ///

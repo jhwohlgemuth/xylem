@@ -102,7 +102,7 @@ fn test_handlebars_templates() {
 #[test]
 fn test_import_config() {
     let path = "tests/fixtures/config.json";
-    let content = import_config(PathBuf::from(path)).expect("[ERROR] => Cannot import config in tests");
+    let content = Config::read_json(PathBuf::from(path)).expect("[ERROR] => Cannot import config in tests");
     assert_eq!(content.variables.unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(content.modules.len(), 3);
 }
