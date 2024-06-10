@@ -127,6 +127,20 @@ fn test_is_command() {
 }
 
 #[test]
+fn test_module_uri() {
+    assert_eq!(ModuleUri::from(""), ModuleUri::Unknown);
+    assert_eq!(ModuleUri::from("Not a valid URI"), ModuleUri::Unknown);
+    assert_eq!(ModuleUri::from("file:///etc/to/binary"), ModuleUri::File(PathBuf::from("/etc/to/binary")));
+    match ModuleUri::from("https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a") {
+        | ModuleUri::Url(uri) => {
+            assert_eq!(uri.scheme(), "HTTPS");
+            assert_eq!(uri.path(), "/GSHS/GDS/Common/PIPE/module-a");
+        }
+        | _ => panic!(),
+    }
+}
+
+#[test]
 fn test_semantic_version() {
     let version = SemanticVersion::from_string("1.2.3");
     assert_eq!(version.major, 1);

@@ -1627,6 +1627,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "uriparse",
 ]
 
 [[package]]
@@ -2205,6 +2206,16 @@ name = "unicode-width"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e51733f11c9c4f72aa0c160008246859e340b00807569a0da0e7a1079b27ba85"
+
+[[package]]
+name = "uriparse"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0200d0fc04d809396c2ad43f3c95da3582a2556eba8d453c1087f4120ee352ff"
+dependencies = [
+ "fnv",
+ "lazy_static",
+]
 
 [[package]]
 name = "utf8parse"

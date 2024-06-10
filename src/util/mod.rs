@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(clippy::large_enum_variant)]
 use clap::ValueEnum;
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
@@ -6,12 +7,15 @@ use log::{error, info};
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::fs::File;
 use std::io;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use uriparse::Scheme;
+use uriparse::URI;
 
 use std::process;
 
@@ -68,6 +72,12 @@ pub enum ModuleType {
     /// Module exported in .wasm WASI-compliant format and accessed via a command line interface
     #[serde(alias = "wasm")]
     WebAssembly { run: String },
+}
+#[derive(Debug, PartialEq, Eq)]
+pub enum ModuleUri<'a> {
+    File(PathBuf),
+    Url(URI<'a>),
+    Unknown,
 }
 #[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ReporterType {
@@ -194,6 +204,18 @@ impl fmt::Display for Script {
 impl fmt::Display for SemanticVersion {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+impl ModuleUri<'_> {
+    fn from(value: &str) -> ModuleUri<'_> {
+        match URI::try_from(value) {
+            | Ok(uri) => match uri.scheme() {
+                | Scheme::HTTP | Scheme::HTTPS => ModuleUri::Url(uri),
+                | Scheme::File => ModuleUri::File(PathBuf::from(uri.path().to_string())),
+                | _ => ModuleUri::Unknown,
+            },
+            | Err(_) => ModuleUri::Unknown,
+        }
     }
 }
 impl SemanticVersion {
