@@ -6,8 +6,9 @@
     ],
     "keywords": [],
     "variables": {
-        "TOKEN": "123456789",
-        "ANSWER": 42
+        "TOKEN": "X12E45678N",
+        "ANSWER": 42,
+        "BOOLEAN": true
     },
     "modules": [
         {

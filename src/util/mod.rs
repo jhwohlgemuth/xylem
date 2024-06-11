@@ -9,11 +9,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::convert::TryFrom;
 use std::error::Error;
-use std::fmt;
+use std::ffi::OsStr;
 use std::fs::File;
-use std::io;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::{env, fmt, io};
 use uriparse::Scheme;
 use uriparse::URI;
 
@@ -186,6 +186,12 @@ pub struct ScriptTemplate {
     environment: Option<String>,
     arguments: Instruction,
 }
+pub fn env_set_var_with_prefix(key: &str, value: &str, prefix: &str) -> () {
+    let prefixed = format!("{}_{}", prefix, key);
+    let key = OsStr::new(&prefixed);
+    let value = OsStr::new(&value);
+    env::set_var(key, value);
+}
 impl Config {
     /// Import PIPE configuration JSON file
     ///
@@ -204,16 +210,36 @@ impl Config {
         info!("Imported config: {:?}", json);
         json
     }
+    /// Set environment variables from PIPE configuration "variables" attribute
     pub fn set_environment_variables(self) -> Void {
         match self.variables {
             | Some(variables) => {
-                for (key, _value) in variables {
-                    println!("{:?}", key);
+                for (k, v) in variables {
+                    println!("Setting environment variable: {:?} = {:?}", k, v);
+                    let prefixed = format!("PIPE_{}", k);
+                    let key = OsStr::new(&prefixed);
+                    match v {
+                        | serde_json::Value::String(val) => {
+                            env_set_var_with_prefix(&k, &val, "PIPE");
+                        }
+                        | serde_json::Value::Number(val) => {
+                            let value = val.to_string();
+                            env::set_var(key, value);
+                        }
+                        | serde_json::Value::Bool(val) => {
+                            let value = val.to_string();
+                            env::set_var(key, value);
+                        }
+                        | _ => (),
+                    }
+                    let prefixed = format!("PIPE_{}", k);
+                    println!("Environment variable: {:?} = {:?}", k, env::var(&prefixed).unwrap());
                 }
             }
             | None => (),
         }
-        unimplemented!("set_environment_variables")
+        Ok(())
+        // unimplemented!("set_environment_variables")
     }
 }
 impl PartialEq for Details {

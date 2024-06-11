@@ -9,19 +9,12 @@ fn test_add_forward_slash() {
 }
 
 #[test]
-fn test_get_parent() {
-    assert_eq!(get_parent(PathBuf::from("foo/bar.json")), PathBuf::from("foo"));
-}
-
-#[test]
-fn test_has_extension() {
-    assert!(has_extension("txt", Path::new("foo.txt")));
-    assert!(has_extension("txt", Path::new("foo/bar.txt")));
-    assert!(!has_extension("txt", Path::new("foo/bar.md")));
-    assert!(has_extension("", Path::new("foo")));
-    assert!(has_extension("", Path::new("foo/bar")));
-    assert!(has_extension("", Path::new(".foo")));
-    assert!(has_extension("", Path::new("foo/.bar")))
+fn test_config() {
+    let path = "tests/fixtures/config.json";
+    let config = Config::read_json(PathBuf::from(path)).expect("[ERROR] => Cannot import config in tests");
+    assert_eq!(config.variables.unwrap().get("ANSWER").unwrap(), 42);
+    assert_eq!(config.modules.len(), 3);
+    // let _ = config.set_environment_variables();
 }
 
 #[test]
@@ -59,6 +52,11 @@ fn test_details() {
     let mut results = vec![good_foo, good_bar, bad_foo, bad_foo_too, bad_bar, bad_baz];
     results.dedup();
     assert_eq!(results.len(), 5);
+}
+
+#[test]
+fn test_get_parent() {
+    assert_eq!(get_parent(PathBuf::from("foo/bar.json")), PathBuf::from("foo"));
 }
 
 #[test]
@@ -100,11 +98,14 @@ fn test_handlebars_templates() {
 }
 
 #[test]
-fn test_import_config() {
-    let path = "tests/fixtures/config.json";
-    let content = Config::read_json(PathBuf::from(path)).expect("[ERROR] => Cannot import config in tests");
-    assert_eq!(content.variables.unwrap().get("ANSWER").unwrap(), 42);
-    assert_eq!(content.modules.len(), 3);
+fn test_has_extension() {
+    assert!(has_extension("txt", Path::new("foo.txt")));
+    assert!(has_extension("txt", Path::new("foo/bar.txt")));
+    assert!(!has_extension("txt", Path::new("foo/bar.md")));
+    assert!(has_extension("", Path::new("foo")));
+    assert!(has_extension("", Path::new("foo/bar")));
+    assert!(has_extension("", Path::new(".foo")));
+    assert!(has_extension("", Path::new("foo/.bar")))
 }
 
 #[test]
