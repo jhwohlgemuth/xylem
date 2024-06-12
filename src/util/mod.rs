@@ -6,7 +6,7 @@ use is_terminal::IsTerminal;
 use log::{error, info};
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{Map, Number, Value};
 use std::convert::TryFrom;
 use std::error::Error;
 use std::ffi::OsStr;
@@ -23,6 +23,14 @@ pub type CommandResult = Result<(), Box<(dyn StdError + 'static)>>;
 pub type Void = Result<(), Box<dyn Error>>;
 pub type Output = Vec<Option<Details>>;
 
+/// Values that from Serde that can be set as environment variables
+#[derive(Clone, Debug)]
+enum EnvironmentValue {
+    String(String),
+    Number(Number),
+    Bool(bool),
+    Unknown,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Instruction {
@@ -186,11 +194,14 @@ pub struct ScriptTemplate {
     environment: Option<String>,
     arguments: Instruction,
 }
-pub fn env_set_var_with_prefix(key: &str, value: &str, prefix: &str) -> () {
-    let prefixed = format!("{}_{}", prefix, key);
-    let key = OsStr::new(&prefixed);
-    let value = OsStr::new(&value);
-    env::set_var(key, value);
+pub fn env_set_var_with_prefix(key: &str, value: Value, prefix: &str) {
+    match EnvironmentValue::from_value(value.clone()) {
+        | EnvironmentValue::Unknown => (),
+        | _ => {
+            let prefixed = format!("{}_{}", prefix, key);
+            env::set_var(OsStr::new(&prefixed), value.to_string());
+        }
+    }
 }
 impl Config {
     /// Import PIPE configuration JSON file
@@ -210,28 +221,22 @@ impl Config {
         info!("Imported config: {:?}", json);
         json
     }
+    pub fn get_environment_variables(&self) -> Map<String, Value> {
+        match self.variables {
+            | Some(ref variables) => {
+                info!("Imported environment variables: {:?}", variables);
+                variables.clone()
+            },
+            | None => Map::new(),
+        }
+    }
     /// Set environment variables from PIPE configuration "variables" attribute
     pub fn set_environment_variables(self) -> Void {
         match self.variables {
             | Some(variables) => {
                 for (k, v) in variables {
                     println!("Setting environment variable: {:?} = {:?}", k, v);
-                    let prefixed = format!("PIPE_{}", k);
-                    let key = OsStr::new(&prefixed);
-                    match v {
-                        | serde_json::Value::String(val) => {
-                            env_set_var_with_prefix(&k, &val, "PIPE");
-                        }
-                        | serde_json::Value::Number(val) => {
-                            let value = val.to_string();
-                            env::set_var(key, value);
-                        }
-                        | serde_json::Value::Bool(val) => {
-                            let value = val.to_string();
-                            env::set_var(key, value);
-                        }
-                        | _ => (),
-                    }
+                    env_set_var_with_prefix(&k, v, "PIPE");
                     let prefixed = format!("PIPE_{}", k);
                     println!("Environment variable: {:?} = {:?}", k, env::var(&prefixed).unwrap());
                 }
@@ -239,12 +244,26 @@ impl Config {
             | None => (),
         }
         Ok(())
-        // unimplemented!("set_environment_variables")
     }
 }
 impl PartialEq for Details {
     fn eq(&self, other: &Self) -> bool {
         (self.description == other.description) && (self.condition == other.condition)
+    }
+}
+impl EnvironmentValue {
+    fn from_value(value: Value) -> EnvironmentValue {
+        match value {
+            | Value::String(val) => EnvironmentValue::String(val),
+            | Value::Number(val) => EnvironmentValue::Number(val),
+            | Value::Bool(val) => EnvironmentValue::Bool(val),
+            | _ => EnvironmentValue::Unknown,
+        }
+    }
+}
+impl fmt::Display for EnvironmentValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(self, f)
     }
 }
 impl fmt::Display for ReporterType {
