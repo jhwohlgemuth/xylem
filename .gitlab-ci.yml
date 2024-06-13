@@ -26,12 +26,13 @@ publish:
     default: true
     variables: true
   script:
-    - cargo doc
+    - make doc
     - git clone https://user:${ACCESS_TOKEN}@code-int.ornl.gov/sites/pipe.git site
     - ls
     - ls site
     - rm -rf ./site/html
-    - mv target/doc/pipe/ ./site/html
+    - mv target/doc/ ./site/html
+    - echo '<meta http-equiv="refresh" content="0; url=pipe/index.html">' > ./site/html/index.html
     - cd site
     - git add html
     - git commit -m "Publish changes"
