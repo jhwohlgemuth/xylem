@@ -7,17 +7,23 @@ use log::{error, info};
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::{env, fmt, io};
+use std::{
+    env::{set_var, var},
+    fmt, io,
+};
 use uriparse::Scheme;
 use uriparse::URI;
 
 use std::process;
+
+const PREFIX: &str = "PIPE";
 
 pub type CommandResult = Result<(), Box<(dyn StdError + 'static)>>;
 pub type Void = Result<(), Box<dyn Error>>;
@@ -194,16 +200,21 @@ pub struct ScriptTemplate {
     environment: Option<String>,
     arguments: Instruction,
 }
-pub fn env_set_var_with_prefix(key: &str, value: Value, prefix: &str) {
-    match EnvironmentValue::from_value(value.clone()) {
-        | EnvironmentValue::Unknown => (),
-        | _ => {
-            let prefixed = format!("{}_{}", prefix, key);
-            env::set_var(OsStr::new(&prefixed), value.to_string());
+impl Config {
+    pub fn get_environment_variables(&self) -> HashMap<String, String> {
+        match self.variables {
+            | Some(ref variables) => {
+                let mut lookup: HashMap<String, String> = HashMap::new();
+                variables.iter().for_each(|(k, _)| {
+                    let prefixed = format!("{}_{}", PREFIX, k);
+                    lookup.insert(k.to_string(), var(prefixed).unwrap());
+                });
+                info!("PIPE Environment variables: {:?}", lookup);
+                lookup
+            }
+            | None => HashMap::new(),
         }
     }
-}
-impl Config {
     /// Import PIPE configuration JSON file
     ///
     /// See the [PIPE configuration syntax wiki page](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Configuration-Syntax)
@@ -221,24 +232,13 @@ impl Config {
         info!("Imported config: {:?}", json);
         json
     }
-    pub fn get_environment_variables(&self) -> Map<String, Value> {
-        match self.variables {
-            | Some(ref variables) => {
-                info!("Imported environment variables: {:?}", variables);
-                variables.clone()
-            }
-            | None => Map::new(),
-        }
-    }
     /// Set environment variables from PIPE configuration "variables" attribute
-    pub fn set_environment_variables(self) -> Void {
-        match self.variables {
+    pub fn set_environment_variables(&self) -> Void {
+        match &self.variables {
             | Some(variables) => {
                 for (k, v) in variables {
-                    println!("Setting environment variable: {:?} = {:?}", k, v);
-                    env_set_var_with_prefix(&k, v, "PIPE");
-                    let prefixed = format!("PIPE_{}", k);
-                    println!("Environment variable: {:?} = {:?}", k, env::var(&prefixed).unwrap());
+                    info!("Setting environment variable: {:?} = {:?}", k, v);
+                    EnvironmentValue::from_value(v.clone()).set_variable(k.clone());
                 }
             }
             | None => (),
@@ -258,6 +258,16 @@ impl EnvironmentValue {
             | Value::Number(val) => EnvironmentValue::Number(val),
             | Value::Bool(val) => EnvironmentValue::Bool(val),
             | _ => EnvironmentValue::Unknown,
+        }
+    }
+    fn set_variable(self, key: String) {
+        let prefixed = format!("{}_{}", PREFIX, key);
+        let prefixed_key = OsStr::new(&prefixed);
+        match self {
+            | EnvironmentValue::String(value) => set_var(prefixed_key, value),
+            | EnvironmentValue::Number(value) => set_var(prefixed_key, value.to_string()),
+            | EnvironmentValue::Bool(value) => set_var(prefixed_key, value.to_string()),
+            | EnvironmentValue::Unknown => (),
         }
     }
 }
