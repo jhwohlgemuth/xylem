@@ -226,7 +226,7 @@ impl Config {
             | Some(ref variables) => {
                 info!("Imported environment variables: {:?}", variables);
                 variables.clone()
-            },
+            }
             | None => Map::new(),
         }
     }

@@ -5,4 +5,5 @@ lint:
 	@cargo clippy
 
 test: lint
-	@cargo tarpaulin --out lcov
+	@cargo test
+	@cargo tarpaulin --out lcov --ignore-tests
