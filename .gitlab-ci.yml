@@ -2,6 +2,9 @@ default:
   tags:
     - cpu
   image: rust
+  before_script:
+    - rustup component add rustfmt
+    - rustup component add clippy
 
 variables:
   USER: CI
