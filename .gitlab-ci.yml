@@ -1,0 +1,33 @@
+default:
+  tags:
+    - cpu
+  image: rust
+
+variables:
+  USER: CI
+  EMAIL: wohlgemuthjh@ornl.gov
+
+stages:
+  - test
+  - publish
+
+test:
+  stage: test
+  script: make test
+
+publish:
+  stage: publish
+  inherit:
+    default: true
+    variables: true
+  script:
+    - cargo doc
+    - git clone https://user:${ACCESS_TOKEN}@code-int.ornl.gov/sites/pipe.git site
+    - ls
+    - ls site
+    - rm -rf ./site/html
+    - mv target/doc/pipe/ ./site/
+    - cd site
+    - git add html
+    - git commit -m "Publish changes"
+    - git push
