@@ -118,13 +118,20 @@ fn test_is_command() {
         name: "does-not-exist".to_string(),
         conda_environment: None,
     };
-    let python: Command = Command {
-        name: "python".to_string(),
-        conda_environment: Some("base".to_string()),
-    };
     assert!(is_command(cargo));
     assert!(!is_command(nonexistent));
-    assert!(is_command(python));
+    // Using conda environment
+    let conda: Command = Command {
+        name: "conda".to_string(),
+        conda_environment: None,
+    };
+    if is_command(conda) {
+        let python: Command = Command {
+            name: "python".to_string(),
+            conda_environment: Some("base".to_string()),
+        };
+        assert!(is_command(python));
+    }
 }
 
 #[test]
