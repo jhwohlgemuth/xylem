@@ -31,7 +31,7 @@ publish:
     - ls
     - ls site
     - rm -rf ./site/html
-    - mv target/doc/pipe/ ./site/
+    - mv target/doc/pipe/ ./site/html
     - cd site
     - git add html
     - git commit -m "Publish changes"
