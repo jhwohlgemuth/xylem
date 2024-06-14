@@ -201,6 +201,7 @@ pub struct ScriptTemplate {
     arguments: Instruction,
 }
 impl Config {
+    /// Get evironment variables saved with PIPE prefix
     pub fn get_environment_variables(&self) -> HashMap<String, String> {
         match self.variables {
             | Some(ref variables) => {
@@ -237,7 +238,7 @@ impl Config {
         match &self.variables {
             | Some(variables) => {
                 for (k, v) in variables {
-                    info!("Setting environment variable: {:?} = {:?}", k, v);
+                    info!("Setting PIPE environment variable: {:?} = {:?}", k, v);
                     EnvironmentValue::from_value(v.clone()).set_variable(k.clone());
                 }
             }

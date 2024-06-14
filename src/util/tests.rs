@@ -10,12 +10,18 @@ fn test_add_forward_slash() {
 
 #[test]
 fn test_config() {
+    // Load variables into configuration
     let path = "tests/fixtures/config.json";
     let config = Config::read_json(PathBuf::from(path)).expect("[ERROR] => Cannot import config in tests");
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.modules.len(), 3);
+    // Set environment variables from configuration
     let _ = config.set_environment_variables();
-    let _ = config.get_environment_variables();
+    let variables = config.get_environment_variables();
+    assert!(!variables.is_empty());
+    assert_eq!(variables.get("ANSWER").unwrap(), "42");
+    assert_eq!(variables.get("BOOLEAN").unwrap(), "true");
+    assert_eq!(variables.get("TOKEN").unwrap(), "X12E45678N");
 }
 
 #[test]

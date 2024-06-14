@@ -6,9 +6,9 @@
     ],
     "keywords": [],
     "variables": {
-        "TOKEN": "X12E45678N",
         "ANSWER": 42,
-        "BOOLEAN": true
+        "BOOLEAN": true,
+        "TOKEN": "X12E45678N"
     },
     "modules": [
         {
