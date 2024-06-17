@@ -14,7 +14,7 @@ fn test_config() {
     let path = "tests/fixtures/config.json";
     let config = Config::read_json(PathBuf::from(path)).expect("[ERROR] => Cannot import config in tests");
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
-    assert_eq!(config.modules.len(), 3);
+    assert_eq!(config.modules.len(), 4);
     // Set environment variables from configuration
     let _ = config.set_environment_variables();
     let variables = config.get_environment_variables();

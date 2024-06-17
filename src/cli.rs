@@ -74,9 +74,6 @@ pub enum Commands {
     ///
     #[clap(verbatim_doc_comment)]
     Run {
-        /// Path to module(s)
-        #[arg(value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
-        path: Option<std::path::PathBuf>,
         /// Path to configuration file
         #[arg(short = 'c', long = "config", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         config: Option<std::path::PathBuf>,

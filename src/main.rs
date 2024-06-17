@@ -39,7 +39,9 @@ fn main() -> Void {
             ..
         }) => commands::check::run(path, reporter, output, *all, *pass, *minimal, *unique),
         | Some(Commands::Doctor { .. }) => Ok(()),
-        | Some(Commands::Run { .. }) => Ok(()),
+        | Some(Commands::Run {
+            config, reporter, output, ..
+        }) => commands::run::run(config, reporter, output),
         | None => Ok(()),
     }
 }

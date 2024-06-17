@@ -83,9 +83,6 @@ pub enum ModuleType {
         programming_language: ModuleLanguage,
         uri: String,
     },
-    /// Module exported in .wasm WASI-compliant format and accessed via a command line interface
-    #[serde(alias = "wasm")]
-    WebAssembly { run: String },
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum ModuleUri<'a> {
@@ -118,11 +115,11 @@ pub struct Config {
     version: String,
     #[serde(alias = "doc")]
     description: String,
-    requirements: Vec<String>,
+    pub requirements: Vec<String>,
     /// Keywords or tags used to describe this module
     keywords: Option<Vec<String>>,
-    modules: Vec<Module>,
-    variables: Option<Map<String, Value>>,
+    pub modules: Vec<Module>,
+    pub variables: Option<Map<String, Value>>,
 }
 #[derive(Clone, Debug, Deserialize, Eq, Serialize, PartialOrd, Ord)]
 pub struct Details {
@@ -137,7 +134,7 @@ pub struct Details {
 pub struct Module {
     name: String,
     #[serde(flatten)]
-    module_type: ModuleType,
+    pub module_type: ModuleType,
     description: Option<String>,
     variables: Option<Map<String, Value>>,
     before_script: Option<Instruction>,
@@ -293,7 +290,7 @@ impl fmt::Display for SemanticVersion {
     }
 }
 impl ModuleUri<'_> {
-    fn from(value: &str) -> ModuleUri<'_> {
+    pub fn from(value: &str) -> ModuleUri<'_> {
         match URI::try_from(value) {
             | Ok(uri) => match uri.scheme() {
                 | Scheme::HTTP | Scheme::HTTPS => ModuleUri::Url(uri),

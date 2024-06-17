@@ -2,7 +2,8 @@
     "version": "0.0.1",
     "description": "Test workflow configuration",
     "requirements": [
-        "python"
+        "python",
+        "conda"
     ],
     "keywords": [],
     "variables": {
@@ -13,14 +14,20 @@
     "modules": [
         {
             "name": "foo",
-            "type": "wasm",
-            "run": "wasm-module-name"
+            "type": "binary",
+            "uri": "file:///path/to/wasm/module.wasm"
         },
         {
             "name": "bar",
             "type": "script",
             "programmingLanguage": "python",
             "uri": "https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
+        },
+        {
+            "name": "bar",
+            "type": "script",
+            "programmingLanguage": "python",
+            "uri": "file:///path/to/module-a"
         },
         {
             "name": "baz",
