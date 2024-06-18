@@ -40,8 +40,12 @@ fn main() -> Void {
         }) => commands::check::run(path, reporter, output, *all, *pass, *minimal, *unique),
         | Some(Commands::Doctor { .. }) => Ok(()),
         | Some(Commands::Run {
-            config, reporter, output, ..
-        }) => commands::run::run(config, reporter, output),
+            config,
+            reporter,
+            output,
+            dry_run,
+            ..
+        }) => commands::run::run(config, reporter, output, *dry_run),
         | None => Ok(()),
     }
 }

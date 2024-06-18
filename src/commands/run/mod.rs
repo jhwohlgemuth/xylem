@@ -1,10 +1,16 @@
 use crate::util::{is_command, to_string, Command, Config, ModuleLanguage, ModuleType, ModuleUri, Script};
-use log::info;
+use log::{error, info};
 use serde::ser::StdError;
+use std::env;
 use std::path::PathBuf;
 use uriparse::Scheme::{HTTP, HTTPS};
 
-pub fn run(config: &Option<PathBuf>, _reporter: &Option<Vec<String>>, _output: &Option<PathBuf>) -> Result<(), Box<(dyn StdError + 'static)>> {
+pub fn run(
+    config: &Option<PathBuf>,
+    _reporter: &Option<Vec<String>>,
+    _output: &Option<PathBuf>,
+    _dry_run: bool,
+) -> Result<(), Box<(dyn StdError + 'static)>> {
     let default_config: &str = "tests/fixtures/config.json";
     // let default_script: Script = Script {
     //     command: Command {
@@ -28,7 +34,7 @@ pub fn run(config: &Option<PathBuf>, _reporter: &Option<Vec<String>>, _output: &
                     conda_environment: None,
                 };
                 if !is_command(command) {
-                    panic!("{:?} not found", name)
+                    error!("Requirement not met. {:?} not found", name);
                 }
             });
             // Prepare modules
@@ -36,34 +42,42 @@ pub fn run(config: &Option<PathBuf>, _reporter: &Option<Vec<String>>, _output: &
                 | ModuleType::Binary { uri } => match ModuleUri::from(uri) {
                     | ModuleUri::Url(value) => match value.scheme() {
                         | HTTP | HTTPS => {
-                            println!("Remote: {:?}", value);
+                            info!("Identified remote binary: {:?}", value);
+                            // TODO: Download binary to temp directory
                         }
                         | _ => unimplemented!(),
                     },
-                    | ModuleUri::File(value) => {
-                        println!("Local Binary: {:?}", value);
-                    }
+                    | ModuleUri::File(value) => match value.try_exists() {
+                        | Ok(true) => {
+                            info!("Found local binary: {:?}", value);
+                        }
+                        | _ => {
+                            error!("Unable to find local binary: {:?}", value);
+                        }
+                    },
                     | _ => unimplemented!(),
                 },
                 | ModuleType::Script { programming_language, uri } => match programming_language {
                     | ModuleLanguage::Python => match ModuleUri::from(uri) {
                         | ModuleUri::Url(value) => match value.scheme() {
                             | HTTP | HTTPS => {
-                                println!("Remote: {:?}", value);
+                                info!("Identified remote script repository: {:?}", value);
+                                // TODO: Download/clone script repository to temp directory
+                                // TODO: Check script repository with is_valid_pipe_module_python
+                                // TODO: Create virtual environment
                             }
                             | _ => unimplemented!(),
                         },
-                        | ModuleUri::File(value) => {
-                            info!("Loading module: {:?}", value);
-                            match value.try_exists() {
-                                | Ok(true) => {
-                                    info!("Module found: {:?}", value);
-                                }
-                                | _ => {
-                                    info!("Module not found: {:?}", value);
-                                }
+                        | ModuleUri::File(value) => match value.try_exists() {
+                            | Ok(true) => {
+                                info!("Found local script module: {:?}", value);
+                                // TODO: Check script repository with is_valid_pipe_module_python
+                                // TODO: Create virtual environment
                             }
-                        }
+                            | _ => {
+                                error!("Unable to find local script module: {:?}", value);
+                            }
+                        },
                         | _ => unimplemented!(),
                     },
                     | _ => unimplemented!(),
@@ -72,10 +86,17 @@ pub fn run(config: &Option<PathBuf>, _reporter: &Option<Vec<String>>, _output: &
             });
             // Set envionment variables
             let _ = cfg.set_environment_variables();
+            // for (key, value) in env::vars() {
+            //     println!("{key}: {value}");
+            // }
             // Run workflow
             cfg.modules.iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { .. } => {}
-                | ModuleType::Script { .. } => {}
+                | ModuleType::Script { .. } => {
+                    // TODO: Load template.json or use default_script
+                    // TODO: Handle dry-run
+                    // TODO: Run script module
+                }
                 | _ => unimplemented!(),
             });
         }

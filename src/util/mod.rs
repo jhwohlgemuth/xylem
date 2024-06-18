@@ -3,7 +3,7 @@
 use clap::ValueEnum;
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
-use log::{error, info};
+use log::{debug, error};
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
@@ -23,7 +23,7 @@ use uriparse::URI;
 
 use std::process;
 
-const PREFIX: &str = "PIPE";
+const PREFIX: &str = "_PIPE";
 
 pub type CommandResult = Result<(), Box<(dyn StdError + 'static)>>;
 pub type Void = Result<(), Box<dyn Error>>;
@@ -207,7 +207,7 @@ impl Config {
                     let prefixed = format!("{}_{}", PREFIX, k);
                     lookup.insert(k.to_string(), var(prefixed).unwrap());
                 });
-                info!("PIPE Environment variables: {:?}", lookup);
+                debug!("PIPE Environment variables: {:?}", lookup);
                 lookup
             }
             | None => HashMap::new(),
@@ -227,7 +227,7 @@ impl Config {
             }
         };
         let json: serde_json::Result<Config> = serde_json::from_str(&content);
-        info!("Imported config: {:?}", json);
+        debug!("Imported config: {:?}", json);
         json
     }
     /// Set environment variables from PIPE configuration "variables" attribute
@@ -235,7 +235,7 @@ impl Config {
         match &self.variables {
             | Some(variables) => {
                 for (k, v) in variables {
-                    info!("Setting PIPE environment variable: {:?} = {:?}", k, v);
+                    debug!("Setting PIPE environment variable: {:?} = {:?}", k, v);
                     EnvironmentValue::from_value(v.clone()).set_variable(k.clone());
                 }
             }
@@ -460,7 +460,7 @@ pub fn is_command(value: Command) -> bool {
     match output {
         | process::Output { stdout, .. } if !stdout.is_empty() => {
             let path = String::from_utf8_lossy(&stdout);
-            info!("Command found at {:?}", path.trim());
+            debug!("Command found at {:?}", path.trim());
             return PathBuf::from(path.trim()).exists();
         }
         | _ => false,
@@ -536,7 +536,7 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
     let mut content = String::new();
     let _ = match File::open(path.clone()) {
         | Ok(mut file) => {
-            info!("Read file: {:?}", path);
+            debug!("Read file: {:?}", path);
             file.read_to_string(&mut content)
         }
         | Err(err) => {

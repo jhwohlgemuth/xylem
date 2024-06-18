@@ -66,9 +66,7 @@ pub enum Commands {
     },
     /// Execute module(s)
     ///
-    ///     $> pipe run /path/to/module/code --config /path/to/config
-    ///
-    ///     $> echo /path/to/module/code | pipe run
+    ///     $> pipe run --config /path/to/config
     ///
     ///     $> pipe check /path/to/module/code --reporter json console
     ///
@@ -83,5 +81,8 @@ pub enum Commands {
         /// Destination path for reporters that use one
         #[arg(short = 'o', long = "output", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         output: Option<std::path::PathBuf>,
+        /// Execute workflow dry run (do not actually make changes to environment)
+        #[arg(short = 'd', long = "dry-run", value_name = "BOOL")]
+        dry_run: bool,
     },
 }
