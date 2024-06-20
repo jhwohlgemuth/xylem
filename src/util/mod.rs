@@ -104,6 +104,18 @@ pub enum StdoutIsPipedResult {
     StdoutIsPiped,
     StdoutIsNotPiped,
 }
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+pub enum TemplateType {
+    /// Example: `"some <%= value %>"`
+    EmbeddedJavaScript,
+    /// Example: `"some <%= value %>"`
+    EmbeddedRuby,
+    /// Example: `"some {{ value }}"`
+    Handlebars,
+    /// Example: `"some {{ value }}"`
+    Mustache,
+    Unknown,
+}
 #[derive(Clone, Debug)]
 pub struct Command {
     pub name: String,
@@ -198,6 +210,11 @@ pub struct ScriptTemplate {
     command: String,
     environment: Option<String>,
     arguments: Instruction,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StringTemplate {
+    value: String,
+    template_type: TemplateType,
 }
 impl Config {
     /// Get evironment variables saved with PIPE prefix
@@ -333,7 +350,7 @@ impl<'a> Script {
     }
     /// Expand environment variables in the script arguments
     pub fn expand_environment_variables(mut self) -> Script {
-        let arguments = self.arguments.iter().map(|argument| argument.to_uppercase()).collect();
+        let arguments = self.arguments.into_iter().map(|argument| argument.to_uppercase()).collect();
         self.arguments = arguments;
         self
     }
@@ -360,11 +377,11 @@ impl<'a> Script {
         let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
         let template = json.expect("[ERROR] => Failed to parse script template").clone();
         let arguments = match template.arguments {
-            | Instruction::ShellFormat(value) => remove_handlebars_spaces(value)
+            | Instruction::ShellFormat(value) => StringTemplate::remove_spaces(value)
                 .split_whitespace()
                 .map(|s| s.to_owned())
                 .collect::<Vec<_>>(),
-            | Instruction::ExecFormat(values) => values.into_iter().map(remove_handlebars_spaces).collect(),
+            | Instruction::ExecFormat(values) => values.into_iter().map(StringTemplate::remove_spaces).collect(),
         };
         Script::new(template.command, arguments)
     }
@@ -386,6 +403,73 @@ impl<'a> Script {
         self
     }
 }
+impl StringTemplate {
+    pub fn new(value: &str) -> StringTemplate {
+        Self {
+            value: value.to_string(),
+            template_type: TemplateType::Unknown,
+        }
+    }
+    /// Get variable name from a template string value
+    pub fn get_variable(self) -> String {
+        match Regex::new(r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$") {
+            | Ok(re) => match re.captures(&self.value) {
+                | Ok(Some(captures)) => captures["variable"].trim().to_string(),
+                | _ => "".to_string(),
+            },
+            | _ => "".to_string(),
+        }
+    }
+    /// Check if a string is a handlebars template
+    ///
+    /// Template looks like `"{{ VARIABLE_NAME }}"`
+    ///
+    /// - Template must start with "{{" and end with "}}"
+    /// - Template variable name must be in upper snake case format
+    /// - Template variable name must not contain any spaces
+    /// - Template can have any number of spaces at before and after the variable name
+    ///
+    ///
+    /// # Examples
+    /// ```
+    /// use pipe::util::is_handlebars_template;
+    ///
+    /// // OK
+    /// assert!(is_handlebars("{{INPUT_DIRECTORY}}"));
+    /// assert!(is_handlebars("{{ OUTPUT_DIRECTORY }}"));
+    /// // NG
+    /// assert!(!is_handlebars("{{ MustBeUpperSnakeCase }}"));
+    /// assert!(!is_handlebars("hello world"));
+    /// ```
+    pub fn is_handlebars(self) -> bool {
+        match Regex::new(r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$") {
+            | Ok(re) => match re.is_match(&self.value) {
+                | Ok(value) => value,
+                | _ => false,
+            },
+            | Err(_) => false,
+        }
+    }
+    /// Remove spaces around variable name within a handlebars template
+    ///
+    /// # Parameters
+    /// - `value` - string that contains 0 or more handlebars templates
+    ///
+    /// # Examples
+    /// ```
+    /// use pipe::util::remove_handlebars_spaces;
+    ///
+    /// remove_spaces("{{ variable }}".to_owned());   // "{{variable}}"
+    /// remove_spaces("{{ variable   }}".to_owned()); // "{{variable}}"
+    /// remove_spaces("{{variable}}".to_owned());     // "{{variable}}"
+    /// ```
+    pub fn remove_spaces(value: String) -> String {
+        match Regex::new(r"((?<=\{\{) *(?=[A-Z])|(?<=[A-Z]) *(?=\}\}))") {
+            | Ok(re) => re.replace_all(&value, "").to_string(),
+            | Err(err) => err.to_string(),
+        }
+    }
+}
 /// Add forward slash to end of folder path
 pub fn add_forward_slash(path: PathBuf) -> PathBuf {
     if path.is_dir() {
@@ -397,16 +481,6 @@ pub fn add_forward_slash(path: PathBuf) -> PathBuf {
 /// Get parent of a file/folder path
 pub fn get_parent(path: PathBuf) -> PathBuf {
     PathBuf::from(path.parent().unwrap())
-}
-/// Get variable name from a handlebars template
-pub fn get_variable_from_handlebars_template(value: &str) -> String {
-    match Regex::new(r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$") {
-        | Ok(re) => match re.captures(value) {
-            | Ok(Some(captures)) => captures["variable"].trim().to_string(),
-            | _ => "".to_string(),
-        },
-        | _ => "".to_string(),
-    }
 }
 /// Check if a file has a given file extension
 ///
@@ -500,35 +574,6 @@ pub fn is_command(value: Command) -> bool {
         | _ => false,
     }
 }
-/// Check if a string is a handlebars template
-///
-/// Template looks like `"{{ VARIABLE_NAME }}"`
-///
-/// - Template must start with "{{" and end with "}}"
-/// - Template variable name must be in upper snake case format
-/// - Template variable name must not contain any spaces
-/// - Template can have any number of spaces at before and after the variable name
-///
-/// # Examples
-/// ```
-/// use pipe::util::is_handlebars_template;
-///
-/// // OK
-/// assert!(is_handlebars_template("{{INPUT_DIRECTORY}}"));
-/// assert!(is_handlebars_template("{{ OUTPUT_DIRECTORY }}"));
-/// // NG
-/// assert!(!is_handlebars_template("{{ MustBeUpperSnakeCase }}"));
-/// assert!(!is_handlebars_template("hello world"));
-/// ```
-pub fn is_handlebars_template(value: &str) -> bool {
-    match Regex::new(r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$") {
-        | Ok(re) => match re.is_match(value) {
-            | Ok(value) => value,
-            | _ => false,
-        },
-        | Err(_) => false,
-    }
-}
 /// Check if stdin is piped
 ///
 /// # Examples
@@ -579,25 +624,6 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
         }
     };
     Ok(content)
-}
-/// Remove spaces around variable name within a handlebars template
-///
-/// # Parameters
-/// - `value` - string that contains 0 or more handlebars templates
-///
-/// # Examples
-/// ```
-/// use pipe::util::remove_handlebars_spaces;
-///
-/// remove_handlebars_spaces("{{ variable }}".to_owned());   // "{{variable}}"
-/// remove_handlebars_spaces("{{ variable   }}".to_owned()); // "{{variable}}"
-/// remove_handlebars_spaces("{{variable}}".to_owned());     // "{{variable}}"
-/// ```
-pub fn remove_handlebars_spaces(value: String) -> String {
-    match Regex::new(r"((?<=\{\{) *(?=[A-Z])|(?<=[A-Z]) *(?=\}\}))") {
-        | Ok(re) => re.replace_all(&value, "").to_string(),
-        | Err(err) => err.to_string(),
-    }
 }
 pub fn to_string(values: Vec<&str>) -> Vec<String> {
     values.iter().map(|s| s.to_string()).collect()

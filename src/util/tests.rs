@@ -73,33 +73,33 @@ fn test_handlebars_templates() {
     let not_snake_case = "{{ NOT-SNAKE-CASE }}";
     let pascal_case = "{{ PascalCase }}";
     // is_handlebars_template
-    assert!(is_handlebars_template("{{FOO}}"));
-    assert!(is_handlebars_template("{{INPUT_DIRECTORY}}"));
-    assert!(is_handlebars_template("{{ INPUT_DIRECTORY }}"));
-    assert!(!is_handlebars_template(not_upper_case));
-    assert!(!is_handlebars_template(not_snake_case));
-    assert!(!is_handlebars_template(pascal_case));
-    assert!(!is_handlebars_template("Not a handlebars template"));
+    assert!(StringTemplate::is_handlebars(StringTemplate::new("{{FOO}}")));
+    assert!(StringTemplate::is_handlebars(StringTemplate::new("{{INPUT_DIRECTORY}}")));
+    assert!(StringTemplate::is_handlebars(StringTemplate::new("{{ INPUT_DIRECTORY }}")));
+    assert!(!StringTemplate::is_handlebars(StringTemplate::new(not_upper_case)));
+    assert!(!StringTemplate::is_handlebars(StringTemplate::new(not_snake_case)));
+    assert!(!StringTemplate::is_handlebars(StringTemplate::new(pascal_case)));
+    assert!(!StringTemplate::is_handlebars(StringTemplate::new("Not a handlebars template")));
     // parse_handlebars_template
-    assert_eq!(get_variable_from_handlebars_template("{{FOO}}"), "FOO");
-    assert_eq!(get_variable_from_handlebars_template("{{ FOO }}"), "FOO");
-    assert_eq!(get_variable_from_handlebars_template("{{BAR}}"), "BAR");
-    assert_eq!(get_variable_from_handlebars_template("{{  BAR   }}"), "BAR");
-    assert_eq!(get_variable_from_handlebars_template("BAZ"), "");
-    assert_eq!(get_variable_from_handlebars_template(not_upper_case), "");
-    assert_eq!(get_variable_from_handlebars_template(not_snake_case), "");
-    assert_eq!(get_variable_from_handlebars_template(pascal_case), "");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new("{{FOO}}")), "FOO");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new("{{ FOO }}")), "FOO");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new("{{BAR}}")), "BAR");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new("{{  BAR   }}")), "BAR");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new("BAZ")), "");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new(not_upper_case)), "");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new(not_snake_case)), "");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new(pascal_case)), "");
     // trim_handlebars_template
     let expected = "{{FOO}}";
-    assert_eq!(remove_handlebars_spaces("{{FOO}}".to_owned()), expected);
-    assert_eq!(remove_handlebars_spaces("{{FOO  }}".to_owned()), expected);
-    assert_eq!(remove_handlebars_spaces("{{  FOO}}".to_owned()), expected);
-    assert_eq!(remove_handlebars_spaces("{{  FOO  }}".to_owned()), expected);
+    assert_eq!(StringTemplate::remove_spaces("{{FOO}}".to_owned()), expected);
+    assert_eq!(StringTemplate::remove_spaces("{{FOO  }}".to_owned()), expected);
+    assert_eq!(StringTemplate::remove_spaces("{{  FOO}}".to_owned()), expected);
+    assert_eq!(StringTemplate::remove_spaces("{{  FOO  }}".to_owned()), expected);
     let expected = "FOO {{BAR}} BAZ";
-    assert_eq!(remove_handlebars_spaces("FOO {{BAR}} BAZ".to_owned()), expected);
-    assert_eq!(remove_handlebars_spaces("FOO {{ BAR }} BAZ".to_owned()), expected);
+    assert_eq!(StringTemplate::remove_spaces("FOO {{BAR}} BAZ".to_owned()), expected);
+    assert_eq!(StringTemplate::remove_spaces("FOO {{ BAR }} BAZ".to_owned()), expected);
     assert_eq!(
-        remove_handlebars_spaces("FOO {{ BAR }} BAZ {{ BIN }}".to_owned()),
+        StringTemplate::remove_spaces("FOO {{ BAR }} BAZ {{ BIN }}".to_owned()),
         "FOO {{BAR}} BAZ {{BIN}}"
     );
 }
