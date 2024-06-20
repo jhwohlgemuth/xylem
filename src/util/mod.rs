@@ -3,7 +3,7 @@
 use clap::ValueEnum;
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
-use log::{debug, error};
+use log::{debug, error, info};
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
@@ -15,7 +15,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::{
-    env::{set_var, var},
+    env::{set_var, var, vars},
     fmt, io,
 };
 use uriparse::Scheme;
@@ -31,7 +31,7 @@ pub type Output = Vec<Option<Details>>;
 
 /// Values that from Serde that can be set as environment variables
 #[derive(Clone, Debug)]
-enum EnvironmentValue {
+pub enum EnvironmentValue {
     String(String),
     Number(Number),
     Bool(bool),
@@ -190,6 +190,7 @@ pub struct SemanticVersion {
 pub struct Script {
     pub command: Command,
     pub arguments: Vec<String>,
+    /// Directory in which the script should be executed when run method is invoked
     pub current_dir: String,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -259,6 +260,13 @@ impl EnvironmentValue {
             | _ => EnvironmentValue::Unknown,
         }
     }
+    pub fn print_all(prefix: &str) {
+        let pre = format!("_{}_", prefix.to_uppercase());
+        vars().filter(|(key, _)| key.starts_with(&pre)).for_each(|(key, value)| {
+            let key = key.trim_start_matches(&pre);
+            info!("=> [ENV] {}: {}", key, value);
+        });
+    }
     fn set_variable(self, key: String) {
         let prefixed = format!("_{}_{}", PREFIX.to_uppercase(), key);
         let prefixed_key = OsStr::new(&prefixed);
@@ -282,7 +290,7 @@ impl fmt::Display for ReporterType {
 }
 impl fmt::Display for Script {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(self, f)
+        write!(f, "{} {}", self.command.name, self.arguments.join(" "))
     }
 }
 impl fmt::Display for SemanticVersion {
@@ -312,6 +320,7 @@ impl SemanticVersion {
     }
 }
 impl<'a> Script {
+    /// Create a new script from a command and arguments
     pub fn new(command: String, arguments: Vec<String>) -> Script {
         Self {
             command: Command {
@@ -321,6 +330,12 @@ impl<'a> Script {
             arguments,
             current_dir: ".".to_string(),
         }
+    }
+    /// Expand environment variables in the script arguments
+    pub fn expand_environment_variables(mut self) -> Script {
+        let arguments = self.arguments.iter().map(|argument| argument.to_uppercase()).collect();
+        self.arguments = arguments;
+        self
     }
     /// Create a script from a template JSON file in [ScriptTemplate] format.
     ///
@@ -353,6 +368,7 @@ impl<'a> Script {
         };
         Script::new(template.command, arguments)
     }
+    /// Execute script in child process and wait for it to finish
     pub fn run(&'a self) -> process::Output {
         const ERROR_MESSAGE: &str = "[ERROR] => Failed to execute process";
         let current_dir = PathBuf::from(&self.current_dir);
@@ -365,10 +381,9 @@ impl<'a> Script {
     /// Set current working directory for the script
     ///
     /// Provides builder interface and returns reference to self
-    pub fn with_current_dir(self, path: &str) -> Self {
-        let mut script = self;
-        script.current_dir = path.to_string();
-        script
+    pub fn with_current_dir(mut self, path: &str) -> Self {
+        self.current_dir = path.to_string();
+        self
     }
 }
 /// Add forward slash to end of folder path

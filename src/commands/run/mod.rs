@@ -1,4 +1,4 @@
-use crate::util::{is_command, to_string, Command, Config, ModuleLanguage, ModuleType, ModuleUri, Script, PREFIX};
+use crate::util::{is_command, to_string, Command, Config, EnvironmentValue, ModuleLanguage, ModuleType, ModuleUri, Script, PREFIX};
 use log::{error, info};
 use nanoid::nanoid;
 use serde::ser::StdError;
@@ -85,29 +85,27 @@ pub fn run(
             });
             // Set envionment variables
             let _ = cfg.set_environment_variables();
-            for (key, value) in env::vars() {
-                println!("{key}: {value}");
-            }
             // Run workflow
             cfg.modules.iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { .. } => {}
                 | ModuleType::Script { .. } => {
-                    // TODO: Load template.json or use default_script
-                    // TODO: Handle dry-run
-                    // TODO: Run script module
+                    let arguments = to_string(vec![
+                        "-m",
+                        "lib",
+                        "--directory",
+                        "{{ INPUT_DIRECTORY }}",
+                        "--output",
+                        "{{ OUTPUT_DIRECTORY }}",
+                        "--answer",
+                        "{{ ANSWER }}",
+                    ]);
+                    let script = Script::new("python".to_string(), arguments);
                     if dry_run {
-                        error!("Not implemented");
+                        info!("=> [DRYRUN] Execute: {:?}", script.expand_environment_variables().to_string());
+                        EnvironmentValue::print_all(PREFIX);
                     } else {
-                        let arguments = to_string(vec![
-                            "-m",
-                            "lib",
-                            "--directory",
-                            "{{INPUT_DIRECTORY}}",
-                            "--output",
-                            "{{OUTPUT_DIRECTORY}}",
-                        ]);
-                        let script = Script::new("python".to_string(), arguments);
-                        script.with_current_dir(&root.to_string_lossy()).run();
+                        let working_dir = &root.to_string_lossy();
+                        script.with_current_dir(working_dir).run();
                     }
                 }
                 | _ => unimplemented!(),
