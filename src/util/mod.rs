@@ -23,7 +23,7 @@ use uriparse::URI;
 
 use std::process;
 
-const PREFIX: &str = "_PIPE";
+pub const PREFIX: &str = "pipe";
 
 pub type CommandResult = Result<(), Box<(dyn StdError + 'static)>>;
 pub type Void = Result<(), Box<dyn Error>>;
@@ -190,6 +190,7 @@ pub struct SemanticVersion {
 pub struct Script {
     pub command: Command,
     pub arguments: Vec<String>,
+    pub current_dir: String,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ScriptTemplate {
@@ -204,7 +205,7 @@ impl Config {
             | Some(ref variables) => {
                 let mut lookup: HashMap<String, String> = HashMap::new();
                 variables.iter().for_each(|(k, _)| {
-                    let prefixed = format!("{}_{}", PREFIX, k);
+                    let prefixed = format!("_{}_{}", PREFIX.to_uppercase(), k);
                     lookup.insert(k.to_string(), var(prefixed).unwrap());
                 });
                 debug!("PIPE Environment variables: {:?}", lookup);
@@ -259,7 +260,7 @@ impl EnvironmentValue {
         }
     }
     fn set_variable(self, key: String) {
-        let prefixed = format!("{}_{}", PREFIX, key);
+        let prefixed = format!("_{}_{}", PREFIX.to_uppercase(), key);
         let prefixed_key = OsStr::new(&prefixed);
         match self {
             | EnvironmentValue::String(value) => set_var(prefixed_key, value),
@@ -312,12 +313,13 @@ impl SemanticVersion {
 }
 impl<'a> Script {
     pub fn new(command: String, arguments: Vec<String>) -> Script {
-        Script {
+        Self {
             command: Command {
                 name: command,
                 conda_environment: None,
             },
             arguments,
+            current_dir: ".".to_string(),
         }
     }
     /// Create a script from a template JSON file in [ScriptTemplate] format.
@@ -332,7 +334,7 @@ impl<'a> Script {
     /// ```
     /// let output = script.run();
     /// ```
-    fn from_template(path: PathBuf) -> Script {
+    pub fn from_template(path: PathBuf) -> Script {
         let content = match read_file(path.clone()) {
             | Ok(value) => value,
             | Err(_) => {
@@ -351,12 +353,22 @@ impl<'a> Script {
         };
         Script::new(template.command, arguments)
     }
-    fn run(&'a self) -> process::Output {
+    pub fn run(&'a self) -> process::Output {
         const ERROR_MESSAGE: &str = "[ERROR] => Failed to execute process";
+        let current_dir = PathBuf::from(&self.current_dir);
         return process::Command::new(self.command.name.clone())
             .args(self.arguments.clone().iter())
+            .current_dir(current_dir)
             .output()
             .expect(ERROR_MESSAGE);
+    }
+    /// Set current working directory for the script
+    ///
+    /// Provides builder interface and returns reference to self
+    pub fn with_current_dir(self, path: &str) -> Self {
+        let mut script = self;
+        script.current_dir = path.to_string();
+        script
     }
 }
 /// Add forward slash to end of folder path
@@ -423,19 +435,24 @@ pub fn has_extension(extension: &str, path: &Path) -> bool {
 pub fn is_command(value: Command) -> bool {
     let script = if cfg!(target_os = "windows") {
         match value.conda_environment {
-            | Some(name) => Script {
-                command: Command {
+            | Some(name) => {
+                let command = Command {
                     name: "conda".to_owned(),
                     conda_environment: Some(name.clone()),
-                },
-                arguments: to_string(vec!["run", "--name", &name, "pwsh", "-NoProfile", "-Command", "command", &value.name]),
-            },
+                };
+                Script {
+                    command,
+                    arguments: to_string(vec!["run", "--name", &name, "pwsh", "-NoProfile", "-Command", "command", &value.name]),
+                    current_dir: ".".to_string(),
+                }
+            }
             | None => Script {
                 command: Command {
                     name: "pwsh".to_owned(),
                     conda_environment: None,
                 },
                 arguments: to_string(vec!["-NoProfile", "-Command", "command", &value.name]),
+                current_dir: ".".to_string(),
             },
         }
     } else {
@@ -446,6 +463,7 @@ pub fn is_command(value: Command) -> bool {
                     conda_environment: Some(name.clone()),
                 },
                 arguments: to_string(vec!["run", "--name", &name, "which", &value.name]),
+                current_dir: ".".to_string(),
             },
             | None => Script {
                 command: Command {
@@ -453,6 +471,7 @@ pub fn is_command(value: Command) -> bool {
                     conda_environment: None,
                 },
                 arguments: vec![value.name],
+                current_dir: ".".to_string(),
             },
         }
     };

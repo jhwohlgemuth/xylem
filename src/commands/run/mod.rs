@@ -1,5 +1,6 @@
-use crate::util::{is_command, to_string, Command, Config, ModuleLanguage, ModuleType, ModuleUri, Script};
+use crate::util::{is_command, to_string, Command, Config, ModuleLanguage, ModuleType, ModuleUri, Script, PREFIX};
 use log::{error, info};
+use nanoid::nanoid;
 use serde::ser::StdError;
 use std::env;
 use std::path::PathBuf;
@@ -9,21 +10,19 @@ pub fn run(
     config: &Option<PathBuf>,
     _reporter: &Option<Vec<String>>,
     _output: &Option<PathBuf>,
-    _dry_run: bool,
+    dry_run: bool,
 ) -> Result<(), Box<(dyn StdError + 'static)>> {
-    let default_config: &str = "tests/fixtures/config.json";
-    // let default_script: Script = Script {
-    //     command: Command {
-    //         name: "python".to_string(),
-    //         conda_environment: None,
-    //     },
-    //     arguments: to_string(vec!["-m", "lib", "--input", "{{INPUT_DIRECTORY}}", "--output", "{{OUTPUT_DIRECTORY}}"]),
-    // };
-    let path = match config {
+    let id = nanoid!(10, &nanoid::alphabet::SAFE);
+    let root = env::temp_dir().join(PREFIX).join(id.clone());
+    let default_config = match env::current_dir() {
+        | Ok(path) => path.join("config.json"),
+        | _ => PathBuf::from("./config.json"),
+    };
+    let config_path = match config {
         | Some(value) => value.to_path_buf(),
         | None => PathBuf::from(default_config),
     };
-    let cfg = Config::read_json(path);
+    let cfg = Config::read_json(config_path);
     match cfg {
         | Ok(cfg) => {
             info!("=> [INFO] Loaded config:{:?}", cfg);
@@ -86,9 +85,9 @@ pub fn run(
             });
             // Set envionment variables
             let _ = cfg.set_environment_variables();
-            // for (key, value) in env::vars() {
-            //     println!("{key}: {value}");
-            // }
+            for (key, value) in env::vars() {
+                println!("{key}: {value}");
+            }
             // Run workflow
             cfg.modules.iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { .. } => {}
@@ -96,12 +95,27 @@ pub fn run(
                     // TODO: Load template.json or use default_script
                     // TODO: Handle dry-run
                     // TODO: Run script module
+                    if dry_run {
+                        error!("Not implemented");
+                    } else {
+                        let arguments = to_string(vec![
+                            "-m",
+                            "lib",
+                            "--directory",
+                            "{{INPUT_DIRECTORY}}",
+                            "--output",
+                            "{{OUTPUT_DIRECTORY}}",
+                        ]);
+                        let script = Script::new("python".to_string(), arguments);
+                        script.with_current_dir(&root.to_string_lossy()).run();
+                    }
                 }
                 | _ => unimplemented!(),
             });
         }
-        | Err(err) => println!("{:?}", err),
+        | Err(err) => error!("{:?}", err),
     };
+    println!("ID: {:?}, Root: {:?}", id, root);
     Ok(())
 }
 

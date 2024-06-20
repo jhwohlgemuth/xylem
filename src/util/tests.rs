@@ -181,15 +181,12 @@ fn test_script_from_template() {
 
 #[test]
 fn test_script_run() {
-    let script = Script {
-        command: Command {
-            name: "echo".to_string(),
-            conda_environment: None,
-        },
-        arguments: to_string(vec!["hello", "world"]),
-    };
+    let script = Script::new("echo".to_string(), to_string(vec!["hello", "world"]));
     let output = script.run();
     assert_eq!(String::from_utf8_lossy(&output.stdout), "hello world\n");
+    let script = Script::new("pwd".to_string(), vec![]);
+    let output = script.with_current_dir("/root").run();
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "/root\n");
     let path = PathBuf::from("tests/fixtures/template_run.json");
     let script = Script::from_template(path);
     assert_eq!(script.run().stdout, b"hello world\n");
