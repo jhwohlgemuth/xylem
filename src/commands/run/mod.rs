@@ -101,7 +101,7 @@ pub fn run(
                     ]);
                     let script = Script::new("python".to_string(), arguments);
                     if dry_run {
-                        info!("=> [DRYRUN] Execute: {:?}", script.expand_environment_variables().to_string());
+                        info!("=> [DRYRUN] Execute: {:?}", script.expand_arguments().to_string());
                         EnvironmentValue::print_all(PREFIX);
                     } else {
                         let working_dir = &root.to_string_lossy();

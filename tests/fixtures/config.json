@@ -7,6 +7,8 @@
     ],
     "keywords": [],
     "variables": {
+        "INPUT_DIRECTORY": "/path/to/input",
+        "OUTPUT_DIRECTORY": "/path/to/output",
         "ANSWER": 42,
         "BOOLEAN": true,
         "TOKEN": "X12E45678N"

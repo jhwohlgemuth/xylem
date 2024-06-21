@@ -1,4 +1,5 @@
 use crate::util::*;
+use std::env::set_var;
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -67,44 +68,6 @@ fn test_get_parent() {
 }
 
 #[test]
-fn test_handlebars_templates() {
-    // invalid string values
-    let not_upper_case = "{{ not_upper_case }}";
-    let not_snake_case = "{{ NOT-SNAKE-CASE }}";
-    let pascal_case = "{{ PascalCase }}";
-    // is_handlebars_template
-    assert!(StringTemplate::is_handlebars(StringTemplate::new("{{FOO}}")));
-    assert!(StringTemplate::is_handlebars(StringTemplate::new("{{INPUT_DIRECTORY}}")));
-    assert!(StringTemplate::is_handlebars(StringTemplate::new("{{ INPUT_DIRECTORY }}")));
-    assert!(!StringTemplate::is_handlebars(StringTemplate::new(not_upper_case)));
-    assert!(!StringTemplate::is_handlebars(StringTemplate::new(not_snake_case)));
-    assert!(!StringTemplate::is_handlebars(StringTemplate::new(pascal_case)));
-    assert!(!StringTemplate::is_handlebars(StringTemplate::new("Not a handlebars template")));
-    // parse_handlebars_template
-    assert_eq!(StringTemplate::get_variable(StringTemplate::new("{{FOO}}")), "FOO");
-    assert_eq!(StringTemplate::get_variable(StringTemplate::new("{{ FOO }}")), "FOO");
-    assert_eq!(StringTemplate::get_variable(StringTemplate::new("{{BAR}}")), "BAR");
-    assert_eq!(StringTemplate::get_variable(StringTemplate::new("{{  BAR   }}")), "BAR");
-    assert_eq!(StringTemplate::get_variable(StringTemplate::new("BAZ")), "");
-    assert_eq!(StringTemplate::get_variable(StringTemplate::new(not_upper_case)), "");
-    assert_eq!(StringTemplate::get_variable(StringTemplate::new(not_snake_case)), "");
-    assert_eq!(StringTemplate::get_variable(StringTemplate::new(pascal_case)), "");
-    // trim_handlebars_template
-    let expected = "{{FOO}}";
-    assert_eq!(StringTemplate::remove_spaces("{{FOO}}".to_owned()), expected);
-    assert_eq!(StringTemplate::remove_spaces("{{FOO  }}".to_owned()), expected);
-    assert_eq!(StringTemplate::remove_spaces("{{  FOO}}".to_owned()), expected);
-    assert_eq!(StringTemplate::remove_spaces("{{  FOO  }}".to_owned()), expected);
-    let expected = "FOO {{BAR}} BAZ";
-    assert_eq!(StringTemplate::remove_spaces("FOO {{BAR}} BAZ".to_owned()), expected);
-    assert_eq!(StringTemplate::remove_spaces("FOO {{ BAR }} BAZ".to_owned()), expected);
-    assert_eq!(
-        StringTemplate::remove_spaces("FOO {{ BAR }} BAZ {{ BIN }}".to_owned()),
-        "FOO {{BAR}} BAZ {{BIN}}"
-    );
-}
-
-#[test]
 fn test_has_extension() {
     assert!(has_extension("txt", Path::new("foo.txt")));
     assert!(has_extension("txt", Path::new("foo/bar.txt")));
@@ -165,6 +128,25 @@ fn test_semantic_version() {
 }
 
 #[test]
+fn test_script_expand_arguments() {
+    set_var("_PIPE_INPUT_DIRECTORY", "/path/to/input");
+    set_var("_PIPE_OUTPUT_DIRECTORY", "/path/to/output");
+    let arguments = to_string(vec![
+        "-m",
+        "lib",
+        "--input",
+        "{{ INPUT_DIRECTORY }}",
+        "--output",
+        "{{ OUTPUT_DIRECTORY }}",
+    ]);
+    let script = Script::new("python".to_string(), arguments);
+    assert_eq!(
+        script.expand_arguments().arguments,
+        vec!["-m", "lib", "--input", "/path/to/input", "--output", "/path/to/output"]
+    );
+}
+
+#[test]
 fn test_script_from_template() {
     let expected_value: Vec<String> = to_string(vec!["-m", "lib", "--input", "{{INPUT_DIRECTORY}}", "--output", "{{OUTPUT_DIRECTORY}}"]);
     // "shell" format arguments
@@ -190,6 +172,59 @@ fn test_script_run() {
     let path = PathBuf::from("tests/fixtures/template_run.json");
     let script = Script::from_template(path);
     assert_eq!(script.run().stdout, b"hello world\n");
+}
+
+#[test]
+fn test_string_template_expand() {
+    let vars = vec![
+        ("GREETING".to_string(), "Hello".to_string()),
+        ("LOCATION".to_string(), "World".to_string()),
+    ];
+    let expected = "Hello World!!!";
+    let template = StringTemplate::new("{{ GREETING }} {{ LOCATION }}!!!");
+    assert_eq!(template.expand(vars.clone()), expected);
+    let template = StringTemplate::new("Hello {{ LOCATION }}!!!");
+    assert_eq!(template.expand(vars.clone()), expected);
+    let template = StringTemplate::new("Hello World!!!");
+    assert_eq!(template.expand(vars.clone()), expected);
+}
+
+#[test]
+fn test_string_template_handlebars() {
+    // invalid string values
+    let not_upper_case = "{{ not_upper_case }}";
+    let not_snake_case = "{{ NOT-SNAKE-CASE }}";
+    let pascal_case = "{{ PascalCase }}";
+    // is_handlebars_template
+    assert!(StringTemplate::is_handlebars(StringTemplate::new("{{FOO}}")));
+    assert!(StringTemplate::is_handlebars(StringTemplate::new("{{INPUT_DIRECTORY}}")));
+    assert!(StringTemplate::is_handlebars(StringTemplate::new("{{ INPUT_DIRECTORY }}")));
+    assert!(!StringTemplate::is_handlebars(StringTemplate::new(not_upper_case)));
+    assert!(!StringTemplate::is_handlebars(StringTemplate::new(not_snake_case)));
+    assert!(!StringTemplate::is_handlebars(StringTemplate::new(pascal_case)));
+    assert!(!StringTemplate::is_handlebars(StringTemplate::new("Not a handlebars template")));
+    // parse_handlebars_template
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new("{{FOO}}")), "FOO");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new("{{ FOO }}")), "FOO");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new("{{BAR}}")), "BAR");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new("{{  BAR   }}")), "BAR");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new("BAZ")), "");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new(not_upper_case)), "");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new(not_snake_case)), "");
+    assert_eq!(StringTemplate::get_variable(StringTemplate::new(pascal_case)), "");
+    // trim_handlebars_template
+    let expected = "{{FOO}}";
+    assert_eq!(StringTemplate::new("{{FOO}}").remove_spaces().value, expected);
+    assert_eq!(StringTemplate::new("{{FOO  }}").remove_spaces().value, expected);
+    assert_eq!(StringTemplate::new("{{  FOO}}").remove_spaces().value, expected);
+    assert_eq!(StringTemplate::new("{{  FOO  }}").remove_spaces().value, expected);
+    let expected = "FOO {{BAR}} BAZ";
+    assert_eq!(StringTemplate::new("FOO {{BAR}} BAZ").remove_spaces().value, expected);
+    assert_eq!(StringTemplate::new("FOO {{ BAR }} BAZ").remove_spaces().value, expected);
+    assert_eq!(
+        StringTemplate::new("FOO {{ BAR }} BAZ {{ BIN }}").remove_spaces().value,
+        "FOO {{BAR}} BAZ {{BIN}}"
+    );
 }
 
 #[test]

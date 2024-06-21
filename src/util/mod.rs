@@ -277,10 +277,18 @@ impl EnvironmentValue {
             | _ => EnvironmentValue::Unknown,
         }
     }
-    pub fn print_all(prefix: &str) {
+    pub fn get_all(prefix: &str) -> Vec<(String, String)> {
         let pre = format!("_{}_", prefix.to_uppercase());
-        vars().filter(|(key, _)| key.starts_with(&pre)).for_each(|(key, value)| {
-            let key = key.trim_start_matches(&pre);
+        vars()
+            .filter(|(key, _)| key.starts_with(&pre))
+            .map(|(key, value)| {
+                let key = key.trim_start_matches(&pre).to_string();
+                (key, value)
+            })
+            .collect()
+    }
+    pub fn print_all(prefix: &str) {
+        EnvironmentValue::get_all(prefix).into_iter().for_each(|(key, value)| {
             info!("=> [ENV] {}: {}", key, value);
         });
     }
@@ -349,9 +357,21 @@ impl<'a> Script {
         }
     }
     /// Expand environment variables in the script arguments
-    pub fn expand_environment_variables(mut self) -> Script {
-        let arguments = self.arguments.into_iter().map(|argument| argument.to_uppercase()).collect();
-        self.arguments = arguments;
+    pub fn expand_arguments(mut self) -> Script {
+        let expanded = self
+            .arguments
+            .into_iter()
+            .map(|argument| StringTemplate::new(&argument))
+            .map(|argument| {
+                if StringTemplate::is_handlebars(argument.clone()) {
+                    let vars = EnvironmentValue::get_all(PREFIX);
+                    argument.expand(vars)
+                } else {
+                    argument.value.clone()
+                }
+            })
+            .collect();
+        self.arguments = expanded;
         self
     }
     /// Create a script from a template JSON file in [ScriptTemplate] format.
@@ -377,11 +397,16 @@ impl<'a> Script {
         let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
         let template = json.expect("[ERROR] => Failed to parse script template").clone();
         let arguments = match template.arguments {
-            | Instruction::ShellFormat(value) => StringTemplate::remove_spaces(value)
+            | Instruction::ShellFormat(value) => StringTemplate::new(&value)
+                .remove_spaces()
+                .value
                 .split_whitespace()
                 .map(|s| s.to_owned())
                 .collect::<Vec<_>>(),
-            | Instruction::ExecFormat(values) => values.into_iter().map(StringTemplate::remove_spaces).collect(),
+            | Instruction::ExecFormat(values) => values
+                .into_iter()
+                .map(|value| StringTemplate::new(&value).remove_spaces().value)
+                .collect(),
         };
         Script::new(template.command, arguments)
     }
@@ -412,6 +437,16 @@ impl StringTemplate {
             value: value.to_string(),
             template_type: TemplateType::Unknown,
         }
+    }
+    /// Replace string template with its associated value
+    ///
+    /// Non-terminal method that provides builder interface and returns reference to self
+    pub fn expand(self, vars: Vec<(String, String)>) -> String {
+        vars.iter().for_each(|(key, value)| println!("{} = {}", key, value));
+        vars.into_iter()
+            .fold(self.remove_spaces().value, |acc, (key, value)| acc.replace(&key, &value))
+            .replace("{{", "")
+            .replace("}}", "")
     }
     /// Get variable name from a template string value
     pub fn get_variable(self) -> String {
@@ -450,10 +485,12 @@ impl StringTemplate {
                 | Ok(value) => value,
                 | _ => false,
             },
-            | Err(_) => false,
+            | _ => false,
         }
     }
     /// Remove spaces around variable name within a handlebars template
+    ///
+    /// Non-terminal method that provides builder interface and returns reference to self
     ///
     /// # Parameters
     /// - `value` - string that contains 0 or more handlebars templates
@@ -466,11 +503,13 @@ impl StringTemplate {
     /// remove_spaces("{{ variable   }}".to_owned()); // "{{variable}}"
     /// remove_spaces("{{variable}}".to_owned());     // "{{variable}}"
     /// ```
-    pub fn remove_spaces(value: String) -> String {
-        match Regex::new(StringTemplate::RE_SPACES) {
-            | Ok(re) => re.replace_all(&value, "").to_string(),
-            | Err(err) => err.to_string(),
-        }
+    pub fn remove_spaces(mut self) -> Self {
+        let updated = match Regex::new(StringTemplate::RE_SPACES) {
+            | Ok(re) => re.replace_all(&self.value, "").to_string(),
+            | _ => self.value,
+        };
+        self.value = updated;
+        self
     }
 }
 /// Add forward slash to end of folder path
