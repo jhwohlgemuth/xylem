@@ -404,6 +404,9 @@ impl<'a> Script {
     }
 }
 impl StringTemplate {
+    const RE_HANDLEBARS: &'static str = r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$";
+    const RE_SPACES: &'static str = r"((?<=\{\{) *(?=[A-Z])|(?<=[A-Z]) *(?=\}\}))";
+
     pub fn new(value: &str) -> StringTemplate {
         Self {
             value: value.to_string(),
@@ -412,7 +415,7 @@ impl StringTemplate {
     }
     /// Get variable name from a template string value
     pub fn get_variable(self) -> String {
-        match Regex::new(r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$") {
+        match Regex::new(StringTemplate::RE_HANDLEBARS) {
             | Ok(re) => match re.captures(&self.value) {
                 | Ok(Some(captures)) => captures["variable"].trim().to_string(),
                 | _ => "".to_string(),
@@ -442,7 +445,7 @@ impl StringTemplate {
     /// assert!(!is_handlebars("hello world"));
     /// ```
     pub fn is_handlebars(self) -> bool {
-        match Regex::new(r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$") {
+        match Regex::new(StringTemplate::RE_HANDLEBARS) {
             | Ok(re) => match re.is_match(&self.value) {
                 | Ok(value) => value,
                 | _ => false,
@@ -464,7 +467,7 @@ impl StringTemplate {
     /// remove_spaces("{{variable}}".to_owned());     // "{{variable}}"
     /// ```
     pub fn remove_spaces(value: String) -> String {
-        match Regex::new(r"((?<=\{\{) *(?=[A-Z])|(?<=[A-Z]) *(?=\}\}))") {
+        match Regex::new(StringTemplate::RE_SPACES) {
             | Ok(re) => re.replace_all(&value, "").to_string(),
             | Err(err) => err.to_string(),
         }
