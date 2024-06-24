@@ -442,7 +442,7 @@ impl StringTemplate {
     ///
     /// Non-terminal method that provides builder interface and returns reference to self
     pub fn expand(self, vars: Vec<(String, String)>) -> String {
-        vars.iter().for_each(|(key, value)| println!("{} = {}", key, value));
+        vars.iter().for_each(|(key, value)| debug!("{} = {}", key, value));
         vars.into_iter()
             .fold(self.remove_spaces().value, |acc, (key, value)| acc.replace(&key, &value))
             .replace("{{", "")

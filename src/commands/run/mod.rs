@@ -89,6 +89,7 @@ pub fn run(
             cfg.modules.iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { .. } => {}
                 | ModuleType::Script { .. } => {
+                    let command = "python".to_string();
                     let arguments = to_string(vec![
                         "-m",
                         "lib",
@@ -99,11 +100,12 @@ pub fn run(
                         "--answer",
                         "{{ ANSWER }}",
                     ]);
-                    let script = Script::new("python".to_string(), arguments);
+                    let script = Script::new(command, arguments).expand_arguments();
                     if dry_run {
-                        info!("=> [DRYRUN] Execute: {:?}", script.expand_arguments().to_string());
+                        info!("=> [DRYRUN] Execute: {:?}", script.to_string());
                         EnvironmentValue::print_all(PREFIX);
                     } else {
+                        // TODO: Set working directory to module directory
                         let working_dir = &root.to_string_lossy();
                         script.with_current_dir(working_dir).run();
                     }
