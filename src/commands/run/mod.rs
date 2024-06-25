@@ -43,6 +43,7 @@ pub fn run(
                         | HTTP | HTTPS => {
                             info!("Identified remote binary: {:?}", value);
                             // TODO: Download binary to temp directory
+                            unimplemented!()
                         }
                         | _ => unimplemented!(),
                     },
@@ -64,6 +65,7 @@ pub fn run(
                                 // TODO: Download/clone script repository to temp directory
                                 // TODO: Check script repository with is_valid_pipe_module_python
                                 // TODO: Create virtual environment
+                                unimplemented!()
                             }
                             | _ => unimplemented!(),
                         },
@@ -88,28 +90,38 @@ pub fn run(
             // Run workflow
             cfg.modules.iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { .. } => {}
-                | ModuleType::Script { .. } => {
-                    let command = "python".to_string();
-                    let arguments = to_string(vec![
-                        "-m",
-                        "lib",
-                        "--directory",
-                        "{{ INPUT_DIRECTORY }}",
-                        "--output",
-                        "{{ OUTPUT_DIRECTORY }}",
-                        "--answer",
-                        "{{ ANSWER }}",
-                    ]);
-                    let script = Script::new(command, arguments).expand_arguments();
-                    if dry_run {
-                        info!("=> [DRYRUN] Execute: {:?}", script.to_string());
-                        EnvironmentValue::print_all(PREFIX);
-                    } else {
-                        // TODO: Set working directory to module directory
-                        let working_dir = &root.to_string_lossy();
-                        script.with_current_dir(working_dir).run();
-                    }
-                }
+                | ModuleType::Script { programming_language, uri } => match programming_language {
+                    | ModuleLanguage::Python => {
+                        let working_dir = match ModuleUri::from(uri) {
+                            | ModuleUri::Url(_) => {
+                                // TODO: Set working directory to downloaded module directory
+                                // root.to_string_lossy().to_string()
+                                unimplemented!()
+                            }
+                            | ModuleUri::File(value) => value.into_os_string().into_string().unwrap(),
+                            | _ => unimplemented!(),
+                        };
+                        let command = "python".to_string();
+                        let arguments = to_string(vec![
+                            "-m",
+                            "lib",
+                            "--directory",
+                            "{{ INPUT_DIRECTORY }}",
+                            "--output",
+                            "{{ OUTPUT_DIRECTORY }}",
+                            "--name",
+                            "{{ NAME }}",
+                        ]);
+                        let script = Script::new(command, arguments).with_current_dir(&working_dir).expand_arguments();
+                        if dry_run {
+                            info!("=> [DRYRUN] Execute: {:?}", script.to_string());
+                            EnvironmentValue::print_all(PREFIX);
+                        } else {
+                            script.run();
+                        }
+                    },
+                    | _ => unimplemented!(),
+                },
                 | _ => unimplemented!(),
             });
         }

@@ -315,7 +315,7 @@ impl fmt::Display for ReporterType {
 }
 impl fmt::Display for Script {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.command.name, self.arguments.join(" "))
+        write!(f, "'{} {}' in {}", self.command.name, self.arguments.join(" "), self.current_dir)
     }
 }
 impl fmt::Display for SemanticVersion {
@@ -425,6 +425,30 @@ impl<'a> Script {
     /// Provides builder interface and returns reference to self
     pub fn with_current_dir(mut self, path: &str) -> Self {
         self.current_dir = path.to_string();
+        self
+    }
+    /// Set virtual environment for the script
+    /// 
+    /// Provides builder interface and returns reference to self
+    /// 
+    /// # Examples
+    /// 
+    /// For a given script,
+    /// ```
+    /// let script = Script::new("python".to_string(), vec!["-m".to_string(), "lib".to_string()]);
+    /// ```
+    /// 
+    /// Run with no virtual environment
+    /// ```
+    /// script.with_environment(None).run()
+    /// ```
+    /// 
+    /// Run using "module-a" Conda virtual environment (basically executes script with `conda run -n <name>`)
+    /// ```
+    /// script.with_environment(Some("module-a".to_string())).run()
+    /// ```
+    pub fn with_environment(mut self, name: Option<String>) -> Self {
+        self.command.conda_environment = name;
         self
     }
 }
