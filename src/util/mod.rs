@@ -414,6 +414,7 @@ impl<'a> Script {
     pub fn run(&'a self) -> process::Output {
         const ERROR_MESSAGE: &str = "[ERROR] => Failed to execute process";
         let current_dir = PathBuf::from(&self.current_dir);
+        // TODO: Add virtual environment support to script structure
         return process::Command::new(self.command.name.clone())
             .args(self.arguments.clone().iter())
             .current_dir(current_dir)

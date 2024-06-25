@@ -1,4 +1,4 @@
-use crate::util::{is_command, to_string, Command, Config, EnvironmentValue, ModuleLanguage, ModuleType, ModuleUri, Script, PREFIX};
+use crate::util::{is_command, read_file, to_string, Command, Config, EnvironmentValue, ModuleLanguage, ModuleType, ModuleUri, Script, PREFIX};
 use log::{error, info};
 use nanoid::nanoid;
 use serde::ser::StdError;
@@ -92,15 +92,6 @@ pub fn run(
                 | ModuleType::Binary { .. } => {}
                 | ModuleType::Script { programming_language, uri } => match programming_language {
                     | ModuleLanguage::Python => {
-                        let working_dir = match ModuleUri::from(uri) {
-                            | ModuleUri::Url(_) => {
-                                // TODO: Set working directory to downloaded module directory
-                                // root.to_string_lossy().to_string()
-                                unimplemented!()
-                            }
-                            | ModuleUri::File(value) => value.into_os_string().into_string().unwrap(),
-                            | _ => unimplemented!(),
-                        };
                         let command = "python".to_string();
                         let arguments = to_string(vec![
                             "-m",
@@ -112,7 +103,41 @@ pub fn run(
                             "--name",
                             "{{ NAME }}",
                         ]);
-                        let script = Script::new(command, arguments).with_current_dir(&working_dir).expand_arguments();
+                        let working_dir = match ModuleUri::from(uri) {
+                            | ModuleUri::Url(_) => {
+                                // TODO: Set working directory to downloaded module directory
+                                // root.to_string_lossy().to_string()
+                                unimplemented!()
+                            }
+                            | ModuleUri::File(value) => value.into_os_string().into_string().unwrap(),
+                            | _ => unimplemented!(),
+                        };
+                        let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
+                        let environment = match read_file(manifest_path) {
+                            | Ok(content) => {
+                                let name = content
+                                    .split('\n')
+                                    .collect::<Vec<_>>()
+                                    .clone()
+                                    .into_iter()
+                                    .next()
+                                    .unwrap()
+                                    .split("name: ")
+                                    .collect::<Vec<_>>()
+                                    .clone()
+                                    .into_iter()
+                                    .nth(1)
+                                    .unwrap()
+                                    .to_string();
+                                Some(name)
+                            }
+                            | _ => None,
+                        };
+                        println!("Environment: {:?}", environment);
+                        let script = Script::new(command, arguments)
+                            .expand_arguments()
+                            .with_current_dir(&working_dir)
+                            .with_environment(environment);
                         if dry_run {
                             info!("=> [DRYRUN] Execute: {:?}", script.to_string());
                             EnvironmentValue::print_all(PREFIX);

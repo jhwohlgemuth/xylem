@@ -1,0 +1,20 @@
+name: module-a
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - black=22.*
+  - gdal
+  - ipykernel=6.15.1
+  - numpy
+  - pandas
+  - pip=22.2.2
+  - polars
+  - py6s
+  - pytest=7.1.2
+  - pytest-cov=3.0.0
+  - python=3.8
+  - ruff
+  - tqdm=4.64.*
+  - pip:
+    - -r requirements.txt
