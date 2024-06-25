@@ -82,23 +82,23 @@ fn test_has_extension() {
 fn test_is_command() {
     let cargo: Command = Command {
         name: "cargo".to_string(),
-        conda_environment: None,
+        virtual_environment: None,
     };
     let nonexistent: Command = Command {
         name: "does-not-exist".to_string(),
-        conda_environment: None,
+        virtual_environment: None,
     };
     assert!(is_command(cargo));
     assert!(!is_command(nonexistent));
-    // Using conda environment
+    // Using conda virtual environment
     let conda: Command = Command {
         name: "conda".to_string(),
-        conda_environment: None,
+        virtual_environment: None,
     };
     if is_command(conda) {
         let python: Command = Command {
             name: "python".to_string(),
-            conda_environment: Some("base".to_string()),
+            virtual_environment: Some("base".to_string()),
         };
         assert!(is_command(python));
     }

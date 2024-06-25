@@ -30,7 +30,7 @@ pub fn run(
             cfg.requirements.iter().for_each(|name| {
                 let command = Command {
                     name: name.clone(),
-                    conda_environment: None,
+                    virtual_environment: None,
                 };
                 if !is_command(command) {
                     error!("Requirement not met. {:?} not found", name);
@@ -119,7 +119,7 @@ pub fn run(
                         } else {
                             script.run();
                         }
-                    },
+                    }
                     | _ => unimplemented!(),
                 },
                 | _ => unimplemented!(),

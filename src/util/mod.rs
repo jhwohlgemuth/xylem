@@ -119,7 +119,7 @@ pub enum TemplateType {
 #[derive(Clone, Debug)]
 pub struct Command {
     pub name: String,
-    pub conda_environment: Option<String>,
+    pub virtual_environment: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -350,7 +350,7 @@ impl<'a> Script {
         Self {
             command: Command {
                 name: command,
-                conda_environment: None,
+                virtual_environment: None,
             },
             arguments,
             current_dir: ".".to_string(),
@@ -428,27 +428,27 @@ impl<'a> Script {
         self
     }
     /// Set virtual environment for the script
-    /// 
+    ///
     /// Provides builder interface and returns reference to self
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// For a given script,
     /// ```
     /// let script = Script::new("python".to_string(), vec!["-m".to_string(), "lib".to_string()]);
     /// ```
-    /// 
+    ///
     /// Run with no virtual environment
     /// ```
     /// script.with_environment(None).run()
     /// ```
-    /// 
+    ///
     /// Run using "module-a" Conda virtual environment (basically executes script with `conda run -n <name>`)
     /// ```
     /// script.with_environment(Some("module-a".to_string())).run()
     /// ```
     pub fn with_environment(mut self, name: Option<String>) -> Self {
-        self.command.conda_environment = name;
+        self.command.virtual_environment = name;
         self
     }
 }
@@ -565,7 +565,7 @@ pub fn has_extension(extension: &str, path: &Path) -> bool {
 }
 /// Check if a command exists in current command line context
 ///
-/// Can also be used to check if a command exists within a [conda](https://conda.io/projects/conda/en/latest/user-guide/getting-started.html) environment
+/// Can also be used to check if a command exists within a [conda](https://conda.io/projects/conda/en/latest/user-guide/getting-started.html) virtual environment
 ///
 /// # Parameters
 /// - `value` - [Command] value to check
@@ -576,24 +576,24 @@ pub fn has_extension(extension: &str, path: &Path) -> bool {
 ///
 /// let command = Command {
 ///     name: "ls".to_owned(),
-///     conda_environment: None
+///     virtual_environment: None
 /// };
 /// assert!(is_command(command));
 ///
-/// // Using conda environment
+/// // Using conda virtual environment
 /// let command = Command {
 ///     name: "pip".to_owned(),
-///     conda_environment: Some("base".to_owned())
+///     virtual_environment: Some("base".to_owned())
 /// };
 /// assert!(is_command(command));
 /// ```
 pub fn is_command(value: Command) -> bool {
     let script = if cfg!(target_os = "windows") {
-        match value.conda_environment {
+        match value.virtual_environment {
             | Some(name) => {
                 let command = Command {
                     name: "conda".to_owned(),
-                    conda_environment: Some(name.clone()),
+                    virtual_environment: Some(name.clone()),
                 };
                 Script {
                     command,
@@ -604,18 +604,18 @@ pub fn is_command(value: Command) -> bool {
             | None => Script {
                 command: Command {
                     name: "pwsh".to_owned(),
-                    conda_environment: None,
+                    virtual_environment: None,
                 },
                 arguments: to_string(vec!["-NoProfile", "-Command", "command", &value.name]),
                 current_dir: ".".to_string(),
             },
         }
     } else {
-        match value.conda_environment {
+        match value.virtual_environment {
             | Some(name) => Script {
                 command: Command {
                     name: "conda".to_owned(),
-                    conda_environment: Some(name.clone()),
+                    virtual_environment: Some(name.clone()),
                 },
                 arguments: to_string(vec!["run", "--name", &name, "which", &value.name]),
                 current_dir: ".".to_string(),
@@ -623,7 +623,7 @@ pub fn is_command(value: Command) -> bool {
             | None => Script {
                 command: Command {
                     name: "which".to_owned(),
-                    conda_environment: None,
+                    virtual_environment: None,
                 },
                 arguments: vec![value.name],
                 current_dir: ".".to_string(),
