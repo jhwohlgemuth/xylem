@@ -1,4 +1,6 @@
-use crate::util::{is_command, read_file, to_string, Command, Config, EnvironmentValue, ModuleLanguage, ModuleType, ModuleUri, Script, PREFIX};
+use crate::util::{
+    get_conda_environment_name, is_command, to_string, Command, Config, EnvironmentValue, ModuleLanguage, ModuleType, ModuleUri, Script, PREFIX,
+};
 use log::{error, info};
 use nanoid::nanoid;
 use serde::ser::StdError;
@@ -113,27 +115,7 @@ pub fn run(
                             | _ => unimplemented!(),
                         };
                         let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
-                        let environment = match read_file(manifest_path) {
-                            | Ok(content) => {
-                                let name = content
-                                    .split('\n')
-                                    .collect::<Vec<_>>()
-                                    .clone()
-                                    .into_iter()
-                                    .next()
-                                    .unwrap()
-                                    .split("name: ")
-                                    .collect::<Vec<_>>()
-                                    .clone()
-                                    .into_iter()
-                                    .nth(1)
-                                    .unwrap()
-                                    .to_string();
-                                Some(name)
-                            }
-                            | _ => None,
-                        };
-                        println!("Environment: {:?}", environment);
+                        let environment = get_conda_environment_name(manifest_path);
                         let script = Script::new(command, arguments)
                             .expand_arguments()
                             .with_current_dir(&working_dir)

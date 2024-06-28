@@ -1,4 +1,4 @@
-name: module-a
+name: some-really-interesting-name
 channels:
   - conda-forge
   - defaults

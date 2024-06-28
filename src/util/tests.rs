@@ -63,6 +63,17 @@ fn test_details() {
 }
 
 #[test]
+fn test_get_conda_environment_name() {
+    let manifest_path = PathBuf::from("tests/fixtures/environment.yml");
+    assert_eq!(
+        get_conda_environment_name(manifest_path),
+        Some("some-really-interesting-name".to_string())
+    );
+    let manifest_path = PathBuf::from("/non/existing/manifest.yml");
+    assert_eq!(get_conda_environment_name(manifest_path), None);
+}
+
+#[test]
 fn test_get_parent() {
     assert_eq!(get_parent(PathBuf::from("foo/bar.json")), PathBuf::from("foo"));
 }
@@ -141,8 +152,20 @@ fn test_script_expand_arguments() {
     ]);
     let script = Script::new("python".to_string(), arguments);
     assert_eq!(
-        script.expand_arguments().arguments,
+        script.clone().expand_arguments().arguments,
         vec!["-m", "lib", "--input", "/path/to/input", "--output", "/path/to/output"]
+    );
+    let environment = "foo".to_string();
+    assert_eq!(
+        script.clone().expand_arguments().with_environment(Some(environment.clone())).to_string(),
+        format!(
+            "'conda run --name {} python -m lib --input /path/to/input --output /path/to/output' in .",
+            environment
+        )
+    );
+    assert_eq!(
+        script.clone().expand_arguments().with_environment(None).to_string(),
+        "'python -m lib --input /path/to/input --output /path/to/output' in ."
     );
 }
 

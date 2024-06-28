@@ -413,9 +413,9 @@ impl<'a> Script {
     /// Execute script in child process and wait for it to finish
     pub fn run(&'a self) -> process::Output {
         const ERROR_MESSAGE: &str = "[ERROR] => Failed to execute process";
+        let command = &self.command.name;
         let current_dir = PathBuf::from(&self.current_dir);
-        // TODO: Add virtual environment support to script structure
-        return process::Command::new(self.command.name.clone())
+        return process::Command::new(command)
             .args(self.arguments.clone().iter())
             .current_dir(current_dir)
             .output()
@@ -448,8 +448,15 @@ impl<'a> Script {
     /// ```
     /// script.with_environment(Some("module-a".to_string())).run()
     /// ```
-    pub fn with_environment(mut self, name: Option<String>) -> Self {
-        self.command.virtual_environment = name;
+    pub fn with_environment(mut self, environment: Option<String>) -> Self {
+        self.command.virtual_environment = environment.clone();
+        let command = match environment {
+            | Some(ref value) => {
+                format!("conda run --name {} {}", value, self.command.name)
+            }
+            | None => self.command.name.clone(),
+        };
+        self.command.name = command;
         self
     }
 }
@@ -543,6 +550,48 @@ pub fn add_forward_slash(path: PathBuf) -> PathBuf {
         PathBuf::from(format!("{}/", path.display()))
     } else {
         path.to_path_buf()
+    }
+}
+/// Get name of Conda virtual environment from manifest file
+/// 
+/// Not super sophisticated. "name" needs to be first line in environment.yml
+/// 
+/// Example:
+/// 
+/// `environment.yml`
+/// ```yaml
+/// name: module-a
+/// channels:
+///   - conda-forge
+///   - defaults
+/// dependencies:
+///   - pip
+///   - numpy
+/// ```
+/// 
+/// Get the environment name
+/// ```
+/// get_conda_environment_name(PathBuf::from("/path/to/environment.yml"))
+/// // Some("module-a")
+/// ```
+pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
+    match read_file(path) {
+        | Ok(content) => {
+            let name = content
+                .split('\n')
+                .collect::<Vec<_>>()
+                .clone()
+                .into_iter()
+                .next()?
+                .split("name: ")
+                .collect::<Vec<_>>()
+                .clone()
+                .into_iter()
+                .nth(1)?
+                .to_string();
+            Some(name)
+        }
+        | _ => None,
     }
 }
 /// Get parent of a file/folder path
