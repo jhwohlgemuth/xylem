@@ -180,7 +180,7 @@ fn test_script_from_template() {
     // "exec" format arguments
     let path = PathBuf::from("tests/fixtures/template_exec.json");
     let script = Script::from_template(path);
-    assert_eq!(script.command.name, "python");
+    assert_eq!(script.command.name, "conda run --name base python");
     assert_eq!(script.arguments, expected_value);
 }
 

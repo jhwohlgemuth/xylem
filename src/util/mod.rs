@@ -409,7 +409,8 @@ impl<'a> Script {
                 .map(|value| StringTemplate::new(&value).remove_spaces().value)
                 .collect(),
         };
-        Script::new(template.command, arguments)
+        let environment = template.environment;
+        Script::new(template.command, arguments).with_environment(environment)
     }
     /// Execute script in child process and wait for it to finish
     pub fn run(&'a self) -> process::Output {
