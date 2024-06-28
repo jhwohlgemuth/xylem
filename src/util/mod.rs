@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![allow(clippy::large_enum_variant)]
+#![allow(clippy::wrong_self_convention)]
 use clap::ValueEnum;
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
@@ -553,11 +554,11 @@ pub fn add_forward_slash(path: PathBuf) -> PathBuf {
     }
 }
 /// Get name of Conda virtual environment from manifest file
-/// 
+///
 /// Not super sophisticated. "name" needs to be first line in environment.yml
-/// 
+///
 /// Example:
-/// 
+///
 /// `environment.yml`
 /// ```yaml
 /// name: module-a
@@ -568,7 +569,7 @@ pub fn add_forward_slash(path: PathBuf) -> PathBuf {
 ///   - pip
 ///   - numpy
 /// ```
-/// 
+///
 /// Get the environment name
 /// ```
 /// get_conda_environment_name(PathBuf::from("/path/to/environment.yml"))

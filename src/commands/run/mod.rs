@@ -22,7 +22,7 @@ pub fn run(
     };
     let config_path = match config {
         | Some(value) => value.to_path_buf(),
-        | None => PathBuf::from(default_config),
+        | None => default_config,
     };
     let cfg = Config::read_json(config_path);
     match cfg {
@@ -94,17 +94,6 @@ pub fn run(
                 | ModuleType::Binary { .. } => {}
                 | ModuleType::Script { programming_language, uri } => match programming_language {
                     | ModuleLanguage::Python => {
-                        let command = "python".to_string();
-                        let arguments = to_string(vec![
-                            "-m",
-                            "lib",
-                            "--directory",
-                            "{{ INPUT_DIRECTORY }}",
-                            "--output",
-                            "{{ OUTPUT_DIRECTORY }}",
-                            "--name",
-                            "{{ NAME }}",
-                        ]);
                         let working_dir = match ModuleUri::from(uri) {
                             | ModuleUri::Url(_) => {
                                 // TODO: Set working directory to downloaded module directory
@@ -115,11 +104,24 @@ pub fn run(
                             | _ => unimplemented!(),
                         };
                         let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
+                        let template_path = PathBuf::from(&working_dir).join("template.json");
+                        let loaded = match template_path.try_exists() {
+                            | Ok(true) => Script::from_template(template_path),
+                            | _ => {
+                                let command = "python".to_string();
+                                let arguments = to_string(vec![
+                                    "-m",
+                                    "lib",
+                                    "--directory",
+                                    "{{ INPUT_DIRECTORY }}",
+                                    "--output",
+                                    "{{ OUTPUT_DIRECTORY }}",
+                                ]);
+                                Script::new(command, arguments)
+                            }
+                        };
                         let environment = get_conda_environment_name(manifest_path);
-                        let script = Script::new(command, arguments)
-                            .expand_arguments()
-                            .with_current_dir(&working_dir)
-                            .with_environment(environment);
+                        let script = loaded.expand_arguments().with_current_dir(&working_dir).with_environment(environment);
                         if dry_run {
                             info!("=> [DRYRUN] Execute: {:?}", script.to_string());
                             EnvironmentValue::print_all(PREFIX);
