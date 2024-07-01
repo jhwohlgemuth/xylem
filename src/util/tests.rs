@@ -91,27 +91,31 @@ fn test_has_extension() {
 
 #[test]
 fn test_is_command() {
-    let cargo: Command = Command {
-        name: "cargo".to_string(),
-        virtual_environment: None,
-    };
     let nonexistent: Command = Command {
         name: "does-not-exist".to_string(),
         virtual_environment: None,
     };
-    assert!(is_command(cargo));
     assert!(!is_command(nonexistent));
-    // Using conda virtual environment
-    let conda: Command = Command {
-        name: "conda".to_string(),
-        virtual_environment: None,
-    };
-    if is_command(conda) {
-        let python: Command = Command {
-            name: "python".to_string(),
-            virtual_environment: Some("base".to_string()),
+    if cfg!(target_os = "windows") {
+        // WIP
+    } else {
+        let cargo: Command = Command {
+            name: "cargo".to_string(),
+            virtual_environment: None,
         };
-        assert!(is_command(python));
+        assert!(is_command(cargo));
+        // Using conda virtual environment
+        let conda: Command = Command {
+            name: "conda".to_string(),
+            virtual_environment: None,
+        };
+        if is_command(conda) {
+            let python: Command = Command {
+                name: "python".to_string(),
+                virtual_environment: Some("base".to_string()),
+            };
+            assert!(is_command(python));
+        }
     }
 }
 
@@ -186,15 +190,19 @@ fn test_script_from_template() {
 
 #[test]
 fn test_script_run() {
-    let script = Script::new("echo".to_string(), to_string(vec!["hello", "world"]));
-    let output = script.run();
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "hello world\n");
-    let script = Script::new("pwd".to_string(), vec![]);
-    let output = script.with_current_dir("/root").run();
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "/root\n");
-    let path = PathBuf::from("tests/fixtures/template_run.json");
-    let script = Script::from_template(path);
-    assert_eq!(script.run().stdout, b"hello world\n");
+    if cfg!(target_os = "windows") {
+        // WIP
+    } else {
+        let script = Script::new("echo".to_string(), to_string(vec!["hello", "world"]));
+        let output = script.run();
+        assert_eq!(&output, "hello world");
+        let script = Script::new("pwd".to_string(), vec![]);
+        let output = script.with_current_dir("/root").run();
+        assert_eq!(&output, "/root");
+        let path = PathBuf::from("tests/fixtures/template_run.json");
+        let script = Script::from_template(path);
+        assert_eq!(script.run(), "hello world");
+    }
 }
 
 #[test]

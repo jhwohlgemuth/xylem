@@ -413,15 +413,18 @@ impl<'a> Script {
         Script::new(template.command, arguments).with_environment(environment)
     }
     /// Execute script in child process and wait for it to finish
-    pub fn run(&'a self) -> process::Output {
+    pub fn run(&'a self) -> String {
         const ERROR_MESSAGE: &str = "[ERROR] => Failed to execute process";
         let command = &self.command.name;
         let current_dir = PathBuf::from(&self.current_dir);
-        return process::Command::new(command)
+        let output = process::Command::new(command)
             .args(self.arguments.clone().iter())
             .current_dir(current_dir)
-            .output()
-            .expect(ERROR_MESSAGE);
+            .output();
+        match output {
+            | Ok(value) if !value.stdout.is_empty() => String::from_utf8_lossy(&value.stdout).trim().to_string(),
+            | _ => "".to_string(),
+        }
     }
     /// Set current working directory for the script
     ///
@@ -683,13 +686,15 @@ pub fn is_command(value: Command) -> bool {
         }
     };
     let output = script.run();
-    match output {
-        | process::Output { stdout, .. } if !stdout.is_empty() => {
-            let path = String::from_utf8_lossy(&stdout);
-            debug!("Command found at {:?}", path.trim());
-            return PathBuf::from(path.trim()).exists();
+    match PathBuf::from(output.clone()).try_exists() {
+        | Ok(true) => {
+            debug!("Command found at {:?}", output);
+            true
         }
-        | _ => false,
+        | _ => {
+            debug!("Command NOT found at {:?}", output);
+            false
+        }
     }
 }
 /// Check if stdin is piped
