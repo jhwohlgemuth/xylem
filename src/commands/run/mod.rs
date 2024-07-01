@@ -104,7 +104,10 @@ pub fn run(
                             | _ => unimplemented!(),
                         };
                         let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
-                        let template_path = PathBuf::from(&working_dir).join("template.json");
+                        let template_path = match &module.template {
+                            | Some(value) => PathBuf::from(&working_dir).join(value),
+                            | None => PathBuf::from(&working_dir).join("template.json"),
+                        };
                         let loaded = match template_path.try_exists() {
                             | Ok(true) => Script::from_template(template_path),
                             | _ => {

@@ -152,7 +152,7 @@ pub struct Module {
     variables: Option<Map<String, Value>>,
     before_script: Option<Instruction>,
     after_script: Option<Instruction>,
-    template: Option<String>,
+    pub template: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Parameters {
