@@ -119,6 +119,7 @@ pub enum TemplateType {
 }
 #[derive(Clone, Debug)]
 pub struct Command {
+    pub modifier: Option<String>,
     pub name: String,
     pub virtual_environment: Option<String>,
 }
@@ -350,6 +351,7 @@ impl<'a> Script {
     pub fn new(command: String, arguments: Vec<String>) -> Script {
         Self {
             command: Command {
+                modifier: None,
                 name: command,
                 virtual_environment: None,
             },
@@ -415,7 +417,10 @@ impl<'a> Script {
     /// Execute script in child process and wait for it to finish
     pub fn run(&'a self) -> String {
         const ERROR_MESSAGE: &str = "[ERROR] => Failed to execute process";
-        let command = &self.command.name;
+        let command = match &self.command.modifier {
+            | Some(modifier) => format!("{} {}", modifier, &self.command.name),
+            | None => self.command.name.clone(),
+        };
         let current_dir = PathBuf::from(&self.current_dir);
         let output = process::Command::new(command)
             .args(self.arguments.clone().iter())
@@ -455,13 +460,13 @@ impl<'a> Script {
     /// ```
     pub fn with_environment(mut self, environment: Option<String>) -> Self {
         self.command.virtual_environment = environment.clone();
-        let command = match environment {
-            | Some(ref value) => {
-                format!("conda run --name {} {}", value, self.command.name)
+        let modifier = match environment {
+            | Some(value) => {
+                Some(format!("conda run --name {}", value))
             }
-            | None => self.command.name.clone(),
+            | None => None,
         };
-        self.command.name = command;
+        self.command.modifier = modifier;
         self
     }
 }
@@ -647,6 +652,7 @@ pub fn is_command(value: Command) -> bool {
         match value.virtual_environment {
             | Some(name) => {
                 let command = Command {
+                    modifier: None,
                     name: "conda".to_owned(),
                     virtual_environment: Some(name.clone()),
                 };
@@ -658,6 +664,7 @@ pub fn is_command(value: Command) -> bool {
             }
             | None => Script {
                 command: Command {
+                    modifier: None,
                     name: "pwsh".to_owned(),
                     virtual_environment: None,
                 },
@@ -669,6 +676,7 @@ pub fn is_command(value: Command) -> bool {
         match value.virtual_environment {
             | Some(name) => Script {
                 command: Command {
+                    modifier: None,
                     name: "conda".to_owned(),
                     virtual_environment: Some(name.clone()),
                 },
@@ -677,6 +685,7 @@ pub fn is_command(value: Command) -> bool {
             },
             | None => Script {
                 command: Command {
+                    modifier: None,
                     name: "which".to_owned(),
                     virtual_environment: None,
                 },

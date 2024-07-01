@@ -31,6 +31,7 @@ pub fn run(
             // Check requirements
             cfg.requirements.iter().for_each(|name| {
                 let command = Command {
+                    modifier: None,
                     name: name.clone(),
                     virtual_environment: None,
                 };
