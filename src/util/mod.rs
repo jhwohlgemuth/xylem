@@ -248,7 +248,7 @@ impl Config {
             }
         };
         let json: serde_json::Result<Config> = serde_json::from_str(&content);
-        debug!("Imported config: {:?}", json);
+        debug!("Imported config: {:#?}", json);
         json
     }
     /// Set environment variables from PIPE configuration "variables" attribute
@@ -466,7 +466,7 @@ impl<'a> Script {
     /// script.with_environment(Some("module-a".to_string())).run()
     /// ```
     pub fn with_environment(mut self, environment: Option<String>) -> Self {
-        self.command.virtual_environment = environment.clone();
+        self.command.virtual_environment.clone_from(&environment);
         let modifier = match environment {
             | Some(value) => format!("conda run --name {} ", value),
             | None => "".to_string(),
@@ -741,6 +741,8 @@ pub fn is_stdout_piped() -> StdoutIsPipedResult {
 }
 /// Read content of a file to a string
 ///
+/// Fails when the file cannot be found or read
+///
 /// # Examples
 /// ```
 /// use std::path::PathBuf;
@@ -756,7 +758,7 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
             file.read_to_string(&mut content)
         }
         | Err(err) => {
-            error!("Failed to read file: {:?}", path);
+            debug!("Failed to read file: {:?}", path);
             Err(err)
         }
     };

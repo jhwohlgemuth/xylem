@@ -27,7 +27,6 @@ pub fn run(
     let cfg = Config::read_json(config_path);
     match cfg {
         | Ok(cfg) => {
-            info!("=> [INFO] Loaded config:{:?}", cfg);
             // Check requirements
             cfg.requirements.iter().for_each(|name| {
                 let command = Command {
@@ -124,12 +123,17 @@ pub fn run(
                                 Script::new(command, arguments)
                             }
                         };
-                        // TODO: Make check for environment optional
-                        let environment = get_conda_environment_name(manifest_path);
+                        let environment = match get_conda_environment_name(manifest_path) {
+                            | Some(value) => Some(value),
+                            | None => match &module.template {
+                                | Some(_) => loaded.clone().command.virtual_environment,
+                                | None => None,
+                            },
+                        };
                         let script = loaded.expand_arguments().with_current_dir(&working_dir).with_environment(environment);
                         if dry_run {
-                            info!("=> [DRYRUN] Execute: {:?}", script.to_string());
                             EnvironmentValue::print_all(PREFIX);
+                            info!("=> [DRYRUN] Execute: {:?}", script.to_string());
                         } else {
                             script.run();
                         }
@@ -141,7 +145,7 @@ pub fn run(
         }
         | Err(err) => error!("{:?}", err),
     };
-    println!("ID: {:?}, Root: {:?}", id, root);
+    info!("ID: {:?}, Root: {:#?}", id, root);
     Ok(())
 }
 
