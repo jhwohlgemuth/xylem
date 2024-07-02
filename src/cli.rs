@@ -3,11 +3,12 @@ use clap_verbosity_flag::Verbosity;
 
 /// Multi-tool for verifying myriad aspects of data processing pipelines
 ///
-/// ██████  ██ ██████  ███████
-/// ██   ██ ██ ██   ██ ██
-/// ██████  ██ ██████  █████
-/// ██      ██ ██      ██
-/// ██      ██ ██      ███████
+/// ███████  ██  ███████  ███████
+/// ██   ██  ██  ██   ██  ██
+/// ███████████████████████████
+/// ██       ██  ██       ██
+/// ██       ██  ██       ███████
+/// Parallel Integration & Processing Engine
 ///
 #[derive(Debug, Parser)]
 #[command(author, version, about, verbatim_doc_comment)]
