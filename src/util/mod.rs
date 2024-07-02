@@ -70,25 +70,25 @@ pub enum ModuleLanguage {
     Rust,
 }
 /// Designates module type which specifies necessary attributes
-/// 
+///
 /// URIs can be absolute or relative file paths or URLs.
-/// 
+///
 /// Examples:
-/// 
+///
 /// Absolute file path
 /// ```json
 /// "modules": {
 ///   "uri": "file:///root/dev/module-a"
 /// }
 /// ```
-/// 
+///
 /// Relative file path
 /// ```json
 /// "modules": {
 ///   "uri": "file:./module-a"
 /// }
 /// ```
-/// 
+///
 /// URL
 /// ```json
 /// "modules": {
@@ -367,6 +367,17 @@ impl ModuleUri<'_> {
                 | _ => ModuleUri::Unknown,
             },
             | Err(_) => ModuleUri::Unknown,
+        }
+    }
+    pub fn working_directory(&self, _root: Option<PathBuf>) -> String {
+        match self {
+            | ModuleUri::Url(_) => {
+                // TODO: Set working directory to downloaded module directory
+                // root.to_string_lossy().to_string()
+                unimplemented!()
+            }
+            | ModuleUri::File(value) => value.clone().into_os_string().into_string().unwrap(),
+            | _ => unimplemented!(),
         }
     }
 }

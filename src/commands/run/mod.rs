@@ -94,15 +94,7 @@ pub fn run(
                 | ModuleType::Binary { .. } => {}
                 | ModuleType::Script { programming_language, uri } => match programming_language {
                     | ModuleLanguage::Python => {
-                        let working_dir = match ModuleUri::from(uri) {
-                            | ModuleUri::Url(_) => {
-                                // TODO: Set working directory to downloaded module directory
-                                // root.to_string_lossy().to_string()
-                                unimplemented!()
-                            }
-                            | ModuleUri::File(value) => value.into_os_string().into_string().unwrap(),
-                            | _ => unimplemented!(),
-                        };
+                        let working_dir = ModuleUri::from(uri).working_directory(None);
                         let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
                         let template_path = match &module.template {
                             | Some(value) => PathBuf::from(&working_dir).join(value),
