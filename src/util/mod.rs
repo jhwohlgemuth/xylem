@@ -119,7 +119,7 @@ pub enum TemplateType {
 }
 #[derive(Clone, Debug)]
 pub struct Command {
-    pub modifier: Option<String>,
+    pub modifier: String,
     pub name: String,
     pub virtual_environment: Option<String>,
 }
@@ -317,7 +317,14 @@ impl fmt::Display for ReporterType {
 }
 impl fmt::Display for Script {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "'{} {}' in {}", self.command.name, self.arguments.join(" "), self.current_dir)
+        write!(
+            f,
+            "'{}{} {}' in {}",
+            self.command.modifier,
+            self.command.name,
+            self.arguments.join(" "),
+            self.current_dir
+        )
     }
 }
 impl fmt::Display for SemanticVersion {
@@ -351,7 +358,7 @@ impl<'a> Script {
     pub fn new(command: String, arguments: Vec<String>) -> Script {
         Self {
             command: Command {
-                modifier: None,
+                modifier: "".to_string(),
                 name: command,
                 virtual_environment: None,
             },
@@ -417,9 +424,9 @@ impl<'a> Script {
     /// Execute script in child process and wait for it to finish
     pub fn run(&'a self) -> String {
         const ERROR_MESSAGE: &str = "[ERROR] => Failed to execute process";
-        let command = match &self.command.modifier {
-            | Some(modifier) => format!("{} {}", modifier, &self.command.name),
-            | None => self.command.name.clone(),
+        let command = match &self.command.virtual_environment {
+            | Some(_) => format!("{}{}", &self.command.modifier, &self.command.name),
+            | _ => self.command.name.clone(),
         };
         let current_dir = PathBuf::from(&self.current_dir);
         let output = process::Command::new(command)
@@ -461,10 +468,8 @@ impl<'a> Script {
     pub fn with_environment(mut self, environment: Option<String>) -> Self {
         self.command.virtual_environment = environment.clone();
         let modifier = match environment {
-            | Some(value) => {
-                Some(format!("conda run --name {}", value))
-            }
-            | None => None,
+            | Some(value) => format!("conda run --name {} ", value),
+            | None => "".to_string(),
         };
         self.command.modifier = modifier;
         self
@@ -652,7 +657,7 @@ pub fn is_command(value: Command) -> bool {
         match value.virtual_environment {
             | Some(name) => {
                 let command = Command {
-                    modifier: None,
+                    modifier: "".to_string(),
                     name: "conda".to_owned(),
                     virtual_environment: Some(name.clone()),
                 };
@@ -664,7 +669,7 @@ pub fn is_command(value: Command) -> bool {
             }
             | None => Script {
                 command: Command {
-                    modifier: None,
+                    modifier: "".to_string(),
                     name: "pwsh".to_owned(),
                     virtual_environment: None,
                 },
@@ -676,7 +681,7 @@ pub fn is_command(value: Command) -> bool {
         match value.virtual_environment {
             | Some(name) => Script {
                 command: Command {
-                    modifier: None,
+                    modifier: "".to_string(),
                     name: "conda".to_owned(),
                     virtual_environment: Some(name.clone()),
                 },
@@ -685,7 +690,7 @@ pub fn is_command(value: Command) -> bool {
             },
             | None => Script {
                 command: Command {
-                    modifier: None,
+                    modifier: "".to_string(),
                     name: "which".to_owned(),
                     virtual_environment: None,
                 },

@@ -1,4 +1,4 @@
 {
     "command": "python",
-    "arguments": "-m lib --input {{ INPUT_DIRECTORY }} --output {{OUTPUT_DIRECTORY}}"
+    "arguments": "-m lib --input {{ INPUT_DIRECTORY }} --output {{ OUTPUT_DIRECTORY }}"
 }

@@ -7,6 +7,6 @@
         "--input",
         "{{ INPUT_DIRECTORY }}",
         "--output",
-        "{{OUTPUT_DIRECTORY}}"
+        "{{ OUTPUT_DIRECTORY }}"
     ]
 }

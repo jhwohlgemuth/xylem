@@ -31,7 +31,7 @@ pub fn run(
             // Check requirements
             cfg.requirements.iter().for_each(|name| {
                 let command = Command {
-                    modifier: None,
+                    modifier: "".to_string(),
                     name: name.clone(),
                     virtual_environment: None,
                 };
@@ -124,6 +124,7 @@ pub fn run(
                                 Script::new(command, arguments)
                             }
                         };
+                        // TODO: Make check for environment optional
                         let environment = get_conda_environment_name(manifest_path);
                         let script = loaded.expand_arguments().with_current_dir(&working_dir).with_environment(environment);
                         if dry_run {
