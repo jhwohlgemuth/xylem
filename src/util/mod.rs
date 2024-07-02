@@ -69,6 +69,32 @@ pub enum ModuleLanguage {
     Python,
     Rust,
 }
+/// Designates module type which specifies necessary attributes
+/// 
+/// URIs can be absolute or relative file paths or URLs.
+/// 
+/// Examples:
+/// 
+/// Absolute file path
+/// ```json
+/// "modules": {
+///   "uri": "file:///root/dev/module-a"
+/// }
+/// ```
+/// 
+/// Relative file path
+/// ```json
+/// "modules": {
+///   "uri": "file:./module-a"
+/// }
+/// ```
+/// 
+/// URL
+/// ```json
+/// "modules": {
+///   "uri": "https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
+/// }
+/// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ModuleType {
