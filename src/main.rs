@@ -1,4 +1,3 @@
-//! Command line (multi)tool for parameterized validation of folder structure and file content
 use clap::Parser;
 use dotenv::dotenv;
 use env_logger::Env;
