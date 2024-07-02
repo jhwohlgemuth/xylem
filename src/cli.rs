@@ -1,8 +1,19 @@
 use clap::{Parser, Subcommand};
+use clap_verbosity_flag::Verbosity;
 
+/// Multi-tool for verifying myriad aspects of data processing pipelines
+///
+/// ██████  ██ ██████  ███████
+/// ██   ██ ██ ██   ██ ██
+/// ██████  ██ ██████  █████
+/// ██      ██ ██      ██
+/// ██      ██ ██      ███████
+///
 #[derive(Debug, Parser)]
 #[command(author, version, about, verbatim_doc_comment)]
 pub struct Arguments {
+    #[command(flatten)]
+    pub verbose: Verbosity,
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
