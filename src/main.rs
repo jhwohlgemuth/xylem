@@ -11,13 +11,13 @@ use cli::{Arguments, Commands};
 use util::Void;
 
 // Environment variables
-const PIPE_LOG_LEVEL: &str = "PIPE_LOG_LEVEL";
-const PIPE_LOG_STYLE: &str = "PIPE_LOG_STYLE";
+const LOG_LEVEL: &str = "PIPE_LOG_LEVEL";
+const LOG_STYLE: &str = "PIPE_LOG_STYLE";
 fn main() -> Void {
     let args = Arguments::parse();
     match dotenv() {
-        | Ok(_) if !dotenv::var(PIPE_LOG_LEVEL).unwrap_or_default().is_empty() => {
-            let env = Env::default().filter_or(PIPE_LOG_LEVEL, "error").write_style_or(PIPE_LOG_STYLE, "always");
+        | Ok(_) if !dotenv::var(LOG_LEVEL).unwrap_or_default().is_empty() => {
+            let env = Env::default().filter_or(LOG_LEVEL, "error").write_style_or(LOG_STYLE, "always");
             env_logger::init_from_env(env);
         }
         | _ => {
