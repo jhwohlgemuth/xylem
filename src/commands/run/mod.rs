@@ -3,7 +3,7 @@ use crate::util::{
 };
 use log::{error, info};
 use nanoid::nanoid;
-use rayon::prelude::*;
+// use rayon::prelude::*;
 use serde::ser::StdError;
 use std::env;
 use std::path::PathBuf;
@@ -111,7 +111,7 @@ pub fn run(
             // Set envionment variables
             let _ = cfg.set_environment_variables();
             // Run workflow
-            cfg.modules.par_iter().for_each(|module| match &module.module_type {
+            cfg.modules.iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { .. } => {}
                 | ModuleType::Script { programming_language, uri } => match programming_language {
                     | ModuleLanguage::Python => {
