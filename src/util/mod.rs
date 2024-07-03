@@ -146,9 +146,9 @@ pub enum TemplateType {
 #[derive(Clone, Debug)]
 pub struct Command {
     /// Prefix string to modify command string
-    /// 
+    ///
     /// This is commonly usef when running a command within a virtual environment like Conda
-    /// 
+    ///
     /// Example:
     /// ```text
     /// "conda run --name base "
