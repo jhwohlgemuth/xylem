@@ -3,6 +3,7 @@ use crate::util::{
 };
 use log::{error, info};
 use nanoid::nanoid;
+use rayon::prelude::*;
 use serde::ser::StdError;
 use std::env;
 use std::path::PathBuf;
@@ -75,20 +76,26 @@ pub fn run(
                             | Ok(true) => {
                                 info!("Found local script module: {:?}", value);
                                 // TODO: Check script repository with is_valid_pipe_module_python
-                                let mamba = Command {
-                                    modifier: "".to_string(),
-                                    name: "mamba".to_string(),
-                                    virtual_environment: None,
-                                };
-                                let working_dir = ModuleUri::from(uri).working_directory(None);
-                                let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
-                                let command = (if is_command(mamba) { "mamba" } else { "conda" }).to_string();
-                                let arguments = to_string(vec!["env", "create", "-f", &manifest_path.to_string_lossy()]);
-                                let script = Script::new(command, arguments).with_current_dir(&working_dir);
-                                if dry_run {
-                                    println!("{}", script);
+                                // TODO: Check if environment exists
+                                let test_environment = false;
+                                if test_environment {
+                                    unimplemented!();
                                 } else {
-                                    script.run();
+                                    let mamba = Command {
+                                        modifier: "".to_string(),
+                                        name: "mamba".to_string(),
+                                        virtual_environment: None,
+                                    };
+                                    let working_dir = ModuleUri::from(uri).working_directory(None);
+                                    let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
+                                    let command = (if is_command(mamba) { "mamba" } else { "conda" }).to_string();
+                                    let arguments = to_string(vec!["env", "create", "-f", &manifest_path.to_string_lossy()]);
+                                    let script = Script::new(command, arguments).with_current_dir(&working_dir);
+                                    if dry_run {
+                                        info!("=> [DRYRUN] Execute: {:?}", script.to_string());
+                                    } else {
+                                        script.run();
+                                    }
                                 }
                             }
                             | _ => {
@@ -104,7 +111,7 @@ pub fn run(
             // Set envionment variables
             let _ = cfg.set_environment_variables();
             // Run workflow
-            cfg.modules.iter().for_each(|module| match &module.module_type {
+            cfg.modules.par_iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { .. } => {}
                 | ModuleType::Script { programming_language, uri } => match programming_language {
                     | ModuleLanguage::Python => {
