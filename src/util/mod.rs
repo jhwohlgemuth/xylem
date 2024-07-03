@@ -145,6 +145,14 @@ pub enum TemplateType {
 }
 #[derive(Clone, Debug)]
 pub struct Command {
+    /// Prefix string to modify command string
+    /// 
+    /// This is commonly usef when running a command within a virtual environment like Conda
+    /// 
+    /// Example:
+    /// ```text
+    /// "conda run --name base "
+    /// ```
     pub modifier: String,
     pub name: String,
     pub virtual_environment: Option<String>,
@@ -377,7 +385,7 @@ impl ModuleUri<'_> {
                 unimplemented!()
             }
             | ModuleUri::File(value) => value.clone().into_os_string().into_string().unwrap(),
-            | _ => unimplemented!(),
+            | ModuleUri::Unknown => unimplemented!(),
         }
     }
 }

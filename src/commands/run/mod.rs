@@ -76,6 +76,21 @@ pub fn run(
                                 info!("Found local script module: {:?}", value);
                                 // TODO: Check script repository with is_valid_pipe_module_python
                                 // TODO: Create virtual environment
+                                let mamba = Command {
+                                    modifier: "".to_string(),
+                                    name: "mamba".to_string(),
+                                    virtual_environment: None,
+                                };
+                                let working_dir = ModuleUri::from(uri).working_directory(None);
+                                let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
+                                let command = if is_command(mamba) {
+                                    "mamba".to_string()
+                                } else {
+                                    "conda".to_string()
+                                };
+                                let arguments = to_string(vec!["env", "create", "-f", &manifest_path.to_string_lossy()]);
+                                let install = Script::new(command, arguments).with_current_dir(&working_dir);
+                                println!("{}", install);
                             }
                             | _ => {
                                 error!("Unable to find local script module: {:?}", value);
