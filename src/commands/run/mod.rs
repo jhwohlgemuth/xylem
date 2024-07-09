@@ -1,5 +1,6 @@
 use crate::util::{
-    get_conda_environment_name, is_command, to_string, Command, Config, EnvironmentValue, ModuleLanguage, ModuleType, ModuleUri, Script, PREFIX,
+    create_conda_environment, get_conda_environment_name, is_command, to_string, Command, Config, EnvironmentValue, ModuleLanguage, ModuleType,
+    ModuleUri, Script, PREFIX,
 };
 use log::{error, info};
 use nanoid::nanoid;
@@ -74,32 +75,11 @@ pub fn run(
                         },
                         | ModuleUri::File(value) => match value.try_exists() {
                             | Ok(true) => {
-                                info!("Found local script module: {:?}", value);
                                 // TODO: Check script repository with is_valid_pipe_module_python
-                                // TODO: Check if environment exists
-                                let test_environment = false;
-                                if test_environment {
-                                    unimplemented!();
-                                } else {
-                                    let mamba = Command {
-                                        modifier: "".to_string(),
-                                        name: "mamba".to_string(),
-                                        virtual_environment: None,
-                                    };
-                                    let working_dir = ModuleUri::from(uri).working_directory(None);
-                                    let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
-                                    let command = (if is_command(mamba) { "mamba" } else { "conda" }).to_string();
-                                    let arguments = to_string(vec!["env", "create", "-f", &manifest_path.to_string_lossy()]);
-                                    let script = Script::new(command, arguments).with_current_dir(&working_dir);
-                                    if dry_run {
-                                        info!("=> [DRYRUN] Execute: {:?}", script.to_string());
-                                    } else {
-                                        script.run();
-                                    }
-                                }
+                                create_conda_environment(uri, dry_run);
                             }
                             | _ => {
-                                error!("Unable to find local script module: {:?}", value);
+                                error!("Unable to find script module: {:?}", value);
                             }
                         },
                         | _ => unimplemented!(),
@@ -148,7 +128,7 @@ pub fn run(
                             EnvironmentValue::print_all(PREFIX);
                             info!("=> [DRYRUN] Execute: {:?}", script.to_string());
                         } else {
-                            script.run();
+                            // script.run();
                         }
                     }
                     | _ => unimplemented!(),

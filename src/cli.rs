@@ -76,11 +76,13 @@ pub enum Commands {
         #[arg(short = 'f', long = "fix", value_name = "BOOL")]
         fix: bool,
     },
-    /// Execute module(s)
+    /// Run workflow using configuration file
     ///
-    ///     $> pipe run --config /path/to/config
+    ///     Run with INFO logging level, loads config.json from current directory
+    ///     $> pipe run -vv
     ///
-    ///     $> pipe check /path/to/module/code --reporter json console
+    ///     Perform dry run using configuration file at /path/to/config.json
+    ///     $> pipe run --config /path/to/config --dry-run
     ///
     #[clap(verbatim_doc_comment)]
     Run {

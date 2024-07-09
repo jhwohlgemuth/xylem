@@ -468,7 +468,7 @@ impl<'a> Script {
     }
     /// Execute script in child process and wait for it to finish
     pub fn run(&'a self) -> String {
-        const ERROR_MESSAGE: &str = "[ERROR] => Failed to execute process";
+        const ERROR_MESSAGE: &str = "=> [ERROR] Failed to execute process";
         let command = match &self.command.virtual_environment {
             | Some(_) => format!("{}{}", &self.command.modifier, &self.command.name),
             | _ => self.command.name.clone(),
@@ -611,6 +611,55 @@ pub fn add_forward_slash(path: PathBuf) -> PathBuf {
     } else {
         path.to_path_buf()
     }
+}
+/// Create Conda environment from an environment.yml file
+pub fn create_conda_environment(uri: &str, dry_run: bool) {
+    let working_dir = ModuleUri::from(uri).working_directory(None);
+    let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
+    match manifest_path.try_exists() {
+        | Ok(true) => {
+            info!("Found manifest file: {:?}", manifest_path);
+            match get_conda_environment_name(manifest_path.clone()) {
+                | Some(name) => {
+                    if get_conda_environment_list().contains(&name) {
+                        info!("Virtual environment already exists: {:?}", name);
+                    } else {
+                        let mamba = Command {
+                            modifier: "".to_string(),
+                            name: "mamba".to_string(),
+                            virtual_environment: None,
+                        };
+                        let command = (if is_command(mamba) { "mamba" } else { "conda" }).to_string();
+                        let arguments = to_string(vec!["env", "create", "-f", "environment.yml"]);
+                        let script = Script::new(command, arguments).with_current_dir(&working_dir);
+                        if dry_run {
+                            info!("=> [DRYRUN] Execute: {:?}", script.to_string());
+                        } else {
+                            script.run();
+                        }
+                    }
+                }
+                | None => (),
+            };
+        }
+        | _ => {
+            info!("No manifest file found at {:?}", manifest_path);
+        }
+    }
+}
+/// Get list of Conda virtual environments
+pub fn get_conda_environment_list() -> Vec<String> {
+    let command = "conda".to_string();
+    let arguments = to_string(vec!["env", "list"]);
+    let script = Script::new(command, arguments);
+    script
+        .run()
+        .replace(['#', '*'], "")
+        .split('\n')
+        .filter(|x| !x.is_empty())
+        .skip(2)
+        .map(|x| x.trim().chars().take_while(|x| !x.is_whitespace()).collect())
+        .collect::<Vec<String>>()
 }
 /// Get name of Conda virtual environment from manifest file
 ///
