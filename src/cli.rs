@@ -98,5 +98,7 @@ pub enum Commands {
         /// Execute workflow dry run (do not actually make changes to environment)
         #[arg(short = 'd', long = "dry-run", value_name = "BOOL")]
         dry_run: bool,
+        #[command(flatten)]
+        verbose: Verbosity,
     },
 }

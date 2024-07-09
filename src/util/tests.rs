@@ -204,14 +204,14 @@ fn test_script_run() {
         // WIP
     } else {
         let script = Script::new("echo".to_string(), to_string(vec!["hello", "world"]));
-        let output = script.run();
+        let output = script.run_with_output();
         assert_eq!(&output, "hello world");
         let script = Script::new("pwd".to_string(), vec![]);
-        let output = script.with_current_dir("/root").run();
+        let output = script.with_current_dir("/root").run_with_output();
         assert_eq!(&output, "/root");
         let path = PathBuf::from("tests/fixtures/template_run.json");
         let script = Script::from_template(path);
-        assert_eq!(script.run(), "hello world");
+        assert_eq!(script.run_with_output(), "hello world");
     }
 }
 

@@ -41,8 +41,9 @@ fn main() -> Void {
             reporter,
             output,
             dry_run,
+            verbose,
             ..
-        }) => commands::run::run(config, reporter, output, *dry_run),
+        }) => commands::run::run(config, reporter, output, *dry_run, verbose.clone()),
         | None => Ok(()),
     }
 }

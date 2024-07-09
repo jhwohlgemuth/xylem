@@ -2,6 +2,7 @@ use crate::util::{
     create_conda_environment, get_conda_environment_name, is_command, to_string, Command, Config, EnvironmentValue, ModuleLanguage, ModuleType,
     ModuleUri, Script, PREFIX,
 };
+use clap_verbosity_flag::Verbosity;
 use log::{error, info};
 use nanoid::nanoid;
 // use rayon::prelude::*;
@@ -15,6 +16,7 @@ pub fn run(
     _reporter: &Option<Vec<String>>,
     _output: &Option<PathBuf>,
     dry_run: bool,
+    verbose: Verbosity,
 ) -> Result<(), Box<(dyn StdError + 'static)>> {
     let id = nanoid!(10, &nanoid::alphabet::SAFE);
     let root = env::temp_dir().join(PREFIX).join(id.clone());
@@ -76,7 +78,7 @@ pub fn run(
                         | ModuleUri::File(value) => match value.try_exists() {
                             | Ok(true) => {
                                 // TODO: Check script repository with is_valid_pipe_module_python
-                                create_conda_environment(uri, dry_run);
+                                create_conda_environment(uri, dry_run, verbose.log_level());
                             }
                             | _ => {
                                 error!("Unable to find script module: {:?}", value);

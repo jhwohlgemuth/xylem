@@ -2,6 +2,7 @@
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::wrong_self_convention)]
 use clap::ValueEnum;
+use clap_verbosity_flag::Level;
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
 use log::{debug, error, info};
@@ -399,18 +400,6 @@ impl SemanticVersion {
     }
 }
 impl<'a> Script {
-    /// Create a new script from a command and arguments
-    pub fn new(command: String, arguments: Vec<String>) -> Script {
-        Self {
-            command: Command {
-                modifier: "".to_string(),
-                name: command,
-                virtual_environment: None,
-            },
-            arguments,
-            current_dir: ".".to_string(),
-        }
-    }
     /// Expand environment variables in the script arguments
     pub fn expand_arguments(mut self) -> Script {
         let expanded = self
@@ -428,6 +417,12 @@ impl<'a> Script {
             .collect();
         self.arguments = expanded;
         self
+    }
+    fn get_command(&self) -> String {
+        match &self.command.virtual_environment {
+            | Some(_) => format!("{}{}", &self.command.modifier, &self.command.name),
+            | _ => self.command.name.clone(),
+        }
     }
     /// Create a script from a template JSON file in [ScriptTemplate] format.
     ///
@@ -466,14 +461,33 @@ impl<'a> Script {
         let environment = template.environment;
         Script::new(template.command, arguments).with_environment(environment)
     }
-    /// Execute script in child process and wait for it to finish
-    pub fn run(&'a self) -> String {
-        const ERROR_MESSAGE: &str = "=> [ERROR] Failed to execute process";
-        let command = match &self.command.virtual_environment {
-            | Some(_) => format!("{}{}", &self.command.modifier, &self.command.name),
-            | _ => self.command.name.clone(),
-        };
+    /// Create a new script from a command and arguments
+    pub fn new(command: String, arguments: Vec<String>) -> Script {
+        Self {
+            command: Command {
+                modifier: "".to_string(),
+                name: command,
+                virtual_environment: None,
+            },
+            arguments,
+            current_dir: ".".to_string(),
+        }
+    }
+    /// Execute script in child process and wait for it to finish, print to stdout and ignore output
+    pub fn run(&'a self) {
+        let command = &self.get_command();
         let current_dir = PathBuf::from(&self.current_dir);
+        let _ = process::Command::new(command)
+            .args(self.arguments.clone().iter())
+            .current_dir(current_dir)
+            .stdout(process::Stdio::inherit())
+            .output();
+    }
+    /// Execute script in child process and wait for it to finish, return the output
+    pub fn run_with_output(&'a self) -> String {
+        let command = &self.get_command();
+        let current_dir = PathBuf::from(&self.current_dir);
+        debug!("=> [RUN] {:?}", self.to_string());
         let output = process::Command::new(command)
             .args(self.arguments.clone().iter())
             .current_dir(current_dir)
@@ -613,7 +627,7 @@ pub fn add_forward_slash(path: PathBuf) -> PathBuf {
     }
 }
 /// Create Conda environment from an environment.yml file
-pub fn create_conda_environment(uri: &str, dry_run: bool) {
+pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Level>) {
     let working_dir = ModuleUri::from(uri).working_directory(None);
     let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
     match manifest_path.try_exists() {
@@ -653,7 +667,7 @@ pub fn get_conda_environment_list() -> Vec<String> {
     let arguments = to_string(vec!["env", "list"]);
     let script = Script::new(command, arguments);
     script
-        .run()
+        .run_with_output()
         .replace(['#', '*'], "")
         .split('\n')
         .filter(|x| !x.is_empty())
@@ -793,7 +807,7 @@ pub fn is_command(value: Command) -> bool {
             },
         }
     };
-    let output = script.run();
+    let output = script.run_with_output();
     match PathBuf::from(output.clone()).try_exists() {
         | Ok(true) => {
             debug!("Command found at {:?}", output);
