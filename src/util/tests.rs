@@ -135,6 +135,11 @@ fn test_module_uri() {
         }
         | _ => panic!(),
     }
+    let expected = "code_ornl_gov_pipe_module-a";
+    let url = ModuleUri::from("http://code.ornl.gov/PIPE/module-a");
+    assert_eq!(expected, url.hash());
+    let url = ModuleUri::from("https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a");
+    assert_eq!(expected, url.hash());
 }
 
 #[test]

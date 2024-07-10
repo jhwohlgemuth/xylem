@@ -326,7 +326,7 @@ impl EnvironmentValue {
     }
     pub fn print_all(prefix: &str) {
         EnvironmentValue::get_all(prefix).into_iter().for_each(|(key, value)| {
-            info!("=> [ENV] {}: {}", key, value);
+            debug!("=> [ENV] {}: {}", key, value);
         });
     }
     fn set_variable(self, key: String) {
@@ -378,15 +378,28 @@ impl ModuleUri<'_> {
             | Err(_) => ModuleUri::Unknown,
         }
     }
-    pub fn working_directory(&self, _root: Option<PathBuf>) -> String {
+    pub fn hash(&self) -> String {
         match self {
-            | ModuleUri::Url(_) => {
-                // TODO: Set working directory to downloaded module directory
-                // root.to_string_lossy().to_string()
-                unimplemented!()
+            | ModuleUri::Url(uri) => {
+                let host = match uri.host() {
+                    | Some(value) => value.clone().to_string().replace('.', "_"),
+                    | None => "".to_string(),
+                };
+                let segments = uri.path().segments().iter().map(|s| s.to_string()).collect::<Vec<_>>();
+                format!("{}_{}", host, segments[segments.len() - 2..].join("_").to_lowercase())
             }
             | ModuleUri::File(value) => value.clone().into_os_string().into_string().unwrap(),
             | ModuleUri::Unknown => unimplemented!(),
+        }
+    }
+    pub fn working_directory(&self, root: Option<PathBuf>) -> String {
+        match self {
+            | ModuleUri::Url(_) => match root {
+                | Some(value) => value.join(self.hash()).into_os_string().into_string().unwrap(),
+                | None => self.hash(),
+            },
+            | ModuleUri::File(value) => value.clone().into_os_string().into_string().unwrap(),
+            | ModuleUri::Unknown => ".".to_string(),
         }
     }
 }
@@ -632,11 +645,11 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
     let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
     match manifest_path.try_exists() {
         | Ok(true) => {
-            info!("Found manifest file: {:?}", manifest_path);
+            debug!("Found manifest file: {:?}", manifest_path);
             match get_conda_environment_name(manifest_path.clone()) {
                 | Some(name) => {
                     if get_conda_environment_list().contains(&name) {
-                        info!("Virtual environment already exists: {:?}", name);
+                        debug!("Virtual environment already exists: {:?}", name);
                     } else {
                         let mamba = Command {
                             modifier: "".to_string(),
@@ -657,7 +670,7 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
             };
         }
         | _ => {
-            info!("No manifest file found at {:?}", manifest_path);
+            debug!("No manifest file found at {:?}", manifest_path);
         }
     }
 }

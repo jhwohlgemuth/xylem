@@ -3,9 +3,9 @@ use crate::util::{
     ModuleUri, Script, PREFIX,
 };
 use clap_verbosity_flag::Verbosity;
-use log::{error, info};
+use log::{debug, error, info};
 use nanoid::nanoid;
-// use rayon::prelude::*;
+use rayon::prelude::*;
 use serde::ser::StdError;
 use std::env;
 use std::path::PathBuf;
@@ -43,11 +43,11 @@ pub fn run(
                 }
             });
             // Prepare modules
-            cfg.modules.iter().for_each(|module| match &module.module_type {
+            cfg.modules.par_iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { uri } => match ModuleUri::from(uri) {
                     | ModuleUri::Url(value) => match value.scheme() {
                         | HTTP | HTTPS => {
-                            info!("Identified remote binary: {:?}", value);
+                            debug!("Found remote binary: {:?}", value);
                             // TODO: Download binary to temp directory
                             unimplemented!()
                         }
@@ -55,7 +55,7 @@ pub fn run(
                     },
                     | ModuleUri::File(value) => match value.try_exists() {
                         | Ok(true) => {
-                            info!("Found local binary: {:?}", value);
+                            debug!("Found local binary: {:?}", value);
                         }
                         | _ => {
                             error!("Unable to find local binary: {:?}", value);
@@ -67,16 +67,26 @@ pub fn run(
                     | ModuleLanguage::Python => match ModuleUri::from(uri) {
                         | ModuleUri::Url(value) => match value.scheme() {
                             | HTTP | HTTPS => {
-                                info!("Identified remote script repository: {:?}", value);
-                                // TODO: Download/clone script repository to temp directory
+                                debug!("Found remote script repository: {:?}", uri);
+                                let module_uri = ModuleUri::from(uri);
+                                let current_dir = root.clone().into_os_string().into_string().unwrap();
+                                let command = "git".to_string();
+                                let arguments = to_string(vec!["clone", &uri, &module_uri.hash()]);
+                                let script = Script::new(command, arguments).with_current_dir(&current_dir);
+                                if dry_run {
+                                    info!("=> [DRYRUN] Execute: {:?}", script.to_string());
+                                } else {
+                                    script.run();
+                                }
                                 // TODO: Check script repository with is_valid_pipe_module_python
-                                // TODO: Create virtual environment
-                                unimplemented!()
+                                let module_root = root.join(module_uri.hash()).into_os_string().into_string().unwrap();
+                                create_conda_environment(&module_root, dry_run, verbose.log_level());
                             }
                             | _ => unimplemented!(),
                         },
                         | ModuleUri::File(value) => match value.try_exists() {
                             | Ok(true) => {
+                                debug!("Found local script repository: {:?}", value);
                                 // TODO: Check script repository with is_valid_pipe_module_python
                                 create_conda_environment(uri, dry_run, verbose.log_level());
                             }
@@ -97,7 +107,7 @@ pub fn run(
                 | ModuleType::Binary { .. } => {}
                 | ModuleType::Script { programming_language, uri } => match programming_language {
                     | ModuleLanguage::Python => {
-                        let working_dir = ModuleUri::from(uri).working_directory(None);
+                        let working_dir = ModuleUri::from(uri).working_directory(Some(root.clone()));
                         let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
                         let template_path = match &module.template {
                             | Some(value) => PathBuf::from(&working_dir).join(value),
@@ -140,7 +150,6 @@ pub fn run(
         }
         | Err(err) => error!("{:?}", err),
     };
-    info!("ID: {:?}, Root: {:#?}", id, root);
     Ok(())
 }
 
