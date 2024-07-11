@@ -1,6 +1,6 @@
 use crate::util::{
     create_conda_environment, get_conda_environment_name, is_command, to_string, Command, Config, EnvironmentValue, ModuleLanguage, ModuleType,
-    ModuleUri, Script, PREFIX,
+    ModuleUri, Script,
 };
 use clap_verbosity_flag::Verbosity;
 use log::{debug, error, info};
@@ -19,7 +19,7 @@ pub fn run(
     verbose: Verbosity,
 ) -> Result<(), Box<(dyn StdError + 'static)>> {
     let id = nanoid!(10, &nanoid::alphabet::SAFE);
-    let root = env::temp_dir().join(PREFIX).join(id.clone());
+    let root = env::temp_dir().join(EnvironmentValue::PREFIX).join(id.clone());
     let default_config = match env::current_dir() {
         | Ok(path) => path.join("config.json"),
         | _ => PathBuf::from("./config.json"),
@@ -72,7 +72,7 @@ pub fn run(
                                 let current_dir = root.clone().into_os_string().into_string().unwrap();
                                 let command = "git".to_string();
                                 let arguments = to_string(vec!["clone", &uri, &module_uri.hash()]);
-                                let script = Script::new(command, arguments).with_current_dir(&current_dir);
+                                let script = Script::new(command, arguments).with_current_dir(current_dir);
                                 if dry_run {
                                     info!("=> [DRYRUN] Execute: {:?}", script.to_string());
                                 } else {
@@ -100,8 +100,6 @@ pub fn run(
                 },
                 | _ => unimplemented!(),
             });
-            // Set envionment variables
-            let _ = cfg.set_environment_variables();
             // Run workflow
             cfg.modules.iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { .. } => {}
@@ -135,12 +133,19 @@ pub fn run(
                                 | None => None,
                             },
                         };
-                        let script = loaded.expand_arguments().with_current_dir(&working_dir).with_environment(environment);
+                        let config_vars = cfg.variables.clone().unwrap_or_default();
+                        let module_vars = module.variables.clone().unwrap_or_default();
+                        let mut envs = EnvironmentValue::get_from_serde(&config_vars);
+                        envs.extend(EnvironmentValue::get_from_serde(&module_vars));
+                        let script = loaded
+                            .expand_arguments_from(envs)
+                            .with_current_dir(working_dir)
+                            .with_environment(environment);
                         if dry_run {
-                            EnvironmentValue::print_all(PREFIX);
+                            EnvironmentValue::print_all();
                             info!("=> [DRYRUN] Execute: {:?}", script.to_string());
                         } else {
-                            // script.run();
+                            script.run();
                         }
                     }
                     | _ => unimplemented!(),

@@ -16,13 +16,6 @@ fn test_config() {
     let config = Config::read_json(PathBuf::from(path)).expect("[ERROR] => Cannot import config in tests");
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.modules.len(), 4);
-    // Set environment variables from configuration
-    let _ = config.set_environment_variables();
-    let variables = config.get_environment_variables();
-    assert!(!variables.is_empty());
-    assert_eq!(variables.get("ANSWER").unwrap(), "42");
-    assert_eq!(variables.get("BOOLEAN").unwrap(), "true");
-    assert_eq!(variables.get("TOKEN").unwrap(), "X12E45678N");
 }
 
 #[test]
@@ -183,6 +176,37 @@ fn test_script_expand_arguments() {
 }
 
 #[test]
+fn test_script_expand_arguments_from() {
+    let arguments = to_string(vec![
+        "-m",
+        "lib",
+        "--input",
+        "{{ INPUT_DIRECTORY }}",
+        "--output",
+        "{{ OUTPUT_DIRECTORY }}",
+    ]);
+    let script = Script::new("python".to_string(), arguments);
+    // Expand from HashMap parameter instead of environment
+    let envs = HashMap::from([
+        ("INPUT_DIRECTORY".to_string(), "FOO".to_string()),
+        ("OUTPUT_DIRECTORY".to_string(), "BAR".to_string()),
+    ]);
+    let environment = "foo".to_string();
+    assert_eq!(
+        script
+            .clone()
+            .expand_arguments_from(envs.clone())
+            .with_environment(Some(environment.clone()))
+            .to_string(),
+        format!("'conda run --name {} python -m lib --input FOO --output BAR' in .", environment)
+    );
+    assert_eq!(
+        script.clone().expand_arguments_from(envs.clone()).with_environment(None).to_string(),
+        "'python -m lib --input FOO --output BAR' in ."
+    );
+}
+
+#[test]
 fn test_script_from_template() {
     let expected_value: Vec<String> = to_string(vec!["-m", "lib", "--input", "{{INPUT_DIRECTORY}}", "--output", "{{OUTPUT_DIRECTORY}}"]);
     // "shell" format arguments
@@ -212,7 +236,7 @@ fn test_script_run() {
         let output = script.run_with_output();
         assert_eq!(&output, "hello world");
         let script = Script::new("pwd".to_string(), vec![]);
-        let output = script.with_current_dir("/root").run_with_output();
+        let output = script.with_current_dir("/root".to_string()).run_with_output();
         assert_eq!(&output, "/root");
         let path = PathBuf::from("tests/fixtures/template_run.json");
         let script = Script::from_template(path);

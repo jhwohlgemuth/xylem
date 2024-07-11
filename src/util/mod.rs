@@ -17,15 +17,13 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::{
-    env::{set_var, var, vars},
+    env::{set_var, vars},
     fmt, io,
 };
 use uriparse::Scheme;
 use uriparse::URI;
 
 use std::process;
-
-pub const PREFIX: &str = "pipe";
 
 pub type CommandResult = Result<(), Box<(dyn StdError + 'static)>>;
 pub type Void = Result<(), Box<dyn Error>>;
@@ -185,7 +183,7 @@ pub struct Module {
     #[serde(flatten)]
     pub module_type: ModuleType,
     description: Option<String>,
-    variables: Option<Map<String, Value>>,
+    pub variables: Option<Map<String, Value>>,
     before_script: Option<Instruction>,
     after_script: Option<Instruction>,
     pub template: Option<String>,
@@ -241,6 +239,7 @@ pub struct Script {
     pub arguments: Vec<String>,
     /// Directory in which the script should be executed when run method is invoked
     pub current_dir: String,
+    pub envs: Option<HashMap<String, String>>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ScriptTemplate {
@@ -254,21 +253,6 @@ pub struct StringTemplate {
     template_type: TemplateType,
 }
 impl Config {
-    /// Get evironment variables saved with PIPE prefix
-    pub fn get_environment_variables(&self) -> HashMap<String, String> {
-        match self.variables {
-            | Some(ref variables) => {
-                let mut lookup: HashMap<String, String> = HashMap::new();
-                variables.iter().for_each(|(k, _)| {
-                    let prefixed = format!("_{}_{}", PREFIX.to_uppercase(), k);
-                    lookup.insert(k.to_string(), var(prefixed).unwrap());
-                });
-                debug!("PIPE Environment variables: {:?}", lookup);
-                lookup
-            }
-            | None => HashMap::new(),
-        }
-    }
     /// Import PIPE configuration JSON file
     ///
     /// See the [PIPE configuration syntax wiki page](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Configuration-Syntax)
@@ -306,6 +290,11 @@ impl PartialEq for Details {
     }
 }
 impl EnvironmentValue {
+    pub const PREFIX: &'static str = "pipe";
+
+    fn from_string(value: String) -> EnvironmentValue {
+        EnvironmentValue::String(value)
+    }
     fn from_value(value: Value) -> EnvironmentValue {
         match value {
             | Value::String(val) => EnvironmentValue::String(val),
@@ -314,8 +303,30 @@ impl EnvironmentValue {
             | _ => EnvironmentValue::Unknown,
         }
     }
-    pub fn get_all(prefix: &str) -> Vec<(String, String)> {
-        let pre = format!("_{}_", prefix.to_uppercase());
+    fn prepend_prefix(value: String) -> String {
+        let prefixed = format!("_{}_{}", EnvironmentValue::PREFIX.to_uppercase(), value);
+        prefixed
+    }
+    fn trim_prefix(key: String) -> String {
+        let pre = format!("_{}_", EnvironmentValue::PREFIX.to_uppercase());
+        key.trim_start_matches(&pre).to_string()
+    }
+    pub fn get_from_serde(values: &Map<String, Value>) -> HashMap<String, String> {
+        let mut lookup: HashMap<String, String> = HashMap::new();
+        values.iter().for_each(|(key, value)| {
+            let prefixed = EnvironmentValue::prepend_prefix(key.to_string());
+            let coerced = match value {
+                | Value::String(val) => val.to_string(),
+                | Value::Number(val) => val.to_string(),
+                | Value::Bool(val) => val.to_string(),
+                | _ => String::new(),
+            };
+            lookup.insert(prefixed, coerced);
+        });
+        lookup
+    }
+    pub fn get_all() -> Vec<(String, String)> {
+        let pre = format!("_{}_", EnvironmentValue::PREFIX.to_uppercase());
         vars()
             .filter(|(key, _)| key.starts_with(&pre))
             .map(|(key, value)| {
@@ -324,13 +335,13 @@ impl EnvironmentValue {
             })
             .collect()
     }
-    pub fn print_all(prefix: &str) {
-        EnvironmentValue::get_all(prefix).into_iter().for_each(|(key, value)| {
+    pub fn print_all() {
+        EnvironmentValue::get_all().into_iter().for_each(|(key, value)| {
             debug!("=> [ENV] {}: {}", key, value);
         });
     }
-    fn set_variable(self, key: String) {
-        let prefixed = format!("_{}_{}", PREFIX.to_uppercase(), key);
+    pub fn set_variable(self, key: String) {
+        let prefixed = EnvironmentValue::prepend_prefix(key);
         let prefixed_key = OsStr::new(&prefixed);
         match self {
             | EnvironmentValue::String(value) => set_var(prefixed_key, value),
@@ -338,6 +349,11 @@ impl EnvironmentValue {
             | EnvironmentValue::Bool(value) => set_var(prefixed_key, value.to_string()),
             | EnvironmentValue::Unknown => (),
         }
+    }
+    pub fn set_variables(values: HashMap<String, String>) {
+        values
+            .into_iter()
+            .for_each(|(key, value)| EnvironmentValue::from_string(value).set_variable(key));
     }
 }
 impl fmt::Display for EnvironmentValue {
@@ -413,7 +429,14 @@ impl SemanticVersion {
     }
 }
 impl<'a> Script {
-    /// Expand environment variables in the script arguments
+    /// Expand environment variables in the script arguments from environment
+    ///
+    /// This method does not set environment variables, but only interpolates the values within the script arguments
+    ///
+    /// Example:
+    /// ```
+    /// let script = Script::new(command, arguments).expand_arguments();
+    /// ```
     pub fn expand_arguments(mut self) -> Script {
         let expanded = self
             .arguments
@@ -421,7 +444,39 @@ impl<'a> Script {
             .map(|argument| StringTemplate::new(&argument))
             .map(|argument| {
                 if StringTemplate::is_handlebars(argument.clone()) {
-                    let vars = EnvironmentValue::get_all(PREFIX);
+                    let vars = EnvironmentValue::get_all();
+                    argument.expand(vars)
+                } else {
+                    argument.value.clone()
+                }
+            })
+            .collect();
+        self.arguments = expanded;
+        self
+    }
+    /// Expand environment variables in the script arguments from a HashMap parameter
+    ///
+    /// This method does not set environment variables, but only interpolates the values within the script arguments
+    ///
+    /// Example:
+    /// ```
+    /// let envs = HashMap::from([
+    ///     ("ANSWER".to_string(), "42".to_string()),
+    /// ]);
+    /// let script = Script::new(command, arguments).expand_arguments_from(envs);
+    /// ```
+    pub fn expand_arguments_from(mut self, envs: HashMap<String, String>) -> Script {
+        let expanded = self
+            .arguments
+            .into_iter()
+            .map(|argument| StringTemplate::new(&argument))
+            .map(|argument| {
+                if StringTemplate::is_handlebars(argument.clone()) {
+                    let vars = envs
+                        .clone()
+                        .into_iter()
+                        .map(|(key, value)| (EnvironmentValue::trim_prefix(key), value))
+                        .collect::<Vec<_>>();
                     argument.expand(vars)
                 } else {
                     argument.value.clone()
@@ -484,26 +539,32 @@ impl<'a> Script {
             },
             arguments,
             current_dir: ".".to_string(),
+            envs: None,
         }
     }
     /// Execute script in child process and wait for it to finish, print to stdout and ignore output
     pub fn run(&'a self) {
         let command = &self.get_command();
         let current_dir = PathBuf::from(&self.current_dir);
+        let envs = self.envs.clone().unwrap_or_default();
+        debug!("=> [RUN] {:?}", self.to_string());
         let _ = process::Command::new(command)
             .args(self.arguments.clone().iter())
             .current_dir(current_dir)
             .stdout(process::Stdio::inherit())
+            .envs(envs)
             .output();
     }
     /// Execute script in child process and wait for it to finish, return the output
     pub fn run_with_output(&'a self) -> String {
         let command = &self.get_command();
         let current_dir = PathBuf::from(&self.current_dir);
+        let envs = self.envs.clone().unwrap_or_default();
         debug!("=> [RUN] {:?}", self.to_string());
         let output = process::Command::new(command)
             .args(self.arguments.clone().iter())
             .current_dir(current_dir)
+            .envs(envs)
             .output();
         match output {
             | Ok(value) if !value.stdout.is_empty() => String::from_utf8_lossy(&value.stdout).trim().to_string(),
@@ -513,8 +574,8 @@ impl<'a> Script {
     /// Set current working directory for the script
     ///
     /// Provides builder interface and returns reference to self
-    pub fn with_current_dir(mut self, path: &str) -> Self {
-        self.current_dir = path.to_string();
+    pub fn with_current_dir(mut self, path: String) -> Self {
+        self.current_dir = path;
         self
     }
     /// Set virtual environment for the script
@@ -546,6 +607,11 @@ impl<'a> Script {
         self.command.modifier = modifier;
         self
     }
+    /// Set script environment variables to be set during script.run (or script.run_with_output) call
+    pub fn with_envs(mut self, values: HashMap<String, String>) -> Self {
+        self.envs = Some(values.clone());
+        self
+    }
 }
 impl StringTemplate {
     const RE_HANDLEBARS: &'static str = r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$";
@@ -561,7 +627,6 @@ impl StringTemplate {
     ///
     /// Non-terminal method that provides builder interface and returns reference to self
     pub fn expand(self, vars: Vec<(String, String)>) -> String {
-        vars.iter().for_each(|(key, value)| debug!("{} = {}", key, value));
         vars.into_iter()
             .fold(self.remove_spaces().value, |acc, (key, value)| acc.replace(&key, &value))
             .replace("{{", "")
@@ -658,7 +723,7 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
                         };
                         let command = (if is_command(mamba) { "mamba" } else { "conda" }).to_string();
                         let arguments = to_string(vec!["env", "create", "-f", "environment.yml"]);
-                        let script = Script::new(command, arguments).with_current_dir(&working_dir);
+                        let script = Script::new(command, arguments).with_current_dir(working_dir);
                         if dry_run {
                             info!("=> [DRYRUN] Execute: {:?}", script.to_string());
                         } else {
@@ -786,6 +851,7 @@ pub fn is_command(value: Command) -> bool {
                     command,
                     arguments: to_string(vec!["run", "--name", &name, "pwsh", "-NoProfile", "-Command", "command", &value.name]),
                     current_dir: ".".to_string(),
+                    envs: None,
                 }
             }
             | None => Script {
@@ -796,6 +862,7 @@ pub fn is_command(value: Command) -> bool {
                 },
                 arguments: to_string(vec!["-NoProfile", "-Command", "command", &value.name]),
                 current_dir: ".".to_string(),
+                envs: None,
             },
         }
     } else {
@@ -808,6 +875,7 @@ pub fn is_command(value: Command) -> bool {
                 },
                 arguments: to_string(vec!["run", "--name", &name, "which", &value.name]),
                 current_dir: ".".to_string(),
+                envs: None,
             },
             | None => Script {
                 command: Command {
@@ -817,6 +885,7 @@ pub fn is_command(value: Command) -> bool {
                 },
                 arguments: vec![value.name],
                 current_dir: ".".to_string(),
+                envs: None,
             },
         }
     };
