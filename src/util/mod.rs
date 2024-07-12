@@ -114,7 +114,7 @@ pub enum ModuleType {
 pub enum ModuleUri<'a> {
     File(PathBuf),
     Url(URI<'a>),
-    Unknown,
+    Unknown(String),
 }
 #[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ReporterType {
@@ -387,11 +387,11 @@ impl ModuleUri<'_> {
     pub fn from(value: &str) -> ModuleUri<'_> {
         match URI::try_from(value) {
             | Ok(uri) => match uri.scheme() {
-                | Scheme::HTTP | Scheme::HTTPS => ModuleUri::Url(uri),
+                | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => ModuleUri::Url(uri),
                 | Scheme::File => ModuleUri::File(PathBuf::from(uri.path().to_string())),
-                | _ => ModuleUri::Unknown,
+                | _ => ModuleUri::Unknown(value.to_string()),
             },
-            | Err(_) => ModuleUri::Unknown,
+            | Err(_) => ModuleUri::Unknown(value.to_string()),
         }
     }
     pub fn hash(&self) -> String {
@@ -405,7 +405,7 @@ impl ModuleUri<'_> {
                 format!("{}_{}", host, segments[segments.len() - 2..].join("_").to_lowercase())
             }
             | ModuleUri::File(value) => value.clone().into_os_string().into_string().unwrap(),
-            | ModuleUri::Unknown => unimplemented!(),
+            | ModuleUri::Unknown(_) => unimplemented!(),
         }
     }
     pub fn working_directory(&self, root: Option<PathBuf>) -> String {
@@ -415,7 +415,7 @@ impl ModuleUri<'_> {
                 | None => self.hash(),
             },
             | ModuleUri::File(value) => value.clone().into_os_string().into_string().unwrap(),
-            | ModuleUri::Unknown => ".".to_string(),
+            | ModuleUri::Unknown(value) => value.to_string(),
         }
     }
 }
@@ -513,7 +513,7 @@ impl<'a> Script {
             }
         };
         let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
-        let template = json.expect("[ERROR] => Failed to parse script template").clone();
+        let template = json.expect("=> [ERROR] Failed to parse script template").clone();
         let arguments = match template.arguments {
             | Instruction::ShellFormat(value) => StringTemplate::new(&value)
                 .remove_spaces()
@@ -544,6 +544,7 @@ impl<'a> Script {
     }
     /// Execute script in child process and wait for it to finish, print to stdout and ignore output
     pub fn run(&'a self) {
+        let error_message = format!("=> [FAIL] Execute {:?}", self.to_string());
         let command = &self.get_command();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
@@ -553,7 +554,8 @@ impl<'a> Script {
             .current_dir(current_dir)
             .stdout(process::Stdio::inherit())
             .envs(envs)
-            .output();
+            .output()
+            .expect(&error_message);
     }
     /// Execute script in child process and wait for it to finish, return the output
     pub fn run_with_output(&'a self) -> String {

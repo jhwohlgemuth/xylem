@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Python script modules should have necessary files and folder structure
 //!
 //! ### Example:

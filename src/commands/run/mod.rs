@@ -3,13 +3,14 @@ use crate::util::{
     ModuleUri, Script,
 };
 use clap_verbosity_flag::Verbosity;
+
 use log::{debug, error, info};
 use nanoid::nanoid;
 use rayon::prelude::*;
 use serde::ser::StdError;
 use std::env;
 use std::path::PathBuf;
-use uriparse::Scheme::{HTTP, HTTPS};
+use uriparse::Scheme;
 
 pub fn run(
     config: &Option<PathBuf>,
@@ -20,6 +21,12 @@ pub fn run(
 ) -> Result<(), Box<(dyn StdError + 'static)>> {
     let id = nanoid!(10, &nanoid::alphabet::SAFE);
     let root = env::temp_dir().join(EnvironmentValue::PREFIX).join(id.clone());
+    match std::fs::create_dir_all(root.clone()) {
+        | Ok(_) => {
+            debug!("Created temporary directory: {:?}", root.clone().into_os_string().into_string().unwrap());
+        }
+        | Err(err) => error!("{}", err),
+    }
     let default_config = match env::current_dir() {
         | Ok(path) => path.join("config.json"),
         | _ => PathBuf::from("./config.json"),
@@ -46,7 +53,7 @@ pub fn run(
             cfg.modules.par_iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { uri } => match ModuleUri::from(uri) {
                     | ModuleUri::Url(value) => match value.scheme() {
-                        | HTTP | HTTPS => {
+                        | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                             debug!("Found remote binary: {:?}", value);
                             // TODO: Download binary to temp directory
                             unimplemented!()
@@ -66,7 +73,7 @@ pub fn run(
                 | ModuleType::Script { programming_language, uri } => match programming_language {
                     | ModuleLanguage::Python => match ModuleUri::from(uri) {
                         | ModuleUri::Url(value) => match value.scheme() {
-                            | HTTP | HTTPS => {
+                            | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                                 debug!("Found remote script repository: {:?}", uri);
                                 let module_uri = ModuleUri::from(uri);
                                 let current_dir = root.clone().into_os_string().into_string().unwrap();
@@ -111,6 +118,8 @@ pub fn run(
                             | Some(value) => PathBuf::from(&working_dir).join(value),
                             | None => PathBuf::from(&working_dir).join("template.json"),
                         };
+                        debug!("=> [INFO] Manifest path: {}", manifest_path.to_str().unwrap());
+                        debug!("=> [INFO] Template path: {}", template_path.to_str().unwrap());
                         let loaded = match template_path.try_exists() {
                             | Ok(true) => Script::from_template(template_path),
                             | _ => {
