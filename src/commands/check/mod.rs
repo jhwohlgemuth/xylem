@@ -2,12 +2,12 @@ pub mod checks;
 
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
-use log::info;
 use rayon::prelude::*;
 use serde::ser::StdError;
 use std::env;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
+use tracing::info;
 
 use crate::reporters;
 use crate::util::{is_stdin_piped, Parameters, Reporter, ReporterType, Rule, StdinIsPipedResult};

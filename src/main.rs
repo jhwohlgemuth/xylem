@@ -1,6 +1,8 @@
 use clap::Parser;
 use dotenv::dotenv;
-use env_logger::Env;
+use tracing_log::AsTrace;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{fmt, prelude::*};
 
 mod cli;
 mod commands;
@@ -12,16 +14,39 @@ use util::Void;
 
 // Environment variables
 const LOG_LEVEL: &str = "PIPE_LOG_LEVEL";
-const LOG_STYLE: &str = "PIPE_LOG_STYLE";
+const DISPLAY_LEVEL: bool = true;
+const DISPLAY_LINE_NUMBER: bool = true;
+const DISPLAY_TARGET: bool = true;
+const DISPLAY_THREAD_ID: bool = true;
+const DISPLAY_THREAD_NAME: bool = true;
 fn main() -> Void {
     let args = Arguments::parse();
     match dotenv() {
         | Ok(_) if !dotenv::var(LOG_LEVEL).unwrap_or_default().is_empty() => {
-            let env = Env::default().filter_or(LOG_LEVEL, "error").write_style_or(LOG_STYLE, "always");
-            env_logger::init_from_env(env);
+            // Configure tracing with a .env file
+            let format = fmt::layer()
+                .with_level(DISPLAY_LEVEL)
+                .with_line_number(DISPLAY_LINE_NUMBER)
+                .with_target(DISPLAY_TARGET)
+                .with_thread_ids(DISPLAY_THREAD_ID)
+                .with_thread_names(DISPLAY_THREAD_NAME)
+                .compact();
+            tracing_subscriber::registry().with(format).with(EnvFilter::from_env(LOG_LEVEL)).init();
         }
         | _ => {
-            env_logger::Builder::new().filter_level(args.verbose.log_level_filter()).init();
+            // Configure tracing with command line argument
+            let format = fmt::format()
+                .with_level(DISPLAY_LEVEL)
+                .with_line_number(DISPLAY_LINE_NUMBER)
+                .with_target(DISPLAY_TARGET)
+                .with_thread_ids(DISPLAY_THREAD_ID)
+                .with_thread_names(DISPLAY_THREAD_NAME)
+                .without_time()
+                .compact();
+            tracing_subscriber::fmt()
+                .with_max_level(args.verbose.log_level_filter().as_trace())
+                .event_format(format)
+                .init();
         }
     }
     match &args.command {

@@ -1,9 +1,9 @@
 use crate::util::{is_stdout_piped, Details, Output, Parameters, StdoutIsPipedResult, Void};
-use log::{debug, info};
 use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use tracing::{debug, info};
 
 pub fn run(output: Output, parameters: Option<Parameters>) -> Void {
     eprintln!("\n");

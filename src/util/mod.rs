@@ -5,7 +5,6 @@ use clap::ValueEnum;
 use clap_verbosity_flag::Level;
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
-use log::{debug, error, info};
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
@@ -20,6 +19,7 @@ use std::{
     env::{set_var, vars},
     fmt, io,
 };
+use tracing::{debug, error, info};
 use uriparse::Scheme;
 use uriparse::URI;
 

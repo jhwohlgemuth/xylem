@@ -3,13 +3,12 @@ use crate::util::{
     ModuleUri, Script,
 };
 use clap_verbosity_flag::Verbosity;
-
-use log::{debug, error, info};
 use nanoid::nanoid;
 use rayon::prelude::*;
 use serde::ser::StdError;
 use std::env;
 use std::path::PathBuf;
+use tracing::{debug, error, info};
 use uriparse::Scheme;
 
 pub fn run(
