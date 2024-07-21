@@ -152,7 +152,6 @@ pub struct Command {
     /// ```text
     /// "conda run --name base "
     /// ```
-    pub modifier: String,
     pub name: String,
     pub virtual_environment: Option<String>,
 }
@@ -368,14 +367,7 @@ impl fmt::Display for ReporterType {
 }
 impl fmt::Display for Script {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "'{}{} {}' in {}",
-            self.command.modifier,
-            self.command.name,
-            self.arguments.join(" "),
-            self.current_dir
-        )
+        write!(f, "'{} {}' in {}", self.get_command(), self.get_arguments().join(" "), self.current_dir)
     }
 }
 impl fmt::Display for SemanticVersion {
@@ -486,12 +478,6 @@ impl<'a> Script {
         self.arguments = expanded;
         self
     }
-    fn get_command(&self) -> String {
-        match &self.command.virtual_environment {
-            | Some(_) => format!("{}{}", &self.command.modifier, &self.command.name),
-            | _ => self.command.name.clone(),
-        }
-    }
     /// Create a script from a template JSON file in [ScriptTemplate] format.
     ///
     /// You can easily import the script with
@@ -533,7 +519,6 @@ impl<'a> Script {
     pub fn new(command: String, arguments: Vec<String>) -> Script {
         Self {
             command: Command {
-                modifier: "".to_string(),
                 name: command,
                 virtual_environment: None,
             },
@@ -542,15 +527,32 @@ impl<'a> Script {
             envs: None,
         }
     }
+    fn get_command(&self) -> String {
+        match &self.command.virtual_environment {
+            | Some(_) => "conda".to_string(),
+            | _ => self.command.name.clone(),
+        }
+    }
+    fn get_arguments(&self) -> Vec<String> {
+        match &self.command.virtual_environment {
+            | Some(name) => {
+                let mut arguments = to_string(vec!["run", "--name", name, &self.command.name]);
+                arguments.extend(self.arguments.clone());
+                arguments
+            }
+            | _ => self.arguments.clone(),
+        }
+    }
     /// Execute script in child process and wait for it to finish, print to stdout and ignore output
     pub fn run(&'a self) {
-        let error_message = format!("=> [FAIL] Execute {:?}", self.to_string());
         let command = &self.get_command();
+        let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
+        let error_message = format!("=> [FAIL] Execute {:?}", self.to_string());
         debug!("=> [RUN] {:?}", self.to_string());
         let _ = process::Command::new(command)
-            .args(self.arguments.clone().iter())
+            .args(arguments.iter())
             .current_dir(current_dir)
             .stdout(process::Stdio::inherit())
             .envs(envs)
@@ -560,11 +562,13 @@ impl<'a> Script {
     /// Execute script in child process and wait for it to finish, return the output
     pub fn run_with_output(&'a self) -> String {
         let command = &self.get_command();
+        let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
+        println!("=> [RUN] {:?}", self.to_string());
         debug!("=> [RUN] {:?}", self.to_string());
         let output = process::Command::new(command)
-            .args(self.arguments.clone().iter())
+            .args(arguments.iter())
             .current_dir(current_dir)
             .envs(envs)
             .output();
@@ -602,11 +606,6 @@ impl<'a> Script {
     /// ```
     pub fn with_environment(mut self, environment: Option<String>) -> Self {
         self.command.virtual_environment.clone_from(&environment);
-        let modifier = match environment {
-            | Some(value) => format!("conda run --name {} ", value),
-            | None => "".to_string(),
-        };
-        self.command.modifier = modifier;
         self
     }
     /// Set script environment variables to be set during script.run (or script.run_with_output) call
@@ -719,7 +718,6 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
                         debug!("Virtual environment already exists: {:?}", name);
                     } else {
                         let mamba = Command {
-                            modifier: "".to_string(),
                             name: "mamba".to_string(),
                             virtual_environment: None,
                         };
@@ -842,53 +840,24 @@ pub fn has_extension(extension: &str, path: &Path) -> bool {
 /// ```
 pub fn is_command(value: Command) -> bool {
     let script = if cfg!(target_os = "windows") {
-        match value.virtual_environment {
-            | Some(name) => {
-                let command = Command {
-                    modifier: "".to_string(),
-                    name: "conda".to_owned(),
-                    virtual_environment: Some(name.clone()),
-                };
-                Script {
-                    command,
-                    arguments: to_string(vec!["run", "--name", &name, "pwsh", "-NoProfile", "-Command", "command", &value.name]),
-                    current_dir: ".".to_string(),
-                    envs: None,
-                }
-            }
-            | None => Script {
-                command: Command {
-                    modifier: "".to_string(),
-                    name: "pwsh".to_owned(),
-                    virtual_environment: None,
-                },
-                arguments: to_string(vec!["-NoProfile", "-Command", "command", &value.name]),
-                current_dir: ".".to_string(),
-                envs: None,
+        Script {
+            command: Command {
+                name: "pwsh".to_owned(),
+                virtual_environment: value.virtual_environment,
             },
+            arguments: to_string(vec!["-NoProfile", "-Command", "command", &value.name]),
+            current_dir: ".".to_string(),
+            envs: None,
         }
     } else {
-        match value.virtual_environment {
-            | Some(name) => Script {
-                command: Command {
-                    modifier: "".to_string(),
-                    name: "conda".to_owned(),
-                    virtual_environment: Some(name.clone()),
-                },
-                arguments: to_string(vec!["run", "--name", &name, "which", &value.name]),
-                current_dir: ".".to_string(),
-                envs: None,
+        Script {
+            command: Command {
+                name: "which".to_owned(),
+                virtual_environment: value.virtual_environment,
             },
-            | None => Script {
-                command: Command {
-                    modifier: "".to_string(),
-                    name: "which".to_owned(),
-                    virtual_environment: None,
-                },
-                arguments: vec![value.name],
-                current_dir: ".".to_string(),
-                envs: None,
-            },
+            arguments: vec![value.name],
+            current_dir: ".".to_string(),
+            envs: None,
         }
     };
     let output = script.run_with_output();

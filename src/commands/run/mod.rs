@@ -40,7 +40,6 @@ pub fn run(
             // Check requirements
             cfg.requirements.iter().for_each(|name| {
                 let command = Command {
-                    modifier: "".to_string(),
                     name: name.clone(),
                     virtual_environment: None,
                 };
@@ -117,8 +116,8 @@ pub fn run(
                             | Some(value) => PathBuf::from(&working_dir).join(value),
                             | None => PathBuf::from(&working_dir).join("template.json"),
                         };
-                        debug!("=> [INFO] Manifest path: {}", manifest_path.to_str().unwrap());
-                        debug!("=> [INFO] Template path: {}", template_path.to_str().unwrap());
+                        debug!("Manifest path: {}", manifest_path.to_str().unwrap());
+                        debug!("Template path: {}", template_path.to_str().unwrap());
                         let loaded = match template_path.try_exists() {
                             | Ok(true) => Script::from_template(template_path),
                             | _ => {

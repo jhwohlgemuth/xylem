@@ -85,7 +85,6 @@ fn test_has_extension() {
 #[test]
 fn test_is_command() {
     let nonexistent: Command = Command {
-        modifier: "".to_string(),
         name: "does-not-exist".to_string(),
         virtual_environment: None,
     };
@@ -94,20 +93,17 @@ fn test_is_command() {
         // WIP
     } else {
         let cargo: Command = Command {
-            modifier: "".to_string(),
             name: "cargo".to_string(),
             virtual_environment: None,
         };
         assert!(is_command(cargo));
         // Using conda virtual environment
         let conda: Command = Command {
-            modifier: "".to_string(),
             name: "conda".to_string(),
             virtual_environment: None,
         };
         if is_command(conda) {
             let python: Command = Command {
-                modifier: "".to_string(),
                 name: "python".to_string(),
                 virtual_environment: Some("base".to_string()),
             };
@@ -223,7 +219,6 @@ fn test_script_from_template() {
     // "shell" format arguments
     let path = PathBuf::from("tests/fixtures/template.json");
     let script = Script::from_template(path);
-    assert_eq!(script.command.modifier, "");
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
     // "exec" format arguments
@@ -233,7 +228,6 @@ fn test_script_from_template() {
         format!("{}", script.to_string()),
         "'conda run --name base python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}' in ."
     );
-    assert_eq!(script.command.modifier, "conda run --name base ");
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
 }
