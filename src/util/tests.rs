@@ -13,7 +13,7 @@ fn test_add_forward_slash() {
 fn test_config() {
     // Load variables into configuration
     let path = "tests/fixtures/config.json";
-    let config = Config::read_json(PathBuf::from(path)).expect("[ERROR] => Cannot import config in tests");
+    let config = Config::read_json(PathBuf::from(path)).expect("=> [ERROR] Cannot import config in tests");
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.modules.len(), 4);
 }
