@@ -88,10 +88,17 @@ pub enum ModuleLanguage {
 /// }
 /// ```
 ///
-/// URL
+/// URL (HTTPS)
 /// ```json
 /// "modules": {
 ///   "uri": "https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
+/// }
+/// ```
+///
+/// URL (SSH)
+/// ```json
+/// "modules": {
+///   "uri": "ssh://git@code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
 /// }
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -165,6 +172,9 @@ pub struct Config {
     /// Keywords or tags used to describe this module
     keywords: Option<Vec<String>>,
     pub modules: Vec<Module>,
+    /// Environment variables set at the workflow level and available to all modules
+    /// 
+    /// Note: Modules can override these variables
     pub variables: Option<Map<String, Value>>,
 }
 #[derive(Clone, Debug, Deserialize, Eq, Serialize, PartialOrd, Ord)]

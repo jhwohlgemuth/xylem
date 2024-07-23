@@ -54,6 +54,7 @@ pub fn run(
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                             debug!("Found remote binary: {:?}", value);
                             // TODO: Download binary to temp directory
+                            // TODO: Verify binary checksum
                             unimplemented!()
                         }
                         | _ => unimplemented!(),
