@@ -50,14 +50,16 @@ Parallel Integration & Processing Engine
   - [X] Support remote script module (using `git clone <URI>`)
   - [X] Auto-create (Conda/[Mamba](https://mamba.readthedocs.io/en/latest/index.html)) virtual environments
   - [X] Parallelize module preparation
+- [ ] Multi-platform release binaries published to GitLab repository
+  - [ ] Linux
+  - [ ] Mac
+  - [ ] Windows
+  - [ ] Web Browser (WebAssembly)
 - [ ] MVP<sup>[1](#1)</sup> (+binary module support)
     - [ ] Support local binary module
     - [ ] Support remote binary module
-    - [ ] Verify binary with checksum hash
-- [ ] MVP<sup>[1](#1)</sup> (+[WebAssembly](https://webassembly.org/) module support)
-  - [ ] Create example WebAssembly module
-  - [ ] Add workflow support
-  - [ ] Create "utility" module(s) (*example*: data loader module)
+    - [ ] Verify binary with checksum hash (provide `--skip-verify-checksum` flag)
+- [ ] `--skip-verify-requirements` flag for running workflow without verifying environment
 - [ ] "Check" subcommand
     - [X] Create standardized function signature for check modules
         ```rust
@@ -68,12 +70,10 @@ Parallel Integration & Processing Engine
   - [ ] Provide analysis of environment capabilities
   - [ ] Provide steps to address configuration issues
   - [ ] Install missing requirements when `--fix` is passed
-- [ ] Multi-platform release binaries published to GitLab repository
-  - [ ] Linux
-  - [ ] Mac
-  - [ ] Windows
-  - [ ] Web Browser (WebAssembly)
-- [ ] `--skip-requirements-check` flag for running workflow without verifying environment
+- [ ] MVP<sup>[1](#1)</sup> (+[WebAssembly](https://webassembly.org/) module support)
+  - [ ] Create example WebAssembly module
+  - [ ] Add workflow support
+  - [ ] Create "utility" module(s) (*example*: data loader module)
 - [ ] Enhanced requirement validation using namespaced strings (*example*: `conda::numpy`)
 - [ ] Provide portable containerized dependencies that can be used offline (and automatically added via `pipe doctor --fix`)
 - [ ] Support creating Python virtual environments using [Pixi](https://pixi.sh/latest/) (which is more performant and arguably better in every way)
