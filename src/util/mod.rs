@@ -69,38 +69,6 @@ pub enum ModuleLanguage {
     Rust,
 }
 /// Designates module type which specifies necessary attributes
-///
-/// URIs can be absolute or relative file paths or URLs.
-///
-/// Examples:
-///
-/// Absolute file path
-/// ```json
-/// "modules": {
-///   "uri": "file:///root/dev/module-a"
-/// }
-/// ```
-///
-/// Relative file path
-/// ```json
-/// "modules": {
-///   "uri": "file:./module-a"
-/// }
-/// ```
-///
-/// URL (HTTPS)
-/// ```json
-/// "modules": {
-///   "uri": "https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
-/// }
-/// ```
-///
-/// URL (SSH)
-/// ```json
-/// "modules": {
-///   "uri": "ssh://git@code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
-/// }
-/// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ModuleType {
@@ -119,7 +87,41 @@ pub enum ModuleType {
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum ModuleUri<'a> {
+    /// File URIs can be absolute or relative.
+    ///
+    /// Examples:
+    ///
+    /// Absolute file path
+    /// ```json
+    /// "modules": {
+    ///   "uri": "file:///root/dev/module-a"
+    /// }
+    /// ```
+    ///
+    /// Relative file path
+    /// ```json
+    /// "modules": {
+    ///   "uri": "file:./module-a"
+    /// }
+    /// ```
     File(PathBuf),
+    /// URLs can use HTTP, HTTPS, or SSH schemes.
+    ///
+    /// Examples:
+    ///
+    /// URL (HTTPS)
+    /// ```json
+    /// "modules": {
+    ///   "uri": "https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
+    /// }
+    /// ```
+    ///
+    /// URL (SSH)
+    /// ```json
+    /// "modules": {
+    ///   "uri": "ssh://git@code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
+    /// }
+    /// ```
     Url(URI<'a>),
     Unknown(String),
 }
@@ -575,7 +577,6 @@ impl<'a> Script {
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
-        println!("=> [RUN] {:?}", self.to_string());
         debug!("=> [RUN] {:?}", self.to_string());
         let output = process::Command::new(command)
             .args(arguments.iter())

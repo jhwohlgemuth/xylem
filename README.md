@@ -42,6 +42,7 @@ Parallel Integration & Processing Engine
 - [X] Programmatic wrapper for executing arbitrary shell commands
   - [ ] Provide enhanced logging and troubleshooting
 - [X] Template abstraction for customizing module-to-shell interface (see `ScriptTemplate` struct)
+  - [ ] Support `<%= value %>` templating format
 - [X] Tests with [code coverage](https://github.com/xd009642/tarpaulin)
 - [X] Documentation generated from code comments (see https://pipe.ornl.gov)
 - [X] Create module template to enable community contributions
