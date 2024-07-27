@@ -16,6 +16,8 @@
         pub variables: Option<Map<String, Value>>,
     }
     ```
+    - [ ] Add `resources` attribute in addition to `requirements` to designate physical requirements (*example*: GPU(s))
+    - [ ] Add `skip` attribute for skipping various aspects of workflow (e.g., checksums, verification, etc...)
 - [X] Load configuration ([JSON](https://www.json.org/json-en.html))
   - [ ] Load configuration ([YAML](https://yaml.org/))
   - [ ] Load configuration ([CWL](https://www.commonwl.org/))
@@ -38,9 +40,9 @@
   - [X] Auto-create (Conda/[Mamba](https://mamba.readthedocs.io/en/latest/index.html)) virtual environments
   - [X] Parallelize module preparation
 - [ ] Multi-platform release binaries published to GitLab repository
-  - [ ] Linux
-  - [ ] Mac
-  - [ ] Windows
+  - [X] Linux ([tier 1](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Tiers-of-Support))
+  - [ ] Mac ([tier 2](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Tiers-of-Support))
+  - [ ] Windows ([tier 2](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Tiers-of-Support))
   - [ ] Web Browser (WebAssembly)
 - [ ] MVP<sup>[1](#1)</sup> (+binary module support)
     - [ ] Support local binary module
@@ -64,6 +66,7 @@
 - [ ] Enhanced requirement validation using namespaced strings (*example*: `conda::numpy`)
 - [ ] Provide portable containerized dependencies that can be used offline (and automatically added via `pipe doctor --fix`)
 - [ ] Support creating Python virtual environments using [Pixi](https://pixi.sh/latest/) (which is more performant and arguably better in every way)
+- [ ] Workflow graph generation, `config.json` -> `graph.png`
 - [ ] Visual programming interface for workflow creation/update
 
 
