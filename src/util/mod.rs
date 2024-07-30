@@ -248,7 +248,7 @@ pub struct SemanticVersion {
     pub patch: u32,
 }
 #[derive(Clone, Debug, Display)]
-#[display(fmt = "'{} {}' in {}", "self.get_command()", "self.get_arguments().join(\" \")", "self.current_dir")]
+#[display(fmt = "'{} {}' in {}", "self.get_command()", "self.get_arguments().join(\" \")", "current_dir")]
 pub struct Script {
     pub command: Command,
     pub arguments: Vec<String>,
