@@ -13,7 +13,7 @@ use std::convert::TryFrom;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::{
     env::{set_var, vars},
@@ -175,7 +175,7 @@ pub struct Config {
     keywords: Option<Vec<String>>,
     pub modules: Vec<Module>,
     /// Environment variables set at the workflow level and available to all modules
-    /// 
+    ///
     /// Note: Modules can override these variables
     pub variables: Option<Map<String, Value>>,
 }
@@ -563,13 +563,41 @@ impl<'a> Script {
         let envs = self.envs.clone().unwrap_or_default();
         let error_message = format!("=> [FAIL] Execute {:?}", self.to_string());
         debug!("=> [RUN] {:?}", self.to_string());
-        let _ = process::Command::new(command)
+        let mut output: Vec<String> = vec![];
+        let mut cmd = process::Command::new(command)
             .args(arguments.iter())
             .current_dir(current_dir)
-            .stdout(process::Stdio::inherit())
+            .stdout(process::Stdio::piped())
+            .stderr(process::Stdio::piped())
             .envs(envs)
-            .output()
-            .expect(&error_message);
+            .spawn()
+            .unwrap();
+        {
+            let stdout = match cmd.stdout.as_mut() {
+                | Some(value) => value,
+                | None => {
+                    error!("{}", error_message);
+                    return;
+                }
+            };
+            let reader = BufReader::new(stdout);
+            let lines = reader.lines().flatten().collect::<Vec<String>>();
+            debug!("=> {:?}", lines.join("\n"));
+            output.extend(lines);
+        }
+        match cmd.wait_with_output() {
+            | Ok(result) => {
+                if result.status.success() {
+                    debug!("=> [RESULT] {:?}", result);
+                    debug!("=> [OUTPUT] {:?}", output.iter().last().unwrap().to_string());
+                } else {
+                    error!("{} - {:?}", error_message, result);
+                }
+            }
+            | Err(error) => {
+                error!("{} - {:?}", error_message, error);
+            }
+        }
     }
     /// Execute script in child process and wait for it to finish, return the output
     pub fn run_with_output(&'a self) -> String {
