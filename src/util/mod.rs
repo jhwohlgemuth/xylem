@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::wrong_self_convention)]
+use bon::builder;
 use clap::ValueEnum;
 use clap_verbosity_flag::Level;
 use derive_more::Display;
@@ -154,6 +155,7 @@ pub enum TemplateType {
 }
 #[derive(Clone, Debug, Display)]
 #[display(fmt = "{}", name)]
+#[builder(start_fn(name = init))]
 pub struct Command {
     /// Prefix string to modify command string
     ///
@@ -163,7 +165,9 @@ pub struct Command {
     /// ```text
     /// "conda run --name base "
     /// ```
+    #[builder(default)]
     pub name: String,
+    #[builder]
     pub virtual_environment: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -239,21 +243,40 @@ pub struct Rule<'a> {
 /// see <https://semver.org/>
 #[derive(Clone, Debug, Deserialize, Display, Serialize)]
 #[display(fmt = "{}.{}.{}", major, minor, patch)]
+#[builder(start_fn(name = init))]
 pub struct SemanticVersion {
     /// Version when you make incompatible API changes
+    #[builder(default = 0)]
     pub major: u32,
     /// Version when you add functionality in a backward compatible manner
+    #[builder(default = 0)]
     pub minor: u32,
     /// Version when you make backward compatible bug fixes
+    #[builder(default = 0)]
     pub patch: u32,
 }
+/// Script struct
+/// 
+/// Uses [bon](https://elastio.github.io/bon/) crate to implement builder pattern.
+/// 
+/// bon provides intuitive default values and allows for streamlined API.
+/// 
+/// Example:
+/// ```
+/// let script = Script::init().command(command).arguments(arguments).build();
+/// ```
 #[derive(Clone, Debug, Display)]
 #[display(fmt = "'{} {}' in {}", "self.get_command()", "self.get_arguments().join(\" \")", "current_dir")]
+#[builder(start_fn(name = init))]
 pub struct Script {
+    #[builder(default = Command::init().build())]
     pub command: Command,
+    #[builder(default = bon::vec![])]
     pub arguments: Vec<String>,
     /// Directory in which the script should be executed when run method is invoked
+    #[builder(default = ".".to_string())]
     pub current_dir: String,
+    #[builder]
     pub envs: Option<HashMap<String, String>>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -423,7 +446,11 @@ impl Script {
     ///
     /// Example:
     /// ```
-    /// let script = Script::new(command, arguments).expand_arguments();
+    /// // Environment: ANSWER=42
+    /// let command = Command::init().name("echo").build();
+    /// let arguments = to_string(vec!["{{ ANSWER }}"]);
+    /// let script = Script::init().command(command).arguments(arguments).build().expand_arguments();
+    /// // "echo 42"
     /// ```
     pub fn expand_arguments(mut self) -> Script {
         let expanded = self
@@ -448,10 +475,12 @@ impl Script {
     ///
     /// Example:
     /// ```
-    /// let envs = HashMap::from([
-    ///     ("ANSWER".to_string(), "42".to_string()),
-    /// ]);
-    /// let script = Script::new(command, arguments).expand_arguments_from(envs);
+    /// let envs = HashMap::from([("ANSWER".to_string(), "42".to_string())]);
+    /// let script: Script = Script::init()
+    ///     .command(command)
+    ///     .arguments(arguments)
+    ///     .build()
+    ///     .expand_arguments_from(envs);
     /// ```
     pub fn expand_arguments_from(mut self, envs: HashMap<String, String>) -> Script {
         let expanded = self
@@ -509,19 +538,8 @@ impl Script {
                 .collect(),
         };
         let environment = template.environment;
-        Script::new(template.command, arguments).with_environment(environment)
-    }
-    /// Create a new script from a command and arguments
-    pub fn new(command: String, arguments: Vec<String>) -> Script {
-        Self {
-            command: Command {
-                name: command,
-                virtual_environment: None,
-            },
-            arguments,
-            current_dir: ".".to_string(),
-            envs: None,
-        }
+        let command = Command::init().name(template.command).build();
+        Script::init().command(command).arguments(arguments).build().with_environment(environment)
     }
     fn get_command(&self) -> String {
         match &self.command.virtual_environment {
@@ -615,7 +633,9 @@ impl Script {
     ///
     /// For a given script,
     /// ```
-    /// let script = Script::new("python".to_string(), vec!["-m".to_string(), "lib".to_string()]);
+    /// let command = Command::init().name("python".to_string()).build();
+    /// let arguments = to_string(vec!["-m", "lib"]);
+    /// let script = Script::init().command(command).arguments(arguments).build();
     /// ```
     ///
     /// Run with no virtual environment
@@ -744,9 +764,10 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
                             name: "mamba".to_string(),
                             virtual_environment: None,
                         };
-                        let command = (if is_command(mamba) { "mamba" } else { "conda" }).to_string();
+                        let name = (if is_command(mamba) { "mamba" } else { "conda" }).to_string();
                         let arguments = to_string(vec!["env", "create", "-f", "environment.yml"]);
-                        let script = Script::new(command, arguments).with_current_dir(working_dir);
+                        let command = Command::init().name(name).build();
+                        let script = Script::init().command(command).arguments(arguments).build().with_current_dir(working_dir);
                         if dry_run {
                             info!("=> [DRYRUN] Execute: {:?}", script.to_string());
                         } else {
@@ -764,9 +785,9 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
 }
 /// Get list of Conda virtual environments
 pub fn get_conda_environment_list() -> Vec<String> {
-    let command = "conda".to_string();
+    let command = Command::init().name("conda".to_string()).build();
     let arguments = to_string(vec!["env", "list"]);
-    let script = Script::new(command, arguments);
+    let script = Script::init().command(command).arguments(arguments).build();
     script
         .run_with_output()
         .replace(['#', '*'], "")

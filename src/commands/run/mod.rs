@@ -76,9 +76,9 @@ pub fn run(
                                 debug!("Found remote script repository: {:?}", uri);
                                 let module_uri = ModuleUri::from(uri);
                                 let current_dir = root.clone().into_os_string().into_string().unwrap();
-                                let command = "git".to_string();
+                                let command = Command::init().name("git".to_string()).build();
                                 let arguments = to_string(vec!["clone", &uri, &module_uri.hash()]);
-                                let script = Script::new(command, arguments).with_current_dir(current_dir);
+                                let script = Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir);
                                 if dry_run {
                                     info!("=> [DRYRUN] Execute: {:?}", script.to_string());
                                 } else {
@@ -122,7 +122,7 @@ pub fn run(
                         let loaded = match template_path.try_exists() {
                             | Ok(true) => Script::from_template(template_path),
                             | _ => {
-                                let command = "python".to_string();
+                                let command = Command::init().name("python".to_string()).build();
                                 let arguments = to_string(vec![
                                     "-m",
                                     "lib",
@@ -131,7 +131,7 @@ pub fn run(
                                     "--output",
                                     "{{ OUTPUT_DIRECTORY }}",
                                 ]);
-                                Script::new(command, arguments)
+                                Script::init().command(command).arguments(arguments).build()
                             }
                         };
                         let environment = match get_conda_environment_name(manifest_path) {

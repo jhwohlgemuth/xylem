@@ -149,12 +149,28 @@ fn test_semantic_version() {
     assert_eq!(version.minor, 2);
     assert_eq!(version.patch, 3);
     assert_eq!(format!("{}", version), "1.2.3");
+    let default = SemanticVersion::init().build();
+    assert_eq!(default.major, 0);
+    assert_eq!(default.minor, 0);
+    assert_eq!(default.patch, 0);
+    assert_eq!(format!("{}", default), "0.0.0");
+}
+
+#[test]
+fn test_script() {
+    let script = Script::init().build();
+    println!("{:?}", script);
+    assert_eq!(script.command.name, "".to_string());
+    assert_eq!(script.command.virtual_environment, None);
+    assert!(script.arguments.is_empty());
+    assert_eq!(script.envs, None);
 }
 
 #[test]
 fn test_script_expand_arguments() {
     set_var("_PIPE_INPUT_DIRECTORY", "/path/to/input");
     set_var("_PIPE_OUTPUT_DIRECTORY", "/path/to/output");
+    let command = Command::init().name("python".to_string()).build();
     let arguments = to_string(vec![
         "-m",
         "lib",
@@ -163,7 +179,7 @@ fn test_script_expand_arguments() {
         "--output",
         "{{ OUTPUT_DIRECTORY }}",
     ]);
-    let script = Script::new("python".to_string(), arguments);
+    let script = Script::init().command(command).arguments(arguments).build();
     assert_eq!(
         script.clone().expand_arguments().arguments,
         vec!["-m", "lib", "--input", "/path/to/input", "--output", "/path/to/output"]
@@ -184,6 +200,7 @@ fn test_script_expand_arguments() {
 
 #[test]
 fn test_script_expand_arguments_from() {
+    let command = Command::init().name("python".to_string()).build();
     let arguments = to_string(vec![
         "-m",
         "lib",
@@ -192,7 +209,7 @@ fn test_script_expand_arguments_from() {
         "--output",
         "{{ OUTPUT_DIRECTORY }}",
     ]);
-    let script = Script::new("python".to_string(), arguments);
+    let script = Script::init().command(command).arguments(arguments).build();
     // Expand from HashMap parameter instead of environment
     let envs = HashMap::from([
         ("INPUT_DIRECTORY".to_string(), "FOO".to_string()),
@@ -237,10 +254,13 @@ fn test_script_run() {
     if cfg!(target_os = "windows") {
         // WIP
     } else {
-        let script = Script::new("echo".to_string(), to_string(vec!["hello", "world"]));
+        let command = Command::init().name("echo".to_string()).build();
+        let arguments = to_string(vec!["hello", "world"]);
+        let script = Script::init().command(command).arguments(arguments).build();
         let output = script.run_with_output();
         assert_eq!(&output, "hello world");
-        let script = Script::new("pwd".to_string(), vec![]);
+        let command = Command::init().name("pwd".to_string()).build();
+        let script = Script::init().command(command).build();
         let output = script.with_current_dir("/root".to_string()).run_with_output();
         assert_eq!(&output, "/root");
         let path = PathBuf::from("tests/fixtures/template_run.json");
