@@ -64,6 +64,7 @@
   - [ ] Add workflow support
   - [ ] Create "utility" module(s) (*example*: data loader module)
 - [ ] Enhanced requirement validation using namespaced strings (*example*: `conda::numpy`)
+- [ ] Provide built-in API server to serve requests to tenant modules (data from an API will be listed as requirements)
 - [ ] Provide portable containerized dependencies that can be used offline (and automatically added via `pipe doctor --fix`)
 - [ ] Support creating Python virtual environments using [Pixi](https://pixi.sh/latest/) (which is more performant and arguably better in every way)
 - [ ] Workflow graph generation, `config.json` -> `graph.png`
