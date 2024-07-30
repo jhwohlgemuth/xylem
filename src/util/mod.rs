@@ -3,6 +3,7 @@
 #![allow(clippy::wrong_self_convention)]
 use clap::ValueEnum;
 use clap_verbosity_flag::Level;
+use derive_more::Display;
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
 use serde::ser::StdError;
@@ -17,7 +18,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::{
     env::{set_var, vars},
-    fmt, io,
+    io,
 };
 use tracing::{debug, error, info};
 use uriparse::Scheme;
@@ -30,7 +31,7 @@ pub type Void = Result<(), Box<dyn Error>>;
 pub type Output = Vec<Option<Details>>;
 
 /// Values that from Serde that can be set as environment variables
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Display)]
 pub enum EnvironmentValue {
     String(String),
     Number(Number),
@@ -125,7 +126,7 @@ pub enum ModuleUri<'a> {
     Url(URI<'a>),
     Unknown(String),
 }
-#[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(ValueEnum, Copy, Clone, Debug, Display, PartialEq, Eq)]
 pub enum ReporterType {
     Console,
     Json,
@@ -151,7 +152,8 @@ pub enum TemplateType {
     Mustache,
     Unknown,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Display)]
+#[display(fmt = "{}", name)]
 pub struct Command {
     /// Prefix string to modify command string
     ///
@@ -235,7 +237,8 @@ pub struct Rule<'a> {
 /// Semantic version
 ///
 /// see <https://semver.org/>
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Display, Serialize)]
+#[display(fmt = "{}.{}.{}", major, minor, patch)]
 pub struct SemanticVersion {
     /// Version when you make incompatible API changes
     pub major: u32,
@@ -244,7 +247,8 @@ pub struct SemanticVersion {
     /// Version when you make backward compatible bug fixes
     pub patch: u32,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Display)]
+#[display(fmt = "'{} {}' in {}", "self.get_command()", "self.get_arguments().join(\" \")", "self.current_dir")]
 pub struct Script {
     pub command: Command,
     pub arguments: Vec<String>,
@@ -367,26 +371,6 @@ impl EnvironmentValue {
             .for_each(|(key, value)| EnvironmentValue::from_string(value).set_variable(key));
     }
 }
-impl fmt::Display for EnvironmentValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(self, f)
-    }
-}
-impl fmt::Display for ReporterType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(self, f)
-    }
-}
-impl fmt::Display for Script {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "'{} {}' in {}", self.get_command(), self.get_arguments().join(" "), self.current_dir)
-    }
-}
-impl fmt::Display for SemanticVersion {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
-    }
-}
 impl ModuleUri<'_> {
     pub fn from(value: &str) -> ModuleUri<'_> {
         match URI::try_from(value) {
@@ -432,7 +416,7 @@ impl SemanticVersion {
         SemanticVersion { major, minor, patch }
     }
 }
-impl<'a> Script {
+impl Script {
     /// Expand environment variables in the script arguments from environment
     ///
     /// This method does not set environment variables, but only interpolates the values within the script arguments
@@ -556,7 +540,7 @@ impl<'a> Script {
         }
     }
     /// Execute script in child process and wait for it to finish, print to stdout and ignore output
-    pub fn run(&'a self) {
+    pub fn run(&self) {
         let command = &self.get_command();
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
@@ -581,7 +565,7 @@ impl<'a> Script {
                 }
             };
             let reader = BufReader::new(stdout);
-            let lines = reader.lines().flatten().collect::<Vec<String>>();
+            let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
             debug!("=> {:?}", lines.join("\n"));
             output.extend(lines);
         }
@@ -600,7 +584,7 @@ impl<'a> Script {
         }
     }
     /// Execute script in child process and wait for it to finish, return the output
-    pub fn run_with_output(&'a self) -> String {
+    pub fn run_with_output(&self) -> String {
         let command = &self.get_command();
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
