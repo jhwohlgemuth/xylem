@@ -567,7 +567,7 @@ impl Script {
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
         let error_message = format!("=> [FAIL] Execute {:?}", self.to_string());
-        debug!(script = self.to_string(), "{}", "=> [RUN]".dimmed());
+        debug!(script = self.to_string(), "{}", "=> [RUN]".cyan());
         let mut output: Vec<String> = vec![];
         let mut cmd = process::Command::new(command)
             .args(arguments.iter())
@@ -610,7 +610,7 @@ impl Script {
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
-        debug!(script = self.to_string(), cwd = current_dir.to_str().unwrap(), "{}", "=> [RUN]".dimmed());
+        debug!(script = self.to_string(), cwd = current_dir.to_str().unwrap(), "{}", "=> [RUN]".cyan());
         let output = process::Command::new(command)
             .args(arguments.iter())
             .current_dir(current_dir)
@@ -769,7 +769,7 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
                         let command = Command::init().name(name).build();
                         let script = Script::init().command(command).arguments(arguments).build().with_current_dir(working_dir);
                         if dry_run {
-                            info!(script = script.to_string(), "{}", "=> [DRYRUN]".dimmed());
+                            info!(script = script.to_string(), "{}", "=> [DRYRUN]".yellow());
                         } else {
                             script.run();
                         }

@@ -84,7 +84,7 @@ pub fn run(
                                 let arguments = to_string(vec!["clone", &uri, &module_uri.hash()]);
                                 let script = Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir);
                                 if dry_run {
-                                    info!(script = script.to_string(), "{}", "=> [DRYRUN]".dimmed());
+                                    info!(script = script.to_string(), "{}", "=> [DRYRUN]".yellow());
                                 } else {
                                     script.run();
                                 }
@@ -124,8 +124,8 @@ pub fn run(
                             | Some(value) => PathBuf::from(&working_dir).join(value),
                             | None => PathBuf::from(&working_dir).join("template.json"),
                         };
-                        debug!(path = manifest_path.to_str().unwrap(), "=> [{}] Manifest file", "USING".cyan());
-                        debug!(path = template_path.to_str().unwrap(), "=> [{}] Template file", "USING".cyan());
+                        debug!(path = manifest_path.to_str().unwrap(), "=> [{}] Manifest file", "USING".dimmed());
+                        debug!(path = template_path.to_str().unwrap(), "=> [{}] Template file", "USING".dimmed());
                         let loaded = match template_path.try_exists() {
                             | Ok(true) => Script::from_template(template_path),
                             | _ => {
@@ -158,7 +158,7 @@ pub fn run(
                             .with_environment(environment);
                         if dry_run {
                             EnvironmentValue::print_all();
-                            info!(script = script.to_string(), cwd = script.current_dir, "{}", "=> [DRYRUN]".dimmed());
+                            info!(script = script.to_string(), cwd = script.current_dir, "{}", "=> [DRYRUN]".yellow());
                         } else {
                             script.run();
                         }
