@@ -107,6 +107,20 @@ fn test_is_command() {
 }
 
 #[test]
+fn test_module() {
+    let module = Module {
+        name: "module-a".to_string(),
+        module_type: ModuleType::Configuration { uri: "uri".to_string() },
+        description: None,
+        variables: None,
+        before_script: None,
+        after_script: None,
+        template: None,
+    };
+    assert_eq!(module.to_string(), "module-a");
+}
+
+#[test]
 fn test_module_uri() {
     assert_eq!(ModuleUri::from(""), ModuleUri::Unknown("".to_string()));
     assert_eq!(ModuleUri::from("Not a valid URI"), ModuleUri::Unknown("Not a valid URI".to_string()));

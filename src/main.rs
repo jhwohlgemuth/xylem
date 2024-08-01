@@ -1,6 +1,8 @@
 use clap::Parser;
 use dotenv::dotenv;
+use tracing::instrument;
 use tracing_log::AsTrace;
+use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{fmt, prelude::*};
 
@@ -19,7 +21,10 @@ const DISPLAY_LINE_NUMBER: bool = false;
 const DISPLAY_TARGET: bool = false;
 const DISPLAY_THREAD_ID: bool = false;
 const DISPLAY_THREAD_NAME: bool = true;
+
+#[instrument]
 fn main() -> Void {
+    color_eyre::install()?;
     let args = Arguments::parse();
     match dotenv() {
         | Ok(_) if !dotenv::var(LOG_LEVEL).unwrap_or_default().is_empty() => {

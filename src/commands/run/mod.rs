@@ -3,9 +3,10 @@ use crate::util::{
     ModuleUri, Script,
 };
 use clap_verbosity_flag::Verbosity;
+use color_eyre::eyre::Report;
 use nanoid::nanoid;
+use owo_colors::OwoColorize;
 use rayon::prelude::*;
-use serde::ser::StdError;
 use std::env;
 use std::path::PathBuf;
 use tracing::{debug, error, info};
@@ -17,7 +18,7 @@ pub fn run(
     _output: &Option<PathBuf>,
     dry_run: bool,
     verbose: Verbosity,
-) -> Result<(), Box<(dyn StdError + 'static)>> {
+) -> Result<(), Report> {
     let id = nanoid!(10, &nanoid::alphabet::SAFE);
     let root = env::temp_dir().join(EnvironmentValue::PREFIX).join(id.clone());
     match std::fs::create_dir_all(root.clone()) {
@@ -52,7 +53,7 @@ pub fn run(
                     | ModuleUri::Url(value) => match value.scheme() {
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                             let url = value.to_string();
-                            debug!(url, "=> [FOUND] Remote binary");
+                            debug!(url, "=> [{}] Remote binary", "FOUND".green());
                             // TODO: Download binary to temp directory
                             // TODO: Verify binary checksum
                             unimplemented!()
@@ -62,11 +63,11 @@ pub fn run(
                     | ModuleUri::File(value) => match value.try_exists() {
                         | Ok(true) => {
                             let path = value.into_os_string().into_string().unwrap();
-                            debug!(path, "=> [FOUND] Local binary");
+                            debug!(path, "=> [{}] Local binary", "FOUND".green());
                         }
                         | _ => {
                             let path = value.into_os_string().into_string().unwrap();
-                            error!(path, "=> [NOTFOUND] Local binary");
+                            error!(path, "=> [{}] Local binary", "NOTFOUND".red());
                             std::process::exit(1);
                         }
                     },
@@ -76,14 +77,14 @@ pub fn run(
                     | ModuleLanguage::Python => match ModuleUri::from(uri) {
                         | ModuleUri::Url(value) => match value.scheme() {
                             | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
-                                debug!(uri, "=> [FOUND] Remote script repository");
+                                debug!(uri, "=> [{}] Remote script repository", "FOUND".green());
                                 let module_uri = ModuleUri::from(uri);
                                 let current_dir = root.clone().into_os_string().into_string().unwrap();
                                 let command = Command::init().name("git".to_string()).build();
                                 let arguments = to_string(vec!["clone", &uri, &module_uri.hash()]);
                                 let script = Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir);
                                 if dry_run {
-                                    info!(script = script.to_string(), "=> [DRYRUN] Execute");
+                                    info!(script = script.to_string(), "{}", "=> [DRYRUN]".dimmed());
                                 } else {
                                     script.run();
                                 }
@@ -96,13 +97,13 @@ pub fn run(
                         | ModuleUri::File(value) => match value.try_exists() {
                             | Ok(true) => {
                                 let path = value.into_os_string().into_string().unwrap();
-                                debug!(path, "=> [FOUND] Local script repository");
+                                debug!(path, "=> [{}] Local script repository", "FOUND".green());
                                 // TODO: Check script repository with is_valid_pipe_module_python
                                 create_conda_environment(uri, dry_run, verbose.log_level());
                             }
                             | _ => {
                                 let path = value.into_os_string().into_string().unwrap();
-                                error!(path, "=> [NOTFOUND] Local script module");
+                                error!(path, "=> [{}] Local script module", "NOTFOUND".red());
                                 std::process::exit(1);
                             }
                         },
@@ -123,8 +124,8 @@ pub fn run(
                             | Some(value) => PathBuf::from(&working_dir).join(value),
                             | None => PathBuf::from(&working_dir).join("template.json"),
                         };
-                        debug!(path = manifest_path.to_str().unwrap(), "=> [USING] Manifest file");
-                        debug!(path = template_path.to_str().unwrap(), "=> [USING] Template file");
+                        debug!(path = manifest_path.to_str().unwrap(), "=> [{}] Manifest file", "USING".cyan());
+                        debug!(path = template_path.to_str().unwrap(), "=> [{}] Template file", "USING".cyan());
                         let loaded = match template_path.try_exists() {
                             | Ok(true) => Script::from_template(template_path),
                             | _ => {
@@ -157,7 +158,7 @@ pub fn run(
                             .with_environment(environment);
                         if dry_run {
                             EnvironmentValue::print_all();
-                            info!(script = script.to_string(), cwd = script.current_dir, "=> [DRYRUN] Execute");
+                            info!(script = script.to_string(), cwd = script.current_dir, "{}", "=> [DRYRUN]".dimmed());
                         } else {
                             script.run();
                         }

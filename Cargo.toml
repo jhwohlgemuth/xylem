@@ -12,6 +12,7 @@ edition = "2021"
 bon = "1.0.4"
 clap = { version = "4.4.2", features = ["derive"] }
 clap-verbosity-flag = "2.2.0"
+color-eyre = "0.6.3"
 console = { version = "0.15.7", default-features = false, features = ["ansi-parsing"] }
 derive_more = "0.99.18"
 dotenv = "0.15.0"
@@ -22,6 +23,7 @@ indicatif = "0.17.6"
 is-terminal = "0.4.9"
 log = "0.4.20"
 nanoid = "0.4.0"
+owo-colors = "4.0.0"
 rayon = "1.7.0"
 regex = "1.9.5"
 serde = { version = "1.0.188", features = ["derive"] }

@@ -1,9 +1,9 @@
 pub mod checks;
 
+use color_eyre::eyre::{Report, Result};
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use serde::ser::StdError;
 use std::env;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
@@ -21,7 +21,7 @@ pub fn run(
     pass: bool,
     minimal: bool,
     unique: bool,
-) -> Result<(), Box<(dyn StdError + 'static)>> {
+) -> Result<(), Report> {
     let rules: Vec<_> = vec![
         // Rule definitions go here
         Rule {

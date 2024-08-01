@@ -4,9 +4,11 @@
 use bon::builder;
 use clap::ValueEnum;
 use clap_verbosity_flag::Level;
+use color_eyre::eyre::{Report, Result};
 use derive_more::Display;
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
+use owo_colors::OwoColorize;
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
@@ -28,7 +30,7 @@ use uriparse::URI;
 use std::process;
 
 pub type CommandResult = Result<(), Box<(dyn StdError + 'static)>>;
-pub type Void = Result<(), Box<dyn Error>>;
+pub type Void = Result<(), Report>;
 pub type Output = Vec<Option<Details>>;
 
 /// Values that from Serde that can be set as environment variables
@@ -194,15 +196,16 @@ pub struct Details {
     // Explanation of why the check failed (null when condition is true)
     pub error: Option<String>,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Display, Serialize)]
+#[display(fmt = "{name}")]
 pub struct Module {
-    name: String,
+    pub name: String,
     #[serde(flatten)]
     pub module_type: ModuleType,
-    description: Option<String>,
+    pub description: Option<String>,
     pub variables: Option<Map<String, Value>>,
-    before_script: Option<Instruction>,
-    after_script: Option<Instruction>,
+    pub before_script: Option<Instruction>,
+    pub after_script: Option<Instruction>,
     pub template: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -564,7 +567,7 @@ impl Script {
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
         let error_message = format!("=> [FAIL] Execute {:?}", self.to_string());
-        debug!("=> [RUN] {:?}", self.to_string());
+        debug!(script = self.to_string(), "{}", "=> [RUN]".dimmed());
         let mut output: Vec<String> = vec![];
         let mut cmd = process::Command::new(command)
             .args(arguments.iter())
@@ -607,7 +610,7 @@ impl Script {
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
-        debug!(script = self.to_string(), cwd = current_dir.to_str().unwrap(), "=> [RUN] Execute");
+        debug!(script = self.to_string(), cwd = current_dir.to_str().unwrap(), "{}", "=> [RUN]".dimmed());
         let output = process::Command::new(command)
             .args(arguments.iter())
             .current_dir(current_dir)
@@ -754,11 +757,11 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
     let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
     match manifest_path.try_exists() {
         | Ok(true) => {
-            debug!(path = manifest_path.to_str().unwrap(), "=> [FOUND] Manifest file");
+            debug!(path = manifest_path.to_str().unwrap(), "=> [{}] Manifest file", "FOUND".green());
             match get_conda_environment_name(manifest_path.clone()) {
                 | Some(name) => {
                     if get_conda_environment_list().contains(&name) {
-                        debug!(name, "=> [FOUND] Virtual environment");
+                        debug!(name, "=> [{}] Virtual environment", "FOUND".green());
                     } else {
                         let mamba = Command::init().name("mamba".to_string()).build();
                         let name = (if is_command(mamba) { "mamba" } else { "conda" }).to_string();
@@ -766,7 +769,7 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
                         let command = Command::init().name(name).build();
                         let script = Script::init().command(command).arguments(arguments).build().with_current_dir(working_dir);
                         if dry_run {
-                            info!(script = script.to_string(), "=> [DRYRUN] Execute");
+                            info!(script = script.to_string(), "{}", "=> [DRYRUN]".dimmed());
                         } else {
                             script.run();
                         }
@@ -776,7 +779,7 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
             };
         }
         | _ => {
-            debug!(path = manifest_path.to_str().unwrap(), "=> [NOTFOUND] Manifest file");
+            debug!(path = manifest_path.to_str().unwrap(), "=> [{}] Manifest file", "NOTFOUND".red());
         }
     }
 }
@@ -898,11 +901,11 @@ pub fn is_command(value: Command) -> bool {
     let output = script.run_with_output();
     match PathBuf::from(output.clone()).try_exists() {
         | Ok(true) => {
-            debug!(output, "=> [FOUND] Command");
+            debug!(output, "=> [{}] Command", "FOUND".green());
             true
         }
         | _ => {
-            debug!(output, "=> [NOTFOUND] Command");
+            debug!(output, "=> [{}] Command", "NOTFOUND".red());
             false
         }
     }
@@ -950,11 +953,11 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
     let mut content = String::new();
     let _ = match File::open(path.clone()) {
         | Ok(mut file) => {
-            debug!(path = path.to_str().unwrap(), "=> [READ]");
+            debug!(path = path.to_str().unwrap(), "=> [{}]", "READ".green());
             file.read_to_string(&mut content)
         }
         | Err(err) => {
-            debug!(path = path.to_str().unwrap(), "=> [FAIL]");
+            debug!(path = path.to_str().unwrap(), "=> [{}]", "FAIL".red());
             Err(err)
         }
     };
