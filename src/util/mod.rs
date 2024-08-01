@@ -256,17 +256,17 @@ pub struct SemanticVersion {
     pub patch: u32,
 }
 /// Script struct
-/// 
+///
 /// Uses [bon](https://elastio.github.io/bon/) crate to implement builder pattern.
-/// 
+///
 /// bon provides intuitive default values and allows for streamlined API.
-/// 
+///
 /// Example:
 /// ```
 /// let script = Script::init().command(command).arguments(arguments).build();
 /// ```
 #[derive(Clone, Debug, Display)]
-#[display(fmt = "'{} {}' in {}", "self.get_command()", "self.get_arguments().join(\" \")", "current_dir")]
+#[display(fmt = "{} {}", "self.get_command()", "self.get_arguments().join(\" \")")]
 #[builder(start_fn(name = init))]
 pub struct Script {
     #[builder(default = Command::init().build())]
@@ -305,7 +305,7 @@ impl Config {
             }
         };
         let json: serde_json::Result<Config> = serde_json::from_str(&content);
-        debug!("Imported config: {:#?}", json);
+        debug!("=> [READ] Configuration = {:#?}", json);
         json
     }
     /// Set environment variables from PIPE configuration "variables" attribute
@@ -375,7 +375,7 @@ impl EnvironmentValue {
     }
     pub fn print_all() {
         EnvironmentValue::get_all().into_iter().for_each(|(key, value)| {
-            debug!("=> [ENV] {}: {}", key, value);
+            debug!(key, value, "=> [ENV]");
         });
     }
     pub fn set_variable(self, key: String) {
@@ -607,7 +607,7 @@ impl Script {
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
-        debug!("=> [RUN] {:?}", self.to_string());
+        debug!(script = self.to_string(), cwd = current_dir.to_str().unwrap(), "=> [RUN] Execute");
         let output = process::Command::new(command)
             .args(arguments.iter())
             .current_dir(current_dir)
@@ -754,22 +754,19 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
     let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
     match manifest_path.try_exists() {
         | Ok(true) => {
-            debug!("Found manifest file: {:?}", manifest_path);
+            debug!(path = manifest_path.to_str().unwrap(), "=> [FOUND] Manifest file");
             match get_conda_environment_name(manifest_path.clone()) {
                 | Some(name) => {
                     if get_conda_environment_list().contains(&name) {
-                        debug!("Virtual environment already exists: {:?}", name);
+                        debug!(name, "=> [FOUND] Virtual environment");
                     } else {
-                        let mamba = Command {
-                            name: "mamba".to_string(),
-                            virtual_environment: None,
-                        };
+                        let mamba = Command::init().name("mamba".to_string()).build();
                         let name = (if is_command(mamba) { "mamba" } else { "conda" }).to_string();
                         let arguments = to_string(vec!["env", "create", "-f", "environment.yml"]);
                         let command = Command::init().name(name).build();
                         let script = Script::init().command(command).arguments(arguments).build().with_current_dir(working_dir);
                         if dry_run {
-                            info!("=> [DRYRUN] Execute: {:?}", script.to_string());
+                            info!(script = script.to_string(), "=> [DRYRUN] Execute");
                         } else {
                             script.run();
                         }
@@ -779,7 +776,7 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
             };
         }
         | _ => {
-            debug!("No manifest file found at {:?}", manifest_path);
+            debug!(path = manifest_path.to_str().unwrap(), "=> [NOTFOUND] Manifest file");
         }
     }
 }
@@ -884,34 +881,28 @@ pub fn has_extension(extension: &str, path: &Path) -> bool {
 /// ```
 pub fn is_command(value: Command) -> bool {
     let script = if cfg!(target_os = "windows") {
-        Script {
-            command: Command {
-                name: "pwsh".to_owned(),
-                virtual_environment: value.virtual_environment,
-            },
-            arguments: to_string(vec!["-NoProfile", "-Command", "command", &value.name]),
-            current_dir: ".".to_string(),
-            envs: None,
-        }
+        let command = Command::init()
+            .name("pwsh".to_owned())
+            .maybe_virtual_environment(value.virtual_environment)
+            .build();
+        let arguments = to_string(vec!["-NoProfile", "-Command", "command", &value.name]);
+        Script::init().command(command).arguments(arguments).build()
     } else {
-        Script {
-            command: Command {
-                name: "which".to_owned(),
-                virtual_environment: value.virtual_environment,
-            },
-            arguments: vec![value.name],
-            current_dir: ".".to_string(),
-            envs: None,
-        }
+        let command = Command::init()
+            .name("which".to_owned())
+            .maybe_virtual_environment(value.virtual_environment)
+            .build();
+        let arguments = vec![value.name];
+        Script::init().command(command).arguments(arguments).build()
     };
     let output = script.run_with_output();
     match PathBuf::from(output.clone()).try_exists() {
         | Ok(true) => {
-            debug!("Command found at {:?}", output);
+            debug!(output, "=> [FOUND] Command");
             true
         }
         | _ => {
-            debug!("Command NOT found at {:?}", output);
+            debug!(output, "=> [NOTFOUND] Command");
             false
         }
     }
@@ -959,11 +950,11 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
     let mut content = String::new();
     let _ = match File::open(path.clone()) {
         | Ok(mut file) => {
-            debug!("Read file: {:?}", path);
+            debug!(path = path.to_str().unwrap(), "=> [READ]");
             file.read_to_string(&mut content)
         }
         | Err(err) => {
-            debug!("Failed to read file: {:?}", path);
+            debug!(path = path.to_str().unwrap(), "=> [FAIL]");
             Err(err)
         }
     };

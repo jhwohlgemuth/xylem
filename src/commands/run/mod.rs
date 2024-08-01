@@ -22,7 +22,8 @@ pub fn run(
     let root = env::temp_dir().join(EnvironmentValue::PREFIX).join(id.clone());
     match std::fs::create_dir_all(root.clone()) {
         | Ok(_) => {
-            debug!("Created temporary directory: {:?}", root.clone().into_os_string().into_string().unwrap());
+            let path = root.clone().into_os_string().into_string().unwrap();
+            debug!(path, "Created temporary directory");
         }
         | Err(err) => error!("{}", err),
     }
@@ -39,12 +40,9 @@ pub fn run(
         | Ok(cfg) => {
             // Check requirements
             cfg.requirements.iter().for_each(|name| {
-                let command = Command {
-                    name: name.clone(),
-                    virtual_environment: None,
-                };
+                let command = Command::init().name(name.clone()).build();
                 if !is_command(command) {
-                    error!("Requirement not met. {:?} not found", name);
+                    error!(name, "Requirement not met");
                 }
             });
             // Prepare modules
@@ -52,7 +50,8 @@ pub fn run(
                 | ModuleType::Binary { uri } => match ModuleUri::from(uri) {
                     | ModuleUri::Url(value) => match value.scheme() {
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
-                            debug!("Found remote binary: {:?}", value);
+                            let url = value.to_string();
+                            debug!(url, "=> [FOUND] Remote binary");
                             // TODO: Download binary to temp directory
                             // TODO: Verify binary checksum
                             unimplemented!()
@@ -61,10 +60,12 @@ pub fn run(
                     },
                     | ModuleUri::File(value) => match value.try_exists() {
                         | Ok(true) => {
-                            debug!("Found local binary: {:?}", value);
+                            let path = value.into_os_string().into_string().unwrap();
+                            debug!(path, "=> [FOUND] Local binary");
                         }
                         | _ => {
-                            error!("Unable to find local binary: {:?}", value);
+                            let path = value.into_os_string().into_string().unwrap();
+                            error!(path, "=> [NOTFOUND] Local binary");
                         }
                     },
                     | _ => unimplemented!(),
@@ -73,14 +74,14 @@ pub fn run(
                     | ModuleLanguage::Python => match ModuleUri::from(uri) {
                         | ModuleUri::Url(value) => match value.scheme() {
                             | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
-                                debug!("Found remote script repository: {:?}", uri);
+                                debug!(uri, "=> [FOUND] Remote script repository");
                                 let module_uri = ModuleUri::from(uri);
                                 let current_dir = root.clone().into_os_string().into_string().unwrap();
                                 let command = Command::init().name("git".to_string()).build();
                                 let arguments = to_string(vec!["clone", &uri, &module_uri.hash()]);
                                 let script = Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir);
                                 if dry_run {
-                                    info!("=> [DRYRUN] Execute: {:?}", script.to_string());
+                                    info!(script = script.to_string(), "=> [DRYRUN] Execute");
                                 } else {
                                     script.run();
                                 }
@@ -92,12 +93,14 @@ pub fn run(
                         },
                         | ModuleUri::File(value) => match value.try_exists() {
                             | Ok(true) => {
-                                debug!("Found local script repository: {:?}", value);
+                                let path = value.into_os_string().into_string().unwrap();
+                                debug!(path, "=> [FOUND] Local script repository");
                                 // TODO: Check script repository with is_valid_pipe_module_python
                                 create_conda_environment(uri, dry_run, verbose.log_level());
                             }
                             | _ => {
-                                error!("Unable to find script module: {:?}", value);
+                                let path = value.into_os_string().into_string().unwrap();
+                                error!(path, "=> [NOTFOUND] Local script module");
                             }
                         },
                         | _ => unimplemented!(),
@@ -117,8 +120,8 @@ pub fn run(
                             | Some(value) => PathBuf::from(&working_dir).join(value),
                             | None => PathBuf::from(&working_dir).join("template.json"),
                         };
-                        debug!("Manifest path: {}", manifest_path.to_str().unwrap());
-                        debug!("Template path: {}", template_path.to_str().unwrap());
+                        debug!(path = manifest_path.to_str().unwrap(), "=> [USING] Manifest file");
+                        debug!(path = template_path.to_str().unwrap(), "=> [USING] Template file");
                         let loaded = match template_path.try_exists() {
                             | Ok(true) => Script::from_template(template_path),
                             | _ => {
@@ -151,7 +154,7 @@ pub fn run(
                             .with_environment(environment);
                         if dry_run {
                             EnvironmentValue::print_all();
-                            info!("=> [DRYRUN] Execute: {:?}", script.to_string());
+                            info!(script = script.to_string(), cwd = script.current_dir, "=> [DRYRUN] Execute");
                         } else {
                             script.run();
                         }

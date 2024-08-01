@@ -15,9 +15,9 @@ use util::Void;
 // Environment variables
 const LOG_LEVEL: &str = "PIPE_LOG_LEVEL";
 const DISPLAY_LEVEL: bool = true;
-const DISPLAY_LINE_NUMBER: bool = true;
-const DISPLAY_TARGET: bool = true;
-const DISPLAY_THREAD_ID: bool = true;
+const DISPLAY_LINE_NUMBER: bool = false;
+const DISPLAY_TARGET: bool = false;
+const DISPLAY_THREAD_ID: bool = false;
 const DISPLAY_THREAD_NAME: bool = true;
 fn main() -> Void {
     let args = Arguments::parse();

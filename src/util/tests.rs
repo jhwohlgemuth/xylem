@@ -84,6 +84,9 @@ fn test_has_extension() {
 
 #[test]
 fn test_is_command() {
+    let command = Command::init().name("python".to_string()).virtual_environment("base".to_string()).build();
+    assert_eq!(command.name, "python".to_string());
+    assert_eq!(command.virtual_environment, Some("base".to_string()));
     let nonexistent: Command = Command {
         name: "does-not-exist".to_string(),
         virtual_environment: None,
@@ -188,13 +191,13 @@ fn test_script_expand_arguments() {
     assert_eq!(
         script.clone().expand_arguments().with_environment(Some(environment.clone())).to_string(),
         format!(
-            "'conda run --name {} python -m lib --input /path/to/input --output /path/to/output' in .",
+            "conda run --name {} python -m lib --input /path/to/input --output /path/to/output",
             environment
         )
     );
     assert_eq!(
         script.clone().expand_arguments().with_environment(None).to_string(),
-        "'python -m lib --input /path/to/input --output /path/to/output' in ."
+        "python -m lib --input /path/to/input --output /path/to/output"
     );
 }
 
@@ -222,11 +225,11 @@ fn test_script_expand_arguments_from() {
             .expand_arguments_from(envs.clone())
             .with_environment(Some(environment.clone()))
             .to_string(),
-        format!("'conda run --name {} python -m lib --input FOO --output BAR' in .", environment)
+        format!("conda run --name {} python -m lib --input FOO --output BAR", environment)
     );
     assert_eq!(
         script.clone().expand_arguments_from(envs.clone()).with_environment(None).to_string(),
-        "'python -m lib --input FOO --output BAR' in ."
+        "python -m lib --input FOO --output BAR"
     );
 }
 
@@ -243,7 +246,7 @@ fn test_script_from_template() {
     let script = Script::from_template(path);
     assert_eq!(
         format!("{}", script.to_string()),
-        "'conda run --name base python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}' in ."
+        "conda run --name base python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}"
     );
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
