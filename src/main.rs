@@ -4,7 +4,7 @@ use tracing::instrument;
 use tracing_log::AsTrace;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
-use tracing_subscriber::{fmt, prelude::*};
+use tracing_subscriber::fmt;
 
 mod cli;
 mod commands;

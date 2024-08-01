@@ -308,7 +308,7 @@ impl Config {
             }
         };
         let json: serde_json::Result<Config> = serde_json::from_str(&content);
-        debug!("=> [READ] Configuration = {:#?}", json);
+        debug!("=> [{}] Configuration = {:#?}", "READ".green(), json.dimmed());
         json
     }
     /// Set environment variables from PIPE configuration "variables" attribute
