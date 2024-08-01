@@ -43,6 +43,7 @@ pub fn run(
                 let command = Command::init().name(name.clone()).build();
                 if !is_command(command) {
                     error!(name, "Requirement not met");
+                    std::process::exit(1);
                 }
             });
             // Prepare modules
@@ -66,6 +67,7 @@ pub fn run(
                         | _ => {
                             let path = value.into_os_string().into_string().unwrap();
                             error!(path, "=> [NOTFOUND] Local binary");
+                            std::process::exit(1);
                         }
                     },
                     | _ => unimplemented!(),
@@ -101,6 +103,7 @@ pub fn run(
                             | _ => {
                                 let path = value.into_os_string().into_string().unwrap();
                                 error!(path, "=> [NOTFOUND] Local script module");
+                                std::process::exit(1);
                             }
                         },
                         | _ => unimplemented!(),

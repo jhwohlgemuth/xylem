@@ -95,21 +95,12 @@ fn test_is_command() {
     if cfg!(target_os = "windows") {
         // WIP
     } else {
-        let cargo: Command = Command {
-            name: "cargo".to_string(),
-            virtual_environment: None,
-        };
+        let cargo = Command::init().name("cargo".to_string()).build();
         assert!(is_command(cargo));
         // Using conda virtual environment
-        let conda: Command = Command {
-            name: "conda".to_string(),
-            virtual_environment: None,
-        };
+        let conda = Command::init().name("conda".to_string()).build();
         if is_command(conda) {
-            let python: Command = Command {
-                name: "python".to_string(),
-                virtual_environment: Some("base".to_string()),
-            };
+            let python = Command::init().name("python".to_string()).virtual_environment("base".to_string()).build();
             assert!(is_command(python));
         }
     }
