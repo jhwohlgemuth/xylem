@@ -9,7 +9,7 @@ use owo_colors::OwoColorize;
 use rayon::prelude::*;
 use std::env;
 use std::path::PathBuf;
-use tracing::{debug, error, info};
+use tracing::{debug, error, warn};
 use uriparse::Scheme;
 
 pub fn run(
@@ -43,7 +43,7 @@ pub fn run(
             cfg.requirements.iter().for_each(|name| {
                 let command = Command::init().name(name.clone()).build();
                 if !is_command(command) {
-                    error!(name, "Requirement not met");
+                    error!(name, "=> [{}] Requirement not met", "NOTFOUND".red());
                     std::process::exit(1);
                 }
             });
@@ -53,7 +53,7 @@ pub fn run(
                     | ModuleUri::Url(value) => match value.scheme() {
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                             let url = value.to_string();
-                            debug!(url, "=> [{}] Remote binary", "FOUND".green());
+                            debug!(module = module.name, url, "=> [{}] Remote binary", "FOUND".green());
                             // TODO: Download binary to temp directory
                             // TODO: Verify binary checksum
                             unimplemented!()
@@ -63,11 +63,11 @@ pub fn run(
                     | ModuleUri::File(value) => match value.try_exists() {
                         | Ok(true) => {
                             let path = value.into_os_string().into_string().unwrap();
-                            debug!(path, "=> [{}] Local binary", "FOUND".green());
+                            debug!(module = module.name, path, "=> [{}] Local binary", "FOUND".green());
                         }
                         | _ => {
                             let path = value.into_os_string().into_string().unwrap();
-                            error!(path, "=> [{}] Local binary", "NOTFOUND".red());
+                            error!(module = module.name, path, "=> [{}] Local binary", "NOTFOUND".red());
                             std::process::exit(1);
                         }
                     },
@@ -84,7 +84,7 @@ pub fn run(
                                 let arguments = to_string(vec!["clone", &uri, &module_uri.hash()]);
                                 let script = Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir);
                                 if dry_run {
-                                    info!(script = script.to_string(), "{}", "=> [DRYRUN]".yellow());
+                                    warn!(module = module.name, script = script.to_string(), "=> [{}]", "DRYRUN".yellow());
                                 } else {
                                     script.run();
                                 }
@@ -97,13 +97,13 @@ pub fn run(
                         | ModuleUri::File(value) => match value.try_exists() {
                             | Ok(true) => {
                                 let path = value.into_os_string().into_string().unwrap();
-                                debug!(path, "=> [{}] Local script repository", "FOUND".green());
+                                debug!(module = module.name, path, "=> [{}] Local script repository", "FOUND".green());
                                 // TODO: Check script repository with is_valid_pipe_module_python
                                 create_conda_environment(uri, dry_run, verbose.log_level());
                             }
                             | _ => {
                                 let path = value.into_os_string().into_string().unwrap();
-                                error!(path, "=> [{}] Local script module", "NOTFOUND".red());
+                                error!(module = module.name, path, "=> [{}] Local script module", "NOTFOUND".red());
                                 std::process::exit(1);
                             }
                         },
@@ -158,7 +158,13 @@ pub fn run(
                             .with_environment(environment);
                         if dry_run {
                             EnvironmentValue::print_all();
-                            info!(script = script.to_string(), cwd = script.current_dir, "{}", "=> [DRYRUN]".yellow());
+                            warn!(
+                                module = module.name,
+                                script = script.to_string(),
+                                cwd = script.current_dir,
+                                "=> [{}]",
+                                "DRYRUN".yellow()
+                            );
                         } else {
                             script.run();
                         }

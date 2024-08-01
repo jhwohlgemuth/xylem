@@ -23,9 +23,10 @@ use std::{
     env::{set_var, vars},
     io,
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use uriparse::Scheme;
 use uriparse::URI;
+use valuable_derive::Valuable;
 
 use std::process;
 
@@ -41,7 +42,7 @@ pub enum EnvironmentValue {
     Bool(bool),
     Unknown,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Valuable)]
 #[serde(untagged)]
 pub enum Instruction {
     /// Shell arguments as a string
@@ -62,7 +63,7 @@ pub enum Instruction {
     /// ```
     ExecFormat(Vec<String>),
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Valuable)]
 #[serde(rename_all = "lowercase")]
 pub enum ModuleLanguage {
     Binary,
@@ -73,7 +74,7 @@ pub enum ModuleLanguage {
     Rust,
 }
 /// Designates module type which specifies necessary attributes
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Valuable)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ModuleType {
     /// Compiled "black boxes" that are used via a command line interface
@@ -378,7 +379,7 @@ impl EnvironmentValue {
     }
     pub fn print_all() {
         EnvironmentValue::get_all().into_iter().for_each(|(key, value)| {
-            debug!(key, value, "=> [ENV]");
+            debug!(key, value, "=> [{}]", "ENV".dimmed());
         });
     }
     pub fn set_variable(self, key: String) {
@@ -566,8 +567,7 @@ impl Script {
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
-        let error_message = format!("=> [FAIL] Execute {:?}", self.to_string());
-        debug!(script = self.to_string(), "{}", "=> [RUN]".cyan());
+        warn!(script = self.to_string(), "=> [{}]", "RUN".yellow());
         let mut output: Vec<String> = vec![];
         let mut cmd = process::Command::new(command)
             .args(arguments.iter())
@@ -581,26 +581,27 @@ impl Script {
             let stdout = match cmd.stdout.as_mut() {
                 | Some(value) => value,
                 | None => {
-                    error!("{}", error_message);
+                    error!(script = self.to_string(), "=> [{}]", "FAIL".red());
                     return;
                 }
             };
             let reader = BufReader::new(stdout);
             let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
-            debug!("=> {:?}", lines.join("\n"));
+            debug!("=> {:?}", lines.join("\n").cyan().dimmed());
             output.extend(lines);
         }
         match cmd.wait_with_output() {
             | Ok(result) => {
                 if result.status.success() {
-                    debug!("=> [RESULT] {:?}", result);
-                    debug!("=> [OUTPUT] {:?}", output.iter().last().unwrap().to_string());
+                    debug!("=> [{}] {:?}", "OUTPUT".dimmed(), result);
+                    debug!("=> [{}] {:?}", "OUTPUT".dimmed(), output.iter().last().unwrap().to_string());
                 } else {
-                    error!("{} - {:?}", error_message, result);
+                    error!(script = self.to_string(), "=> [{}]", "FAIL".red());
+                    debug!("=> [{}] {:?}", "OUTPUT".dimmed(), result);
                 }
             }
             | Err(error) => {
-                error!("{} - {:?}", error_message, error);
+                error!(error = error.to_string(), script = self.to_string(), "=> [{}]", "FAIL".red());
             }
         }
     }
@@ -610,7 +611,7 @@ impl Script {
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
-        debug!(script = self.to_string(), cwd = current_dir.to_str().unwrap(), "{}", "=> [RUN]".cyan());
+        warn!(script = self.to_string(), cwd = current_dir.to_str().unwrap(), "=> [{}]", "RUN".yellow());
         let output = process::Command::new(command)
             .args(arguments.iter())
             .current_dir(current_dir)
@@ -757,11 +758,11 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
     let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
     match manifest_path.try_exists() {
         | Ok(true) => {
-            debug!(path = manifest_path.to_str().unwrap(), "=> [{}] Manifest file", "FOUND".green());
+            info!(path = manifest_path.to_str().unwrap(), "=> [{}] Manifest file", "FOUND".green());
             match get_conda_environment_name(manifest_path.clone()) {
                 | Some(name) => {
                     if get_conda_environment_list().contains(&name) {
-                        debug!(name, "=> [{}] Virtual environment", "FOUND".green());
+                        info!(name, "=> [{}] Virtual environment", "FOUND".green());
                     } else {
                         let mamba = Command::init().name("mamba".to_string()).build();
                         let name = (if is_command(mamba) { "mamba" } else { "conda" }).to_string();
@@ -769,7 +770,7 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
                         let command = Command::init().name(name).build();
                         let script = Script::init().command(command).arguments(arguments).build().with_current_dir(working_dir);
                         if dry_run {
-                            info!(script = script.to_string(), "{}", "=> [DRYRUN]".yellow());
+                            info!(script = script.to_string(), "=> [{}]", "DRYRUN".yellow());
                         } else {
                             script.run();
                         }
@@ -779,7 +780,7 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
             };
         }
         | _ => {
-            debug!(path = manifest_path.to_str().unwrap(), "=> [{}] Manifest file", "NOTFOUND".red());
+            error!(path = manifest_path.to_str().unwrap(), "=> [{}] Manifest file", "NOTFOUND".red());
         }
     }
 }
@@ -901,11 +902,11 @@ pub fn is_command(value: Command) -> bool {
     let output = script.run_with_output();
     match PathBuf::from(output.clone()).try_exists() {
         | Ok(true) => {
-            debug!(output, "=> [{}] Command", "FOUND".green());
+            info!(output, "=> [{}] Command", "FOUND".green());
             true
         }
         | _ => {
-            debug!(output, "=> [{}] Command", "NOTFOUND".red());
+            error!(output, "=> [{}] Command", "NOTFOUND".red());
             false
         }
     }

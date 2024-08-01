@@ -38,6 +38,25 @@
     make test-cross
     ```
 
+## Coding Guidelines
+- Logging
+    - This project uses the [tracing](https://docs.rs/tracing/latest/tracing/) crate for logging
+    - Printing file content should be logged using `dimmed()`
+    - Prefix messages with `=> [KEYWORD]` where `"KEYWORD"` can be
+        - `"DRYRUN"` (yellow) = print script that would be executed
+        - `"ENV"` (dimmed) = environment variables
+        - `"FAIL"` (red) = used within `Script::run`
+        - `"FOUND"` (green) = find files or meet requirements
+        - `"NOTFOUND"` (red) = do not find files or have unmet requirements
+        - `"OUTPUT"` (dimmed) = print script output
+        - `"READ"` (green) = file is read successfully
+        - `"RUN"` (yellow) = execute script
+    - Choosing the level
+        - `warn!` = anytime code is run (e.g., `script.run()`) or would be run (e.g., during `--dry-run` usage)
+        - `info!` = anytime a criteria is met that would otherwise cause failure (ex. finding a necessary file)
+        - `debug!` = underlying variables and processes that can provide context and clarity
+        - `trace!` = not used (yet?)
+
 ---
 
 [1]
