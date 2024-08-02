@@ -686,7 +686,7 @@ impl Script {
     }
 }
 impl StringTemplate {
-    const RE_HANDLEBARS: &'static str = r"^\{\{(?P<variable>[A-Z_ ]*)\}\}$";
+    const RE_HANDLEBARS: &'static str = r"\{\{(?P<variable>[A-Z_ ]*)\}\}";
     const RE_SPACES: &'static str = r"((?<=\{\{) *(?=[A-Z])|(?<=[A-Z]) *(?=\}\}))";
 
     pub fn new(value: &str) -> StringTemplate {

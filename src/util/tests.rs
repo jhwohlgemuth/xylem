@@ -178,6 +178,9 @@ fn test_script() {
 fn test_script_expand_arguments() {
     set_var("_PIPE_INPUT_DIRECTORY", "/path/to/input");
     set_var("_PIPE_OUTPUT_DIRECTORY", "/path/to/output");
+    set_var("_PIPE_FOO", "one!");
+    set_var("_PIPE_BAR", "two!");
+    set_var("_PIPE_BAZ", "three!");
     let command = Command::init().name("python".to_string()).build();
     let arguments = to_string(vec![
         "-m",
@@ -203,6 +206,19 @@ fn test_script_expand_arguments() {
     assert_eq!(
         script.clone().expand_arguments().with_environment(None).to_string(),
         "python -m lib --input /path/to/input --output /path/to/output"
+    );
+    let command = Command::init().name("echo".to_string()).build();
+    let arguments = to_string(vec![
+        "{{ FOO }}",
+        "{{ BAR }} and",
+        "{{ BAZ }}",
+        "{{ FOO }} {{ BAR }} {{ BAZ }}",
+        "{{FOO}}/{{BAZ}}",
+    ]);
+    let script = Script::init().command(command).arguments(arguments).build();
+    assert_eq!(
+        script.clone().expand_arguments().with_environment(None).to_string(),
+        "echo one! two! and three! one! two! three! one!/three!"
     );
 }
 
@@ -235,6 +251,24 @@ fn test_script_expand_arguments_from() {
     assert_eq!(
         script.clone().expand_arguments_from(envs.clone()).with_environment(None).to_string(),
         "python -m lib --input FOO --output BAR"
+    );
+    let command = Command::init().name("echo".to_string()).build();
+    let arguments = to_string(vec![
+        "{{ FOO }}",
+        "{{ BAR }} and",
+        "{{ BAZ }}",
+        "{{ FOO }} {{ BAR }} {{ BAZ }}",
+        "{{FOO}}/{{BAZ}}",
+    ]);
+    let envs = HashMap::from([
+        ("FOO".to_string(), "one".to_string()),
+        ("BAR".to_string(), "two".to_string()),
+        ("BAZ".to_string(), "three".to_string()),
+    ]);
+    let script = Script::init().command(command).arguments(arguments).build();
+    assert_eq!(
+        script.clone().expand_arguments_from(envs.clone()).with_environment(None).to_string(),
+        "echo one two and three one two three one/three"
     );
 }
 
