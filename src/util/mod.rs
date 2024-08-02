@@ -8,7 +8,7 @@ use color_eyre::eyre::{Report, Result};
 use derive_more::Display;
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
-use owo_colors::OwoColorize;
+use owo_colors::{OwoColorize, Style, Styled};
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
@@ -197,6 +197,8 @@ pub struct Details {
     // Explanation of why the check failed (null when condition is true)
     pub error: Option<String>,
 }
+/// Struct for using and sharing colorized logging labels
+pub struct Label {}
 #[derive(Clone, Debug, Deserialize, Display, Serialize)]
 #[display(fmt = "{name}")]
 pub struct Module {
@@ -309,7 +311,7 @@ impl Config {
             }
         };
         let json: serde_json::Result<Config> = serde_json::from_str(&content);
-        debug!("=> [{}] Configuration = {:#?}", "READ".green(), json.dimmed());
+        debug!("=> {} Configuration = {:#?}", "READ".green().on_default_color(), json.dimmed());
         json
     }
     /// Set environment variables from PIPE configuration "variables" attribute
@@ -396,6 +398,28 @@ impl EnvironmentValue {
         values
             .into_iter()
             .for_each(|(key, value)| EnvironmentValue::from_string(value).set_variable(key));
+    }
+}
+impl Label {
+    pub fn dry_run() -> Styled<&'static &'static str> {
+        let style = Style::new().white().on_yellow();
+        " DRY_RUN ".style(style)
+    }
+    pub fn found() -> Styled<&'static &'static str> {
+        let style = Style::new().green().on_default_color();
+        "FOUND".style(style)
+    }
+    pub fn not_found() -> Styled<&'static &'static str> {
+        let style = Style::new().red().on_default_color();
+        "NOT_FOUND".style(style)
+    }
+    pub fn run() -> Styled<&'static &'static str> {
+        let style = Style::new().white().on_yellow();
+        " RUN ▶ ".style(style)
+    }
+    pub fn using() -> Styled<&'static &'static str> {
+        let style = Style::new().dimmed();
+        "USING".style(style)
     }
 }
 impl ModuleUri<'_> {
@@ -567,7 +591,7 @@ impl Script {
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
-        warn!(script = self.to_string(), "=> [{}]", "RUN".yellow());
+        warn!(script = self.to_string(), "=> {}", Label::run());
         let mut output: Vec<String> = vec![];
         let mut cmd = process::Command::new(command)
             .args(arguments.iter())
@@ -611,7 +635,7 @@ impl Script {
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
-        warn!(script = self.to_string(), cwd = current_dir.to_str().unwrap(), "=> [{}]", "RUN".yellow());
+        warn!(script = self.to_string(), cwd = current_dir.to_str().unwrap(), "=> {}", Label::run());
         let output = process::Command::new(command)
             .args(arguments.iter())
             .current_dir(current_dir)
@@ -758,19 +782,23 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
     let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
     match manifest_path.try_exists() {
         | Ok(true) => {
-            info!(path = manifest_path.to_str().unwrap(), "=> [{}] Manifest file", "FOUND".green());
+            info!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::found());
             match get_conda_environment_name(manifest_path.clone()) {
                 | Some(name) => {
                     if get_conda_environment_list().contains(&name) {
-                        info!(name, "=> [{}] Virtual environment", "FOUND".green());
+                        info!(name, "=> {} Virtual environment", Label::found());
                     } else {
                         let mamba = Command::init().name("mamba".to_string()).build();
                         let name = (if is_command(mamba) { "mamba" } else { "conda" }).to_string();
                         let arguments = to_string(vec!["env", "create", "-f", "environment.yml"]);
                         let command = Command::init().name(name).build();
-                        let script = Script::init().command(command).arguments(arguments).build().with_current_dir(working_dir);
+                        let script = Script::init()
+                            .command(command)
+                            .arguments(arguments)
+                            .build()
+                            .with_current_dir(working_dir.clone());
                         if dry_run {
-                            info!(script = script.to_string(), "=> [{}]", "DRYRUN".yellow());
+                            info!(script = script.to_string(), cwd = working_dir, "=> {}", Label::dry_run());
                         } else {
                             script.run();
                         }
@@ -780,7 +808,7 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
             };
         }
         | _ => {
-            error!(path = manifest_path.to_str().unwrap(), "=> [{}] Manifest file", "NOTFOUND".red());
+            error!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::not_found());
         }
     }
 }
@@ -902,11 +930,11 @@ pub fn is_command(value: Command) -> bool {
     let output = script.run_with_output();
     match PathBuf::from(output.clone()).try_exists() {
         | Ok(true) => {
-            info!(output, "=> [{}] Command", "FOUND".green());
+            info!(output, "=> {} Command", "FOUND".green().on_default_color());
             true
         }
         | _ => {
-            error!(output, "=> [{}] Command", "NOTFOUND".red());
+            error!(output, "=> {} Command", "NOTFOUND".red().on_default_color());
             false
         }
     }
@@ -954,11 +982,11 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
     let mut content = String::new();
     let _ = match File::open(path.clone()) {
         | Ok(mut file) => {
-            debug!(path = path.to_str().unwrap(), "=> [{}]", "READ".green());
+            debug!(path = path.to_str().unwrap(), "=> {}", "READ".green().on_default_color());
             file.read_to_string(&mut content)
         }
         | Err(err) => {
-            debug!(path = path.to_str().unwrap(), "=> [{}]", "FAIL".red());
+            debug!(path = path.to_str().unwrap(), "=> {}", " FAIL ".white().on_red());
             Err(err)
         }
     };
