@@ -42,6 +42,11 @@ pub enum EnvironmentValue {
     Bool(bool),
     Unknown,
 }
+enum Extension {
+    Json,
+    Yaml,
+    Unknown,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, Valuable)]
 #[serde(untagged)]
 pub enum Instruction {
@@ -310,9 +315,15 @@ impl Config {
                 "".to_owned()
             }
         };
-        let json: serde_json::Result<Config> = serde_json::from_str(&content);
-        debug!("=> {} Configuration = {:#?}", "READ".green().on_default_color(), json.dimmed());
-        json
+        let data = match Extension::from_string(get_extension(&path)) {
+            | Extension::Json => {
+                let json: serde_json::Result<Config> = serde_json::from_str(&content);
+                debug!("=> {} Configuration = {:#?}", Label::read(), json.dimmed());
+                json
+            }
+            | _ => unimplemented!(),
+        };
+        data
     }
     /// Set environment variables from PIPE configuration "variables" attribute
     pub fn set_environment_variables(&self) -> Void {
@@ -400,10 +411,23 @@ impl EnvironmentValue {
             .for_each(|(key, value)| EnvironmentValue::from_string(value).set_variable(key));
     }
 }
+impl Extension {
+    pub fn from_string(value: String) -> Extension {
+        match value.as_str() {
+            | "json" => Extension::Json,
+            | "yaml" => Extension::Yaml,
+            | _ => Extension::Unknown,
+        }
+    }
+}
 impl Label {
     pub fn dry_run() -> Styled<&'static &'static str> {
         let style = Style::new().white().on_yellow();
         " DRY_RUN ".style(style)
+    }
+    pub fn fail() -> Styled<&'static &'static str> {
+        let style = Style::new().white().on_red();
+        " FAIL ".style(style)
     }
     pub fn found() -> Styled<&'static &'static str> {
         let style = Style::new().green().on_default_color();
@@ -412,6 +436,10 @@ impl Label {
     pub fn not_found() -> Styled<&'static &'static str> {
         let style = Style::new().red().on_default_color();
         "NOT_FOUND".style(style)
+    }
+    pub fn read() -> Styled<&'static &'static str> {
+        let style = Style::new().green().on_default_color();
+        "READ".style(style)
     }
     pub fn run() -> Styled<&'static &'static str> {
         let style = Style::new().white().on_yellow();
@@ -868,6 +896,21 @@ pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
         | _ => None,
     }
 }
+/// Get file extension
+///
+/// # Examples
+/// ```
+/// use std::path::Path;
+/// use pipe::util::get_extension;
+///
+/// assert_eq!("txt", get_extension(Path::new("hello.txt")));
+/// assert_eq!("md", get_extension(Path::new("README.md")));
+/// assert_eq!("", get_extension(Path::new(".dotfile")));
+/// assert_eq!("", get_extension(Path::new("/path/to/folder")));
+/// ```
+pub fn get_extension(path: &Path) -> String {
+    path.extension().unwrap_or_default().to_str().unwrap_or_default().to_string()
+}
 /// Get parent of a file/folder path
 pub fn get_parent(path: PathBuf) -> PathBuf {
     PathBuf::from(path.parent().unwrap())
@@ -881,11 +924,9 @@ pub fn get_parent(path: PathBuf) -> PathBuf {
 ///
 /// assert!(has_extension("txt", Path::new("hello.txt")));
 /// assert!(!has_extension("txt", Path::new("hello.md")));
-/// assert!(!has_extension("", Path::new("/path/to/folder")));
 /// ```
 pub fn has_extension(extension: &str, path: &Path) -> bool {
-    let file_extension = path.extension().unwrap_or_default().to_str().unwrap_or_default();
-    extension == file_extension
+    extension == get_extension(path)
 }
 /// Check if a command exists in current command line context
 ///
@@ -930,11 +971,11 @@ pub fn is_command(value: Command) -> bool {
     let output = script.run_with_output();
     match PathBuf::from(output.clone()).try_exists() {
         | Ok(true) => {
-            info!(output, "=> {} Command", "FOUND".green().on_default_color());
+            info!(output, "=> {} Command", Label::found());
             true
         }
         | _ => {
-            error!(output, "=> {} Command", "NOTFOUND".red().on_default_color());
+            error!(output, "=> {} Command", Label::not_found());
             false
         }
     }
@@ -982,11 +1023,11 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
     let mut content = String::new();
     let _ = match File::open(path.clone()) {
         | Ok(mut file) => {
-            debug!(path = path.to_str().unwrap(), "=> {}", "READ".green().on_default_color());
+            debug!(path = path.to_str().unwrap(), "=> {}", Label::read());
             file.read_to_string(&mut content)
         }
         | Err(err) => {
-            debug!(path = path.to_str().unwrap(), "=> {}", " FAIL ".white().on_red());
+            debug!(path = path.to_str().unwrap(), "=> {}", Label::fail());
             Err(err)
         }
     };
