@@ -1,0 +1,24 @@
+version: 0.0.1
+description: Test workflow configuration
+requirements:
+  - python
+  - conda
+keywords: []
+variables:
+  INPUT_DIRECTORY: /path/to/input
+  OUTPUT_DIRECTORY: /path/to/output
+  ANSWER: 42
+  BOOLEAN: true
+  TOKEN: X12E45678N
+modules:
+  - name: foo
+    type: binary
+    uri: file:///path/to/wasm/module.wasm
+  - name: bar
+    type: script
+    programmingLanguage: python
+    uri: https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a
+  - name: baz
+    type: script
+    programmingLanguage: python
+    uri: file:///path/to/module-a

@@ -302,6 +302,20 @@ pub struct StringTemplate {
     template_type: TemplateType,
 }
 impl Config {
+    pub fn read(path: PathBuf) -> Option<Config> {
+        let extension = Extension::from_string(get_extension(&path));
+        match extension {
+            | Extension::Json => match Config::read_json(path) {
+                | Ok(value) => Some(value),
+                | Err(_) => unimplemented!(),
+            },
+            | Extension::Yaml => match Config::read_yaml(path) {
+                | Ok(value) => Some(value),
+                | Err(_) => unimplemented!(),
+            },
+            | Extension::Unknown => unimplemented!("Unknown configuration file extension"),
+        }
+    }
     /// Import PIPE configuration JSON file
     ///
     /// See the [PIPE configuration syntax wiki page](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Configuration-Syntax)
@@ -311,18 +325,29 @@ impl Config {
         let content = match read_file(path.clone()) {
             | Ok(value) => value,
             | Err(_) => {
-                error!("Failed to read config file: {:?}", path);
+                error!(path = path.to_str().unwrap(), "=> {} Could not read configuration", Label::fail());
                 "".to_owned()
             }
         };
-        let data = match Extension::from_string(get_extension(&path)) {
-            | Extension::Json => {
-                let json: serde_json::Result<Config> = serde_json::from_str(&content);
-                debug!("=> {} Configuration = {:#?}", Label::read(), json.dimmed());
-                json
+        let data: serde_json::Result<Config> = serde_json::from_str(&content);
+        debug!("=> {} Configuration = {:#?}", Label::read(), data.dimmed());
+        data
+    }
+    /// Import PIPE configuration YAML file
+    ///
+    /// See the [PIPE configuration syntax wiki page](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Configuration-Syntax)
+    /// for more information configuration files
+    ///
+    pub fn read_yaml(path: PathBuf) -> serde_yml::Result<Config> {
+        let content = match read_file(path.clone()) {
+            | Ok(value) => value,
+            | Err(_) => {
+                error!(path = path.to_str().unwrap(), "=> {} Could not read configuration", Label::fail());
+                "".to_owned()
             }
-            | _ => unimplemented!(),
         };
+        let data: serde_yml::Result<Config> = serde_yml::from_str(&content);
+        debug!("=> {} Configuration = {:#?}", Label::read(), data.dimmed());
         data
     }
     /// Set environment variables from PIPE configuration "variables" attribute

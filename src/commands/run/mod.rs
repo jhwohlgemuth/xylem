@@ -35,9 +35,8 @@ pub fn run(
         | Some(value) => value.to_path_buf(),
         | None => default_config,
     };
-    let cfg = Config::read_json(config_path);
-    match cfg {
-        | Ok(cfg) => {
+    match Config::read(config_path) {
+        | Some(cfg) => {
             // Check requirements
             cfg.requirements.iter().for_each(|name| {
                 let command = Command::init().name(name.clone()).build();
@@ -183,7 +182,7 @@ pub fn run(
                 | _ => unimplemented!(),
             });
         }
-        | Err(err) => error!("{:?}", err),
+        | None => error!("=> {} Could not import configuration", Label::fail()),
     };
     Ok(())
 }

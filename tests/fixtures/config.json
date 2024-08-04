@@ -20,7 +20,7 @@
             "uri": "file:///path/to/wasm/module.wasm"
         },
         {
-            "name": "bar",
+            "name": "module-a",
             "type": "script",
             "programmingLanguage": "python",
             "uri": "https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"

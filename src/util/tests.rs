@@ -10,12 +10,38 @@ fn test_add_forward_slash() {
 }
 
 #[test]
-fn test_config() {
-    // Load variables into configuration
+#[should_panic]
+fn test_config_read_notfound() {
+    let _ = Config::read(PathBuf::from("does/not/exist.json"));
+}
+
+#[test]
+fn test_config_read() {
+    // Load variables into configuration (JSON or YAML)
+    let config = Config::read(PathBuf::from("tests/fixtures/config.json"));
+    assert_eq!(config.clone().unwrap().variables.clone().unwrap().get("ANSWER").unwrap(), 42);
+    assert_eq!(config.unwrap().modules.len(), 4);
+    let config = Config::read(PathBuf::from("tests/fixtures/config.yaml"));
+    assert_eq!(config.clone().unwrap().variables.clone().unwrap().get("ANSWER").unwrap(), 42);
+    assert_eq!(config.unwrap().modules.len(), 3);
+}
+
+#[test]
+fn test_config_read_json() {
+    // Load variables into configuration from JSON file
     let path = "tests/fixtures/config.json";
     let config = Config::read_json(PathBuf::from(path)).expect("=> [ERROR] Cannot import config in tests");
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.modules.len(), 4);
+}
+
+#[test]
+fn test_config_read_yaml() {
+    // Load variables into configuration from YAML file
+    let path = "tests/fixtures/config.yaml";
+    let config = Config::read_yaml(PathBuf::from(path)).expect("=> [ERROR] Cannot import config in tests");
+    assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
+    assert_eq!(config.modules.len(), 3);
 }
 
 #[test]
