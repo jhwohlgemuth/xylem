@@ -95,7 +95,7 @@ pub enum ModuleType {
         uri: String,
     },
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModuleUri<'a> {
     /// File URIs can be absolute or relative.
     ///
@@ -132,6 +132,7 @@ pub enum ModuleUri<'a> {
     ///   "uri": "ssh://git@code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
     /// }
     /// ```
+    //TODO: Need to implement Serialize/Deserialize for URI - https://serde.rs/impl-serialize.html
     Url(URI<'a>),
     Unknown(String),
 }
@@ -160,6 +161,15 @@ pub enum TemplateType {
     /// Example: `"some {{ value }}"`
     Mustache,
     Unknown,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Check {
+    /// List of structs that contain details about the associated rule
+    pub rules: Vec<Rule>,
+    /// Glob string(s) describing files and folders to be checked
+    pub files: Vec<String>,
+    /// Glob string(s) describing files and folders to be ignored
+    pub ignores: Vec<String>,
 }
 #[derive(Clone, Debug, Display)]
 #[display(fmt = "{}", name)]
@@ -192,6 +202,7 @@ pub struct Config {
     ///
     /// Note: Modules can override these variables
     pub variables: Option<Map<String, Value>>,
+    pub check: Option<Check>,
 }
 #[derive(Clone, Debug, Deserialize, Eq, Serialize, PartialOrd, Ord)]
 pub struct Details {
@@ -238,14 +249,11 @@ pub struct Reporter {
     /// Options to pass to the reporter
     pub parameters: Option<Parameters>,
 }
-#[derive(Clone, Debug)]
-pub struct Rule<'a> {
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Rule {
     /// Name of the rule (displayed by the progress bar)
-    pub name: &'a str,
-    /// Function to verify the rule
-    pub run: fn(&Path, Option<Parameters>) -> Output,
-    /// Regular expression used to find files/folders
-    pub expression: &'a str,
+    pub name: String,
+    pub uri: String,
     /// Options to pass to the checker
     pub parameters: Option<Parameters>,
 }

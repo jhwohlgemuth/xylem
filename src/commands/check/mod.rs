@@ -25,9 +25,8 @@ pub fn run(
     let rules: Vec<_> = vec![
         // Rule definitions go here
         Rule {
-            name: "template",
-            run: template::run,
-            expression: r"/**/",
+            name: "template".to_string(),
+            uri: "".to_string(),
             parameters: None,
         },
     ];
@@ -91,7 +90,7 @@ pub fn run(
     eprintln!("\n");
     let mut results = Vec::new();
     for rule in rules {
-        let files: Vec<_> = glob(&format!("{}{}", working_dir, rule.expression)).unwrap().collect();
+        let files: Vec<_> = glob(&format!("{}{}", working_dir, r"/**/")).unwrap().collect();
         let progress = ProgressBar::new(files.len() as u64).with_message(rule.name);
         let template = "{pos:>5}/{len:<5}{spinner:.cyan/blue} {bar:.cyan/blue} {msg:.gray}";
         progress.set_style(ProgressStyle::with_template(template).unwrap());
@@ -100,7 +99,7 @@ pub fn run(
             .flat_map(|path| {
                 progress.inc(1);
                 let input = path.as_ref().unwrap();
-                (rule.run)(input, None)
+                (template::run)(input, None)
             })
             .collect();
         progress.finish();
