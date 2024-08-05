@@ -1,6 +1,6 @@
 use crate::util::{
     create_conda_environment, get_conda_environment_name, is_command, to_string, Command, Config, EnvironmentValue, Label, ModuleLanguage,
-    ModuleType, ModuleUri, Script,
+    ModuleType, ModuleUri, Script, TemplateAttribute,
 };
 use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
@@ -118,36 +118,41 @@ pub fn run(
                     | ModuleLanguage::Python => {
                         let working_dir = ModuleUri::from(uri).working_directory(Some(root.clone()));
                         let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
-                        let template_path = match &module.template {
-                            | Some(value) => PathBuf::from(&working_dir).join(value),
-                            | None => PathBuf::from(&working_dir).join("template.json"),
-                        };
                         debug!(
                             module = module.name,
                             path = manifest_path.to_str().unwrap(),
                             "=> {} Manifest file",
                             Label::using()
                         );
-                        debug!(
-                            module = module.name,
-                            path = template_path.to_str().unwrap(),
-                            "=> {} Template file",
-                            Label::using()
-                        );
-                        let loaded = match template_path.try_exists() {
-                            | Ok(true) => Script::from_template(template_path),
-                            | _ => {
-                                let command = Command::init().name("python".to_string()).build();
-                                let arguments = to_string(vec![
-                                    "-m",
-                                    "lib",
-                                    "--directory",
-                                    "{{ INPUT_DIRECTORY }}",
-                                    "--output",
-                                    "{{ OUTPUT_DIRECTORY }}",
-                                ]);
-                                Script::init().command(command).arguments(arguments).build()
-                            }
+                        let default_template_path = PathBuf::from(&working_dir).join("template.json");
+                        let loaded = match &module.template {
+                            | Some(attribute) => match attribute {
+                                | TemplateAttribute::Path(value) => match PathBuf::from(value).try_exists() {
+                                    | Ok(true) => {
+                                        let path = PathBuf::from(&working_dir).join(value);
+                                        debug!(module = module.name, path = path.to_str().unwrap(), "=> {} Template file", Label::using());
+                                        Script::from_path(path)
+                                    }
+                                    | _ => {
+                                        warn!(module = module.name, "=> {} Default template file", Label::using());
+                                        Script::from_path(default_template_path)
+                                    }
+                                },
+                                | TemplateAttribute::Template(value) => {
+                                    debug!(module = module.name, "=> {} Template attribute", Label::using());
+                                    Script::from_template(value.clone())
+                                }
+                            },
+                            | None => match default_template_path.try_exists() {
+                                | Ok(true) => {
+                                    warn!(module = module.name, "=> {} Default template file", Label::using());
+                                    Script::from_path(default_template_path)
+                                }
+                                | _ => {
+                                    warn!(module = module.name, "=> {} Default Python script", Label::using());
+                                    Script::python_default()
+                                }
+                            },
                         };
                         let environment = match get_conda_environment_name(manifest_path) {
                             | Some(value) => Some(value),

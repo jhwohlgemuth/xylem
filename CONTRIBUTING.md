@@ -52,7 +52,9 @@
         - `"READ"` (green) = file is read successfully
         - `"RUN"` (yellow) = execute script
     - Choosing the level
-        - `warn!` = anytime code is run (e.g., `script.run()`) or would be run (e.g., during `--dry-run` usage)
+        - `warn!`
+            - Anytime code is run (e.g., `script.run()`) or would be run (e.g., during `--dry-run` usage)
+            - When fallback default values are used (e.g., `"template.json"`)
         - `info!` = anytime a criteria is met that would otherwise cause failure (ex. finding a necessary file)
         - `debug!` = underlying variables and processes that can provide context and clarity
         - `trace!` = not used (yet?)

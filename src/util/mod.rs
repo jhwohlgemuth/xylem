@@ -150,6 +150,12 @@ pub enum StdoutIsPipedResult {
     StdoutIsPiped,
     StdoutIsNotPiped,
 }
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum TemplateAttribute {
+    Path(String),
+    Template(ScriptTemplate),
+}
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub enum TemplateType {
     /// Example: `"some <%= value %>"`
@@ -198,7 +204,7 @@ pub struct Config {
     /// Software requirements for workflow (e.g. python, conda, etc.)
     pub requirements: Vec<String>,
     /// Hardward resources required for workflow (e.g. CPUs, GPUs, etc.)
-    pub resources: Vec<String>,
+    pub resources: Option<Vec<String>>,
     /// Keywords or tags used to describe this module
     keywords: Option<Vec<String>>,
     pub modules: Vec<Module>,
@@ -229,7 +235,7 @@ pub struct Module {
     pub variables: Option<Map<String, Value>>,
     pub before_script: Option<Instruction>,
     pub after_script: Option<Instruction>,
-    pub template: Option<String>,
+    pub template: Option<TemplateAttribute>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Parameters {
@@ -304,14 +310,14 @@ pub struct Script {
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ScriptTemplate {
-    command: String,
-    environment: Option<String>,
-    arguments: Instruction,
+    pub command: String,
+    pub environment: Option<String>,
+    pub arguments: Instruction,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StringTemplate {
-    value: String,
-    template_type: TemplateType,
+    pub value: String,
+    pub template_type: TemplateType,
 }
 impl Config {
     pub fn read(path: PathBuf) -> Option<Config> {
@@ -596,28 +602,19 @@ impl Script {
         self.arguments = expanded;
         self
     }
-    /// Create a script from a template JSON file in [ScriptTemplate] format.
+    /// Create a script from a ScriptTemplate struct.
     ///
     /// You can easily import the script with
     /// ```
-    /// let path = PathBuf::from("./tests/fixtures/template.json");
-    /// let script = Script::from_template(path);
+    /// let template = Script::from_path("./tests/fixtures/template.json");
+    /// let script = Script::from_template(template);
     /// ```
     ///
     /// and execute `python -m lib --input $INPUT_DIRECTORY --output $OUTPUT_DIRECTORY` with
     /// ```
     /// let output = script.run();
     /// ```
-    pub fn from_template(path: PathBuf) -> Script {
-        let content = match read_file(path.clone()) {
-            | Ok(value) => value,
-            | Err(_) => {
-                error!("Failed to read config file: {:?}", path);
-                "".to_owned()
-            }
-        };
-        let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
-        let template = json.expect("=> [ERROR] Failed to parse script template").clone();
+    pub fn from_template(template: ScriptTemplate) -> Script {
         let arguments = match template.arguments {
             | Instruction::ShellFormat(value) => StringTemplate::new(&value)
                 .remove_spaces()
@@ -634,6 +631,30 @@ impl Script {
         let command = Command::init().name(template.command).build();
         Script::init().command(command).arguments(arguments).build().with_environment(environment)
     }
+    /// Create a script from a template JSON file in [ScriptTemplate] format.
+    ///
+    /// You can easily import the script with
+    /// ```
+    /// let path = PathBuf::from("./tests/fixtures/template.json");
+    /// let script = Script::from_path(path);
+    /// ```
+    ///
+    /// and execute `python -m lib --input $INPUT_DIRECTORY --output $OUTPUT_DIRECTORY` with
+    /// ```
+    /// let output = script.run();
+    /// ```
+    pub fn from_path(path: PathBuf) -> Script {
+        let content = match read_file(path.clone()) {
+            | Ok(value) => value,
+            | Err(_) => {
+                error!("Failed to read config file: {:?}", path);
+                "".to_owned()
+            }
+        };
+        let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
+        let template = json.expect("=> [ERROR] Failed to parse script template").clone();
+        Script::from_template(template)
+    }
     fn get_command(&self) -> String {
         match &self.command.virtual_environment {
             | Some(_) => "conda".to_string(),
@@ -649,6 +670,18 @@ impl Script {
             }
             | _ => self.arguments.clone(),
         }
+    }
+    pub fn python_default() -> Script {
+        let command = Command::init().name("python".to_string()).build();
+        let arguments = to_string(vec![
+            "-m",
+            "lib",
+            "--directory",
+            "{{ INPUT_DIRECTORY }}",
+            "--output",
+            "{{ OUTPUT_DIRECTORY }}",
+        ]);
+        Script::init().command(command).arguments(arguments).build()
     }
     /// Execute script in child process and wait for it to finish, print to stdout and ignore output
     pub fn run(&self) {

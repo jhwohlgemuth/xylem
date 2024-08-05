@@ -303,12 +303,12 @@ fn test_script_from_template() {
     let expected_value: Vec<String> = to_string(vec!["-m", "lib", "--input", "{{INPUT_DIRECTORY}}", "--output", "{{OUTPUT_DIRECTORY}}"]);
     // "shell" format arguments
     let path = PathBuf::from("tests/fixtures/template.json");
-    let script = Script::from_template(path);
+    let script = Script::from_path(path);
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
     // "exec" format arguments
     let path = PathBuf::from("tests/fixtures/template_exec.json");
-    let script = Script::from_template(path);
+    let script = Script::from_path(path);
     assert_eq!(
         format!("{}", script.to_string()),
         "conda run --name base python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}"
@@ -332,7 +332,7 @@ fn test_script_run() {
         let output = script.with_current_dir("/root".to_string()).run_with_output();
         assert_eq!(&output, "/root");
         let path = PathBuf::from("tests/fixtures/template_run.json");
-        let script = Script::from_template(path);
+        let script = Script::from_path(path);
         assert_eq!(script.run_with_output(), "hello world");
     }
 }
