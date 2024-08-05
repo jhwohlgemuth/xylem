@@ -110,9 +110,9 @@ fn test_has_extension() {
 
 #[test]
 fn test_is_command() {
-    let command = Command::init().name("python".to_string()).virtual_environment("base".to_string()).build();
-    assert_eq!(command.name, "python".to_string());
-    assert_eq!(command.virtual_environment, Some("base".to_string()));
+    let python = Command::init().name("python".to_string()).virtual_environment("base".to_string()).build();
+    assert_eq!(python.name, "python".to_string());
+    assert_eq!(python.virtual_environment, Some("base".to_string()));
     let nonexistent: Command = Command {
         name: "does-not-exist".to_string(),
         virtual_environment: None,
@@ -126,7 +126,6 @@ fn test_is_command() {
         // Using conda virtual environment
         let conda = Command::init().name("conda".to_string()).build();
         if is_command(conda) {
-            let python = Command::init().name("python".to_string()).virtual_environment("base".to_string()).build();
             assert!(is_command(python));
         }
     }
@@ -225,7 +224,7 @@ fn test_script_expand_arguments() {
     assert_eq!(
         script.clone().expand_arguments().with_environment(Some(environment.clone())).to_string(),
         format!(
-            "conda run --name {} python -m lib --input /path/to/input --output /path/to/output",
+            "conda run --name {} --no-capture-output python -m lib --input /path/to/input --output /path/to/output",
             environment
         )
     );
@@ -272,7 +271,10 @@ fn test_script_expand_arguments_from() {
             .expand_arguments_from(envs.clone())
             .with_environment(Some(environment.clone()))
             .to_string(),
-        format!("conda run --name {} python -m lib --input FOO --output BAR", environment)
+        format!(
+            "conda run --name {} --no-capture-output python -m lib --input FOO --output BAR",
+            environment
+        )
     );
     assert_eq!(
         script.clone().expand_arguments_from(envs.clone()).with_environment(None).to_string(),
@@ -311,7 +313,7 @@ fn test_script_from_template() {
     let script = Script::from_path(path);
     assert_eq!(
         format!("{}", script.to_string()),
-        "conda run --name base python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}"
+        "conda run --name base --no-capture-output python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}"
     );
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
@@ -325,15 +327,15 @@ fn test_script_run() {
         let command = Command::init().name("echo".to_string()).build();
         let arguments = to_string(vec!["hello", "world"]);
         let script = Script::init().command(command).arguments(arguments).build();
-        let output = script.run_with_output();
+        let output = script.run();
         assert_eq!(&output, "hello world");
         let command = Command::init().name("pwd".to_string()).build();
         let script = Script::init().command(command).build();
-        let output = script.with_current_dir("/root".to_string()).run_with_output();
+        let output = script.with_current_dir("/root".to_string()).run();
         assert_eq!(&output, "/root");
         let path = PathBuf::from("tests/fixtures/template_run.json");
         let script = Script::from_path(path);
-        assert_eq!(script.run_with_output(), "hello world");
+        assert_eq!(script.run(), "hello world");
     }
 }
 

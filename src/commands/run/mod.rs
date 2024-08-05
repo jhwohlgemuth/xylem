@@ -179,7 +179,7 @@ pub fn run(
                                 Label::dry_run()
                             );
                         } else {
-                            script.run();
+                            script.run_with_output();
                         }
                     }
                     | _ => unimplemented!(),

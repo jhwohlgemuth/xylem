@@ -23,7 +23,7 @@ use std::{
     env::{set_var, vars},
     io,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 use uriparse::Scheme;
 use uriparse::URI;
 use valuable_derive::Valuable;
@@ -480,6 +480,10 @@ impl Label {
         let style = Style::new().red().on_default_color();
         "NOT_FOUND".style(style)
     }
+    pub fn output() -> Styled<&'static &'static str> {
+        let style = Style::new().cyan().dimmed().on_default_color();
+        "OUTPUT".style(style)
+    }
     pub fn read() -> Styled<&'static &'static str> {
         let style = Style::new().green().on_default_color();
         "READ".style(style)
@@ -664,7 +668,7 @@ impl Script {
     fn get_arguments(&self) -> Vec<String> {
         match &self.command.virtual_environment {
             | Some(name) => {
-                let mut arguments = to_string(vec!["run", "--name", name, &self.command.name]);
+                let mut arguments = to_string(vec!["run", "--name", name, "--no-capture-output", &self.command.name]);
                 arguments.extend(self.arguments.clone());
                 arguments
             }
@@ -684,7 +688,7 @@ impl Script {
         Script::init().command(command).arguments(arguments).build()
     }
     /// Execute script in child process and wait for it to finish, print to stdout and ignore output
-    pub fn run(&self) {
+    pub fn run(&self) -> String {
         let command = &self.get_command();
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
@@ -703,27 +707,31 @@ impl Script {
             let stdout = match cmd.stdout.as_mut() {
                 | Some(value) => value,
                 | None => {
-                    error!(script = self.to_string(), "=> [{}]", "FAIL".red());
-                    return;
+                    error!(script = self.to_string(), "=> {}", Label::fail());
+                    return "".to_string();
                 }
             };
             let reader = BufReader::new(stdout);
             let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
-            debug!("=> {:?}", lines.join("\n").cyan().dimmed());
+            debug!("=> {} {:#?}", Label::output(), lines.join("\n").cyan().dimmed());
             output.extend(lines);
         }
         match cmd.wait_with_output() {
             | Ok(result) => {
                 if result.status.success() {
-                    debug!("=> [{}] {:?}", "OUTPUT".dimmed(), result);
-                    debug!("=> [{}] {:?}", "OUTPUT".dimmed(), output.iter().last().unwrap().to_string());
+                    let output = output.iter().last().unwrap().to_string();
+                    debug!("=> {} {:#?}", Label::output(), result);
+                    trace!("=> {} {:#?}", Label::output(), output);
+                    output
                 } else {
-                    error!(script = self.to_string(), "=> [{}]", "FAIL".red());
-                    debug!("=> [{}] {:?}", "OUTPUT".dimmed(), result);
+                    error!(script = self.to_string(), "=> {}", Label::fail());
+                    debug!("=> {} {:#?}", Label::output(), result);
+                    "".to_string()
                 }
             }
             | Err(error) => {
-                error!(error = error.to_string(), script = self.to_string(), "=> [{}]", "FAIL".red());
+                error!(error = error.to_string(), script = self.to_string(), "=> {}", Label::fail());
+                "".to_string()
             }
         }
     }
@@ -1038,7 +1046,7 @@ pub fn is_command(value: Command) -> bool {
         let arguments = vec![value.name];
         Script::init().command(command).arguments(arguments).build()
     };
-    let output = script.run_with_output();
+    let output = script.run();
     match PathBuf::from(output.clone()).try_exists() {
         | Ok(true) => {
             info!(output, "=> {} Command", Label::found());
