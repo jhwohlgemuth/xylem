@@ -16,11 +16,11 @@
         pub variables: Option<Map<String, Value>>,
     }
     ```
-    - [ ] Add `resources` attribute in addition to `requirements` to designate physical requirements (*example*: GPU(s))
+    - [X] Add `resources` attribute in addition to `requirements` to designate physical requirements (*example*: GPU(s))
     - [ ] Add `skip` attribute for skipping various aspects of workflow (e.g., checksums, verification, etc...)
 - [X] Load configuration ([JSON](https://www.json.org/json-en.html))
-  - [ ] Load configuration ([YAML](https://yaml.org/))
-  - [ ] Load configuration ([CWL](https://www.commonwl.org/))
+  - [X] Load configuration ([YAML](https://yaml.org/))
+- [ ] Export configuration to [CWL](https://www.commonwl.org/)
 - [X] Type-safe programmatic API for using configuration data
 - [X] Load environment variables from `.env` file
 - [X] Robust and configurable logging using [tracing crate](https://docs.rs/tracing/latest/tracing/)
@@ -54,6 +54,7 @@
         ```rust
         fn(&Path, Option<Parameters>) -> Vec<Option<Details>>
         ```
+    - [ ] Configure checks using `config.{json|yaml}`
     - [ ] Validate modules using check subcommand and associated `is_valid_python_module` check
 - [ ] "Doctor" subcommand
   - [ ] Provide analysis of environment capabilities

@@ -190,11 +190,15 @@ pub struct Command {
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
+    pub id: Option<String>,
     /// Configuration version in semver format
     version: String,
     #[serde(alias = "doc")]
     description: String,
+    /// Software requirements for workflow (e.g. python, conda, etc.)
     pub requirements: Vec<String>,
+    /// Hardward resources required for workflow (e.g. CPUs, GPUs, etc.)
+    pub resources: Vec<String>,
     /// Keywords or tags used to describe this module
     keywords: Option<Vec<String>>,
     pub modules: Vec<Module>,
