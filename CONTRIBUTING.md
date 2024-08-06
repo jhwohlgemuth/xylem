@@ -53,11 +53,13 @@
         - `"RUN"` (yellow) = execute script
     - Choosing the level
         - `warn!`
-            - Anytime code is run (e.g., `script.run()`) or would be run (e.g., during `--dry-run` usage)
+            - Anytime code is run (e.g., `script.run()`)
             - When fallback default values are used (e.g., `"template.json"`)
-        - `info!` = anytime a criteria is met that would otherwise cause failure (ex. finding a necessary file)
+        - `info!`
+            - Anytime a criteria is met that would otherwise cause failure (ex. finding a necessary file)
+            - When code would be run (e.g., during `--dry-run` usage)
         - `debug!` = underlying variables and processes that can provide context and clarity
-        - `trace!` = not used (yet?)
+        - `trace!` = Script output and details not normally needed unless troubleshooting
 
 ---
 

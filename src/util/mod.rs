@@ -319,6 +319,51 @@ pub struct StringTemplate {
     pub value: String,
     pub template_type: TemplateType,
 }
+impl Command {
+    /// Check if a command exists in current command line context
+    ///
+    /// Can also be used to check if a command exists within a [conda](https://conda.io/projects/conda/en/latest/user-guide/getting-started.html) virtual environment
+    ///
+    /// # Examples
+    /// ```
+    /// use pipe::util::Command;
+    ///
+    /// let command = Command::init().name("ls".to_string()).build();
+    /// assert!(command.test());
+    ///
+    /// // Using conda virtual environment
+    /// let command = Command::init().name("pip".to_string()).virtual_environment("base".to_string()).build();
+    /// assert!(command.test());
+    /// ```
+    pub fn test(self) -> bool {
+        let script = if cfg!(target_os = "windows") {
+            let command = Command::init()
+                .name("pwsh".to_owned())
+                .maybe_virtual_environment(self.virtual_environment)
+                .build();
+            let arguments = to_string(vec!["-NoProfile", "-Command", "command", &self.name]);
+            Script::init().command(command).arguments(arguments).build()
+        } else {
+            let command = Command::init()
+                .name("which".to_owned())
+                .maybe_virtual_environment(self.virtual_environment)
+                .build();
+            let arguments = vec![self.name];
+            Script::init().command(command).arguments(arguments).build()
+        };
+        let output = script.run();
+        match PathBuf::from(output.clone()).try_exists() {
+            | Ok(true) => {
+                info!(output, "=> {} Command", Label::found());
+                true
+            }
+            | _ => {
+                error!(output, "=> {} Command", Label::not_found());
+                false
+            }
+        }
+    }
+}
 impl Config {
     pub fn read(path: PathBuf) -> Option<Config> {
         let extension = Extension::from_string(get_extension(&path));
@@ -704,6 +749,7 @@ impl Script {
             .spawn()
             .unwrap();
         {
+            // stdout
             let stdout = match cmd.stdout.as_mut() {
                 | Some(value) => value,
                 | None => {
@@ -713,19 +759,35 @@ impl Script {
             };
             let reader = BufReader::new(stdout);
             let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
-            debug!("=> {} {:#?}", Label::output(), lines.join("\n").cyan().dimmed());
-            output.extend(lines);
+            if lines.len() > 0 {
+                trace!("=> {} {:#?}", Label::output(), lines.join("\n").cyan().dimmed());
+                output.extend(lines);
+            }
+            // stderr
+            let stderr = match cmd.stderr.as_mut() {
+                | Some(value) => value,
+                | None => {
+                    error!(script = self.to_string(), "=> {}", Label::fail());
+                    return "".to_string();
+                }
+            };
+            let reader: BufReader<&mut process::ChildStderr> = BufReader::new(stderr);
+            let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
+            if lines.len() > 0 {
+                error!("=> {} {:#?}", Label::fail(), lines.join("\n").red());
+                output.extend(lines);
+            }
         }
         match cmd.wait_with_output() {
             | Ok(result) => {
                 if result.status.success() {
                     let output = output.iter().last().unwrap().to_string();
-                    debug!("=> {} {:#?}", Label::output(), result);
+                    trace!("=> {} {:#?}", Label::output(), result);
                     trace!("=> {} {:#?}", Label::output(), output);
                     output
                 } else {
                     error!(script = self.to_string(), "=> {}", Label::fail());
-                    debug!("=> {} {:#?}", Label::output(), result);
+                    trace!("=> {} {:#?}", Label::output(), result);
                     "".to_string()
                 }
             }
@@ -895,7 +957,7 @@ pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Lev
                         info!(name, "=> {} Virtual environment", Label::found());
                     } else {
                         let mamba = Command::init().name("mamba".to_string()).build();
-                        let name = (if is_command(mamba) { "mamba" } else { "conda" }).to_string();
+                        let name = (if mamba.test() { "mamba" } else { "conda" }).to_string();
                         let arguments = to_string(vec!["env", "create", "-f", "environment.yml"]);
                         let command = Command::init().name(name).build();
                         let script = Script::init()
@@ -1005,58 +1067,6 @@ pub fn get_parent(path: PathBuf) -> PathBuf {
 /// ```
 pub fn has_extension(extension: &str, path: &Path) -> bool {
     extension == get_extension(path)
-}
-/// Check if a command exists in current command line context
-///
-/// Can also be used to check if a command exists within a [conda](https://conda.io/projects/conda/en/latest/user-guide/getting-started.html) virtual environment
-///
-/// # Parameters
-/// - `value` - [Command] value to check
-///
-/// # Examples
-/// ```
-/// use pipe::util::{is_command, Command};
-///
-/// let command = Command {
-///     name: "ls".to_owned(),
-///     virtual_environment: None
-/// };
-/// assert!(is_command(command));
-///
-/// // Using conda virtual environment
-/// let command = Command {
-///     name: "pip".to_owned(),
-///     virtual_environment: Some("base".to_owned())
-/// };
-/// assert!(is_command(command));
-/// ```
-pub fn is_command(value: Command) -> bool {
-    let script = if cfg!(target_os = "windows") {
-        let command = Command::init()
-            .name("pwsh".to_owned())
-            .maybe_virtual_environment(value.virtual_environment)
-            .build();
-        let arguments = to_string(vec!["-NoProfile", "-Command", "command", &value.name]);
-        Script::init().command(command).arguments(arguments).build()
-    } else {
-        let command = Command::init()
-            .name("which".to_owned())
-            .maybe_virtual_environment(value.virtual_environment)
-            .build();
-        let arguments = vec![value.name];
-        Script::init().command(command).arguments(arguments).build()
-    };
-    let output = script.run();
-    match PathBuf::from(output.clone()).try_exists() {
-        | Ok(true) => {
-            info!(output, "=> {} Command", Label::found());
-            true
-        }
-        | _ => {
-            error!(output, "=> {} Command", Label::not_found());
-            false
-        }
-    }
 }
 /// Check if stdin is piped
 ///

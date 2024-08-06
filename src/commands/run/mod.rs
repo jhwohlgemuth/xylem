@@ -1,6 +1,6 @@
 use crate::util::{
-    create_conda_environment, get_conda_environment_name, is_command, to_string, Command, Config, EnvironmentValue, Label, ModuleLanguage,
-    ModuleType, ModuleUri, Script, TemplateAttribute,
+    create_conda_environment, get_conda_environment_name, to_string, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri,
+    Script, TemplateAttribute,
 };
 use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
@@ -8,7 +8,7 @@ use nanoid::nanoid;
 use rayon::prelude::*;
 use std::env;
 use std::path::PathBuf;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 use uriparse::Scheme;
 
 pub fn run(
@@ -40,7 +40,7 @@ pub fn run(
             // Check requirements
             cfg.requirements.iter().for_each(|name| {
                 let command = Command::init().name(name.clone()).build();
-                if !is_command(command) {
+                if !command.test() {
                     error!(name, "=> {} Requirement not met", Label::not_found());
                     std::process::exit(1);
                 }
@@ -171,7 +171,7 @@ pub fn run(
                             .with_environment(environment);
                         if dry_run {
                             EnvironmentValue::print_all();
-                            warn!(
+                            info!(
                                 module = module.name,
                                 script = script.to_string(),
                                 cwd = script.current_dir,

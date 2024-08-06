@@ -10,6 +10,33 @@ fn test_add_forward_slash() {
 }
 
 #[test]
+fn test_command() {
+    let python = Command::init().name("python".to_string()).virtual_environment("base".to_string()).build();
+    assert_eq!(python.name, "python".to_string());
+    assert_eq!(python.virtual_environment, Some("base".to_string()));
+
+    let command = Command::init().name("ls".to_string()).build();
+    assert!(command.test());
+
+    let nonexistent: Command = Command {
+        name: "does-not-exist".to_string(),
+        virtual_environment: None,
+    };
+    assert!(!nonexistent.test());
+    if cfg!(target_os = "windows") {
+        // WIP
+    } else {
+        let cargo = Command::init().name("cargo".to_string()).build();
+        assert!(cargo.test());
+        // Using conda virtual environment
+        let conda = Command::init().name("conda".to_string()).build();
+        if conda.test() {
+            assert!(python.test());
+        }
+    }
+}
+
+#[test]
 #[should_panic]
 fn test_config_read_notfound() {
     let _ = Config::read(PathBuf::from("does/not/exist.json"));
@@ -106,29 +133,6 @@ fn test_has_extension() {
     assert!(has_extension("", Path::new("foo/bar")));
     assert!(has_extension("", Path::new(".foo")));
     assert!(has_extension("", Path::new("foo/.bar")))
-}
-
-#[test]
-fn test_is_command() {
-    let python = Command::init().name("python".to_string()).virtual_environment("base".to_string()).build();
-    assert_eq!(python.name, "python".to_string());
-    assert_eq!(python.virtual_environment, Some("base".to_string()));
-    let nonexistent: Command = Command {
-        name: "does-not-exist".to_string(),
-        virtual_environment: None,
-    };
-    assert!(!is_command(nonexistent));
-    if cfg!(target_os = "windows") {
-        // WIP
-    } else {
-        let cargo = Command::init().name("cargo".to_string()).build();
-        assert!(is_command(cargo));
-        // Using conda virtual environment
-        let conda = Command::init().name("conda".to_string()).build();
-        if is_command(conda) {
-            assert!(is_command(python));
-        }
-    }
 }
 
 #[test]
