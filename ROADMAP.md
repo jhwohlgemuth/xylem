@@ -10,10 +10,12 @@
         #[serde(alias = "doc")]
         pub description: String,
         pub requirements: Vec<String>,
+        pub resources: Vec<String>,
         /// Keywords or tags used to describe this module
         pub keywords: Option<Vec<String>>,
         pub modules: Vec<Module>,
         pub variables: Option<Map<String, Value>>,
+        pub check: Vec<Rule>,
     }
     ```
     - [X] Add `resources` attribute in addition to `requirements` to designate physical requirements (*example*: GPU(s))
@@ -28,7 +30,7 @@
 - [X] Namespaced module environment variables
 - [X] Validate environment requirements from list of string names
 - [X] Programmatic wrapper for executing arbitrary shell commands
-  - [ ] Provide enhanced logging and troubleshooting
+  - [X] Provide enhanced logging and troubleshooting
 - [X] Template abstraction for customizing module-to-shell interface (see `ScriptTemplate` struct)
   - [ ] Support `<%= value %>` templating format
 - [X] Tests with [code coverage](https://github.com/xd009642/tarpaulin)
