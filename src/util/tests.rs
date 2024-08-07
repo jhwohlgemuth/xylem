@@ -14,10 +14,8 @@ fn test_command() {
     let python = Command::init().name("python".to_string()).virtual_environment("base".to_string()).build();
     assert_eq!(python.name, "python".to_string());
     assert_eq!(python.virtual_environment, Some("base".to_string()));
-
     let command = Command::init().name("ls".to_string()).build();
     assert!(command.test());
-
     let nonexistent: Command = Command {
         name: "does-not-exist".to_string(),
         virtual_environment: None,
@@ -106,6 +104,12 @@ fn test_details() {
     let mut results = vec![good_foo, good_bar, bad_foo, bad_foo_too, bad_bar, bad_baz];
     results.dedup();
     assert_eq!(results.len(), 5);
+}
+
+#[test]
+fn test_get_conda_environment_list() {
+    let list = get_conda_environment_list();
+    assert_eq!(list, vec!["base"]);
 }
 
 #[test]
@@ -332,14 +336,14 @@ fn test_script_run() {
         let arguments = to_string(vec!["hello", "world"]);
         let script = Script::init().command(command).arguments(arguments).build();
         let output = script.run();
-        assert_eq!(&output, "hello world");
+        assert_eq!(&output, &vec!["hello world".to_string()]);
         let command = Command::init().name("pwd".to_string()).build();
         let script = Script::init().command(command).build();
         let output = script.with_current_dir("/root".to_string()).run();
-        assert_eq!(&output, "/root");
+        assert_eq!(&output, &vec!["/root".to_string()]);
         let path = PathBuf::from("tests/fixtures/template_run.json");
         let script = Script::from_path(path);
-        assert_eq!(script.run(), "hello world");
+        assert_eq!(script.run(), vec!["hello world".to_string()]);
     }
 }
 

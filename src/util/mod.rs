@@ -352,13 +352,14 @@ impl Command {
             Script::init().command(command).arguments(arguments).build()
         };
         let output = script.run();
-        match PathBuf::from(output.clone()).try_exists() {
+        let path = output.into_iter().last().unwrap_or_default().trim().to_string();
+        match PathBuf::from(path.clone()).try_exists() {
             | Ok(true) => {
-                info!(output, "=> {} Command", Label::found());
+                info!(path, "=> {} Command", Label::found());
                 true
             }
             | _ => {
-                error!(output, "=> {} Command", Label::not_found());
+                error!(path, "=> {} Command", Label::not_found());
                 false
             }
         }
@@ -733,7 +734,7 @@ impl Script {
         Script::init().command(command).arguments(arguments).build()
     }
     /// Execute script in child process and wait for it to finish, print to stdout and ignore output
-    pub fn run(&self) -> String {
+    pub fn run(&self) -> Vec<String> {
         let command = &self.get_command();
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
@@ -754,7 +755,7 @@ impl Script {
                 | Some(value) => value,
                 | None => {
                     error!(script = self.to_string(), "=> {}", Label::fail());
-                    return "".to_string();
+                    return vec![];
                 }
             };
             let reader = BufReader::new(stdout);
@@ -768,7 +769,7 @@ impl Script {
                 | Some(value) => value,
                 | None => {
                     error!(script = self.to_string(), "=> {}", Label::fail());
-                    return "".to_string();
+                    return vec![];
                 }
             };
             let reader: BufReader<&mut process::ChildStderr> = BufReader::new(stderr);
@@ -781,37 +782,20 @@ impl Script {
         match cmd.wait_with_output() {
             | Ok(result) => {
                 if result.status.success() {
-                    let output = output.iter().last().unwrap().to_string();
+                    let output = output;
                     trace!("=> {} {:#?}", Label::output(), result);
                     trace!("=> {} {:#?}", Label::output(), output);
                     output
                 } else {
                     error!(script = self.to_string(), "=> {}", Label::fail());
                     trace!("=> {} {:#?}", Label::output(), result);
-                    "".to_string()
+                    vec![]
                 }
             }
             | Err(error) => {
                 error!(error = error.to_string(), script = self.to_string(), "=> {}", Label::fail());
-                "".to_string()
+                vec![]
             }
-        }
-    }
-    /// Execute script in child process and wait for it to finish, return the output
-    pub fn run_with_output(&self) -> String {
-        let command = &self.get_command();
-        let arguments = self.get_arguments();
-        let current_dir = PathBuf::from(&self.current_dir);
-        let envs = self.envs.clone().unwrap_or_default();
-        warn!(script = self.to_string(), cwd = current_dir.to_str().unwrap(), "=> {}", Label::run());
-        let output = process::Command::new(command)
-            .args(arguments.iter())
-            .current_dir(current_dir)
-            .envs(envs)
-            .output();
-        match output {
-            | Ok(value) if !value.stdout.is_empty() => String::from_utf8_lossy(&value.stdout).trim().to_string(),
-            | _ => "".to_string(),
         }
     }
     /// Set current working directory for the script
@@ -847,7 +831,7 @@ impl Script {
         self.command.virtual_environment.clone_from(&environment);
         self
     }
-    /// Set script environment variables to be set during script.run (or script.run_with_output) call
+    /// Set script environment variables to be set during script.run call
     pub fn with_envs(mut self, values: HashMap<String, String>) -> Self {
         self.envs = Some(values.clone());
         self
@@ -986,7 +970,8 @@ pub fn get_conda_environment_list() -> Vec<String> {
     let arguments = to_string(vec!["env", "list"]);
     let script = Script::init().command(command).arguments(arguments).build();
     script
-        .run_with_output()
+        .run()
+        .join("\n")
         .replace(['#', '*'], "")
         .split('\n')
         .filter(|x| !x.is_empty())
