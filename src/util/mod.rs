@@ -760,7 +760,7 @@ impl Script {
             };
             let reader = BufReader::new(stdout);
             let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
-            if lines.len() > 0 {
+            if !lines.is_empty() {
                 trace!("=> {} {:#?}", Label::output(), lines.join("\n").cyan().dimmed());
                 output.extend(lines);
             }
@@ -774,7 +774,7 @@ impl Script {
             };
             let reader: BufReader<&mut process::ChildStderr> = BufReader::new(stderr);
             let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
-            if lines.len() > 0 {
+            if !lines.is_empty() {
                 error!("=> {} {:#?}", Label::fail(), lines.join("\n").red());
                 output.extend(lines);
             }
