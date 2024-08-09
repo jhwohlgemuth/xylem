@@ -170,12 +170,14 @@ pub enum TemplateType {
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Check {
-    /// List of structs that contain details about the associated rule
-    pub rules: Vec<Rule>,
     /// Glob string(s) describing files and folders to be checked
     pub files: Vec<String>,
+    /// List of structs that contain details about the associated rule
+    pub rules: Vec<Rule>,
     /// Glob string(s) describing files and folders to be ignored
-    pub ignores: Vec<String>,
+    pub ignores: Option<Vec<String>>,
+    /// Parent directory of the item being checked when not used within a workflow
+    pub parent: Option<String>,
 }
 #[derive(Clone, Debug, Display)]
 #[display(fmt = "{}", name)]
@@ -260,11 +262,15 @@ pub struct Reporter {
     pub parameters: Option<Parameters>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[builder(start_fn(name = init))]
 pub struct Rule {
     /// Name of the rule (displayed by the progress bar)
+    #[builder(default)]
     pub name: String,
-    pub uri: String,
+    #[builder]
+    pub uri: Option<String>,
     /// Options to pass to the checker
+    #[builder]
     pub parameters: Option<Parameters>,
 }
 /// Semantic version
@@ -367,15 +373,20 @@ impl Command {
 }
 impl Config {
     pub fn read(path: PathBuf) -> Option<Config> {
-        let extension = Extension::from_string(get_extension(&path));
-        match extension {
-            | Extension::Json => match Config::read_json(path) {
+        match Extension::from_string(get_extension(&path)) {
+            | Extension::Json => match Config::read_json(path.clone()) {
                 | Ok(value) => Some(value),
-                | Err(_) => unimplemented!(),
+                | Err(_) => {
+                    error!(path = path.to_str().unwrap(), "=> {} Cannot import configuration", Label::not_found());
+                    std::process::exit(1);
+                }
             },
-            | Extension::Yaml => match Config::read_yaml(path) {
+            | Extension::Yaml => match Config::read_yaml(path.clone()) {
                 | Ok(value) => Some(value),
-                | Err(_) => unimplemented!(),
+                | Err(_) => {
+                    error!(path = path.to_str().unwrap(), "=> {} Cannot import configuration", Label::not_found());
+                    std::process::exit(1);
+                }
             },
             | Extension::Unknown => unimplemented!("Unknown configuration file extension"),
         }
@@ -387,14 +398,18 @@ impl Config {
     ///
     pub fn read_json(path: PathBuf) -> serde_json::Result<Config> {
         let content = match read_file(path.clone()) {
-            | Ok(value) => value,
-            | Err(_) => {
-                error!(path = path.to_str().unwrap(), "=> {} Could not read configuration", Label::fail());
-                "".to_owned()
+            | Ok(value) if !value.is_empty() => value,
+            | Ok(_) | Err(_) => {
+                error!(path = path.to_str().unwrap(), "=> {} Configuration content is not valid", Label::fail());
+                "{}".to_owned()
             }
         };
         let data: serde_json::Result<Config> = serde_json::from_str(&content);
-        debug!("=> {} Configuration = {:#?}", Label::read(), data.dimmed());
+        let label = match data {
+            | Ok(_) => Label::output(),
+            | Err(_) => Label::fail(),
+        };
+        debug!("=> {} Configuration = {:#?}", label, data.dimmed());
         data
     }
     /// Import PIPE configuration YAML file
@@ -406,12 +421,16 @@ impl Config {
         let content = match read_file(path.clone()) {
             | Ok(value) => value,
             | Err(_) => {
-                error!(path = path.to_str().unwrap(), "=> {} Could not read configuration", Label::fail());
+                error!(path = path.to_str().unwrap(), "=> {} Configuration content is not valid", Label::fail());
                 "".to_owned()
             }
         };
         let data: serde_yml::Result<Config> = serde_yml::from_str(&content);
-        debug!("=> {} Configuration = {:#?}", Label::read(), data.dimmed());
+        let label = match data {
+            | Ok(_) => Label::output(),
+            | Err(_) => Label::fail(),
+        };
+        debug!("=> {} Configuration = {:#?}", label, data.dimmed());
         data
     }
     /// Set environment variables from PIPE configuration "variables" attribute

@@ -35,12 +35,6 @@ fn test_command() {
 }
 
 #[test]
-#[should_panic]
-fn test_config_read_notfound() {
-    let _ = Config::read(PathBuf::from("does/not/exist.json"));
-}
-
-#[test]
 fn test_config_read() {
     // Load variables into configuration (JSON or YAML)
     let config = Config::read(PathBuf::from("tests/fixtures/config.json"));

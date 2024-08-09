@@ -37,9 +37,6 @@ pub enum Commands {
         /// Path to configuration file
         #[arg(short = 'c', long = "config", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         config: Option<std::path::PathBuf>,
-        /// Exclude certain files
-        #[arg(short = 'e', long = "exclude", value_name = "STRING")]
-        exclude: Option<String>,
         /// Reporter(s) to use to output the results - console (default) and/or json
         #[arg(short = 'r', long = "reporter", value_name = "STRING", num_args=0..=2)]
         reporter: Option<Vec<String>>,

@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 use uriparse::Scheme;
 
+const DEFAULT_CONFIG_NAME: &str = "config.json";
+
 pub fn run(
     config: &Option<PathBuf>,
     _reporter: &Option<Vec<String>>,
@@ -28,12 +30,16 @@ pub fn run(
         | Err(err) => error!("{}", err),
     }
     let default_config = match env::current_dir() {
-        | Ok(path) => path.join("config.json"),
-        | _ => PathBuf::from("./config.json"),
+        | Ok(path) => path.join(DEFAULT_CONFIG_NAME),
+        | _ => PathBuf::from(DEFAULT_CONFIG_NAME),
     };
     let config_path = match config {
         | Some(value) => value.to_path_buf(),
-        | None => default_config,
+        | None => {
+            let path = default_config.to_str().unwrap();
+            warn!(path, "=> {} Default configuration", Label::using());
+            default_config
+        }
     };
     match Config::read(config_path) {
         | Some(cfg) => {

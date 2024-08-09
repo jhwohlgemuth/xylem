@@ -4,17 +4,21 @@ use color_eyre::eyre::{Report, Result};
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::env;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
-use tracing::info;
+use tracing::{error, info, warn};
 
 use crate::reporters;
-use crate::util::{is_stdin_piped, Parameters, Reporter, ReporterType, Rule, StdinIsPipedResult};
+use crate::util::{is_stdin_piped, Config, Label, Parameters, Reporter, ReporterType, StdinIsPipedResult};
 use checks::*;
+
+const DEFAULT_CONFIG_NAME: &str = "config.json";
 
 pub fn run(
     path: &Option<PathBuf>,
+    config: &Option<PathBuf>,
     reporter: &Option<Vec<String>>,
     output: &Option<PathBuf>,
     all: bool,
@@ -22,14 +26,32 @@ pub fn run(
     minimal: bool,
     unique: bool,
 ) -> Result<(), Report> {
-    let rules: Vec<_> = vec![
-        // Rule definitions go here
-        Rule {
-            name: "template".to_string(),
-            uri: "".to_string(),
-            parameters: None,
+    let default_config = match env::current_dir() {
+        | Ok(path) => path.join(DEFAULT_CONFIG_NAME),
+        | _ => PathBuf::from(DEFAULT_CONFIG_NAME),
+    };
+    let config_path = match config {
+        | Some(value) => value.to_path_buf(),
+        | None => {
+            let path = default_config.to_str().unwrap();
+            warn!(path, "=> {} Default configuration", Label::using());
+            default_config
+        }
+    };
+    let builtin_rules = HashMap::from([("is_valid_python_module", is_valid_python_module::run)]);
+    let _rules = match Config::read(config_path) {
+        | Some(cfg) => match cfg.check {
+            | Some(value) => value.rules,
+            | None => {
+                error!("=> {} Check rules not configured", Label::not_found());
+                std::process::exit(1);
+            }
         },
-    ];
+        | None => {
+            error!("=> {} Could not import configuration", Label::fail());
+            std::process::exit(1);
+        }
+    };
     let mut reporters: Vec<Reporter> = vec![];
     let parameters = Parameters {
         output_path: output.clone(),
@@ -47,7 +69,7 @@ pub fn run(
         | Some(values) => {
             for value in values {
                 let name = value.to_uppercase();
-                info!("Using {} reporter", name);
+                info!(name, "=> {} Reporter", Label::using());
                 match name.as_str() {
                     | "CONSOLE" => reporters.push(default_reporter.clone()),
                     | "JSON" => reporters.push(Reporter {
@@ -56,14 +78,14 @@ pub fn run(
                         parameters: Some(parameters.clone()),
                     }),
                     | _ => {
-                        todo!("{} reporter not yet implemented", name)
+                        error!(name, "=> {} Not a valid reporter", Label::not_found());
                     }
                 }
             }
         }
         | None => {
             let name = default_reporter.name.to_string().to_uppercase();
-            info!("Using {} reporter", name);
+            info!(name, "=> {} Reporter", Label::using());
             reporters.push(default_reporter)
         }
     }
@@ -86,12 +108,12 @@ pub fn run(
             | None => current_dir.to_str().unwrap_or(".").to_string(),
         },
     };
-    info!("Working directory: {}", working_dir);
+    info!(path = working_dir, "=> {} Working directory", Label::using());
     eprintln!("\n");
     let mut results = Vec::new();
-    for rule in rules {
+    for rule in builtin_rules {
         let files: Vec<_> = glob(&format!("{}{}", working_dir, r"/**/")).unwrap().collect();
-        let progress = ProgressBar::new(files.len() as u64).with_message(rule.name);
+        let progress = ProgressBar::new(files.len() as u64).with_message(rule.0);
         let template = "{pos:>5}/{len:<5}{spinner:.cyan/blue} {bar:.cyan/blue} {msg:.gray}";
         progress.set_style(ProgressStyle::with_template(template).unwrap());
         let output: Vec<_> = files
@@ -99,7 +121,7 @@ pub fn run(
             .flat_map(|path| {
                 progress.inc(1);
                 let input = path.as_ref().unwrap();
-                (template::run)(input, None)
+                (rule.1)(input, None)
             })
             .collect();
         progress.finish();

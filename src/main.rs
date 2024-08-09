@@ -57,6 +57,7 @@ fn main() -> Void {
     match &args.command {
         | Some(Commands::Check {
             path,
+            config,
             reporter,
             output,
             all,
@@ -64,7 +65,7 @@ fn main() -> Void {
             minimal,
             unique,
             ..
-        }) => commands::check::run(path, reporter, output, *all, *pass, *minimal, *unique),
+        }) => commands::check::run(path, config, reporter, output, *all, *pass, *minimal, *unique),
         | Some(Commands::Doctor { .. }) => Ok(()),
         | Some(Commands::Run {
             config,
