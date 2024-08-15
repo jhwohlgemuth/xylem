@@ -23,6 +23,7 @@ use std::{
     env::{set_var, vars},
     io,
 };
+use tokio;
 use tracing::{debug, error, info, trace, warn};
 use uriparse::Scheme;
 use uriparse::URI;
@@ -592,9 +593,25 @@ impl ModuleUri<'_> {
         }
     }
     pub fn test(&self) -> bool {
+        async fn check(url: String) -> lychee_lib::Response {
+            let response = lychee_lib::check(url).await.unwrap();
+            debug!("{:?}", &response);
+            response
+        }
         match self {
-            | ModuleUri::Url(_) => {
-                true
+            | ModuleUri::Url(uri) => {
+                match uri.scheme() {
+                    | Scheme::SSH => true,
+                    | _ => {
+                        let runtime = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .unwrap();
+                        let inner = runtime.block_on(check(uri.to_string()));
+                        let status = inner.status();
+                        status.is_success()
+                    },
+                }
             },
             | ModuleUri::File(value) => value.clone().exists(),
             | ModuleUri::Unknown(_) => unimplemented!(),
