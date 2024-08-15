@@ -553,6 +553,10 @@ impl Label {
         let style = Style::new().green().on_default_color();
         "READ".style(style)
     }
+    pub fn rejected() -> Styled<&'static &'static str> {
+        let style = Style::new().white().on_red();
+        "🚫 REJECTED ".style(style)
+    }
     pub fn run() -> Styled<&'static &'static str> {
         let style = Style::new().white().on_yellow();
         " RUN ▶ ".style(style)
@@ -584,6 +588,15 @@ impl ModuleUri<'_> {
                 format!("{}_{}", host, segments[segments.len() - 2..].join("_").to_lowercase())
             }
             | ModuleUri::File(value) => value.clone().into_os_string().into_string().unwrap(),
+            | ModuleUri::Unknown(_) => unimplemented!(),
+        }
+    }
+    pub fn test(&self) -> bool {
+        match self {
+            | ModuleUri::Url(_) => {
+                true
+            },
+            | ModuleUri::File(value) => value.clone().exists(),
             | ModuleUri::Unknown(_) => unimplemented!(),
         }
     }

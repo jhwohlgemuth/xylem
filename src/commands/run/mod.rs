@@ -83,6 +83,12 @@ pub fn run(
                                 debug!(uri, "=> {} Remote script repository", Label::found());
                                 // TODO: Filter URL using whitelist
                                 // TODO: Check that URL exists
+                                if ModuleUri::from(uri).test() {
+                                    info!(module = module.name, uri, "=> {}", Label::found());
+                                } else {
+                                    error!(module = module.name, uri, "=> {}", Label::rejected());
+                                    std::process::exit(1);
+                                };
                                 let current_dir = root.clone().into_os_string().into_string().unwrap();
                                 let module_root = root.join(ModuleUri::from(uri).hash()).into_os_string().into_string().unwrap();
                                 if let Some(script) = Script::maybe_git_clone(uri.clone(), current_dir, verbose.log_level()) {

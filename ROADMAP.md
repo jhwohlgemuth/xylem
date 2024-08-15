@@ -21,7 +21,7 @@
     - [X] Add `resources` attribute in addition to `requirements` to designate physical requirements (*example*: GPU(s))
     - [ ] Add `skip` attribute for skipping various aspects of workflow (e.g., checksums, verification, etc...)
 - [X] Load configuration ([JSON](https://www.json.org/json-en.html))
-  - [X] Load configuration ([YAML](https://yaml.org/))
+- [X] Load configuration ([YAML](https://yaml.org/))
 - [ ] Export configuration to [CWL](https://www.commonwl.org/)
 - [X] Type-safe programmatic API for using configuration data
 - [X] Load environment variables from `.env` file
@@ -41,6 +41,10 @@
   - [X] Support remote script module (using `git clone <URI>`)
   - [X] Auto-create (Conda/[Mamba](https://mamba.readthedocs.io/en/latest/index.html)) virtual environments
   - [X] Parallelize module preparation
+- [ ] Enhanced URL security
+  - [ ] Filter remote module URLs against white list
+  - [ ] Check remote URLs are valid and reachable
+  - [ ] Provide `--offline` flag to disable reachability check
 - [ ] Multi-platform release binaries published to GitLab repository
   - [X] Linux ([tier 1](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Tiers-of-Support))
   - [ ] Mac ([tier 2](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Tiers-of-Support))
