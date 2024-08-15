@@ -740,6 +740,47 @@ impl Script {
             | _ => self.arguments.clone(),
         }
     }
+    /// Create Conda environment from an environment.yml file
+    pub fn maybe_create_conda_environment(uri: String, _verbosity: Option<Level>) -> Option<Script> {
+        let current_dir = ModuleUri::from(&uri).working_directory(None);
+        let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
+        match manifest_path.try_exists() {
+            | Ok(true) => {
+                info!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::found());
+                match get_conda_environment_name(manifest_path.clone()) {
+                    | Some(name) => {
+                        if get_conda_environment_list().contains(&name) {
+                            info!(name, "=> {} Virtual environment", Label::found());
+                            None
+                        } else {
+                            let mamba = Command::init().name("mamba".to_string()).build();
+                            let name = (if mamba.test() { "mamba" } else { "conda" }).to_string();
+                            let arguments = to_string(vec!["env", "create", "-f", "environment.yml"]);
+                            let command = Command::init().name(name).build();
+                            let script = Script::init()
+                                .command(command)
+                                .arguments(arguments)
+                                .build()
+                                .with_current_dir(current_dir.clone());
+                            Some(script)
+                        }
+                    }
+                    | None => None,
+                }
+            }
+            | _ => {
+                error!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::not_found());
+                None
+            }
+        }
+    }
+    pub fn maybe_git_clone(url: String, current_dir: String, _verbosity: Option<Level>) -> Option<Script> {
+        let module_uri = ModuleUri::from(&url);
+        let command = Command::init().name("git".to_string()).build();
+        let arguments = to_string(vec!["clone", &url, &module_uri.hash()]);
+        let script = Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir);
+        Some(script)
+    }
     pub fn python_default() -> Script {
         let command = Command::init().name("python".to_string()).build();
         let arguments = to_string(vec![
@@ -947,42 +988,6 @@ pub fn add_forward_slash(path: PathBuf) -> PathBuf {
         path.to_path_buf()
     }
 }
-/// Create Conda environment from an environment.yml file
-pub fn create_conda_environment(uri: &str, dry_run: bool, _verbosity: Option<Level>) {
-    let working_dir = ModuleUri::from(uri).working_directory(None);
-    let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
-    match manifest_path.try_exists() {
-        | Ok(true) => {
-            info!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::found());
-            match get_conda_environment_name(manifest_path.clone()) {
-                | Some(name) => {
-                    if get_conda_environment_list().contains(&name) {
-                        info!(name, "=> {} Virtual environment", Label::found());
-                    } else {
-                        let mamba = Command::init().name("mamba".to_string()).build();
-                        let name = (if mamba.test() { "mamba" } else { "conda" }).to_string();
-                        let arguments = to_string(vec!["env", "create", "-f", "environment.yml"]);
-                        let command = Command::init().name(name).build();
-                        let script = Script::init()
-                            .command(command)
-                            .arguments(arguments)
-                            .build()
-                            .with_current_dir(working_dir.clone());
-                        if dry_run {
-                            info!(script = script.to_string(), cwd = working_dir, "=> {}", Label::dry_run());
-                        } else {
-                            script.run();
-                        }
-                    }
-                }
-                | None => (),
-            };
-        }
-        | _ => {
-            error!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::not_found());
-        }
-    }
-}
 /// Get list of Conda virtual environments
 pub fn get_conda_environment_list() -> Vec<String> {
     let command = Command::init().name("conda".to_string()).build();
@@ -1119,7 +1124,7 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
             file.read_to_string(&mut content)
         }
         | Err(err) => {
-            debug!(path = path.to_str().unwrap(), "=> {}", Label::fail());
+            error!(path = path.to_str().unwrap(), "=> {}", Label::fail());
             Err(err)
         }
     };

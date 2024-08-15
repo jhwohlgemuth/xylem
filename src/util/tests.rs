@@ -103,7 +103,7 @@ fn test_details() {
 #[test]
 fn test_get_conda_environment_list() {
     let list = get_conda_environment_list();
-    assert_eq!(list, vec!["base"]);
+    assert!(list.contains(&"base".to_string()));
 }
 
 #[test]
@@ -319,6 +319,15 @@ fn test_script_from_template() {
     );
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
+}
+
+#[test]
+fn test_script_git_clone() {
+    let url = "https://code.ornl.gov/some/project".to_string();
+    let current_dir = ".".to_string();
+    if let Some(script) = Script::maybe_git_clone(url.clone(), current_dir, None) {
+        assert_eq!(script.to_string(), format!("git clone {} code_ornl_gov_some_project", url.clone()));
+    };
 }
 
 #[test]

@@ -1,6 +1,5 @@
 use crate::util::{
-    create_conda_environment, get_conda_environment_name, to_string, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri,
-    Script, TemplateAttribute,
+    get_conda_environment_name, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script, TemplateAttribute,
 };
 use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
@@ -82,19 +81,27 @@ pub fn run(
                         | ModuleUri::Url(value) => match value.scheme() {
                             | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                                 debug!(uri, "=> {} Remote script repository", Label::found());
-                                let module_uri = ModuleUri::from(uri);
+                                // TODO: Filter URL using whitelist
+                                // TODO: Check that URL exists
                                 let current_dir = root.clone().into_os_string().into_string().unwrap();
-                                let command = Command::init().name("git".to_string()).build();
-                                let arguments = to_string(vec!["clone", &uri, &module_uri.hash()]);
-                                let script = Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir);
-                                if dry_run {
-                                    warn!(module = module.name, script = script.to_string(), "=> {}", Label::dry_run());
-                                } else {
-                                    script.run();
+                                let module_root = root.join(ModuleUri::from(uri).hash()).into_os_string().into_string().unwrap();
+                                if let Some(script) = Script::maybe_git_clone(uri.clone(), current_dir, verbose.log_level()) {
+                                    if dry_run {
+                                        let cwd = script.clone().current_dir;
+                                        warn!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
+                                    } else {
+                                        script.run();
+                                    }
                                 }
                                 // TODO: Check script repository with is_valid_pipe_module_python
-                                let module_root = root.join(module_uri.hash()).into_os_string().into_string().unwrap();
-                                create_conda_environment(&module_root, dry_run, verbose.log_level());
+                                if let Some(script) = Script::maybe_create_conda_environment(module_root, verbose.log_level()) {
+                                    if dry_run {
+                                        let cwd = script.clone().current_dir;
+                                        info!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
+                                    } else {
+                                        script.run();
+                                    }
+                                };
                             }
                             | _ => unimplemented!(),
                         },
@@ -103,7 +110,14 @@ pub fn run(
                                 let path = value.into_os_string().into_string().unwrap();
                                 debug!(module = module.name, path, "=> {} Local script repository", Label::found());
                                 // TODO: Check script repository with is_valid_pipe_module_python
-                                create_conda_environment(uri, dry_run, verbose.log_level());
+                                if let Some(script) = Script::maybe_create_conda_environment(uri.to_string(), verbose.log_level()) {
+                                    if dry_run {
+                                        let cwd = script.clone().current_dir;
+                                        info!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
+                                    } else {
+                                        script.run();
+                                    }
+                                };
                             }
                             | _ => {
                                 let path = value.into_os_string().into_string().unwrap();
