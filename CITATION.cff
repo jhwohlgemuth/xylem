@@ -1,0 +1,36 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: >-
+  Parallel Integration and Processing Engine (PIPE) CLI
+  Application
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Jason
+    family-names: Wohlgemuth
+    affiliation: Oak Ridge National Laboratory
+    email: wohlgemuthjh@ornl.gov
+    orcid: 'https://orcid.org/0000-0002-2057-9115'
+  - given-names: Cecilia
+    family-names: Clark
+    email: clarkcn@ornl.gov
+    affiliation: Oak Ridge National Laboratory
+    orcid: 'https://orcid.org/0000-0002-4826-2152'
+repository-code: 'https://code.ornl.gov/GSHS/common/pipe/command'
+abstract: >-
+  Command line (multi)tool for sustainable science that can
+  be used in myriad automation contexts including the
+  processing of geospatial imagery.
+keywords:
+  - automation
+  - rust
+  - geospatial
+  - command-line-interface
+  - workflow
+  - python
+  - modular
+license: MIT
