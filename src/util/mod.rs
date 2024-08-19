@@ -23,7 +23,6 @@ use std::{
     env::{set_var, vars},
     io,
 };
-use tokio;
 use tracing::{debug, error, info, trace, warn};
 use uriparse::Scheme;
 use uriparse::URI;
@@ -343,21 +342,17 @@ impl Command {
     /// assert!(command.test());
     /// ```
     pub fn test(self) -> bool {
-        let script = if cfg!(target_os = "windows") {
-            let command = Command::init()
-                .name("pwsh".to_owned())
-                .maybe_virtual_environment(self.virtual_environment)
-                .build();
-            let arguments = to_string(vec!["-NoProfile", "-Command", "command", &self.name]);
-            Script::init().command(command).arguments(arguments).build()
+        let name = if cfg!(target_os = "windows") { "pwsh" } else { "which" };
+        let arguments = if cfg!(target_os = "windows") {
+            to_string(vec!["-NoProfile", "-Command", "command", &self.name])
         } else {
-            let command = Command::init()
-                .name("which".to_owned())
-                .maybe_virtual_environment(self.virtual_environment)
-                .build();
-            let arguments = vec![self.name];
-            Script::init().command(command).arguments(arguments).build()
+            vec![self.name]
         };
+        let command = Command::init()
+            .name(name.to_owned())
+            .maybe_virtual_environment(self.virtual_environment)
+            .build();
+        let script = Script::init().command(command).arguments(arguments).build();
         let output = script.run();
         let path = output.into_iter().last().unwrap_or_default().trim().to_string();
         match PathBuf::from(path.clone()).try_exists() {
@@ -599,18 +594,13 @@ impl ModuleUri<'_> {
             response
         }
         match self {
-            | ModuleUri::Url(uri) => {
-                match uri.scheme() {
-                    | Scheme::SSH => true,
-                    | _ => {
-                        let runtime = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .unwrap();
-                        let inner = runtime.block_on(check(uri.to_string()));
-                        let status = inner.status();
-                        status.is_success()
-                    },
+            | ModuleUri::Url(uri) => match uri.scheme() {
+                | Scheme::SSH => true,
+                | _ => {
+                    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                    let inner = runtime.block_on(check(uri.to_string()));
+                    let status = inner.status();
+                    status.is_success()
                 }
             },
             | ModuleUri::File(value) => value.clone().exists(),
