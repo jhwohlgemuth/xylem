@@ -47,7 +47,7 @@ pub fn run(
                 let command = Command::init().name(name.clone()).build();
                 if !command.test() {
                     error!(name, "=> {} Requirement not met", Label::not_found());
-                    std::process::exit(1);
+                    std::process::exit(exitcode::UNAVAILABLE);
                 }
             });
             // Prepare modules
@@ -71,7 +71,7 @@ pub fn run(
                         | _ => {
                             let path = value.into_os_string().into_string().unwrap();
                             error!(module = module.name, path, "=> {} Local binary", Label::not_found());
-                            std::process::exit(1);
+                            std::process::exit(exitcode::UNAVAILABLE);
                         }
                     },
                     | _ => unimplemented!(),
@@ -87,7 +87,7 @@ pub fn run(
                                     info!(module = module.name, uri, "=> {}", Label::found());
                                 } else {
                                     error!(module = module.name, uri, "=> {}", Label::rejected());
-                                    std::process::exit(1);
+                                    std::process::exit(exitcode::USAGE);
                                 };
                                 let current_dir = root.clone().into_os_string().into_string().unwrap();
                                 let module_root = root.join(ModuleUri::from(uri).hash()).into_os_string().into_string().unwrap();
@@ -128,7 +128,7 @@ pub fn run(
                             | _ => {
                                 let path = value.into_os_string().into_string().unwrap();
                                 error!(module = module.name, path, "=> {} Local script module", Label::not_found());
-                                std::process::exit(1);
+                                std::process::exit(exitcode::UNAVAILABLE);
                             }
                         },
                         | _ => unimplemented!(),
