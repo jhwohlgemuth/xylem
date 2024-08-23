@@ -551,7 +551,7 @@ impl Label {
     }
     pub fn rejected() -> Styled<&'static &'static str> {
         let style = Style::new().white().on_red();
-        "🚫 REJECTED ".style(style)
+        " REJECTED ".style(style)
     }
     pub fn run() -> Styled<&'static &'static str> {
         let style = Style::new().white().on_yellow();
@@ -587,6 +587,15 @@ impl ModuleUri<'_> {
             | ModuleUri::Unknown(_) => unimplemented!(),
         }
     }
+    pub fn get_whitelist() -> Vec<String> {
+        to_string(vec![
+            "code.ornl.gov",
+            "code-int.ornl.gov",
+        ])
+    }
+    pub fn is_allowed(uri: URI) -> bool {
+        ModuleUri::get_whitelist().contains(&uri.host().unwrap().to_string())
+    }
     pub fn test(&self) -> bool {
         async fn check(url: String) -> lychee_lib::Response {
             let response = lychee_lib::check(url).await.unwrap();
@@ -595,13 +604,14 @@ impl ModuleUri<'_> {
         }
         match self {
             | ModuleUri::Url(uri) => match uri.scheme() {
-                | Scheme::SSH => true,
-                | _ => {
+                | Scheme::SSH if ModuleUri::is_allowed(uri.clone()) => true,
+                | _ if ModuleUri::is_allowed(uri.clone()) => {
                     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
                     let inner = runtime.block_on(check(uri.to_string()));
                     let status = inner.status();
                     status.is_success()
-                }
+                },
+                | _ => false,
             },
             | ModuleUri::File(value) => value.clone().exists(),
             | ModuleUri::Unknown(_) => unimplemented!(),

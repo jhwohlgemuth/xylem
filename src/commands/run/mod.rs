@@ -57,6 +57,8 @@ pub fn run(
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                             let url = value.to_string();
                             debug!(module = module.name, url, "=> {} Remote binary", Label::found());
+                            // TODO: Filter URL using whitelist
+                            // TODO: Check that URL exists
                             // TODO: Download binary to temp directory
                             // TODO: Verify binary checksum
                             unimplemented!()
