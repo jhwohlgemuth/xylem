@@ -39,7 +39,7 @@ fn test_config_read() {
     // Load variables into configuration (JSON or YAML)
     let config = Config::read(PathBuf::from("tests/fixtures/config.json"));
     assert_eq!(config.clone().unwrap().variables.clone().unwrap().get("ANSWER").unwrap(), 42);
-    assert_eq!(config.unwrap().modules.len(), 4);
+    assert_eq!(config.unwrap().modules.len(), 3);
     let config = Config::read(PathBuf::from("tests/fixtures/config.yaml"));
     assert_eq!(config.clone().unwrap().variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.unwrap().modules.len(), 3);

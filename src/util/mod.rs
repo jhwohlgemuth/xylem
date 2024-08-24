@@ -588,10 +588,7 @@ impl ModuleUri<'_> {
         }
     }
     pub fn get_whitelist() -> Vec<String> {
-        to_string(vec![
-            "code.ornl.gov",
-            "code-int.ornl.gov",
-        ])
+        to_string(vec!["code.ornl.gov", "code-int.ornl.gov"])
     }
     pub fn is_allowed(uri: URI) -> bool {
         ModuleUri::get_whitelist().contains(&uri.host().unwrap().to_string())
@@ -610,7 +607,7 @@ impl ModuleUri<'_> {
                     let inner = runtime.block_on(check(uri.to_string()));
                     let status = inner.status();
                     status.is_success()
-                },
+                }
                 | _ => false,
             },
             | ModuleUri::File(value) => value.clone().exists(),

@@ -23,26 +23,21 @@
     },
     "modules": [
         {
-            "name": "foo",
+            "name": "Local Binary Module",
             "type": "binary",
-            "uri": "file:///path/to/wasm/module.wasm"
+            "uri": "file:///path/to/wasm/module"
         },
         {
-            "name": "module-a",
+            "name": "Local Python Script Module",
             "type": "script",
             "programmingLanguage": "python",
-            "uri": "https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
+            "uri": "file:///path/to/module"
         },
         {
-            "name": "bar",
+            "name": "Remote Python Script Module",
             "type": "script",
             "programmingLanguage": "python",
-            "uri": "file:///path/to/module-a"
-        },
-        {
-            "name": "baz",
-            "type": "binary",
-            "uri": "file:///path/to/binary"
+            "uri": "https://code.ornl.gov/GSHS/GDS/Common/PIPE/module"
         }
     ]
 }
