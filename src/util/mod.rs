@@ -896,7 +896,7 @@ impl Script {
                 }
             }
         } else {
-            error!(error = error.to_string(), script = self.to_string(), "=> {}", Label::fail());
+            error!(script = self.to_string(), "=> {} Failed to spawn child process", Label::fail());
             vec![]
         }
     }
