@@ -831,6 +831,7 @@ impl Script {
         Script::init().command(command).arguments(arguments).build()
     }
     /// Execute script in child process and wait for it to finish, print to stdout and ignore output
+    /// TODO: This function should return Option<Vec<String>>
     pub fn run(&self) -> Vec<String> {
         let command = &self.get_command();
         let arguments = self.get_arguments();
@@ -838,61 +839,65 @@ impl Script {
         let envs = self.envs.clone().unwrap_or_default();
         warn!(script = self.to_string(), "=> {}", Label::run());
         let mut output: Vec<String> = vec![];
-        let mut cmd = process::Command::new(command)
+        if let Ok(mut cmd) = process::Command::new(command)
             .args(arguments.iter())
             .current_dir(current_dir)
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())
             .envs(envs)
             .spawn()
-            .unwrap();
         {
-            // stdout
-            let stdout = match cmd.stdout.as_mut() {
-                | Some(value) => value,
-                | None => {
-                    error!(script = self.to_string(), "=> {}", Label::fail());
-                    return vec![];
+            {
+                // stdout
+                let stdout = match cmd.stdout.as_mut() {
+                    | Some(value) => value,
+                    | None => {
+                        error!(script = self.to_string(), "=> {}", Label::fail());
+                        return vec![];
+                    }
+                };
+                let reader = BufReader::new(stdout);
+                let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
+                if !lines.is_empty() {
+                    trace!("=> {} {:#?}", Label::output(), lines.join("\n").cyan().dimmed());
+                    output.extend(lines);
                 }
-            };
-            let reader = BufReader::new(stdout);
-            let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
-            if !lines.is_empty() {
-                trace!("=> {} {:#?}", Label::output(), lines.join("\n").cyan().dimmed());
-                output.extend(lines);
-            }
-            // stderr
-            let stderr = match cmd.stderr.as_mut() {
-                | Some(value) => value,
-                | None => {
-                    error!(script = self.to_string(), "=> {}", Label::fail());
-                    return vec![];
+                // stderr
+                let stderr = match cmd.stderr.as_mut() {
+                    | Some(value) => value,
+                    | None => {
+                        error!(script = self.to_string(), "=> {}", Label::fail());
+                        return vec![];
+                    }
+                };
+                let reader: BufReader<&mut process::ChildStderr> = BufReader::new(stderr);
+                let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
+                if !lines.is_empty() {
+                    error!("=> {} {:#?}", Label::fail(), lines.join("\n").red());
+                    output.extend(lines);
                 }
-            };
-            let reader: BufReader<&mut process::ChildStderr> = BufReader::new(stderr);
-            let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
-            if !lines.is_empty() {
-                error!("=> {} {:#?}", Label::fail(), lines.join("\n").red());
-                output.extend(lines);
             }
-        }
-        match cmd.wait_with_output() {
-            | Ok(result) => {
-                if result.status.success() {
-                    let output = output;
-                    trace!("=> {} {:#?}", Label::output(), result);
-                    trace!("=> {} {:#?}", Label::output(), output);
-                    output
-                } else {
-                    error!(script = self.to_string(), "=> {}", Label::fail());
-                    trace!("=> {} {:#?}", Label::output(), result);
+            match cmd.wait_with_output() {
+                | Ok(result) => {
+                    if result.status.success() {
+                        let output = output;
+                        trace!("=> {} {:#?}", Label::output(), result);
+                        trace!("=> {} {:#?}", Label::output(), output);
+                        output
+                    } else {
+                        error!(script = self.to_string(), "=> {}", Label::fail());
+                        trace!("=> {} {:#?}", Label::output(), result);
+                        vec![]
+                    }
+                }
+                | Err(error) => {
+                    error!(error = error.to_string(), script = self.to_string(), "=> {}", Label::fail());
                     vec![]
                 }
             }
-            | Err(error) => {
-                error!(error = error.to_string(), script = self.to_string(), "=> {}", Label::fail());
-                vec![]
-            }
+        } else {
+            error!(error = error.to_string(), script = self.to_string(), "=> {}", Label::fail());
+            vec![]
         }
     }
     /// Set current working directory for the script
