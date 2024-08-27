@@ -132,7 +132,7 @@ pub enum ModuleUri<'a> {
     ///   "uri": "ssh://git@code.ornl.gov/GSHS/GDS/Common/PIPE/module-a"
     /// }
     /// ```
-    //TODO: Need to implement Serialize/Deserialize for URI - https://serde.rs/impl-serialize.html
+    //TODO: Implement Serialize/Deserialize for URI - https://serde.rs/impl-serialize.html
     Url(URI<'a>),
     Unknown(String),
 }
@@ -580,8 +580,18 @@ impl ModuleUri<'_> {
                     | Some(value) => value.clone().to_string().replace('.', "_"),
                     | None => "".to_string(),
                 };
-                let segments = uri.path().segments().iter().map(|s| s.to_string()).collect::<Vec<_>>();
-                format!("{}_{}", host, segments[segments.len() - 2..].join("_").to_lowercase())
+                let segments = uri
+                    .path()
+                    .segments()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>();
+                if segments.is_empty() {
+                    host.to_string()
+                } else {
+                    format!("{}_{}", host, segments[segments.len() - 2..].join("_").to_lowercase())
+                }
             }
             | ModuleUri::File(value) => value.clone().into_os_string().into_string().unwrap(),
             | ModuleUri::Unknown(_) => unimplemented!(),

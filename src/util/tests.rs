@@ -51,7 +51,7 @@ fn test_config_read_json() {
     let path = "tests/fixtures/config.json";
     let config = Config::read_json(PathBuf::from(path)).expect("=> [ERROR] Cannot import config in tests");
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
-    assert_eq!(config.modules.len(), 4);
+    assert_eq!(config.modules.len(), 3);
 }
 
 #[test]
@@ -170,10 +170,17 @@ fn test_module_uri() {
         }
         | _ => panic!(),
     }
+}
+
+#[test]
+fn test_module_uri_hash() {
     let expected = "code_ornl_gov_pipe_module-a";
     let url = ModuleUri::from("http://code.ornl.gov/PIPE/module-a");
     assert_eq!(expected, url.hash());
     let url = ModuleUri::from("https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a");
+    assert_eq!(expected, url.hash());
+    let expected = "example_com";
+    let url = ModuleUri::from("http://example.com");
     assert_eq!(expected, url.hash());
 }
 
