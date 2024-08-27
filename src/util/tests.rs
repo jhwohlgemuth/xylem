@@ -103,7 +103,12 @@ fn test_details() {
 #[test]
 fn test_get_conda_environment_list() {
     let list = get_conda_environment_list();
-    assert!(list.contains(&"base".to_string()));
+    let conda = Command::init().name("conda".to_string()).build();
+    if conda.test() {
+        assert!(list.contains(&"base".to_string()));
+    } else {
+        assert!(list.is_empty());
+    }
 }
 
 #[test]

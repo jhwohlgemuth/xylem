@@ -1034,16 +1034,20 @@ pub fn add_forward_slash(path: PathBuf) -> PathBuf {
 pub fn get_conda_environment_list() -> Vec<String> {
     let command = Command::init().name("conda".to_string()).build();
     let arguments = to_string(vec!["env", "list"]);
-    let script = Script::init().command(command).arguments(arguments).build();
-    script
-        .run()
-        .join("\n")
-        .replace(['#', '*'], "")
-        .split('\n')
-        .filter(|x| !x.is_empty())
-        .skip(2)
-        .map(|x| x.trim().chars().take_while(|x| !x.is_whitespace()).collect())
-        .collect::<Vec<String>>()
+    let script = Script::init().command(command.clone()).arguments(arguments).build();
+    if command.test() {
+        script
+            .run()
+            .join("\n")
+            .replace(['#', '*'], "")
+            .split('\n')
+            .filter(|x| !x.is_empty())
+            .skip(2)
+            .map(|x| x.trim().chars().take_while(|x| !x.is_whitespace()).collect())
+            .collect::<Vec<String>>()
+    } else {
+        vec![]
+    }
 }
 /// Get name of Conda virtual environment from manifest file
 ///
