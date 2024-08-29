@@ -331,7 +331,7 @@ fn test_script_from_template() {
     let path = PathBuf::from(format!("{}/template_exec.json", FIXTURES));
     let script = Script::from_path(path);
     assert_eq!(
-        format!("{}", script.to_string()),
+        format!("{}", script),
         "conda run --name base --no-capture-output python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}"
     );
     assert_eq!(script.command.name, "python");
