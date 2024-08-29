@@ -1,5 +1,5 @@
-use crate::util::{Details, Output, Parameters, Void};
 use console::{style, Emoji};
+use pipe_lib::{Details, Output, Parameters, Void};
 
 pub fn run(output: Output, parameters: Option<Parameters>) -> Void {
     eprintln!("\n");

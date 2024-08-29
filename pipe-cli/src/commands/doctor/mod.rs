@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::path::PathBuf;
 
-use crate::util::CommandResult;
+use pipe_lib::CommandResult;
 
 pub fn run(
     _path: &Option<PathBuf>,

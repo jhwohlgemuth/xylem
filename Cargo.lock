@@ -1928,8 +1928,31 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 name = "pipe-cli"
 version = "0.0.1"
 dependencies = [
- "bon",
  "cargo-watch",
+ "clap 4.5.2",
+ "clap-verbosity-flag",
+ "color-eyre",
+ "console",
+ "dotenv",
+ "exitcode",
+ "glob",
+ "indicatif",
+ "nanoid",
+ "pipe-lib",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
+ "uriparse",
+]
+
+[[package]]
+name = "pipe-lib"
+version = "0.0.1"
+dependencies = [
+ "bon",
  "clap 4.5.2",
  "clap-verbosity-flag",
  "color-eyre",

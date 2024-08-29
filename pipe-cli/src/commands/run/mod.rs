@@ -1,9 +1,9 @@
-use crate::util::{
-    get_conda_environment_name, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script, TemplateAttribute,
-};
 use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
 use nanoid::nanoid;
+use pipe_lib::{
+    get_conda_environment_name, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script, TemplateAttribute,
+};
 use rayon::prelude::*;
 use std::env;
 use std::path::PathBuf;

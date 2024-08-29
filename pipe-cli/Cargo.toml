@@ -6,46 +6,27 @@ description.workspace = true
 documentation.workspace = true
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-bon = "1.0.4"
+pipe-lib = { path = "../pipe-lib" }
 clap = { version = "4.4.2", features = ["derive"] }
 clap-verbosity-flag = "2.2.0"
 color-eyre = "0.6.3"
 console = { version = "0.15.7", default-features = false, features = ["ansi-parsing"] }
-derive_more = "0.99.18"
 dotenv = "0.15.0"
-env_logger = "0.11.3"
 exitcode = "1.1.2"
-fancy-regex = "0.13.0"
 glob = "0.3.1"
 indicatif = "0.17.6"
-is-terminal = "0.4.9"
-log = "0.4.20"
 nanoid = "0.4.0"
-owo-colors = "4.0.0"
 rayon = "1.7.0"
-regex = "1.9.5"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
-serde_yml = "0.0.11"
-tokio = { version = "1.39.2", features = ["full"] }
 tracing = { version = "0.1.40" }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"]}
 uriparse = "0.6.4"
-valuable = "0.1.0"
-valuable-derive = "0.1.0"
 
 [dev-dependencies]
 cargo-watch = "8.4.1"
-
-[lib]
-name = "pipe"
-path = "src/lib.rs"
-test = false
-doctest = false
 
 [lints.rust]
 unsafe_code = "forbid"

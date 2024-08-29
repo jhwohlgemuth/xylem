@@ -3,6 +3,7 @@ pub mod checks;
 use color_eyre::eyre::{Report, Result};
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
+use pipe_lib::{is_stdin_piped, Config, Label, Parameters, Reporter, ReporterType, StdinIsPipedResult};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::env;
@@ -11,7 +12,6 @@ use std::path::PathBuf;
 use tracing::{error, info, warn};
 
 use crate::reporters;
-use crate::util::{is_stdin_piped, Config, Label, Parameters, Reporter, ReporterType, StdinIsPipedResult};
 use checks::*;
 
 const DEFAULT_CONFIG_NAME: &str = "config.json";

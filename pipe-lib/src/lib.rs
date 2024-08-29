@@ -316,6 +316,10 @@ pub struct SemanticVersion {
 ///
 /// Example:
 /// ```
+/// use pipe_lib::{Command, Script};
+///
+/// let command = Command::init().name("echo".to_string()).build();
+/// let arguments = vec!["hello".to_string()];
 /// let script = Script::init().command(command).arguments(arguments).build();
 /// ```
 #[derive(Clone, Debug, Display)]
@@ -350,7 +354,7 @@ impl Command {
     ///
     /// # Examples
     /// ```
-    /// use pipe::util::Command;
+    /// use pipe_lib::Command;
     ///
     /// let command = Command::init().name("ls".to_string()).build();
     /// assert!(command.test());
@@ -666,6 +670,8 @@ impl Script {
     ///
     /// Example:
     /// ```
+    /// use pipe_lib::{to_string, Command, Script};
+    ///
     /// // Environment: ANSWER=42
     /// let command = Command::init().name("echo").build();
     /// let arguments = to_string(vec!["{{ ANSWER }}"]);
@@ -695,7 +701,12 @@ impl Script {
     ///
     /// Example:
     /// ```
+    /// use pipe_lib::{Command, Script};
+    /// use std::collections::HashMap;
+    ///
     /// let envs = HashMap::from([("ANSWER".to_string(), "42".to_string())]);
+    /// let command = Command::init().name("echo".to_string()).build();
+    /// let arguments = vec!["hello".to_string()];
     /// let script: Script = Script::init()
     ///     .command(command)
     ///     .arguments(arguments)
@@ -727,13 +738,12 @@ impl Script {
     ///
     /// You can easily import the script with
     /// ```
-    /// let template = Script::from_path("./tests/fixtures/template.json");
-    /// let script = Script::from_template(template);
-    /// ```
+    /// use pipe_lib::Script;
+    /// use std::path::PathBuf;
     ///
-    /// and execute `python -m lib --input $INPUT_DIRECTORY --output $OUTPUT_DIRECTORY` with
-    /// ```
-    /// let output = script.run();
+    /// let path = PathBuf::from("../tests/fixtures/template.json");
+    /// let script = Script::from_path(path);
+    /// let _ = script.run();
     /// ```
     pub fn from_template(template: ScriptTemplate) -> Script {
         let arguments = match template.arguments {
@@ -756,12 +766,11 @@ impl Script {
     ///
     /// You can easily import the script with
     /// ```
-    /// let path = PathBuf::from("./tests/fixtures/template.json");
-    /// let script = Script::from_path(path);
-    /// ```
+    /// use pipe_lib::Script;
+    /// use std::path::PathBuf;
     ///
-    /// and execute `python -m lib --input $INPUT_DIRECTORY --output $OUTPUT_DIRECTORY` with
-    /// ```
+    /// let path = PathBuf::from("../tests/fixtures/template.json");
+    /// let script = Script::from_path(path);
     /// let output = script.run();
     /// ```
     pub fn from_path(path: PathBuf) -> Script {
@@ -846,7 +855,7 @@ impl Script {
         Script::init().command(command).arguments(arguments).build()
     }
     /// Execute script in child process and wait for it to finish, print to stdout and ignore output
-    /// TODO: This function should return Option<Vec<String>>
+    /// TODO: This function should return `Option<Vec<String>>`
     pub fn run(&self) -> Vec<String> {
         let command = &self.get_command();
         let arguments = self.get_arguments();
@@ -930,6 +939,8 @@ impl Script {
     ///
     /// For a given script,
     /// ```
+    /// use pipe_lib::{to_string, Command, Script};
+    ///
     /// let command = Command::init().name("python".to_string()).build();
     /// let arguments = to_string(vec!["-m", "lib"]);
     /// let script = Script::init().command(command).arguments(arguments).build();
@@ -937,12 +948,22 @@ impl Script {
     ///
     /// Run with no virtual environment
     /// ```
-    /// script.with_environment(None).run()
+    /// use pipe_lib::{to_string, Command, Script};
+    ///
+    /// let command = Command::init().name("python".to_string()).build();
+    /// let arguments = to_string(vec!["-m", "lib"]);
+    /// let script = Script::init().command(command).arguments(arguments).build();
+    /// let output = script.with_environment(None).run();
     /// ```
     ///
     /// Run using "module-a" Conda virtual environment (basically executes script with `conda run -n <name>`)
     /// ```
-    /// script.with_environment(Some("module-a".to_string())).run()
+    /// use pipe_lib::{to_string, Command, Script};
+    ///
+    /// let command = Command::init().name("python".to_string()).build();
+    /// let arguments = to_string(vec!["-m", "lib"]);
+    /// let script = Script::init().command(command).arguments(arguments).build();
+    /// let output = script.with_environment(Some("module-a".to_string())).run();
     /// ```
     pub fn with_environment(mut self, environment: Option<String>) -> Self {
         self.command.virtual_environment.clone_from(&environment);
@@ -995,14 +1016,14 @@ impl StringTemplate {
     ///
     /// # Examples
     /// ```
-    /// use pipe::util::is_handlebars_template;
+    /// use pipe_lib::StringTemplate;
     ///
     /// // OK
-    /// assert!(is_handlebars("{{INPUT_DIRECTORY}}"));
-    /// assert!(is_handlebars("{{ OUTPUT_DIRECTORY }}"));
+    /// let template = StringTemplate::new("{{ INPUT_DIRECTORY }}");
+    /// assert!(template.is_handlebars());
     /// // NG
-    /// assert!(!is_handlebars("{{ MustBeUpperSnakeCase }}"));
-    /// assert!(!is_handlebars("hello world"));
+    /// let template = StringTemplate::new("{{ MustBeUpperSnakeCase }}");
+    /// assert!(!template.is_handlebars());
     /// ```
     pub fn is_handlebars(self) -> bool {
         match Regex::new(StringTemplate::RE_HANDLEBARS) {
@@ -1022,11 +1043,22 @@ impl StringTemplate {
     ///
     /// # Examples
     /// ```
-    /// use pipe::util::remove_handlebars_spaces;
+    /// use pipe_lib::StringTemplate;
     ///
-    /// remove_spaces("{{ variable }}".to_owned());   // "{{variable}}"
-    /// remove_spaces("{{ variable   }}".to_owned()); // "{{variable}}"
-    /// remove_spaces("{{variable}}".to_owned());     // "{{variable}}"
+    /// let expected = "{{VARIABLE}}";
+    ///
+    /// let template = StringTemplate::new("{{ VARIABLE }}");
+    /// assert_eq!(template.remove_spaces().value, expected);
+    ///
+    /// let template = StringTemplate::new("{{ VARIABLE   }}");
+    /// assert_eq!(template.remove_spaces().value, expected);
+    ///
+    /// let template = StringTemplate::new("{{VARIABLE}}");
+    /// assert_eq!(template.remove_spaces().value, expected);
+    ///
+    /// // Must be UPPER_SNAKE_CASE
+    /// let template = StringTemplate::new("{{ variable }}");
+    /// assert_eq!(template.remove_spaces().value, "{{ variable }}");
     /// ```
     pub fn remove_spaces(mut self) -> Self {
         let updated = match Regex::new(StringTemplate::RE_SPACES) {
@@ -1083,8 +1115,10 @@ pub fn get_conda_environment_list() -> Vec<String> {
 ///
 /// Get the environment name
 /// ```
-/// get_conda_environment_name(PathBuf::from("/path/to/environment.yml"))
-/// // Some("module-a")
+/// use std::path::PathBuf;
+/// use pipe_lib::get_conda_environment_name;
+///
+/// get_conda_environment_name(PathBuf::from("/path/to/environment.yml"));
 /// ```
 pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
     match read_file(path) {
@@ -1111,7 +1145,7 @@ pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
 /// # Examples
 /// ```
 /// use std::path::Path;
-/// use pipe::util::get_extension;
+/// use pipe_lib::get_extension;
 ///
 /// assert_eq!("txt", get_extension(Path::new("hello.txt")));
 /// assert_eq!("md", get_extension(Path::new("README.md")));
@@ -1130,7 +1164,7 @@ pub fn get_parent(path: PathBuf) -> PathBuf {
 /// # Examples
 /// ```
 /// use std::path::Path;
-/// use pipe::util::has_extension;
+/// use pipe_lib::has_extension;
 ///
 /// assert!(has_extension("txt", Path::new("hello.txt")));
 /// assert!(!has_extension("txt", Path::new("hello.md")));
@@ -1138,13 +1172,7 @@ pub fn get_parent(path: PathBuf) -> PathBuf {
 pub fn has_extension(extension: &str, path: &Path) -> bool {
     extension == get_extension(path)
 }
-/// Check if stdin is piped
-///
-/// # Examples
-/// ```
-/// // Using pipe command line tool
-/// echo "hello world" | pipe
-/// ```
+/// Check if stdin is piped (e.g., `echo "hello world" | pipe`)
 pub fn is_stdin_piped() -> StdinIsPipedResult {
     if !io::stdin().is_terminal() {
         StdinIsPipedResult::StdinIsPiped
@@ -1152,13 +1180,7 @@ pub fn is_stdin_piped() -> StdinIsPipedResult {
         StdinIsPipedResult::StdinIsNotPiped
     }
 }
-/// Check if stdout is piped
-///
-/// # Examples
-/// ```
-/// // Using pipe command line tool
-/// pipe | process
-/// ```
+/// Check if stdout is piped (e.g., `pipe | process`)
 pub fn is_stdout_piped() -> StdoutIsPipedResult {
     if !io::stdout().is_terminal() {
         StdoutIsPipedResult::StdoutIsPiped
@@ -1173,7 +1195,7 @@ pub fn is_stdout_piped() -> StdoutIsPipedResult {
 /// # Examples
 /// ```
 /// use std::path::PathBuf;
-/// use pipe::util::read_file;
+/// use pipe_lib::read_file;
 ///
 /// let path = PathBuf::from("./tests/fixtures/template.json");
 /// let content = read_file(path).unwrap();

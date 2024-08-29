@@ -1,7 +1,7 @@
 .PHONY: doc lint test
 
 clean:
-	@rm -fr ./bin
+	@rm -rf ./bin
 	@cargo clean
 
 lint:
@@ -22,10 +22,11 @@ doc:
 	@cargo doc --no-deps --all-features --document-private-items
 
 build: clean
+	@mkdir -p ./bin
 	@for target in $(TARGETS) ; do \
 		export DISPLAY=:0; \
         cross build --release --target $$target; \
-		mv target/$${target}/release/pipe ./bin/pipe_$${target}; \
+		mv target/$${target}/release/pipe-cli ./bin/pipe_cli_$${target}; \
     done
 
 release: clean
