@@ -358,8 +358,12 @@ impl Command {
     ///
     /// let command = Command::init().name("ls".to_string()).build();
     /// assert!(command.test());
+    /// ```
     ///
-    /// // Using conda virtual environment
+    /// Using Conda virtual environment
+    /// ```
+    /// use pipe_lib::Command;
+    ///
     /// let command = Command::init().name("pip".to_string()).virtual_environment("base".to_string()).build();
     /// assert!(command.test());
     /// ```
