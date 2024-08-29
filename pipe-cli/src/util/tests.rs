@@ -2,6 +2,8 @@ use crate::util::*;
 use std::env::set_var;
 use std::path::{Path, PathBuf};
 
+const FIXTURES: &str = "../tests/fixtures";
+
 #[test]
 fn test_add_forward_slash() {
     assert_eq!(add_forward_slash(PathBuf::from("foo")), PathBuf::from("foo/"));
@@ -36,11 +38,13 @@ fn test_command() {
 
 #[test]
 fn test_config_read() {
+    let path = format!("{}/config.json", FIXTURES);
     // Load variables into configuration (JSON or YAML)
-    let config = Config::read(PathBuf::from("tests/fixtures/config.json"));
+    let config = Config::read(PathBuf::from(path));
     assert_eq!(config.clone().unwrap().variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.unwrap().modules.len(), 3);
-    let config = Config::read(PathBuf::from("tests/fixtures/config.yaml"));
+    let path = format!("{}/config.yaml", FIXTURES);
+    let config = Config::read(PathBuf::from(path));
     assert_eq!(config.clone().unwrap().variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.unwrap().modules.len(), 3);
 }
@@ -48,7 +52,7 @@ fn test_config_read() {
 #[test]
 fn test_config_read_json() {
     // Load variables into configuration from JSON file
-    let path = "tests/fixtures/config.json";
+    let path = format!("{}/config.json", FIXTURES);
     let config = Config::read_json(PathBuf::from(path)).expect("=> [ERROR] Cannot import config in tests");
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.modules.len(), 3);
@@ -57,7 +61,7 @@ fn test_config_read_json() {
 #[test]
 fn test_config_read_yaml() {
     // Load variables into configuration from YAML file
-    let path = "tests/fixtures/config.yaml";
+    let path = format!("{}/config.yaml", FIXTURES);
     let config = Config::read_yaml(PathBuf::from(path)).expect("=> [ERROR] Cannot import config in tests");
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.modules.len(), 3);
@@ -113,7 +117,8 @@ fn test_get_conda_environment_list() {
 
 #[test]
 fn test_get_conda_environment_name() {
-    let manifest_path = PathBuf::from("tests/fixtures/environment.yml");
+    let path = format!("{}/environment.yml", FIXTURES);
+    let manifest_path = PathBuf::from(path);
     assert_eq!(
         get_conda_environment_name(manifest_path),
         Some("some-really-interesting-name".to_string())
@@ -318,12 +323,12 @@ fn test_script_expand_arguments_from() {
 fn test_script_from_template() {
     let expected_value: Vec<String> = to_string(vec!["-m", "lib", "--input", "{{INPUT_DIRECTORY}}", "--output", "{{OUTPUT_DIRECTORY}}"]);
     // "shell" format arguments
-    let path = PathBuf::from("tests/fixtures/template.json");
+    let path = PathBuf::from(format!("{}/template.json", FIXTURES));
     let script = Script::from_path(path);
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
     // "exec" format arguments
-    let path = PathBuf::from("tests/fixtures/template_exec.json");
+    let path = PathBuf::from(format!("{}/template_exec.json", FIXTURES));
     let script = Script::from_path(path);
     assert_eq!(
         format!("{}", script.to_string()),
@@ -356,7 +361,7 @@ fn test_script_run() {
         let script = Script::init().command(command).build();
         let output = script.with_current_dir("/root".to_string()).run();
         assert_eq!(&output, &vec!["/root".to_string()]);
-        let path = PathBuf::from("tests/fixtures/template_run.json");
+        let path = PathBuf::from(format!("{}/template_run.json", FIXTURES));
         let script = Script::from_path(path);
         assert_eq!(script.run(), vec!["hello world".to_string()]);
     }

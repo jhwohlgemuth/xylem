@@ -5,8 +5,9 @@ clean:
 	@cargo clean
 
 lint:
-	@cargo fmt
-	@cargo clippy
+	@cargo fmt --verbose
+	# @cargo clippy --no-deps --all-targets --fix
+	@cargo clippy --no-deps
 
 test: lint
 	@cargo test
