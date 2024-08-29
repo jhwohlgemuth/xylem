@@ -198,6 +198,7 @@ pub struct Command {
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
+    /// Unique workflow identifier
     pub id: Option<String>,
     /// Configuration version in semver format
     version: String,
@@ -209,12 +210,27 @@ pub struct Config {
     pub resources: Option<Vec<String>>,
     /// Keywords or tags used to describe this module
     keywords: Option<Vec<String>>,
+    /// List of structs that contain details about the associated module
     pub modules: Vec<Module>,
     /// Environment variables set at the workflow level and available to all modules
     ///
     /// Note: Modules can override these variables
     pub variables: Option<Map<String, Value>>,
+    /// Workflow checks configuration
     pub check: Option<Check>,
+    /// Workflow input
+    ///
+    /// Can be:
+    /// - a path to a file
+    /// - a path to a folder that contains files
+    /// - script that returns lists of file paths (executed in the current working directory)
+    ///
+    /// If input is not provided, the workflow will run similar to a 0-adic function.
+    pub input: Option<String>,
+    /// Workflow output
+    ///
+    /// Designates a path to the workflow output artifacts for verification and export purposes
+    pub output: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Eq, Serialize, PartialOrd, Ord)]
 pub struct Details {
