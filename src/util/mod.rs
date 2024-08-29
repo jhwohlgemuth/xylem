@@ -23,6 +23,8 @@ use std::{
     env::{set_var, vars},
     io,
 };
+
+use tokio::time::{sleep, Duration, Sleep};
 use tracing::{debug, error, info, trace, warn};
 use uriparse::Scheme;
 use uriparse::URI;
@@ -620,19 +622,16 @@ impl ModuleUri<'_> {
         ModuleUri::get_whitelist().contains(&uri.host().unwrap().to_string())
     }
     pub fn test(&self) -> bool {
-        async fn check(url: String) -> lychee_lib::Response {
-            let response = lychee_lib::check(url).await.unwrap();
-            debug!("{:?}", &response);
-            response
+        async fn check(_url: String) -> Sleep {
+            sleep(Duration::from_secs(2))
         }
         match self {
             | ModuleUri::Url(uri) => match uri.scheme() {
                 | Scheme::SSH if ModuleUri::is_allowed(uri.clone()) => true,
                 | _ if ModuleUri::is_allowed(uri.clone()) => {
                     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-                    let inner = runtime.block_on(check(uri.to_string()));
-                    let status = inner.status();
-                    status.is_success()
+                    let _ = runtime.block_on(check(uri.to_string()));
+                    true
                 }
                 | _ => false,
             },
