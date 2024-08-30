@@ -1,0 +1,13 @@
+[package]
+name = "pipe-py"
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+edition = "2021"
+
+[lib]
+name = "pipe"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22.2", features = ["extension-module"] }
