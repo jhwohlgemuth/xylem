@@ -392,14 +392,14 @@ impl Config {
                 | Ok(value) => Some(value),
                 | Err(_) => {
                     error!(path = path.to_str().unwrap(), "=> {} Cannot import configuration", Label::not_found());
-                    std::process::exit(1);
+                    std::process::exit(exitcode::UNAVAILABLE);
                 }
             },
             | Extension::Yaml => match Config::read_yaml(path.clone()) {
                 | Ok(value) => Some(value),
                 | Err(_) => {
                     error!(path = path.to_str().unwrap(), "=> {} Cannot import configuration", Label::not_found());
-                    std::process::exit(1);
+                    std::process::exit(exitcode::UNAVAILABLE);
                 }
             },
             | Extension::Unknown => unimplemented!("Unknown configuration file extension"),

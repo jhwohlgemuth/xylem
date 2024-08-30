@@ -9,21 +9,21 @@ edition = "2021"
 [dependencies]
 pipe-lib = { path = "../pipe-lib" }
 clap = { version = "4.4.2", features = ["derive"] }
-clap-verbosity-flag = "2.2.0"
-color-eyre = "0.6.3"
 console = { version = "0.15.7", default-features = false, features = ["ansi-parsing"] }
-dotenvy = "0.15.0"
-exitcode = "1.1.2"
 glob = "0.3.1"
 indicatif = "0.17.6"
 nanoid = "0.4.0"
-rayon = "1.7.0"
-serde = { version = "1.0.188", features = ["derive"] }
-serde_json = "1.0.107"
-tracing = { version = "0.1.40" }
-tracing-log = "0.2.0"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"]}
-uriparse = "0.6.4"
+clap-verbosity-flag = { workspace = true }
+color-eyre = { workspace = true }
+dotenvy = { workspace = true }
+exitcode = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-log = { workspace = true }
+tracing-subscriber = { workspace = true }
+uriparse = { workspace = true }
 
 [dev-dependencies]
 cargo-watch = "8.4.1"

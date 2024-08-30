@@ -1,5 +1,6 @@
 use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
+use exitcode;
 use nanoid::nanoid;
 use pipe_lib::{
     get_conda_environment_name, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script, TemplateAttribute,
