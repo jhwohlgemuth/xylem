@@ -19,7 +19,7 @@ test-cross: clean
 
 doc:
 	@cargo clean --doc
-	@cargo doc --no-deps --all-features --document-private-items
+	@cargo doc --no-deps --all-features
 
 build: clean
 	@mkdir -p ./bin
