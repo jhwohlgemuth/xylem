@@ -182,7 +182,7 @@ pub struct Check {
     pub parent: Option<String>,
 }
 #[derive(Clone, Debug, Display)]
-#[display(fmt = "{}", name)]
+#[display("{}", name)]
 #[builder(start_fn(name = init))]
 pub struct Command {
     /// Prefix string to modify command string
@@ -246,7 +246,7 @@ pub struct Details {
 /// Struct for using and sharing colorized logging labels
 pub struct Label {}
 #[derive(Clone, Debug, Deserialize, Display, Serialize)]
-#[display(fmt = "{name}")]
+#[display("{name}")]
 pub struct Module {
     pub name: String,
     #[serde(flatten)]
@@ -295,7 +295,7 @@ pub struct Rule {
 ///
 /// see <https://semver.org/>
 #[derive(Clone, Debug, Deserialize, Display, Serialize)]
-#[display(fmt = "{}.{}.{}", major, minor, patch)]
+#[display("{}.{}.{}", major, minor, patch)]
 #[builder(start_fn(name = init))]
 pub struct SemanticVersion {
     /// Version when you make incompatible API changes
@@ -323,7 +323,7 @@ pub struct SemanticVersion {
 /// let script = Script::init().command(command).arguments(arguments).build();
 /// ```
 #[derive(Clone, Debug, Display)]
-#[display(fmt = "{} {}", "self.get_command()", "self.get_arguments().join(\" \")")]
+#[display("{} {}", self.get_command(), self.get_arguments().join(" "))]
 #[builder(start_fn(name = init))]
 pub struct Script {
     #[builder(default = Command::init().build())]

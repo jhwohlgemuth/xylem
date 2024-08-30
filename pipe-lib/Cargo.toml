@@ -11,7 +11,7 @@ clap = { version = "4.4.2", features = ["derive"] }
 clap-verbosity-flag = "2.2.0"
 color-eyre = "0.6.3"
 console = { version = "0.15.7", default-features = false, features = ["ansi-parsing"] }
-derive_more = { version = "0.99.18" }
+derive_more = { version = "1.0.0", features = ["display"] }
 dotenvy = "0.15.0"
 env_logger = "0.11.3"
 exitcode = "1.1.2"
