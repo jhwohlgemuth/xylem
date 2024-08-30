@@ -1992,7 +1992,9 @@ dependencies = [
 name = "pipe-py"
 version = "0.0.1"
 dependencies = [
+ "pipe-lib",
  "pyo3",
+ "rand",
 ]
 
 [[package]]

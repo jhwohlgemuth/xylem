@@ -10,4 +10,6 @@ name = "pipe"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.22.2", features = ["extension-module"] }
+pipe-lib = { path = "../pipe-lib" }
+pyo3 = { version = "0.22.2", features = ["abi3-py310", "extension-module"] }
+rand = "0.8.5"
