@@ -1,5 +1,5 @@
 [workspace]
-members = ["pipe-cli", "pipe-lib", "pipe-py"]
+members = ["pipe-cli", "pipe-lib"]
 resolver = "2"
 
 [workspace.package]
