@@ -669,7 +669,7 @@ impl Script {
     /// use pipe_lib::{to_string, Command, Script};
     ///
     /// // Environment: ANSWER=42
-    /// let command = Command::init().name("echo").build();
+    /// let command = Command::init().name("echo".to_string()).build();
     /// let arguments = to_string(vec!["{{ ANSWER }}"]);
     /// let script = Script::init().command(command).arguments(arguments).build().expand_arguments();
     /// // "echo 42"
