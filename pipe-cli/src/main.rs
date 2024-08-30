@@ -1,5 +1,5 @@
 use clap::Parser;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use pipe_lib::Void;
 use tracing::instrument;
 use tracing_log::AsTrace;
@@ -26,7 +26,7 @@ fn main() -> Void {
     color_eyre::install()?;
     let args = Arguments::parse();
     match dotenv() {
-        | Ok(_) if !dotenv::var(LOG_LEVEL).unwrap_or_default().is_empty() => {
+        | Ok(_) if !dotenvy::var(LOG_LEVEL).unwrap_or_default().is_empty() => {
             // Configure tracing with a .env file
             let format = fmt::layer()
                 .with_level(DISPLAY_LEVEL)
