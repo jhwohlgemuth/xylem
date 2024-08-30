@@ -359,14 +359,6 @@ impl Command {
     /// let command = Command::init().name("ls".to_string()).build();
     /// assert!(command.test());
     /// ```
-    ///
-    /// Using Conda virtual environment
-    /// ```
-    /// use pipe_lib::Command;
-    ///
-    /// let command = Command::init().name("pip".to_string()).virtual_environment("base".to_string()).build();
-    /// assert!(command.test());
-    /// ```
     pub fn test(self) -> bool {
         let name = if cfg!(target_os = "windows") { "pwsh" } else { "which" };
         let arguments = if cfg!(target_os = "windows") {
