@@ -23,6 +23,7 @@
 - [X] Load configuration ([JSON](https://www.json.org/json-en.html))
 - [X] Load configuration ([YAML](https://yaml.org/))
 - [ ] Export configuration to [CWL](https://www.commonwl.org/)
+- [ ] Export configuration to [RO-Crate](https://www.researchobject.org/ro-crate/)
 - [X] Type-safe programmatic API for using configuration data
 - [X] Load environment variables from `.env` file
 - [X] Robust and configurable logging using [tracing crate](https://docs.rs/tracing/latest/tracing/)
@@ -42,18 +43,22 @@
   - [X] Auto-create (Conda/[Mamba](https://mamba.readthedocs.io/en/latest/index.html)) virtual environments
   - [X] Parallelize module preparation
 - [ ] Enhanced URL security
+  - [ ] Provide `--offline` flag to disable reachability check
   - [ ] Filter remote module URLs against white list
   - [ ] Check remote URLs are valid and reachable
-  - [ ] Provide `--offline` flag to disable reachability check
 - [ ] Multi-platform release binaries published to GitLab repository
   - [X] Linux ([tier 1](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Tiers-of-Support))
   - [ ] Mac ([tier 2](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Tiers-of-Support))
   - [ ] Windows ([tier 2](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Tiers-of-Support))
   - [ ] Web Browser (WebAssembly)
 - [ ] MVP<sup>[1](#1)</sup> (+binary module support)
+    - [ ] Verify binary with checksum hash (provide `--skip-verify-checksum` flag)
     - [ ] Support local binary module
     - [ ] Support remote binary module
-    - [ ] Verify binary with checksum hash (provide `--skip-verify-checksum` flag)
+- [ ] Abstract "virtual environment" support (to include more than just `Conda`)
+    - [ ] Add Docker (and Podman) environment
+    - [ ] Add Apptainer environment
+    - [ ] Add Pixi environment
 - [ ] `--skip-verify-requirements` flag for running workflow without verifying environment
 - [ ] "Check" subcommand
     - [X] Create standardized function signature for check modules
