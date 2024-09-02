@@ -18,6 +18,9 @@ pub fn run(
     _reporter: &Option<Vec<String>>,
     _output: &Option<PathBuf>,
     dry_run: bool,
+    _offline: bool,
+    _skip_verify_checksum: bool,
+    _skip_verify_reqruirements: bool,
     verbose: Verbosity,
 ) -> Result<(), Report> {
     let id = nanoid!(10, &nanoid::alphabet::SAFE);

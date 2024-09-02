@@ -203,15 +203,15 @@ pub struct Config {
     /// Unique workflow identifier
     pub id: Option<String>,
     /// Configuration version in semver format
-    version: String,
+    pub version: String,
     #[serde(alias = "doc")]
-    description: String,
+    pub description: String,
     /// Software requirements for workflow (e.g. python, conda, etc.)
     pub requirements: Vec<String>,
     /// Hardward resources required for workflow (e.g. CPUs, GPUs, etc.)
     pub resources: Option<Vec<String>>,
     /// Keywords or tags used to describe this module
-    keywords: Option<Vec<String>>,
+    pub keywords: Option<Vec<String>>,
     /// List of structs that contain details about the associated module
     pub modules: Vec<Module>,
     /// Environment variables set at the workflow level and available to all modules
@@ -232,6 +232,7 @@ pub struct Config {
     /// Workflow output
     ///
     /// Designates a path to the workflow output artifacts for verification and export purposes
+    #[serde(alias = "artifacts")]
     pub output: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Eq, Serialize, PartialOrd, Ord)]

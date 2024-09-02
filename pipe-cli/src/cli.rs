@@ -95,6 +95,15 @@ pub enum Commands {
         /// Execute workflow dry run (do not actually make changes to environment)
         #[arg(short = 'd', long = "dry-run", value_name = "BOOL")]
         dry_run: bool,
+        /// Execute workflow without connection to the internet
+        #[arg(long = "offline", value_name = "BOOL")]
+        offline: bool,
+        /// Skip calculating and verifying checksum for downloaded binary files
+        #[arg(long = "skip-verify-checksum", value_name = "BOOL")]
+        skip_verify_checksum: bool,
+        /// Skip enforcing workflow configured requirements (mostly for troubleshooting)
+        #[arg(long = "skip-verify-requirements", value_name = "BOOL")]
+        skip_verify_requirements: bool,
         #[command(flatten)]
         verbose: Verbosity,
     },

@@ -71,9 +71,21 @@ fn main() -> Void {
             reporter,
             output,
             dry_run,
+            offline,
+            skip_verify_checksum,
+            skip_verify_requirements,
             verbose,
             ..
-        }) => commands::run::run(config, reporter, output, *dry_run, verbose.clone()),
+        }) => commands::run::run(
+            config,
+            reporter,
+            output,
+            *dry_run,
+            *offline,
+            *skip_verify_checksum,
+            *skip_verify_requirements,
+            verbose.clone(),
+        ),
         | None => Ok(()),
     }
 }
