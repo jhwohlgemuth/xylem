@@ -45,8 +45,7 @@ test:
     default: true
     variables: true
   script:
-    - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-    - cargo binstall cargo-tarpaulin --no-discover-github-token --no-confirm
+    - cargo install cargo-tarpaulin
     - cargo test
 
 build-release:
