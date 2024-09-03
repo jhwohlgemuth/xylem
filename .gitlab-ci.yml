@@ -46,7 +46,7 @@ test:
     variables: true
   script:
     - cargo install cargo-tarpaulin
-    - cargo test
+    - make test
 
 build-release:
   stage: build
@@ -68,6 +68,8 @@ publish-docs:
   inherit:
     default: false
     variables: false
+  needs:
+    - job: test
   script:
     - make doc
     - git clone https://user:${ACCESS_TOKEN}@code-int.ornl.gov/sites/pipe.git site
