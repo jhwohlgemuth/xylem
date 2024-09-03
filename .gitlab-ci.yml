@@ -6,6 +6,8 @@ default:
     - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
     - rustup component add rustfmt
     - rustup component add clippy
+    - rustup target add x86_64-unknown-linux-gnu
+    - rustup target add x86_64-unknown-linux-musl
     - cargo binstall cargo-tarpaulin --no-discover-github-token --no-confirm
 
 variables:
@@ -13,18 +15,43 @@ variables:
   EMAIL: wohlgemuthjh@ornl.gov
 
 stages:
+  - prepare
   - test
+  - build
   - publish
+  - release
+
+prepare-environment:
+  stage: prepare
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - echo "======== PREPARE JOB ========"
+    - echo "PKG_VERSION=$(awk -F ' = ' '$1 ~ /version/ { gsub(/["]/, "", $2); printf("%s",$2) }' Cargo.toml)" >> variables.env
+    - echo "PKG_REGISTRY_URL=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic" >> variables.env
+    - echo $PKG_VERSION
+  artifacts:
+    reports:
+      dotenv: variables.env
 
 test:
   stage: test
   script: cargo test
 
-publish:
+build-release:
+  stage: build
+  needs:
+    - job: test
+  script:
+    - make build
+  artifacts:
+    paths:
+      - bin/
+
+publish-docs:
   stage: publish
-  inherit:
-    default: true
-    variables: true
   script:
     - make doc
     - git clone https://user:${ACCESS_TOKEN}@code-int.ornl.gov/sites/pipe.git site
@@ -37,3 +64,43 @@ publish:
     - git add html
     - git commit -m "Publish changes"
     - git push
+
+publish-release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - job: prepare-environment
+      artifacts: true
+    - job: build-release
+  script:
+    - echo "======== RELEASE JOB ========"
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  release: 
+    tag_name: "v$PKG_VERSION" 
+    description: "PIPE CLI v$PKG_VERSION"
+    ref: "$CI_COMMIT_SHA"
+    assets:
+      links:
+        - name: "v$PKG_VERSION"
+          url: "${PKG_REGISTRY_URL}/x86_64-unknown-linux-gnu/v${PKG_VERSION}/pipe"
+
+upload-job:
+  stage: release
+  image: curlimages/curl:latest
+  needs:
+    - job: prepare-environment
+      artifacts: true
+    - job: build-release
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - echo "======== UPLOAD JOB ========"
+    - ls -la bin/
+    - 'curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file bin/pipe-v${PKG_VERSION} ${PKG_REGISTRY_URL}/x86_64-unknown-linux-gnu/v${PKG_VERSION}/pipe'
+

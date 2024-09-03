@@ -23,18 +23,27 @@ doc:
 
 build: clean
 	@mkdir -p ./bin
+	@cargo build --release --target $(DEFAULT_TARGET)
+	@mv target/$(DEFAULT_TARGET)/release/pipe-cli ./bin/pipe-v$(VERSION)
+
+build-cross: clean
+	@mkdir -p ./bin
 	@for target in $(TARGETS) ; do \
 		export DISPLAY=:0; \
         cross build --release --target $$target; \
-		mv target/$${target}/release/pipe-cli ./bin/pipe_cli_$${target}; \
+		mv target/$${target}/release/pipe-cli ./bin/pipe_v$(VERSION)_$${target}; \
     done
 
 release: clean
 	@echo "Under Construction"
 
+version: 
+	@echo $(DEFAULT_TARGET)
 #
 # Variables
 #
+VERSION = `awk -F ' = ' '$$1 ~ /version/ { gsub(/["]/, "", $$2); printf("%s",$$2) }' Cargo.toml`
+DEFAULT_TARGET = `awk -F ' = ' '$$1 ~ /default-target/ { gsub(/["]/, "", $$2); printf("%s",$$2) }' Cross.toml | tr . _`
 TARGETS = \
 	i586-unknown-linux-musl \
 	i686-unknown-linux-gnu \
