@@ -44,9 +44,7 @@ test:
   inherit:
     default: true
     variables: true
-  script:
-    - cargo install cargo-tarpaulin
-    - make test
+  script: cargo test
 
 build-release:
   stage: build
