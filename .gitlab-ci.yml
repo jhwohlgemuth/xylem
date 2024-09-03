@@ -3,12 +3,10 @@ default:
     - cpu
   image: rust
   before_script:
-    - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
     - rustup component add rustfmt
     - rustup component add clippy
     - rustup target add x86_64-unknown-linux-gnu
     - rustup target add x86_64-unknown-linux-musl
-    - cargo binstall cargo-tarpaulin --no-discover-github-token --no-confirm
 
 variables:
   USER: CI
@@ -23,6 +21,10 @@ stages:
 
 prepare-environment:
   stage: prepare
+  image: ubuntu
+  inherit:
+    default: false
+    variables: false
   rules:
     - if: $CI_COMMIT_TAG
       when: never
@@ -38,10 +40,21 @@ prepare-environment:
 
 test:
   stage: test
-  script: cargo test
+  image: rust
+  inherit:
+    default: true
+    variables: true
+  script:
+    - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+    - cargo binstall cargo-tarpaulin --no-discover-github-token --no-confirm
+    - cargo test
 
 build-release:
   stage: build
+  image: rust
+  inherit:
+    default: true
+    variables: true
   needs:
     - job: test
   script:
@@ -52,6 +65,10 @@ build-release:
 
 publish-docs:
   stage: publish
+  image: rust
+  inherit:
+    default: false
+    variables: false
   script:
     - make doc
     - git clone https://user:${ACCESS_TOKEN}@code-int.ornl.gov/sites/pipe.git site
@@ -68,6 +85,9 @@ publish-docs:
 publish-release:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
+  inherit:
+    default: false
+    variables: false
   needs:
     - job: prepare-environment
       artifacts: true
@@ -87,9 +107,12 @@ publish-release:
         - name: "v$PKG_VERSION"
           url: "${PKG_REGISTRY_URL}/x86_64-unknown-linux-gnu/v${PKG_VERSION}/pipe"
 
-upload-job:
+upload-binaries:
   stage: release
   image: curlimages/curl:latest
+  inherit:
+    default: false
+    variables: false
   needs:
     - job: prepare-environment
       artifacts: true
