@@ -65,11 +65,13 @@ publish-docs:
   image: rust
   inherit:
     default: false
-    variables: false
+    variables: true
   needs:
     - job: test
   script:
     - make doc
+    - git config --global user.name "${USER}"
+    - git config --global user.email "${EMAIL}"
     - git clone https://user:${ACCESS_TOKEN}@code-int.ornl.gov/sites/pipe.git site
     - ls
     - ls site
