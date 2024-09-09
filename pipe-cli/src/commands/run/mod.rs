@@ -20,7 +20,7 @@ pub fn run(
     dry_run: bool,
     offline: bool,
     _skip_verify_checksum: bool,
-    _skip_verify_reqruirements: bool,
+    skip_verify_requirements: bool,
     verbose: Verbosity,
 ) -> Result<(), Report> {
     let id = nanoid!(10, &nanoid::alphabet::SAFE);
@@ -47,13 +47,17 @@ pub fn run(
     match Config::read(config_path) {
         | Some(cfg) => {
             // Check requirements
-            cfg.requirements.iter().for_each(|name| {
-                let command = Command::init().name(name.clone()).build();
-                if !command.test() {
-                    error!(name, "=> {} Requirement not met", Label::not_found());
-                    std::process::exit(exitcode::UNAVAILABLE);
-                }
-            });
+            if !skip_verify_requirements {
+                cfg.requirements.iter().for_each(|name| {
+                    let command = Command::init().name(name.clone()).build();
+                    if !command.test() {
+                        error!(name, "=> {} Requirement not met", Label::not_found());
+                        std::process::exit(exitcode::UNAVAILABLE);
+                    }
+                });
+            } else {
+                debug!("Skipping requirements verification");
+            }
             // Prepare modules
             cfg.modules.par_iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { uri } => match ModuleUri::from(uri) {
