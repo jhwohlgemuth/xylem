@@ -18,7 +18,7 @@ pub fn run(
     _reporter: &Option<Vec<String>>,
     _output: &Option<PathBuf>,
     dry_run: bool,
-    _offline: bool,
+    offline: bool,
     _skip_verify_checksum: bool,
     _skip_verify_reqruirements: bool,
     verbose: Verbosity,
@@ -57,7 +57,7 @@ pub fn run(
             // Prepare modules
             cfg.modules.par_iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { uri } => match ModuleUri::from(uri) {
-                    | ModuleUri::Url(value) => match value.scheme() {
+                    | ModuleUri::Url(value) if !offline => match value.scheme() {
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                             let url = value.to_string();
                             debug!(module = module.name, url, "=> {} Remote binary", Label::found());
@@ -65,9 +65,9 @@ pub fn run(
                             // TODO: Check that URL exists
                             // TODO: Download binary to temp directory
                             // TODO: Verify binary checksum
-                            unimplemented!()
+                            unimplemented!("Remote binary modules are not supported yet");
                         }
-                        | _ => unimplemented!(),
+                        | _ => unimplemented!("Only HTTP, HTTPS, and SSH are currently supported for remote binary modules"),
                     },
                     | ModuleUri::File(value) => match value.try_exists() {
                         | Ok(true) => {
@@ -80,13 +80,39 @@ pub fn run(
                             std::process::exit(exitcode::UNAVAILABLE);
                         }
                     },
-                    | _ => unimplemented!(),
+                    | _ => unimplemented!("Only URLs and files are currently supported for binary modules"),
                 },
                 | ModuleType::Script { programming_language, uri } => match programming_language {
-                    | ModuleLanguage::Python => match ModuleUri::from(uri) {
-                        | ModuleUri::Url(value) => match value.scheme() {
+                    | ModuleLanguage::Generic => match ModuleUri::from(uri) {
+                        | ModuleUri::Url(value) if !offline => match value.scheme() {
                             | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                                 debug!(uri, "=> {} Remote script repository", Label::found());
+                                // TODO: Filter URL using whitelist
+                                // TODO: Check that URL exists
+                                // TODO: Git clone module
+                                // TODO: Check script repository with is_valid_pipe_module_python
+                                unimplemented!("Remote Generic script modules are not supported yet");
+                            }
+                            | _ => unimplemented!("Only HTTP, HTTPS, and SSH are currently supported for remote generic script modules"),
+                        },
+                        | ModuleUri::File(value) => match value.try_exists() {
+                            | Ok(true) => {
+                                let path = value.into_os_string().into_string().unwrap();
+                                debug!(module = module.name, path, "=> {} Local script repository", Label::found());
+                                unimplemented!("Local Generic script modules are not supported yet");
+                            }
+                            | _ => {
+                                let path = value.into_os_string().into_string().unwrap();
+                                error!(module = module.name, path, "=> {} Local script module", Label::not_found());
+                                std::process::exit(exitcode::UNAVAILABLE);
+                            }
+                        },
+                        | _ => unimplemented!("Only URLs and files are currently supported for Generic script modules"),
+                    },
+                    | ModuleLanguage::Python => match ModuleUri::from(uri) {
+                        | ModuleUri::Url(value) if !offline => match value.scheme() {
+                            | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
+                                debug!(uri, "=> {} Remote {} script repository", Label::found(), programming_language);
                                 // TODO: Filter URL using whitelist
                                 // TODO: Check that URL exists
                                 if ModuleUri::from(uri).test() {
@@ -115,12 +141,18 @@ pub fn run(
                                     }
                                 };
                             }
-                            | _ => unimplemented!(),
+                            | _ => unimplemented!("Only HTTP, HTTPS, and SSH are currently supported for Python script modules"),
                         },
                         | ModuleUri::File(value) => match value.try_exists() {
                             | Ok(true) => {
                                 let path = value.into_os_string().into_string().unwrap();
-                                debug!(module = module.name, path, "=> {} Local script repository", Label::found());
+                                debug!(
+                                    module = module.name,
+                                    path,
+                                    "=> {} Local {} script repository",
+                                    Label::found(),
+                                    programming_language
+                                );
                                 // TODO: Check script repository with is_valid_pipe_module_python
                                 if let Some(script) = Script::maybe_create_conda_environment(uri.to_string(), verbose.log_level()) {
                                     if dry_run {
@@ -133,20 +165,31 @@ pub fn run(
                             }
                             | _ => {
                                 let path = value.into_os_string().into_string().unwrap();
-                                error!(module = module.name, path, "=> {} Local script module", Label::not_found());
+                                error!(
+                                    module = module.name,
+                                    path,
+                                    "=> {} Local {} script module",
+                                    Label::not_found(),
+                                    programming_language
+                                );
                                 std::process::exit(exitcode::UNAVAILABLE);
                             }
                         },
-                        | _ => unimplemented!(),
+                        | _ => unimplemented!("Only URLs and files are currently supported for Python script modules"),
                     },
-                    | _ => unimplemented!(),
+                    | _ => unimplemented!("Only Generic and Python script modules are currently supported"),
                 },
-                | _ => unimplemented!(),
+                | _ => unimplemented!("Only binary and script modules are currently supported"),
             });
             // Run workflow
             cfg.modules.iter().for_each(|module| match &module.module_type {
-                | ModuleType::Binary { .. } => {}
+                | ModuleType::Binary { .. } => {
+                    unimplemented!("Binary modules are not supported yet");
+                }
                 | ModuleType::Script { programming_language, uri } => match programming_language {
+                    | ModuleLanguage::Generic => {
+                        unimplemented!("Generic script modules are not supported yet");
+                    }
                     | ModuleLanguage::Python => {
                         let working_dir = ModuleUri::from(uri).working_directory(Some(root.clone()));
                         let manifest_path = PathBuf::from(&working_dir).join("environment.yml");
@@ -157,6 +200,7 @@ pub fn run(
                             Label::using()
                         );
                         let default_template_path = PathBuf::from(&working_dir).join("template.json");
+                        // TODO: Abstract loading script from template: fn(module, default_path) -> Script
                         let loaded = match &module.template {
                             | Some(attribute) => match attribute {
                                 | TemplateAttribute::Path(value) => match PathBuf::from(value).try_exists() {
@@ -214,9 +258,9 @@ pub fn run(
                             script.run();
                         }
                     }
-                    | _ => unimplemented!(),
+                    | _ => unimplemented!("Only Generic and Python script modules are currently supported"),
                 },
-                | _ => unimplemented!(),
+                | _ => unimplemented!("Only binary and script modules are currently supported"),
             });
         }
         | None => error!("=> {} Could not import configuration", Label::fail()),

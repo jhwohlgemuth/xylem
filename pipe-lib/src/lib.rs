@@ -70,11 +70,12 @@ pub enum Instruction {
     /// ```
     ExecFormat(Vec<String>),
 }
-#[derive(Clone, Debug, Serialize, Deserialize, Valuable)]
+#[derive(Clone, Debug, Serialize, Deserialize, Display, Valuable)]
 #[serde(rename_all = "lowercase")]
 pub enum ModuleLanguage {
     Binary,
     Csharp,
+    Generic,
     JavaScript,
     Julia,
     Python,
