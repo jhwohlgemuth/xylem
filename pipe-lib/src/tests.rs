@@ -18,10 +18,7 @@ fn test_command() {
     assert_eq!(python.virtual_environment, Some("base".to_string()));
     let command = Command::init().name("ls".to_string()).build();
     assert!(command.test());
-    let nonexistent: Command = Command {
-        name: "does-not-exist".to_string(),
-        virtual_environment: None,
-    };
+    let nonexistent: Command = Command::init().name("does-not-exist".to_string()).build();
     assert!(!nonexistent.test());
     if cfg!(target_os = "windows") {
         // WIP

@@ -43,7 +43,7 @@
   - [X] Auto-create (Conda/[Mamba](https://mamba.readthedocs.io/en/latest/index.html)) virtual environments
   - [X] Parallelize module preparation
 - [ ] Enhanced URL security
-  - [ ] Provide `--offline` flag to disable reachability check
+  - [X] Provide `--offline` flag to disable reachability check
   - [ ] Filter remote module URLs against white list
   - [ ] Check remote URLs are valid and reachable
 - [ ] Multi-platform release binaries published to GitLab repository
@@ -59,7 +59,7 @@
     - [ ] Add Docker (and Podman) environment
     - [ ] Add Apptainer environment
     - [ ] Add Pixi environment
-- [ ] `--skip-verify-requirements` flag for running workflow without verifying environment
+- [X] `--skip-verify-requirements` flag for running workflow without verifying environment
 - [ ] "Check" subcommand
     - [X] Create standardized function signature for check modules
         ```rust

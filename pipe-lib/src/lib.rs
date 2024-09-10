@@ -171,6 +171,18 @@ pub enum TemplateType {
     Mustache,
     Unknown,
 }
+#[derive(Clone, Debug, Deserialize, Display, Serialize)]
+pub enum VirtualEnvironmentManager {
+    /// [Conda package manager](https://github.com/conda/conda)
+    Conda,
+    /// Simple Python version management (https://github.com/pyenv/pyenv)
+    Pyenv,
+    /// Tool to create isolated Python environments (https://virtualenv.pypa.io/en/latest/)
+    Virtualenv,
+    /// [Pixi package manager](https://github.com/prefix-dev/pixi/) (that has functional parity with Conda)
+    Pixi,
+    Unknown,
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Check {
     /// Glob string(s) describing files and folders to be checked
@@ -186,18 +198,15 @@ pub struct Check {
 #[display("{}", name)]
 #[builder(start_fn(name = init))]
 pub struct Command {
-    /// Prefix string to modify command string
-    ///
-    /// This is commonly usef when running a command within a virtual environment like Conda
-    ///
-    /// Example:
-    /// ```text
-    /// "conda run --name base "
-    /// ```
+    /// Command name (ex. "echo")
     #[builder(default)]
     pub name: String,
+    /// Virtual environment struct that contains details about the associated virtual environment
     #[builder]
     pub virtual_environment: Option<String>,
+    /// Container struct that contains details about the associated containerized environment
+    #[builder]
+    pub container: Option<Container>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -235,6 +244,10 @@ pub struct Config {
     /// Designates a path to the workflow output artifacts for verification and export purposes
     #[serde(alias = "artifacts")]
     pub output: Option<String>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Container {
+    pub image: String,
 }
 #[derive(Clone, Debug, Deserialize, Eq, Serialize, PartialOrd, Ord)]
 pub struct Details {
@@ -348,6 +361,15 @@ pub struct ScriptTemplate {
 pub struct StringTemplate {
     pub value: String,
     pub template_type: TemplateType,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[builder]
+pub struct VirtualEnvironment {
+    pub name: String,
+    #[builder]
+    pub path: Option<String>,
+    #[builder]
+    pub manager: VirtualEnvironmentManager,
 }
 impl Command {
     /// Check if a command exists in current command line context
