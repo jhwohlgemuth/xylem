@@ -35,8 +35,16 @@
 - [X] Template abstraction for customizing module-to-shell interface (see `ScriptTemplate` struct)
   - [ ] Support `<%= value %>` templating format
 - [X] Tests with [code coverage](https://github.com/xd009642/tarpaulin)
+- [ ] Test modules for end-to-end testing
 - [X] Documentation generated from code comments (see https://pipe.ornl.gov)
 - [X] Create module template to enable community contributions
+- [ ] Implement module conventions (documentation and existing modules)
+  - [ ] Finalize "run" function function signature
+    ```rust
+    fn(input_directory: PathBuf, output_directory: PathBuf, options: Option<Options>)
+    ```
+  - [X] Folder/file structure
+  - [ ] Log to file with template interface updates (e.g. `--log` parameter)
 - [X] MVP<sup>[1](#1)</sup> (script module support)
   - [X] Support local script module (*example*: `ssh://git@code.ornl.gov/project/name.git`)
   - [X] Support remote script module (using `git clone <URI>`)
