@@ -512,6 +512,13 @@ impl EnvironmentValue {
         let pre = format!("_{}_", EnvironmentValue::PREFIX.to_uppercase());
         key.trim_start_matches(&pre).to_string()
     }
+    pub fn get_from_config(config: &Config, module: Option<Module>) -> HashMap<String, String> {
+        let config_vars = config.variables.clone().unwrap_or_default();
+        let module_vars = module.unwrap().variables.clone().unwrap_or_default();
+        let mut envs = EnvironmentValue::get_from_serde(&config_vars);
+        envs.extend(EnvironmentValue::get_from_serde(&module_vars));
+        envs
+    }
     pub fn get_from_serde(values: &Map<String, Value>) -> HashMap<String, String> {
         let mut lookup: HashMap<String, String> = HashMap::new();
         values.iter().for_each(|(key, value)| {
@@ -568,8 +575,8 @@ impl Extension {
 }
 impl Label {
     pub fn dry_run() -> Styled<&'static &'static str> {
-        let style = Style::new().white().on_yellow();
-        " DRY_RUN ".style(style)
+        let style = Style::new().black().on_yellow();
+        " DRY_RUN ■ ".style(style)
     }
     pub fn fail() -> Styled<&'static &'static str> {
         let style = Style::new().white().on_red();
@@ -596,7 +603,7 @@ impl Label {
         " REJECTED ".style(style)
     }
     pub fn run() -> Styled<&'static &'static str> {
-        let style = Style::new().white().on_yellow();
+        let style = Style::new().black().on_yellow();
         " RUN ▶ ".style(style)
     }
     pub fn using() -> Styled<&'static &'static str> {
@@ -754,6 +761,90 @@ impl Script {
         self.arguments = expanded;
         self
     }
+    /// TODO: Factor out root argument?
+    /// Create a script from a Module.
+    ///
+    /// Tries to create script from template interface. Resolves template interface from following:
+    ///
+    /// - IF `template` attribute exists in workflow configuration file
+    ///   - path -> Script::from_path
+    ///   - object -> Script::from_template
+    ///
+    /// - ELSE `template` attribute does NOT exist in workflow configuration file
+    ///   - use "template.json", if it exists
+    ///   - use default script if "template.json" does not exist
+    ///
+    /// ```
+    pub fn from_module(module: Module, root: Option<PathBuf>) -> Script {
+        const DEFAULT_FILENAME: &str = "template.json";
+        let module_uri = match module.module_type {
+            | ModuleType::Binary { ref uri } => ModuleUri::from(uri),
+            | ModuleType::Script { ref uri, .. } => ModuleUri::from(uri),
+            | ModuleType::Configuration { .. } => unimplemented!("Configuration module type"),
+        };
+        let working_dir = module_uri.working_directory(Some(root.unwrap_or_default().clone()));
+        let default_template_path = PathBuf::from(&working_dir).join(DEFAULT_FILENAME);
+        match &module.template {
+            | Some(attribute) => match attribute {
+                | TemplateAttribute::Path(value) => match PathBuf::from(&working_dir).join(value).try_exists() {
+                    | Ok(true) => {
+                        let path = PathBuf::from(&working_dir).join(value);
+                        debug!(module = module.name, path = path.to_str().unwrap(), "=> {} Template file", Label::using());
+                        Script::from_path(path)
+                    }
+                    | _ => {
+                        let path = PathBuf::from(&working_dir).join(value).into_os_string().into_string().unwrap();
+                        warn!(module = module.name, "=> {} {}", Label::not_found(), path);
+                        warn!(module = module.name, "=> {} Default template file path", Label::using());
+                        Script::from_path(default_template_path)
+                    }
+                },
+                | TemplateAttribute::Template(value) => {
+                    debug!(module = module.name, "=> {} Template attribute", Label::using());
+                    Script::from_template(value.clone())
+                }
+            },
+            | None => match default_template_path.try_exists() {
+                | Ok(true) => {
+                    warn!(module = module.name, "=> {} Default template file path", Label::using());
+                    Script::from_path(default_template_path)
+                }
+                | _ => {
+                    warn!(
+                        module = module.name,
+                        "=> {} {}",
+                        Label::not_found(),
+                        default_template_path.into_os_string().into_string().unwrap()
+                    );
+                    warn!(module = module.name, "=> {} Default Python script", Label::using());
+                    Script::python_default()
+                }
+            },
+        }
+    }
+    /// Create a script from a template JSON file in [ScriptTemplate] format.
+    ///
+    /// You can easily import the script with
+    /// ```
+    /// use pipe_lib::Script;
+    /// use std::path::PathBuf;
+    ///
+    /// let path = PathBuf::from("../tests/fixtures/template.json");
+    /// let script = Script::from_path(path);
+    /// let output = script.run();
+    /// ```
+    pub fn from_path(path: PathBuf) -> Script {
+        let content = match read_file(path.clone()) {
+            | Ok(value) => value,
+            | Err(_) => {
+                error!("Failed to read file: {:?}", path);
+                "".to_owned()
+            }
+        };
+        let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
+        let template = json.expect("=> [ERROR] Failed to parse script template").clone();
+        Script::from_template(template)
+    }
     /// Create a script from a ScriptTemplate struct.
     ///
     /// You can easily import the script with
@@ -781,29 +872,6 @@ impl Script {
         let environment = template.environment;
         let command = Command::init().name(template.command).build();
         Script::init().command(command).arguments(arguments).build().with_environment(environment)
-    }
-    /// Create a script from a template JSON file in [ScriptTemplate] format.
-    ///
-    /// You can easily import the script with
-    /// ```
-    /// use pipe_lib::Script;
-    /// use std::path::PathBuf;
-    ///
-    /// let path = PathBuf::from("../tests/fixtures/template.json");
-    /// let script = Script::from_path(path);
-    /// let output = script.run();
-    /// ```
-    pub fn from_path(path: PathBuf) -> Script {
-        let content = match read_file(path.clone()) {
-            | Ok(value) => value,
-            | Err(_) => {
-                error!("Failed to read config file: {:?}", path);
-                "".to_owned()
-            }
-        };
-        let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
-        let template = json.expect("=> [ERROR] Failed to parse script template").clone();
-        Script::from_template(template)
     }
     fn get_command(&self) -> String {
         match &self.command.virtual_environment {
@@ -881,7 +949,7 @@ impl Script {
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
-        warn!(script = self.to_string(), "=> {}", Label::run());
+        warn!(cwd = current_dir.to_str().unwrap(), script = self.to_string(), "=> {}", Label::run());
         let mut output: Vec<String> = vec![];
         if let Ok(mut cmd) = process::Command::new(command)
             .args(arguments.iter())

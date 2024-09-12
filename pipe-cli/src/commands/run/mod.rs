@@ -2,14 +2,14 @@ use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
 use exitcode;
 use nanoid::nanoid;
-use pipe_lib::{
-    get_conda_environment_name, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script, TemplateAttribute,
-};
+use pipe_lib::{get_conda_environment_name, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script};
 use rayon::prelude::*;
+use std::convert::TryFrom;
 use std::env;
 use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 use uriparse::Scheme;
+use uriparse::URI;
 
 const DEFAULT_CONFIG_NAME: &str = "config.json";
 
@@ -187,8 +187,24 @@ pub fn run(
             });
             // Run workflow
             cfg.modules.iter().for_each(|module| match &module.module_type {
-                | ModuleType::Binary { .. } => {
-                    unimplemented!("Binary modules are not supported yet");
+                | ModuleType::Binary { ref uri } => {
+                    let envs = EnvironmentValue::get_from_config(&cfg, Some(module.clone()));
+                    let parent = PathBuf::from(uri).parent().unwrap().to_string_lossy().to_string();
+                    let working_dir = URI::try_from(parent.as_str()).unwrap().clone().path().to_string();
+                    let loaded = Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())));
+                    let script = loaded.expand_arguments_from(envs).with_current_dir(working_dir);
+                    if dry_run {
+                        EnvironmentValue::print_all();
+                        info!(
+                            module = module.name,
+                            script = script.to_string(),
+                            cwd = script.current_dir,
+                            "=> {}",
+                            Label::dry_run()
+                        );
+                    } else {
+                        script.run();
+                    }
                 }
                 | ModuleType::Script { programming_language, uri } => match programming_language {
                     | ModuleLanguage::Generic => {
@@ -203,37 +219,7 @@ pub fn run(
                             "=> {} Manifest file",
                             Label::using()
                         );
-                        let default_template_path = PathBuf::from(&working_dir).join("template.json");
-                        // TODO: Abstract loading script from template: fn(module, default_path) -> Script
-                        let loaded = match &module.template {
-                            | Some(attribute) => match attribute {
-                                | TemplateAttribute::Path(value) => match PathBuf::from(value).try_exists() {
-                                    | Ok(true) => {
-                                        let path = PathBuf::from(&working_dir).join(value);
-                                        debug!(module = module.name, path = path.to_str().unwrap(), "=> {} Template file", Label::using());
-                                        Script::from_path(path)
-                                    }
-                                    | _ => {
-                                        warn!(module = module.name, "=> {} Default template file", Label::using());
-                                        Script::from_path(default_template_path)
-                                    }
-                                },
-                                | TemplateAttribute::Template(value) => {
-                                    debug!(module = module.name, "=> {} Template attribute", Label::using());
-                                    Script::from_template(value.clone())
-                                }
-                            },
-                            | None => match default_template_path.try_exists() {
-                                | Ok(true) => {
-                                    warn!(module = module.name, "=> {} Default template file", Label::using());
-                                    Script::from_path(default_template_path)
-                                }
-                                | _ => {
-                                    warn!(module = module.name, "=> {} Default Python script", Label::using());
-                                    Script::python_default()
-                                }
-                            },
-                        };
+                        let loaded = Script::from_module(module.clone(), Some(root.clone()));
                         let environment = match get_conda_environment_name(manifest_path) {
                             | Some(value) => Some(value),
                             | None => match &module.template {
@@ -241,10 +227,7 @@ pub fn run(
                                 | None => None,
                             },
                         };
-                        let config_vars = cfg.variables.clone().unwrap_or_default();
-                        let module_vars = module.variables.clone().unwrap_or_default();
-                        let mut envs = EnvironmentValue::get_from_serde(&config_vars);
-                        envs.extend(EnvironmentValue::get_from_serde(&module_vars));
+                        let envs = EnvironmentValue::get_from_config(&cfg, Some(module.clone()));
                         let script = loaded
                             .expand_arguments_from(envs)
                             .with_current_dir(working_dir)
