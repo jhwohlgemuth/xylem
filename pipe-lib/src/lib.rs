@@ -24,6 +24,7 @@ use std::{
     io,
 };
 
+use sha2::{Digest, Sha256};
 use tokio::time::{sleep, Duration, Sleep};
 use tracing::{debug, error, info, trace, warn};
 use uriparse::Scheme;
@@ -87,7 +88,7 @@ pub enum ModuleLanguage {
 pub enum ModuleType {
     /// Compiled "black boxes" that are used via a command line interface
     #[serde(alias = "bin")]
-    Binary { uri: String },
+    Binary { checksum: String, uri: String },
     /// Nested workflow module that allows for grouping modules
     #[serde(alias = "config")]
     Configuration { uri: String },
@@ -778,7 +779,7 @@ impl Script {
     pub fn from_module(module: Module, root: Option<PathBuf>) -> Script {
         const DEFAULT_FILENAME: &str = "template.json";
         let module_uri = match module.module_type {
-            | ModuleType::Binary { ref uri } => ModuleUri::from(uri),
+            | ModuleType::Binary { ref uri, .. } => ModuleUri::from(uri),
             | ModuleType::Script { ref uri, .. } => ModuleUri::from(uri),
             | ModuleType::Configuration { .. } => unimplemented!("Configuration module type"),
         };
@@ -1163,6 +1164,15 @@ pub fn add_forward_slash(path: PathBuf) -> PathBuf {
         PathBuf::from(format!("{}/", path.display()))
     } else {
         path.to_path_buf()
+    }
+}
+/// Get SHA256 hash of a file
+pub fn get_checksum(path: PathBuf) -> String {
+    if let Ok(content) = read_file(path) {
+        let hash = Sha256::digest(content);
+        format!("{:x}", hash)
+    } else {
+        unreachable!()
     }
 }
 /// Get list of Conda virtual environments

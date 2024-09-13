@@ -60,7 +60,7 @@ pub fn run(
             }
             // Prepare modules
             cfg.modules.par_iter().for_each(|module| match &module.module_type {
-                | ModuleType::Binary { uri } => match ModuleUri::from(uri) {
+                | ModuleType::Binary { uri, .. } => match ModuleUri::from(uri) {
                     | ModuleUri::Url(value) if !offline => match value.scheme() {
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                             let url = value.to_string();
@@ -187,7 +187,7 @@ pub fn run(
             });
             // Run workflow
             cfg.modules.iter().for_each(|module| match &module.module_type {
-                | ModuleType::Binary { ref uri } => {
+                | ModuleType::Binary { ref uri, .. } => {
                     let envs = EnvironmentValue::get_from_config(&cfg, Some(module.clone()));
                     let parent = PathBuf::from(uri).parent().unwrap().to_string_lossy().to_string();
                     let working_dir = URI::try_from(parent.as_str()).unwrap().clone().path().to_string();

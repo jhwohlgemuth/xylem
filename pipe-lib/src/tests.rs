@@ -102,6 +102,18 @@ fn test_details() {
 }
 
 #[test]
+fn test_get_checksum() {
+    let expected = "debe0f22e2b4e8dffd88d4bbe8b15cca98c5950b1b857d1747f211465fba972e";
+    assert_eq!(get_checksum(PathBuf::from("../LICENSE")), expected);
+}
+
+#[test]
+#[should_panic]
+fn test_get_checksum_panic() {
+    assert_eq!(get_checksum(PathBuf::from("/path/does/not/exist.txt")), "");
+}
+
+#[test]
 fn test_get_conda_environment_list() {
     let list = get_conda_environment_list();
     let conda = Command::init().name("conda".to_string()).build();

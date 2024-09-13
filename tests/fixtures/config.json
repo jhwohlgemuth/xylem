@@ -25,7 +25,8 @@
         {
             "name": "Local Binary Module",
             "type": "binary",
-            "uri": "file:///path/to/wasm/module"
+            "uri": "file:///path/to/wasm/module",
+            "checksum": "debe0f22e2b4e8dffd88d4bbe8b15cca98c5950b1b857d1747f211465fba972e"
         },
         {
             "name": "Local Python Script Module",
