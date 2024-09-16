@@ -103,7 +103,7 @@ pub fn run(
                             | Ok(true) => {
                                 let path = value.into_os_string().into_string().unwrap();
                                 debug!(module = module.name, path, "=> {} Local script repository", Label::found());
-                                unimplemented!("Local Generic script modules are not supported yet");
+                                // TODO: Check script repository with is_valid_pipe_module_python
                             }
                             | _ => {
                                 let path = value.into_os_string().into_string().unwrap();
@@ -208,7 +208,22 @@ pub fn run(
                 }
                 | ModuleType::Script { programming_language, uri } => match programming_language {
                     | ModuleLanguage::Generic => {
-                        unimplemented!("Generic script modules are not supported yet");
+                        let working_dir = ModuleUri::from(uri).working_directory(Some(root.clone()));
+                        let loaded = Script::from_module(module.clone(), Some(root.clone()));
+                        let envs = EnvironmentValue::get_from_config(&cfg, Some(module.clone()));
+                        let script = loaded.expand_arguments_from(envs).with_current_dir(working_dir);
+                        if dry_run {
+                            EnvironmentValue::print_all();
+                            info!(
+                                module = module.name,
+                                script = script.to_string(),
+                                cwd = script.current_dir,
+                                "=> {}",
+                                Label::dry_run()
+                            );
+                        } else {
+                            script.run();
+                        }
                     }
                     | ModuleLanguage::Python => {
                         let working_dir = ModuleUri::from(uri).working_directory(Some(root.clone()));
