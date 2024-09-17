@@ -12,6 +12,10 @@
 - Ensure Docker container is running, then chose one of more of the following:
     - Open a web browser <sup>[2](#2)</sup> and navigate to `https://localhost:1337` (password = `password`)
     - Open local install of VS Code and connect to container using [remote development extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.vscode-remote-extensionpack)
+- Install [Tarpaulin](https://github.com/xd009642/tarpaulin) for generating code coverage with
+    ```shell
+    cargo install cargo-tarpaulin
+    ```
 - Development involves mulitple [make](./Makefile) and cargo tasks:
     - `cargo run` - Execute code
         - `cargo run -- help` - Print PIPE CLI help
@@ -20,15 +24,16 @@
     - `make lint` -  Format and lint code
     - `make test` - Run tests and generate code coverage
     - `make doc` - Generate documentation (see https://pipe.ornl.gov)
-    - ***WIP*** `make release` - Build release binaries
+    - `make build` - Build release binaries
 - Make a git branch, push changes to it, open a merge request, resolve issues
 
 ## Cross-platform testing
 - Ensure your environment has either [Docker](https://www.docker.com/products/docker-desktop/) or [Podman](https://podman.io/) installed and running
-- Running cross-platform tests requires using [Cross](https://github.com/cross-rs/cross). Install Cross with `cargo-binstall`<sup>[3](#3)</sup>
+- Running cross-platform tests requires using [Cross](https://github.com/cross-rs/cross). Install Cross with
     ```shell
-    cargo binstall cross
+    cargo install cross --git https://github.com/cross-rs/cross
     ```
+    or use `cargo-binstall`<sup>[3](#3)</sup>.
 - Run tests for a given target triple<sup>[4](#4)</sup> with
     ```shell
     cross test --target <target triple>
@@ -37,6 +42,21 @@
     ```shell
     make test-cross
     ```
+
+## Project Structure
+```mermaid
+graph LR
+    a[PIPE] --> b[pipe-cli/]
+    a --> c[pipe-lib/]
+    a --> d[pipe-py/]
+    b --> e[CLI application]
+    c --> f[Rust crate]
+    d --> g[Python</br>package]
+    e --> h[commands]
+    e --> i[reporters]
+    f --> j[pipe-cli</br>utility functions]
+    g --> k[Module</br>utility functions]
+```
 
 ## Coding Guidelines
 - Logging
@@ -79,6 +99,10 @@
 > Install `cargo-binstall` with
 ```shell
 curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+```
+> Install `cross` with
+```shell
+cargo binstall cross
 ```
 > See [cargo-binstall README](https://github.com/cargo-bins/cargo-binstall?tab=readme-ov-file#installation) for more options
 

@@ -54,6 +54,9 @@
   - [X] Provide `--offline` flag to disable reachability check
   - [ ] Filter remote module URLs against white list
   - [ ] Check remote URLs are valid and reachable
+- [ ] User experience enhancements
+  - [ ] Progress indication during long running workflows
+  - [ ] Provide `--env` option to specify custom location of `.env` file
 - [ ] Multi-platform release binaries published to GitLab repository
   - [X] Linux ([tier 1](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Tiers-of-Support))
   - [ ] Mac ([tier 2](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Tiers-of-Support))
@@ -61,7 +64,8 @@
   - [ ] Web Browser (WebAssembly)
 - [ ] MVP<sup>[1](#1)</sup> (+binary module support)
     - [ ] Verify binary with checksum hash (provide `--skip-verify-checksum` flag)
-    - [ ] Support local binary module
+    - [ ] Handle binary execution when not executable (`./cmd` vs `cmd`)
+    - [X] Support local binary module
     - [ ] Support remote binary module
 - [ ] Abstract "virtual environment" support (to include more than just `Conda`)
     - [ ] Add Docker (and Podman) environment
