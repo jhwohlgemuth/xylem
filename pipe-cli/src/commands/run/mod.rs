@@ -2,7 +2,7 @@ use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
 use exitcode;
 use nanoid::nanoid;
-use pipe_lib::{get_conda_environment_name, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script};
+use pipe_lib::{get_conda_environment_name, get_parent, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script};
 use rayon::prelude::*;
 use std::convert::TryFrom;
 use std::env;
@@ -189,7 +189,7 @@ pub fn run(
             cfg.modules.iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { ref uri, .. } => {
                     let envs = EnvironmentValue::get_from_config(&cfg, Some(module.clone()));
-                    let parent = PathBuf::from(uri).parent().unwrap().to_string_lossy().to_string();
+                    let parent = get_parent(PathBuf::from(uri)).to_string_lossy().to_string();
                     let working_dir = URI::try_from(parent.as_str()).unwrap().clone().path().to_string();
                     let loaded = Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())));
                     let script = loaded.expand_arguments_from(envs).with_current_dir(working_dir);

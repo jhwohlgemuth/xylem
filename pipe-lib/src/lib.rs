@@ -612,7 +612,7 @@ impl Label {
         " RUN ▶ ".style(style)
     }
     pub fn using() -> Styled<&'static &'static str> {
-        let style = Style::new().dimmed();
+        let style = Style::new().cyan();
         "USING".style(style)
     }
 }
@@ -997,8 +997,8 @@ impl Script {
                 | Ok(result) => {
                     if result.status.success() {
                         let output = output;
-                        trace!("=> {} {:#?}", Label::output(), result);
-                        trace!("=> {} {:#?}", Label::output(), output);
+                        trace!("=> {} {:#?}", Label::output(), result.dimmed());
+                        trace!("=> {} {:#?}", Label::output(), output.dimmed());
                         output
                     } else {
                         error!(script = self.to_string(), "=> {}", Label::fail());
