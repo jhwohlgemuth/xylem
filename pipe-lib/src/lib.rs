@@ -412,22 +412,22 @@ impl Command {
 }
 impl Config {
     pub fn read(path: PathBuf) -> Option<Config> {
-        match Extension::from_string(get_extension(&path)) {
+        let content = match Extension::from_string(get_extension(&path)) {
             | Extension::Json => match Config::read_json(path.clone()) {
                 | Ok(value) => Some(value),
-                | Err(_) => {
-                    error!(path = path.to_str().unwrap(), "=> {} Cannot import configuration", Label::not_found());
-                    std::process::exit(exitcode::UNAVAILABLE);
-                }
+                | Err(_) => None,
             },
             | Extension::Yaml => match Config::read_yaml(path.clone()) {
                 | Ok(value) => Some(value),
-                | Err(_) => {
-                    error!(path = path.to_str().unwrap(), "=> {} Cannot import configuration", Label::not_found());
-                    std::process::exit(exitcode::UNAVAILABLE);
-                }
+                | Err(_) => None,
             },
             | Extension::Unknown => unimplemented!("Unknown configuration file extension"),
+        };
+        if let Some(content) = content {
+            Some(content)
+        } else {
+            error!(path = path.to_str().unwrap(), "=> {} Cannot import configuration", Label::fail());
+            std::process::exit(exitcode::UNAVAILABLE);
         }
     }
     /// Import PIPE configuration JSON file
@@ -446,7 +446,7 @@ impl Config {
         let data: serde_json::Result<Config> = serde_json::from_str(&content);
         let label = match data {
             | Ok(_) => Label::output(),
-            | Err(_) => Label::fail(),
+            | Err(_) => Label::invalid(),
         };
         debug!("=> {} Configuration = {:#?}", label, data.dimmed());
         data
@@ -578,6 +578,10 @@ impl Label {
     pub fn dry_run() -> Styled<&'static &'static str> {
         let style = Style::new().black().on_yellow();
         " DRY_RUN ■ ".style(style)
+    }
+    pub fn invalid() -> Styled<&'static &'static str> {
+        let style = Style::new().red().on_default_color();
+        "INVALID".style(style)
     }
     pub fn fail() -> Styled<&'static &'static str> {
         let style = Style::new().white().on_red();
