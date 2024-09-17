@@ -5,9 +5,19 @@ use std::path::{Path, PathBuf};
 const FIXTURES: &str = "../tests/fixtures";
 
 #[test]
+fn test_add_dot_slash() {
+    assert_eq!(add_dot_slash(PathBuf::from("foo")), PathBuf::from("./foo"));
+    assert_eq!(add_dot_slash(PathBuf::from("./foo")), PathBuf::from("./foo"));
+    assert_eq!(add_dot_slash(PathBuf::from("foo/bar")), PathBuf::from("./foo/bar"));
+    assert_eq!(add_dot_slash(PathBuf::from("foo/bar.json")), PathBuf::from("./foo/bar.json"));
+}
+
+#[test]
 fn test_add_forward_slash() {
     assert_eq!(add_forward_slash(PathBuf::from("foo")), PathBuf::from("foo/"));
+    assert_eq!(add_forward_slash(PathBuf::from("foo/")), PathBuf::from("foo/"));
     assert_eq!(add_forward_slash(PathBuf::from("foo/bar")), PathBuf::from("foo/bar/"));
+    assert_eq!(add_forward_slash(PathBuf::from("foo/bar/")), PathBuf::from("foo/bar/"));
     assert_eq!(add_forward_slash(PathBuf::from("foo/bar.json")), PathBuf::from("foo/bar.json"));
 }
 

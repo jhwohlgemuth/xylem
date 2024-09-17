@@ -69,6 +69,7 @@ pub fn run(
                             // TODO: Check that URL exists
                             // TODO: Download binary to temp directory
                             // TODO: Verify binary checksum
+                            // TODO: Verify binary is executable (https://docs.rs/is_executable/latest/is_executable/)
                             unimplemented!("Remote binary modules are not supported yet");
                         }
                         | _ => unimplemented!("Only HTTP, HTTPS, and SSH are currently supported for remote binary modules"),
@@ -76,6 +77,7 @@ pub fn run(
                     | ModuleUri::File(value) => match value.try_exists() {
                         | Ok(true) => {
                             let path = value.into_os_string().into_string().unwrap();
+                            // TODO: Verify binary is executable (https://docs.rs/is_executable/latest/is_executable/)
                             debug!(module = module.name, path, "=> {} Local binary", Label::found());
                         }
                         | _ => {

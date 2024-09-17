@@ -1162,8 +1162,16 @@ impl StringTemplate {
     }
 }
 /// Add forward slash to end of folder path
+pub fn add_dot_slash(path: PathBuf) -> PathBuf {
+    if path.starts_with("./") {
+        path.to_path_buf()
+    } else {
+        PathBuf::from(format!("./{}", path.display()))
+    }
+}
+/// Add forward slash to end of folder path
 pub fn add_forward_slash(path: PathBuf) -> PathBuf {
-    if path.is_dir() {
+    if path.is_dir() && !path.ends_with("/") {
         PathBuf::from(format!("{}/", path.display()))
     } else {
         path.to_path_buf()
