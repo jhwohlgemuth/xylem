@@ -38,7 +38,7 @@ release: clean
 	@echo "Under Construction"
 
 version: 
-	@echo $(DEFAULT_TARGET)
+	@echo $(VERSION)
 #
 # Variables
 #

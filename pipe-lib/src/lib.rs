@@ -976,7 +976,6 @@ impl Script {
                 let reader = BufReader::new(stdout);
                 let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
                 if !lines.is_empty() {
-                    trace!("=> {} {:#?}", Label::output(), lines.join("\n").cyan().dimmed());
                     output.extend(lines);
                 }
                 // stderr

@@ -1858,7 +1858,7 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "pipe-cli"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "cargo-watch",
  "clap 4.5.2",
@@ -1882,7 +1882,7 @@ dependencies = [
 
 [[package]]
 name = "pipe-lib"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "bon",
  "clap 4.5.2",
