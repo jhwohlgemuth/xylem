@@ -88,7 +88,7 @@ pub enum ModuleLanguage {
 pub enum ModuleType {
     /// Compiled "black boxes" that are used via a command line interface
     #[serde(alias = "bin")]
-    Binary { checksum: String, uri: String },
+    Binary { checksum: Option<String>, uri: String },
     /// Nested workflow module that allows for grouping modules
     #[serde(alias = "config")]
     Configuration { uri: String },
