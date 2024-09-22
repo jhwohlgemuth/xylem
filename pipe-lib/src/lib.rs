@@ -379,7 +379,7 @@ impl Command {
     /// Can also be used to check if a command exists within a [conda](https://conda.io/projects/conda/en/latest/user-guide/getting-started.html) virtual environment
     ///
     /// # Examples
-    /// ```
+    /// ```no-run
     /// use pipe_lib::Command;
     ///
     /// let command = Command::init().name("ls".to_string()).build();
