@@ -3,7 +3,7 @@
     "description": "Test workflow configuration",
     "requirements": [
         "python",
-        "conda"S
+        "conda"
     ],
     "keywords": [],
     "check": {
