@@ -23,16 +23,16 @@ fn test_add_forward_slash() {
 
 #[test]
 fn test_command() {
+    let nonexistent: Command = Command::init().name("does-not-exist".to_string()).build();
+    assert!(!nonexistent.test());
     let python = Command::init().name("python".to_string()).virtual_environment("base".to_string()).build();
     assert_eq!(python.name, "python".to_string());
     assert_eq!(python.virtual_environment, Some("base".to_string()));
-    let command = Command::init().name("ls".to_string()).build();
-    assert!(command.test());
-    let nonexistent: Command = Command::init().name("does-not-exist".to_string()).build();
-    assert!(!nonexistent.test());
     if cfg!(target_os = "windows") {
         // WIP
     } else {
+        let command = Command::init().name("ls".to_string()).build();
+        assert!(command.test());
         let cargo = Command::init().name("cargo".to_string()).build();
         assert!(cargo.test());
         // Using conda virtual environment

@@ -30,6 +30,7 @@ use tracing::{debug, error, info, trace, warn};
 use uriparse::Scheme;
 use uriparse::URI;
 use valuable_derive::Valuable;
+use which::which;
 
 use std::process;
 
@@ -385,26 +386,22 @@ impl Command {
     /// assert!(command.test());
     /// ```
     pub fn test(self) -> bool {
-        let name = if cfg!(target_os = "windows") { "pwsh" } else { "which" };
-        let arguments = if cfg!(target_os = "windows") {
-            to_string(vec!["-NoProfile", "-Command", "command", &self.name])
-        } else {
-            vec![self.name]
-        };
-        let command = Command::init()
-            .name(name.to_owned())
-            .maybe_virtual_environment(self.virtual_environment)
-            .build();
-        let script = Script::init().command(command).arguments(arguments).build();
-        let output = script.run();
-        let path = output.into_iter().last().unwrap_or_default().trim().to_string();
-        match PathBuf::from(path.clone()).try_exists() {
-            | Ok(true) => {
-                info!(path, "=> {} Command", Label::found());
-                true
+        match which(&self.name) {
+            | Ok(value) => {
+                let path = value.to_str().unwrap();
+                match value.clone().try_exists() {
+                    | Ok(true) => {
+                        debug!(path, "=> {} Command test", Label::found());
+                        true
+                    }
+                    | _ => {
+                        debug!(path, "=> {} Command test", Label::not_found());
+                        false
+                    }
+                }
             }
-            | _ => {
-                error!(path, "=> {} Command", Label::not_found());
+            | Err(_) => {
+                error!(name = self.name, "=> {} Command test", Label::fail());
                 false
             }
         }
