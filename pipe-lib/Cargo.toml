@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 bon = "2.0.1"
 clap = { version = "4.4.2" }
-derive_more = { version = "1.0.0", features = ["display"] }
+derive_more = { version = "1.0.0", features = ["display", "from_str"] }
 env_logger = "0.11.3"
 fancy-regex = "0.13.0"
 is-terminal = "0.4.9"

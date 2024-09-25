@@ -5,7 +5,7 @@ use bon::builder;
 use clap::ValueEnum;
 use clap_verbosity_flag::Level;
 use color_eyre::eyre::{Report, Result};
-use derive_more::Display;
+use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
 use owo_colors::{OwoColorize, Style, Styled};
@@ -38,6 +38,17 @@ pub type CommandResult = Result<(), Box<(dyn StdError + 'static)>>;
 pub type Void = Result<(), Report>;
 pub type Output = Vec<Option<Details>>;
 
+#[derive(Clone, Debug, Display, Serialize, Deserialize, Valuable)]
+pub enum ContainerRuntime {
+    #[display("docker")]
+    Docker,
+    #[display("podman")]
+    Podman,
+    #[display("apptainer")]
+    Apptainer,
+    #[display("unknown")]
+    Unknown,
+}
 /// Values that from Serde that can be set as environment variables
 #[derive(Clone, Debug, Display)]
 pub enum EnvironmentValue {
@@ -173,16 +184,21 @@ pub enum TemplateType {
     Mustache,
     Unknown,
 }
-#[derive(Clone, Debug, Deserialize, Display, Serialize)]
+#[derive(Clone, Debug, Deserialize, Display, FromStr, PartialEq, Serialize)]
 pub enum VirtualEnvironmentManager {
     /// [Conda package manager](https://github.com/conda/conda)
+    #[display("conda")]
     Conda,
     /// Simple Python version management (https://github.com/pyenv/pyenv)
+    #[display("pyenv")]
     Pyenv,
     /// Tool to create isolated Python environments (https://virtualenv.pypa.io/en/latest/)
+    #[display("venv")]
     Virtualenv,
     /// [Pixi package manager](https://github.com/prefix-dev/pixi/) (that has functional parity with Conda)
+    #[display("pixi")]
     Pixi,
+    #[display("unknown")]
     Unknown,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -205,10 +221,10 @@ pub struct Command {
     pub name: String,
     /// Virtual environment struct that contains details about the associated virtual environment
     #[builder]
-    pub virtual_environment: Option<String>,
+    pub virtual_environment: Option<VirtualEnvironment>,
     /// Container struct that contains details about the associated containerized environment
     #[builder]
-    pub container: Option<Container>,
+    pub container: Option<ContainerEnvironment>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -247,9 +263,30 @@ pub struct Config {
     #[serde(alias = "artifacts")]
     pub output: Option<String>,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Container {
-    pub image: String,
+/// Struct for using and sharing containerized environments
+///
+/// Examples:
+/// ```ignore
+/// use pipe_lib::ContainerEnvironment;
+///
+/// let container = ContainerEnvironment::init().name("myenv").build();
+/// let container = ContainerEnvironment::init().name("myenv").runtime(ContainerRuntime::Podman).build();
+/// ```
+#[derive(Clone, Debug, Deserialize, Display, Serialize)]
+#[display("{}", "{runtime}:{image}")]
+#[builder(start_fn(name = init))]
+pub struct ContainerEnvironment {
+    /// Name of container
+    pub name: String,
+    /// Runtime (ex. "docker", "podman", etc...)
+    #[builder(default=ContainerRuntime::Docker)]
+    pub runtime: ContainerRuntime,
+    /// Context name to use (defaults to active context)
+    #[builder]
+    pub context: Option<String>,
+    /// Name of image container was built from
+    #[builder]
+    pub image: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Eq, Serialize, PartialOrd, Ord)]
 pub struct Details {
@@ -356,6 +393,7 @@ pub struct Script {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ScriptTemplate {
     pub command: String,
+    pub manager: Option<VirtualEnvironmentManager>,
     pub environment: Option<String>,
     pub arguments: Instruction,
 }
@@ -364,13 +402,14 @@ pub struct StringTemplate {
     pub value: String,
     pub template_type: TemplateType,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[builder]
+#[derive(Clone, Debug, Deserialize, Display, PartialEq, Serialize)]
+#[display("{name}")]
+#[builder(start_fn(name = init))]
 pub struct VirtualEnvironment {
     pub name: String,
     #[builder]
     pub path: Option<String>,
-    #[builder]
+    #[builder(default=VirtualEnvironmentManager::Conda)]
     pub manager: VirtualEnvironmentManager,
 }
 impl Command {
@@ -379,7 +418,7 @@ impl Command {
     /// Can also be used to check if a command exists within a [conda](https://conda.io/projects/conda/en/latest/user-guide/getting-started.html) virtual environment
     ///
     /// # Examples
-    /// ```no-run
+    /// ```ignore
     /// use pipe_lib::Command;
     ///
     /// let command = Command::init().name("ls".to_string()).build();
@@ -871,29 +910,65 @@ impl Script {
                 .map(|value| StringTemplate::new(&value).remove_spaces().value)
                 .collect(),
         };
-        let environment = template.environment;
+        let manager = template.manager;
+        let virtual_environment = match template.environment {
+            | Some(name) => Some(VirtualEnvironment::init().name(name).maybe_manager(manager).build()),
+            | None => None,
+        };
         let command = Command::init().name(template.command).build();
-        Script::init().command(command).arguments(arguments).build().with_environment(environment)
+        Script::init()
+            .command(command)
+            .arguments(arguments)
+            .build()
+            .with_virtual_environment(virtual_environment)
     }
     fn get_command(&self) -> String {
-        match &self.command.virtual_environment {
-            | Some(_) => "conda".to_string(),
+        let name = match &self.command.virtual_environment {
+            | Some(VirtualEnvironment { manager, .. }) => manager.to_string(),
             | _ => self.command.name.clone(),
+        };
+        match &self.command.container {
+            | Some(ContainerEnvironment { runtime, .. }) => runtime.to_string(),
+            | _ => name,
         }
     }
     fn get_arguments(&self) -> Vec<String> {
-        match &self.command.virtual_environment {
-            | Some(name) => {
-                let mut arguments = to_string(vec!["run", "--name", name, "--no-capture-output", &self.command.name]);
+        let self_arguments = match &self.command.virtual_environment {
+            | Some(VirtualEnvironment { name, manager, .. }) => {
+                let mut arguments = match manager {
+                    | VirtualEnvironmentManager::Conda => to_string(vec!["run", "--name", name, "--no-capture-output", &self.command.name]),
+                    | VirtualEnvironmentManager::Pixi => to_string(vec!["run", "--environment", name, &self.command.name]),
+                    | _ => {
+                        error!(name = manager.to_string(), "=> {} Virtual environment manager", Label::not_found());
+                        vec![]
+                    }
+                };
                 arguments.extend(self.arguments.clone());
                 arguments
             }
             | _ => self.arguments.clone(),
+        };
+        match &self.command.container {
+            | Some(ContainerEnvironment { name, .. }) => {
+                let wrapped_command = match &self.command.virtual_environment {
+                    | Some(VirtualEnvironment { manager, .. }) => manager.to_string(),
+                    | _ => self.command.name.clone(),
+                };
+                let mut arguments = to_string(vec!["run", "--rm", name, &wrapped_command]);
+                arguments.extend(self_arguments);
+                arguments
+            }
+            | _ => self_arguments,
         }
     }
-    /// Create Conda environment from an environment.yml file
-    pub fn maybe_create_conda_environment(uri: String, _verbosity: Option<Level>) -> Option<Script> {
-        let current_dir = ModuleUri::from(&uri).working_directory(None);
+    /// Create virtual environment from associated manifest file (ex. environment.yml or pyproject.toml)
+    /// TODO: Add support for Pixi and other virtual environment managers
+    pub fn maybe_create_virtual_environment(
+        parent: String,
+        _manager: Option<VirtualEnvironmentManager>,
+        _verbosity: Option<Level>,
+    ) -> Option<Script> {
+        let current_dir = ModuleUri::from(&parent).working_directory(None);
         let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
         match manifest_path.try_exists() {
             | Ok(true) => {
@@ -1013,11 +1088,20 @@ impl Script {
             vec![]
         }
     }
+    pub fn with_container(mut self, container: ContainerEnvironment) -> Self {
+        self.command.container.clone_from(&Some(container));
+        self
+    }
     /// Set current working directory for the script
     ///
     /// Provides builder interface and returns reference to self
     pub fn with_current_dir(mut self, path: String) -> Self {
         self.current_dir = path;
+        self
+    }
+    /// Set script environment variables to be set during script.run call
+    pub fn with_envs(mut self, values: HashMap<String, String>) -> Self {
+        self.envs = Some(values.clone());
         self
     }
     /// Set virtual environment for the script
@@ -1042,25 +1126,21 @@ impl Script {
     /// let command = Command::init().name("python".to_string()).build();
     /// let arguments = to_string(vec!["-m", "lib"]);
     /// let script = Script::init().command(command).arguments(arguments).build();
-    /// let output = script.with_environment(None).run();
+    /// let output = script.with_virtual_environment(None).run();
     /// ```
     ///
     /// Run using "module-a" Conda virtual environment (basically executes script with `conda run -n <name>`)
     /// ```
-    /// use pipe_lib::{to_string, Command, Script};
+    /// use pipe_lib::{to_string, Command, Script, VirtualEnvironment};
     ///
     /// let command = Command::init().name("python".to_string()).build();
     /// let arguments = to_string(vec!["-m", "lib"]);
     /// let script = Script::init().command(command).arguments(arguments).build();
-    /// let output = script.with_environment(Some("module-a".to_string())).run();
+    /// let virtual_environment = VirtualEnvironment::init().name("module-a".to_string()).build();
+    /// let output = script.with_virtual_environment(Some(virtual_environment)).run();
     /// ```
-    pub fn with_environment(mut self, environment: Option<String>) -> Self {
-        self.command.virtual_environment.clone_from(&environment);
-        self
-    }
-    /// Set script environment variables to be set during script.run call
-    pub fn with_envs(mut self, values: HashMap<String, String>) -> Self {
-        self.envs = Some(values.clone());
+    pub fn with_virtual_environment(mut self, value: Option<VirtualEnvironment>) -> Self {
+        self.command.virtual_environment.clone_from(&value);
         self
     }
 }

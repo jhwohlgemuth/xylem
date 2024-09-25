@@ -1,0 +1,13 @@
+{
+    "command": "python",
+    "manager": "Pixi",
+    "environment": "cuda",
+    "arguments": [
+        "-m",
+        "lib",
+        "--input",
+        "{{ INPUT_DIRECTORY }}",
+        "--output",
+        "{{ OUTPUT_DIRECTORY }}"
+    ]
+}

@@ -25,9 +25,10 @@ fn test_add_forward_slash() {
 fn test_command() {
     let nonexistent: Command = Command::init().name("does-not-exist".to_string()).build();
     assert!(!nonexistent.test());
-    let python = Command::init().name("python".to_string()).virtual_environment("base".to_string()).build();
-    assert_eq!(python.name, "python".to_string());
-    assert_eq!(python.virtual_environment, Some("base".to_string()));
+    let base = VirtualEnvironment::init().name("base".to_string()).build();
+    let python = Command::init().name("python".to_string()).virtual_environment(base).build();
+    assert_eq!(python.clone().name, "python".to_string());
+    assert_eq!(python.clone().virtual_environment.unwrap().to_string(), "base".to_string());
     if cfg!(target_os = "windows") {
         let command = Command::init().name("cmd".to_string()).build();
         assert!(command.test());
@@ -144,7 +145,9 @@ fn test_get_conda_environment_list() {
 fn test_get_conda_environment_name() {
     let path = format!("{}/environment.yml", FIXTURES);
     let manifest_path = PathBuf::from(path);
-    assert!(get_conda_environment_name(manifest_path).unwrap().starts_with("some-really-interesting-name"));
+    assert!(get_conda_environment_name(manifest_path)
+        .unwrap()
+        .starts_with("some-really-interesting-name"));
     let manifest_path = PathBuf::from("/non/existing/manifest.yml");
     assert_eq!(get_conda_environment_name(manifest_path), None);
 }
@@ -261,16 +264,20 @@ fn test_script_expand_arguments() {
         script.clone().expand_arguments().arguments,
         vec!["-m", "lib", "--input", "/path/to/input", "--output", "/path/to/output"]
     );
-    let environment = "foo".to_string();
+    let environment = VirtualEnvironment::init().name("foo".to_string()).build();
     assert_eq!(
-        script.clone().expand_arguments().with_environment(Some(environment.clone())).to_string(),
+        script
+            .clone()
+            .expand_arguments()
+            .with_virtual_environment(Some(environment.clone()))
+            .to_string(),
         format!(
             "conda run --name {} --no-capture-output python -m lib --input /path/to/input --output /path/to/output",
             environment
         )
     );
     assert_eq!(
-        script.clone().expand_arguments().with_environment(None).to_string(),
+        script.clone().expand_arguments().with_virtual_environment(None).to_string(),
         "python -m lib --input /path/to/input --output /path/to/output"
     );
     let command = Command::init().name("echo".to_string()).build();
@@ -283,7 +290,7 @@ fn test_script_expand_arguments() {
     ]);
     let script = Script::init().command(command).arguments(arguments).build();
     assert_eq!(
-        script.clone().expand_arguments().with_environment(None).to_string(),
+        script.clone().expand_arguments().with_virtual_environment(None).to_string(),
         "echo one! two! and three! one! two! three! one!/three!"
     );
 }
@@ -305,12 +312,12 @@ fn test_script_expand_arguments_from() {
         ("INPUT_DIRECTORY".to_string(), "FOO".to_string()),
         ("OUTPUT_DIRECTORY".to_string(), "BAR".to_string()),
     ]);
-    let environment = "foo".to_string();
+    let environment = VirtualEnvironment::init().name("foo".to_string()).build();
     assert_eq!(
         script
             .clone()
             .expand_arguments_from(envs.clone())
-            .with_environment(Some(environment.clone()))
+            .with_virtual_environment(Some(environment.clone()))
             .to_string(),
         format!(
             "conda run --name {} --no-capture-output python -m lib --input FOO --output BAR",
@@ -318,7 +325,11 @@ fn test_script_expand_arguments_from() {
         )
     );
     assert_eq!(
-        script.clone().expand_arguments_from(envs.clone()).with_environment(None).to_string(),
+        script
+            .clone()
+            .expand_arguments_from(envs.clone())
+            .with_virtual_environment(None)
+            .to_string(),
         "python -m lib --input FOO --output BAR"
     );
     let command = Command::init().name("echo".to_string()).build();
@@ -336,7 +347,11 @@ fn test_script_expand_arguments_from() {
     ]);
     let script = Script::init().command(command).arguments(arguments).build();
     assert_eq!(
-        script.clone().expand_arguments_from(envs.clone()).with_environment(None).to_string(),
+        script
+            .clone()
+            .expand_arguments_from(envs.clone())
+            .with_virtual_environment(None)
+            .to_string(),
         "echo one two and three one two three one/three"
     );
 }
@@ -358,6 +373,36 @@ fn test_script_from_template() {
     );
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
+    // Pixi virtual environment manager
+    let path = PathBuf::from(format!("{}/template_pixi.json", FIXTURES));
+    let script = Script::from_path(path);
+    assert_eq!(
+        format!("{}", script),
+        "pixi run --environment cuda python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}"
+    );
+}
+
+#[test]
+fn test_script_get_arguments() {
+    let command = Command::init().name("echo".to_string()).build();
+    let manager = VirtualEnvironmentManager::Conda;
+    let virtual_environment = VirtualEnvironment::init().name("base".to_string()).manager(manager).build();
+    let container = ContainerEnvironment::init().name("CONTAINER".to_string()).build();
+    let arguments = to_string(vec!["hello", "world"]);
+    let script = Script::init().command(command).arguments(arguments).build();
+    assert_eq!(format!("{}", script), "echo hello world");
+    assert_eq!(
+        format!("{}", script.clone().with_virtual_environment(Some(virtual_environment.clone()))),
+        "conda run --name base --no-capture-output echo hello world"
+    );
+    assert_eq!(
+        format!("{}", script.clone().with_container(container.clone())),
+        "docker run --rm CONTAINER echo hello world"
+    );
+    assert_eq!(
+        format!("{}", script.with_container(container).with_virtual_environment(Some(virtual_environment))),
+        "docker run --rm CONTAINER conda run --name base --no-capture-output echo hello world"
+    );
 }
 
 #[test]

@@ -2,6 +2,7 @@ use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
 use exitcode;
 use nanoid::nanoid;
+use pipe_lib::VirtualEnvironment;
 use pipe_lib::{get_conda_environment_name, get_parent, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script};
 use rayon::prelude::*;
 use std::convert::TryFrom;
@@ -138,7 +139,13 @@ pub fn run(
                                     }
                                 }
                                 // TODO: Check script repository with is_valid_pipe_module_python
-                                if let Some(script) = Script::maybe_create_conda_environment(module_root, verbose.log_level()) {
+                                // TODO: Add support for designating virtual environment manager
+                                // let manager = match &module.template {
+                                //     | Some(TemplateAttribute::Template(ScriptTemplate { manager, .. })) => manager,
+                                //     | Some(TemplateAttribute::Path(_)) => &None,
+                                //     | _ => &None,
+                                // };
+                                if let Some(script) = Script::maybe_create_virtual_environment(module_root, None, verbose.log_level()) {
                                     if dry_run {
                                         let cwd = script.clone().current_dir;
                                         info!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
@@ -160,7 +167,13 @@ pub fn run(
                                     programming_language
                                 );
                                 // TODO: Check script repository with is_valid_pipe_module_python
-                                if let Some(script) = Script::maybe_create_conda_environment(uri.to_string(), verbose.log_level()) {
+                                // TODO: Add support for designating virtual environment manager
+                                // let manager = match &module.template {
+                                //     | Some(TemplateAttribute::Template(ScriptTemplate { manager, .. })) => manager,
+                                //     | Some(TemplateAttribute::Path(_)) => &None,
+                                //     | _ => &None,
+                                // };
+                                if let Some(script) = Script::maybe_create_virtual_environment(uri.to_string(), None, verbose.log_level()) {
                                     if dry_run {
                                         let cwd = script.clone().current_dir;
                                         info!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
@@ -238,7 +251,7 @@ pub fn run(
                         );
                         let loaded = Script::from_module(module.clone(), Some(root.clone()));
                         let environment = match get_conda_environment_name(manifest_path) {
-                            | Some(value) => Some(value),
+                            | Some(value) => Some(VirtualEnvironment::init().name(value).build()),
                             | None => match &module.template {
                                 | Some(_) => loaded.clone().command.virtual_environment,
                                 | None => None,
@@ -248,7 +261,7 @@ pub fn run(
                         let script = loaded
                             .expand_arguments_from(envs)
                             .with_current_dir(working_dir)
-                            .with_environment(environment);
+                            .with_virtual_environment(environment);
                         if dry_run {
                             EnvironmentValue::print_all();
                             info!(
