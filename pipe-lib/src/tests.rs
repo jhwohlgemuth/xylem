@@ -379,7 +379,7 @@ fn test_script_from_template() {
     // Docker + Pixi
     let path = PathBuf::from(format!("{}/template_docker_pixi.json", FIXTURES));
     let script = Script::from_path(path);
-    let expected = "docker run --rm CONTAINER pixi run --environment ENVIRONMENT python -m lib --method {{METHOD}} --profile {{PROFILE}}";
+    let expected = "docker exec CONTAINER pixi run --environment ENVIRONMENT python -m lib --method {{METHOD}} --profile {{PROFILE}}";
     assert_eq!(format!("{}", script), expected);
 }
 
@@ -399,11 +399,11 @@ fn test_script_get_arguments() {
     );
     assert_eq!(
         format!("{}", script.clone().with_container(container.clone())),
-        "docker run --rm CONTAINER echo hello world"
+        "docker exec CONTAINER echo hello world"
     );
     assert_eq!(
         format!("{}", script.with_container(container).with_virtual_environment(Some(virtual_environment))),
-        "docker run --rm CONTAINER conda run --name base --no-capture-output echo hello world"
+        "docker exec CONTAINER conda run --name base --no-capture-output echo hello world"
     );
     // Docker runtime (default)
     let command = Command::init().name("echo".to_string()).build();

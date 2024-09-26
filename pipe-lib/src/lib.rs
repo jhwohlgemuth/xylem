@@ -978,7 +978,8 @@ impl Script {
                     | _ => self.command.name.clone(),
                 };
                 let mut arguments = match runtime {
-                    | ContainerRuntime::Docker | ContainerRuntime::Podman => to_string(vec!["run", "--rm", name, &wrapped_command]),
+                    //TODO: Add support for using "docker run" when container does not exist and image is known
+                    | ContainerRuntime::Docker | ContainerRuntime::Podman => to_string(vec!["exec", name, &wrapped_command]),
                     | ContainerRuntime::Apptainer => to_string(vec!["exec", name, &wrapped_command]),
                     | ContainerRuntime::Unknown => {
                         error!(name = runtime.to_string(), "=> {} Container runtime", Label::not_found());
@@ -992,7 +993,7 @@ impl Script {
         }
     }
     /// Create virtual environment from associated manifest file (ex. environment.yml or pyproject.toml)
-    /// TODO: Add support for Pixi and other virtual environment managers
+    // TODO: Add support for Pixi and other virtual environment managers
     pub fn maybe_create_virtual_environment(
         parent: String,
         _manager: Option<VirtualEnvironmentManager>,
