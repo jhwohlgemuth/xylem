@@ -1,6 +1,9 @@
 {
     "command": "python",
-    "environment": "base",
+    "environment": {
+        "name": "base",
+        "manager": "conda"
+    },
     "arguments": [
         "-m",
         "lib",

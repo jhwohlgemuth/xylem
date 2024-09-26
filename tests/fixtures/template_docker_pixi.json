@@ -4,8 +4,10 @@
         "name": "CONTAINER",
         "runtime": "docker"
     },
-    "manager": "pixi",
-    "environment": "ENVIRONMENT",
+    "environment": {
+        "name": "ENVIRONMENT",
+        "manager": "pixi"
+    },
     "arguments": [
         "-m",
         "lib",

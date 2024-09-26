@@ -410,9 +410,8 @@ pub struct Script {
 pub struct ScriptTemplate {
     pub command: String,
     pub container: Option<ContainerEnvironment>,
-    pub manager: Option<VirtualEnvironmentManager>,
     #[serde(alias = "environment")]
-    pub virtual_environment: Option<String>,
+    pub virtual_environment: Option<VirtualEnvironment>,
     pub arguments: Instruction,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -928,19 +927,10 @@ impl Script {
                 .map(|value| StringTemplate::new(&value).remove_spaces().value)
                 .collect(),
         };
-        let manager = template.manager;
-        let virtual_environment = match template.virtual_environment {
-            | Some(name) => Some(VirtualEnvironment::init().name(name).maybe_manager(manager).build()),
-            | None => None,
-        };
-        let container = match template.container {
-            | Some(value) => Some(value),
-            | None => None,
-        };
         let command = Command::init()
             .name(template.command)
-            .maybe_container(container)
-            .maybe_virtual_environment(virtual_environment)
+            .maybe_container(template.container)
+            .maybe_virtual_environment(template.virtual_environment)
             .build();
         Script::init().command(command).arguments(arguments).build()
     }
@@ -1162,12 +1152,15 @@ impl Script {
     ///
     /// Run using "module-a" Conda virtual environment (basically executes script with `conda run -n <name>`)
     /// ```
-    /// use pipe_lib::{to_string, Command, Script, VirtualEnvironment};
+    /// use pipe_lib::{to_string, Command, Script, VirtualEnvironment, VirtualEnvironmentManager};
     ///
     /// let command = Command::init().name("python".to_string()).build();
     /// let arguments = to_string(vec!["-m", "lib"]);
     /// let script = Script::init().command(command).arguments(arguments).build();
-    /// let virtual_environment = VirtualEnvironment::init().name("module-a".to_string()).build();
+    /// let virtual_environment = VirtualEnvironment::init()
+    ///     .name("module-a".to_string())
+    ///     .manager(VirtualEnvironmentManager::Conda)
+    ///     .build();
     /// let output = script.with_virtual_environment(Some(virtual_environment)).run();
     /// ```
     pub fn with_virtual_environment(mut self, value: Option<VirtualEnvironment>) -> Self {
@@ -1424,7 +1417,7 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
             file.read_to_string(&mut content)
         }
         | Err(err) => {
-            error!(path = path.to_str().unwrap(), "=> {}", Label::fail());
+            error!(path = path.to_str().unwrap(), "=> {} Cannot read file", Label::fail());
             Err(err)
         }
     };

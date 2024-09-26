@@ -25,7 +25,10 @@ fn test_add_forward_slash() {
 fn test_command() {
     let nonexistent: Command = Command::init().name("does-not-exist".to_string()).build();
     assert!(!nonexistent.test());
-    let base = VirtualEnvironment::init().name("base".to_string()).build();
+    let base = VirtualEnvironment::init()
+        .name("base".to_string())
+        .manager(VirtualEnvironmentManager::Conda)
+        .build();
     let python = Command::init().name("python".to_string()).virtual_environment(base).build();
     assert_eq!(python.clone().name, "python".to_string());
     assert_eq!(python.clone().virtual_environment.unwrap().to_string(), "base".to_string());
@@ -264,7 +267,10 @@ fn test_script_expand_arguments() {
         script.clone().expand_arguments().arguments,
         vec!["-m", "lib", "--input", "/path/to/input", "--output", "/path/to/output"]
     );
-    let environment = VirtualEnvironment::init().name("foo".to_string()).build();
+    let environment = VirtualEnvironment::init()
+        .name("foo".to_string())
+        .manager(VirtualEnvironmentManager::Conda)
+        .build();
     assert_eq!(
         script
             .clone()
@@ -312,7 +318,10 @@ fn test_script_expand_arguments_from() {
         ("INPUT_DIRECTORY".to_string(), "FOO".to_string()),
         ("OUTPUT_DIRECTORY".to_string(), "BAR".to_string()),
     ]);
-    let environment = VirtualEnvironment::init().name("foo".to_string()).build();
+    let environment = VirtualEnvironment::init()
+        .name("foo".to_string())
+        .manager(VirtualEnvironmentManager::Conda)
+        .build();
     assert_eq!(
         script
             .clone()

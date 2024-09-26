@@ -1,7 +1,9 @@
 {
     "command": "python",
-    "manager": "Pixi",
-    "environment": "cuda",
+    "environment": {
+        "name": "cuda",
+        "manager": "pixi"
+    },
     "arguments": [
         "-m",
         "lib",
