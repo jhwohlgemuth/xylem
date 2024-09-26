@@ -1,0 +1,17 @@
+{
+    "command": "python",
+    "container": {
+        "name": "CONTAINER",
+        "runtime": "docker"
+    },
+    "manager": "pixi",
+    "environment": "ENVIRONMENT",
+    "arguments": [
+        "-m",
+        "lib",
+        "--method",
+        "{{ METHOD }}",
+        "--profile",
+        "{{ PROFILE }}"
+    ]
+}

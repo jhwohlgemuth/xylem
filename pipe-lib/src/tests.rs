@@ -345,51 +345,53 @@ fn test_script_expand_arguments_from() {
         ("BAR".to_string(), "two".to_string()),
         ("BAZ".to_string(), "three".to_string()),
     ]);
-    let script = Script::init().command(command).arguments(arguments).build();
-    assert_eq!(
-        script
-            .clone()
-            .expand_arguments_from(envs.clone())
-            .with_virtual_environment(None)
-            .to_string(),
-        "echo one two and three one two three one/three"
-    );
+    let script = Script::init()
+        .command(command)
+        .arguments(arguments)
+        .build()
+        .clone()
+        .expand_arguments_from(envs.clone())
+        .with_virtual_environment(None)
+        .to_string();
+    assert_eq!(script, "echo one two and three one two three one/three");
 }
 
 #[test]
 fn test_script_from_template() {
-    let expected_value: Vec<String> = to_string(vec!["-m", "lib", "--input", "{{INPUT_DIRECTORY}}", "--output", "{{OUTPUT_DIRECTORY}}"]);
     // "shell" format arguments
     let path = PathBuf::from(format!("{}/template.json", FIXTURES));
     let script = Script::from_path(path);
+    let expected_value: Vec<String> = to_string(vec!["-m", "lib", "--input", "{{INPUT_DIRECTORY}}", "--output", "{{OUTPUT_DIRECTORY}}"]);
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
     // "exec" format arguments
     let path = PathBuf::from(format!("{}/template_exec.json", FIXTURES));
     let script = Script::from_path(path);
-    assert_eq!(
-        format!("{}", script),
-        "conda run --name base --no-capture-output python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}"
-    );
+    let expected = "conda run --name base --no-capture-output python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}";
+    assert_eq!(format!("{}", script), expected);
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
     // Pixi virtual environment manager
     let path = PathBuf::from(format!("{}/template_pixi.json", FIXTURES));
     let script = Script::from_path(path);
-    assert_eq!(
-        format!("{}", script),
-        "pixi run --environment cuda python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}"
-    );
+    let expected = "pixi run --environment cuda python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}";
+    assert_eq!(format!("{}", script), expected);
+    // Docker + Pixi
+    let path = PathBuf::from(format!("{}/template_docker_pixi.json", FIXTURES));
+    let script = Script::from_path(path);
+    let expected = "docker run --rm CONTAINER pixi run --environment ENVIRONMENT python -m lib --method {{METHOD}} --profile {{PROFILE}}";
+    assert_eq!(format!("{}", script), expected);
 }
 
 #[test]
 fn test_script_get_arguments() {
     let command = Command::init().name("echo".to_string()).build();
+    let container = ContainerEnvironment::init().name("CONTAINER".to_string()).build();
     let manager = VirtualEnvironmentManager::Conda;
     let virtual_environment = VirtualEnvironment::init().name("base".to_string()).manager(manager).build();
-    let container = ContainerEnvironment::init().name("CONTAINER".to_string()).build();
     let arguments = to_string(vec!["hello", "world"]);
     let script = Script::init().command(command).arguments(arguments).build();
+    // Docker runtime (default)
     assert_eq!(format!("{}", script), "echo hello world");
     assert_eq!(
         format!("{}", script.clone().with_virtual_environment(Some(virtual_environment.clone()))),
@@ -402,6 +404,24 @@ fn test_script_get_arguments() {
     assert_eq!(
         format!("{}", script.with_container(container).with_virtual_environment(Some(virtual_environment))),
         "docker run --rm CONTAINER conda run --name base --no-capture-output echo hello world"
+    );
+    // Docker runtime (default)
+    let command = Command::init().name("echo".to_string()).build();
+    let container = ContainerEnvironment::init()
+        .name("CONTAINER".to_string())
+        .runtime(ContainerRuntime::Apptainer)
+        .build();
+    let manager = VirtualEnvironmentManager::Conda;
+    let virtual_environment = VirtualEnvironment::init().name("base".to_string()).manager(manager).build();
+    let arguments = to_string(vec!["hello", "world"]);
+    let script = Script::init().command(command).arguments(arguments).build();
+    assert_eq!(
+        format!("{}", script.clone().with_container(container.clone())),
+        "apptainer exec CONTAINER echo hello world"
+    );
+    assert_eq!(
+        format!("{}", script.with_container(container).with_virtual_environment(Some(virtual_environment))),
+        "apptainer exec CONTAINER conda run --name base --no-capture-output echo hello world"
     );
 }
 

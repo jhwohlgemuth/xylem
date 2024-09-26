@@ -39,12 +39,16 @@ pub type Void = Result<(), Report>;
 pub type Output = Vec<Option<Details>>;
 
 #[derive(Clone, Debug, Display, Serialize, Deserialize, Valuable)]
+#[serde(rename_all = "lowercase")]
 pub enum ContainerRuntime {
     #[display("docker")]
+    #[serde(alias = "Docker")]
     Docker,
     #[display("podman")]
+    #[serde(alias = "Podman")]
     Podman,
     #[display("apptainer")]
+    #[serde(alias = "Apptainer", alias = "Singularity", alias = "singularity")]
     Apptainer,
     #[display("unknown")]
     Unknown,
@@ -175,12 +179,16 @@ pub enum TemplateAttribute {
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub enum TemplateType {
     /// Example: `"some <%= value %>"`
+    #[serde(alias = "ejs")]
     EmbeddedJavaScript,
     /// Example: `"some <%= value %>"`
+    #[serde(alias = "erb")]
     EmbeddedRuby,
     /// Example: `"some {{ value }}"`
+    #[serde(alias = "handlebars", alias = "hbs")]
     Handlebars,
     /// Example: `"some {{ value }}"`
+    #[serde(alias = "mustache")]
     Mustache,
     Unknown,
 }
@@ -188,16 +196,24 @@ pub enum TemplateType {
 pub enum VirtualEnvironmentManager {
     /// [Conda package manager](https://github.com/conda/conda)
     #[display("conda")]
+    #[serde(alias = "conda")]
     Conda,
     /// Simple Python version management (https://github.com/pyenv/pyenv)
     #[display("pyenv")]
+    #[serde(alias = "pyenv")]
     Pyenv,
     /// Tool to create isolated Python environments (https://virtualenv.pypa.io/en/latest/)
     #[display("venv")]
+    #[serde(alias = "venv")]
     Virtualenv,
     /// [Pixi package manager](https://github.com/prefix-dev/pixi/) (that has functional parity with Conda)
     #[display("pixi")]
+    #[serde(alias = "pixi")]
     Pixi,
+    /// [Poetry](https://python-poetry.org/) - Python packaging and dependency management made easy
+    #[display("poetry")]
+    #[serde(alias = "poetry")]
+    Poetry,
     #[display("unknown")]
     Unknown,
 }
@@ -393,8 +409,10 @@ pub struct Script {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ScriptTemplate {
     pub command: String,
+    pub container: Option<ContainerEnvironment>,
     pub manager: Option<VirtualEnvironmentManager>,
-    pub environment: Option<String>,
+    #[serde(alias = "environment")]
+    pub virtual_environment: Option<String>,
     pub arguments: Instruction,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -911,16 +929,20 @@ impl Script {
                 .collect(),
         };
         let manager = template.manager;
-        let virtual_environment = match template.environment {
+        let virtual_environment = match template.virtual_environment {
             | Some(name) => Some(VirtualEnvironment::init().name(name).maybe_manager(manager).build()),
             | None => None,
         };
-        let command = Command::init().name(template.command).build();
-        Script::init()
-            .command(command)
-            .arguments(arguments)
-            .build()
-            .with_virtual_environment(virtual_environment)
+        let container = match template.container {
+            | Some(value) => Some(value),
+            | None => None,
+        };
+        let command = Command::init()
+            .name(template.command)
+            .maybe_container(container)
+            .maybe_virtual_environment(virtual_environment)
+            .build();
+        Script::init().command(command).arguments(arguments).build()
     }
     fn get_command(&self) -> String {
         let name = match &self.command.virtual_environment {
@@ -938,6 +960,7 @@ impl Script {
                 let mut arguments = match manager {
                     | VirtualEnvironmentManager::Conda => to_string(vec!["run", "--name", name, "--no-capture-output", &self.command.name]),
                     | VirtualEnvironmentManager::Pixi => to_string(vec!["run", "--environment", name, &self.command.name]),
+                    | VirtualEnvironmentManager::Poetry => to_string(vec!["run", &self.command.name]),
                     | _ => {
                         error!(name = manager.to_string(), "=> {} Virtual environment manager", Label::not_found());
                         vec![]
@@ -949,12 +972,19 @@ impl Script {
             | _ => self.arguments.clone(),
         };
         match &self.command.container {
-            | Some(ContainerEnvironment { name, .. }) => {
+            | Some(ContainerEnvironment { name, runtime, .. }) => {
                 let wrapped_command = match &self.command.virtual_environment {
                     | Some(VirtualEnvironment { manager, .. }) => manager.to_string(),
                     | _ => self.command.name.clone(),
                 };
-                let mut arguments = to_string(vec!["run", "--rm", name, &wrapped_command]);
+                let mut arguments = match runtime {
+                    | ContainerRuntime::Docker | ContainerRuntime::Podman => to_string(vec!["run", "--rm", name, &wrapped_command]),
+                    | ContainerRuntime::Apptainer => to_string(vec!["exec", name, &wrapped_command]),
+                    | ContainerRuntime::Unknown => {
+                        error!(name = runtime.to_string(), "=> {} Container runtime", Label::not_found());
+                        vec![]
+                    }
+                };
                 arguments.extend(self_arguments);
                 arguments
             }
