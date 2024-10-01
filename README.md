@@ -16,6 +16,9 @@ Parallel Integration & Processing Engine
 ## Documentation
 > Read the code docs at https://pipe.code.ornl and/or explore the [Wiki](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/home)
 
+### Architecture
+> See [ARCHITECTURE.md](./ARCHITECTURE.md)
+
 ## Roadmap
 > See [ROADMAP.md](./ROADMAP.md)
 

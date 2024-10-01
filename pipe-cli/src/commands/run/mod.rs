@@ -23,7 +23,7 @@ pub fn run(
     _output: &Option<PathBuf>,
     dry_run: bool,
     offline: bool,
-    _skip_verify_checksum: bool,
+    skip_verify_checksum: bool,
     skip_verify_requirements: bool,
     verbose: Verbosity,
 ) -> Result<(), Report> {
@@ -60,7 +60,7 @@ pub fn run(
                     }
                 });
             } else {
-                debug!("Skipping requirements verification");
+                warn!("Skipping requirements verification");
             }
             // Prepare modules
             cfg.modules.par_iter().for_each(|module| match &module.module_type {
@@ -72,8 +72,12 @@ pub fn run(
                             // TODO: Filter URL using whitelist
                             // TODO: Check that URL exists
                             // TODO: Download binary to temp directory
-                            // TODO: Verify binary checksum
-                            // TODO: Verify binary is executable (https://docs.rs/is_executable/latest/is_executable/)
+                            if !skip_verify_checksum {
+                                // TODO: Verify binary checksum
+                                // TODO: Verify binary is executable (https://docs.rs/is_executable/latest/is_executable/)
+                            } else {
+                                warn!("Skipping checksum verification");
+                            }
                             unimplemented!("Remote binary modules are not supported yet");
                         }
                         | _ => unimplemented!("Only HTTP, HTTPS, and SSH are currently supported for remote binary modules"),

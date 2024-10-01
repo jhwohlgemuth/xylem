@@ -43,21 +43,6 @@
     make test-cross
     ```
 
-## Project Structure
-```mermaid
-graph LR
-    a[PIPE] --> b[pipe-cli/]
-    a --> c[pipe-lib/]
-    a --> d[pipe-py/]
-    b --> e[CLI application]
-    c --> f[Rust crate]
-    d --> g[Python</br>package]
-    e --> h[commands]
-    e --> i[reporters]
-    f --> j[pipe-cli</br>utility functions]
-    g --> k[Module</br>utility functions]
-```
-
 ## Coding Guidelines
 - Logging
     - This project uses the [tracing](https://docs.rs/tracing/latest/tracing/) crate for logging
