@@ -2,6 +2,7 @@
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::wrong_self_convention)]
 use bon::builder;
+use bytes;
 use clap::ValueEnum;
 use clap_verbosity_flag::Level;
 use color_eyre::eyre::{Report, Result};
@@ -9,6 +10,7 @@ use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
 use owo_colors::{OwoColorize, Style, Styled};
+use reqwest;
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
@@ -23,6 +25,8 @@ use std::{
     env::{set_var, vars},
     io,
 };
+use std::io::copy;
+use std::io::Cursor;
 
 use sha2::{Digest, Sha256};
 use tokio::time::{sleep, Duration, Sleep};
@@ -1277,6 +1281,30 @@ pub fn add_forward_slash(path: PathBuf) -> PathBuf {
     } else {
         path.to_path_buf()
     }
+}
+pub fn download_binary(url: String) -> Result<(), String> {
+    async fn download(url: String) -> Result<(), String> {
+        let client = reqwest::Client::new();
+        let response = client.get(url.clone()).send();
+        let filename = PathBuf::from(url.clone()).file_name().unwrap().to_str().unwrap().to_string();
+        match response.await {
+            | Ok(data) => {
+                match data.bytes().await {
+                    | Ok(content) => {
+                        let mut output = File::create(filename.clone()).unwrap();
+                        let _ = copy(&mut Cursor::new(content.clone()), &mut output);
+                        debug!(filename=filename, "=> {} Downloaded", Label::output());
+                        Ok(())
+                    },
+                    | Err(_) => Err(format!("No content downloaded from {url}"))
+                }
+            },
+            | Err(_) => Err(format!("Failed to download {url}"))
+        }
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let _ = runtime.block_on(download(url.clone()));
+    Ok(())
 }
 /// Get SHA256 hash of a file
 pub fn get_checksum(path: PathBuf) -> String {
