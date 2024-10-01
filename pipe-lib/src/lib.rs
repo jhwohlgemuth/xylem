@@ -2,7 +2,6 @@
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::wrong_self_convention)]
 use bon::builder;
-use bytes;
 use clap::ValueEnum;
 use clap_verbosity_flag::Level;
 use color_eyre::eyre::{Report, Result};
@@ -10,7 +9,6 @@ use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
 use owo_colors::{OwoColorize, Style, Styled};
-use reqwest;
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
@@ -19,14 +17,14 @@ use std::convert::TryFrom;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fs::File;
+use std::io::copy;
+use std::io::Cursor;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::{
     env::{set_var, vars},
     io,
 };
-use std::io::copy;
-use std::io::Cursor;
 
 use sha2::{Digest, Sha256};
 use tokio::time::{sleep, Duration, Sleep};
@@ -896,15 +894,7 @@ impl Script {
     /// let output = script.run();
     /// ```
     pub fn from_path(path: PathBuf) -> Script {
-        let content = match read_file(path.clone()) {
-            | Ok(value) => value,
-            | Err(_) => {
-                error!("Failed to read file: {:?}", path);
-                "".to_owned()
-            }
-        };
-        let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
-        let template = json.expect("=> [ERROR] Failed to parse script template").clone();
+        let template = ScriptTemplate::from_path(path);
         Script::from_template(template)
     }
     /// Create a script from a ScriptTemplate struct.
@@ -1019,8 +1009,16 @@ impl Script {
                     | None => None,
                 }
             }
-            | _ => {
-                error!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::not_found());
+            | Ok(false) => {
+                debug!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::not_found());
+                None
+            }
+            | Err(_) => {
+                error!(
+                    path = manifest_path.to_str().unwrap(),
+                    "=> {} Error while trying to test existence",
+                    Label::fail()
+                );
                 None
             }
         }
@@ -1037,9 +1035,9 @@ impl Script {
         let arguments = to_string(vec![
             "-m",
             "lib",
-            "--directory",
+            "--input_directory",
             "{{ INPUT_DIRECTORY }}",
-            "--output",
+            "--output_directory",
             "{{ OUTPUT_DIRECTORY }}",
         ]);
         Script::init().command(command).arguments(arguments).build()
@@ -1172,6 +1170,43 @@ impl Script {
         self
     }
 }
+impl ScriptTemplate {
+    pub fn from_path(path: PathBuf) -> ScriptTemplate {
+        let content = match read_file(path.clone()) {
+            | Ok(value) => value,
+            | Err(_) => {
+                error!("Failed to read file: {:?}", path);
+                "".to_owned()
+            }
+        };
+        let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
+
+        json.expect("=> [ERROR] Failed to parse script template").clone()
+    }
+    pub fn resolve_python_virtual_environment(path: PathBuf) -> Option<VirtualEnvironment> {
+        let default_template_path = path.join("template.json");
+        let conda_manifest_path = PathBuf::from(&path).join("environment.yml");
+        match conda_manifest_path.try_exists() {
+            | Ok(true) => match get_conda_environment_name(conda_manifest_path.clone()) {
+                | Some(value) => {
+                    debug!(path = conda_manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::using());
+                    Some(VirtualEnvironment::init().name(value).manager(VirtualEnvironmentManager::Conda).build())
+                }
+                | None => match default_template_path.try_exists() {
+                    | Ok(true) => ScriptTemplate::from_path(default_template_path).virtual_environment,
+                    | _ => None,
+                },
+            },
+            | _ => {
+                // TODO: Check if other package manager is being used
+                match default_template_path.try_exists() {
+                    | Ok(true) => ScriptTemplate::from_path(default_template_path).virtual_environment,
+                    | _ => None,
+                }
+            }
+        }
+    }
+}
 impl StringTemplate {
     const RE_HANDLEBARS: &'static str = r"\{\{(?P<variable>[A-Z_ ]*)\}\}";
     const RE_SPACES: &'static str = r"((?<=\{\{) *(?=[A-Z])|(?<=[A-Z]) *(?=\}\}))";
@@ -1288,18 +1323,16 @@ pub fn download_binary(url: String) -> Result<(), String> {
         let response = client.get(url.clone()).send();
         let filename = PathBuf::from(url.clone()).file_name().unwrap().to_str().unwrap().to_string();
         match response.await {
-            | Ok(data) => {
-                match data.bytes().await {
-                    | Ok(content) => {
-                        let mut output = File::create(filename.clone()).unwrap();
-                        let _ = copy(&mut Cursor::new(content.clone()), &mut output);
-                        debug!(filename=filename, "=> {} Downloaded", Label::output());
-                        Ok(())
-                    },
-                    | Err(_) => Err(format!("No content downloaded from {url}"))
+            | Ok(data) => match data.bytes().await {
+                | Ok(content) => {
+                    let mut output = File::create(filename.clone()).unwrap();
+                    let _ = copy(&mut Cursor::new(content.clone()), &mut output);
+                    debug!(filename = filename, "=> {} Downloaded", Label::output());
+                    Ok(())
                 }
+                | Err(_) => Err(format!("No content downloaded from {url}")),
             },
-            | Err(_) => Err(format!("Failed to download {url}"))
+            | Err(_) => Err(format!("Failed to download {url}")),
         }
     }
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -1359,22 +1392,25 @@ pub fn get_conda_environment_list() -> Vec<String> {
 /// get_conda_environment_name(PathBuf::from("/path/to/environment.yml"));
 /// ```
 pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
-    match read_file(path) {
-        | Ok(content) => {
-            let name = content
-                .split('\n')
-                .collect::<Vec<_>>()
-                .clone()
-                .into_iter()
-                .next()?
-                .split("name: ")
-                .collect::<Vec<_>>()
-                .clone()
-                .into_iter()
-                .nth(1)?
-                .to_string();
-            Some(name)
-        }
+    match path.try_exists() {
+        | Ok(true) => match read_file(path) {
+            | Ok(content) => {
+                let name = content
+                    .split('\n')
+                    .collect::<Vec<_>>()
+                    .clone()
+                    .into_iter()
+                    .next()?
+                    .split("name: ")
+                    .collect::<Vec<_>>()
+                    .clone()
+                    .into_iter()
+                    .nth(1)?
+                    .to_string();
+                Some(name)
+            }
+            | _ => None,
+        },
         | _ => None,
     }
 }

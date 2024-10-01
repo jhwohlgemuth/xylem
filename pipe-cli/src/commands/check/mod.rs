@@ -16,6 +16,7 @@ use checks::*;
 
 const DEFAULT_CONFIG_NAME: &str = "config.json";
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     path: &Option<PathBuf>,
     config: &Option<PathBuf>,

@@ -2,10 +2,8 @@ use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
 use exitcode;
 use nanoid::nanoid;
-use pipe_lib::VirtualEnvironment;
 use pipe_lib::{
-    get_conda_environment_name, get_parent, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script,
-    TemplateAttribute, VirtualEnvironmentManager,
+    get_parent, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script, ScriptTemplate, TemplateAttribute,
 };
 use rayon::prelude::*;
 use std::convert::TryFrom;
@@ -17,6 +15,7 @@ use uriparse::URI;
 
 const DEFAULT_CONFIG_NAME: &str = "config.json";
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     config: &Option<PathBuf>,
     _reporter: &Option<Vec<String>>,
@@ -249,34 +248,15 @@ pub fn run(
                     }
                     | ModuleLanguage::Python => {
                         let working_dir = ModuleUri::from(uri).working_directory(Some(root.clone()));
-                        let loaded = Script::from_module(module.clone(), Some(root.clone()));
                         let virtual_environment = match &module.template {
-                            | Some(TemplateAttribute::Template(value)) => match &value.virtual_environment {
-                                | Some(virtual_environment) => Some(virtual_environment.clone()),
-                                | None => {
-                                    let conda_manifest_path = PathBuf::from(&working_dir).join("environment.yml");
-                                    match conda_manifest_path.try_exists() {
-                                        | Ok(_) => match get_conda_environment_name(conda_manifest_path.clone()) {
-                                            | Some(value) => {
-                                                debug!(
-                                                    module = module.name,
-                                                    path = conda_manifest_path.to_str().unwrap(),
-                                                    "=> {} Manifest file",
-                                                    Label::using()
-                                                );
-                                                Some(VirtualEnvironment::init().name(value).manager(VirtualEnvironmentManager::Conda).build())
-                                            }
-                                            | None => None,
-                                        },
-                                        | Err(_) => None,
-                                    }
-                                }
-                            },
-                            | Some(TemplateAttribute::Path(_)) => None,
-                            | None => None,
+                            | Some(TemplateAttribute::Path(value)) => {
+                                ScriptTemplate::from_path(PathBuf::from(&working_dir).join(value)).virtual_environment
+                            }
+                            | Some(TemplateAttribute::Template(value)) => value.virtual_environment.clone(),
+                            | None => ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(working_dir.clone())),
                         };
                         let envs = EnvironmentValue::get_from_config(&cfg, Some(module.clone()));
-                        let script = loaded
+                        let script = Script::from_module(module.clone(), Some(root.clone()))
                             .expand_arguments_from(envs)
                             .with_current_dir(working_dir)
                             .with_virtual_environment(virtual_environment);
