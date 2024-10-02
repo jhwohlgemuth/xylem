@@ -8,9 +8,10 @@ lint:
 	@cargo fmt --verbose
 	@cargo clippy --no-deps --all-targets --fix --allow-dirty
 
-test: lint
+test: clean lint
+	@cargo build
 	@cargo test
-	@cargo tarpaulin --out lcov --ignore-tests
+	@cargo tarpaulin --out lcov --line --skip-clean
 
 test-cross: clean
 	@for target in $(TARGETS) ; do \

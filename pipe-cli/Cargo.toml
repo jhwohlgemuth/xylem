@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 pipe-lib = { path = "../pipe-lib" }
-clap = { version = "4.4.2", features = ["derive"] }
+clap = { version = "4.4.2", features = ["derive", "unstable-doc"] }
 console = { version = "0.15.7", default-features = false, features = ["ansi-parsing"] }
 glob = "0.3.1"
 indicatif = "0.17.6"
@@ -24,6 +24,7 @@ tracing = { workspace = true }
 tracing-log = { workspace = true }
 tracing-subscriber = { workspace = true }
 uriparse = { workspace = true }
+assert_cmd = "2.0.16"
 
 [dev-dependencies]
 cargo-watch = "8.4.1"
