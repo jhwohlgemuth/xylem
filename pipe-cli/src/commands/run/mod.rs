@@ -127,12 +127,11 @@ pub fn run(
                                     }
                                     // TODO: Verify binary is executable (https://docs.rs/is_executable/latest/is_executable/)
                                 } else {
-                                    warn!("Skipping checksum verification");
+                                    warn!(module = module.name, url, "=> {} Skipping checksum verification", Label::pass());
                                 }
                             } else {
                                 info!(module = module.name, url, "=> {} Download remote binary", Label::dry_run());
                             }
-                            unimplemented!("Remote binary modules are not supported yet");
                         }
                         | _ => unimplemented!("Only HTTP, HTTPS, and SSH are currently supported for remote binary modules"),
                     },
