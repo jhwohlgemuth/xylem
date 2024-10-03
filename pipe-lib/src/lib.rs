@@ -640,7 +640,7 @@ impl Label {
     }
     pub fn fail() -> Styled<&'static &'static str> {
         let style = Style::new().white().on_red();
-        " FAIL ".style(style)
+        " ✗ FAIL ".style(style)
     }
     pub fn found() -> Styled<&'static &'static str> {
         let style = Style::new().green().on_default_color();
@@ -653,6 +653,10 @@ impl Label {
     pub fn output() -> Styled<&'static &'static str> {
         let style = Style::new().cyan().dimmed().on_default_color();
         "OUTPUT".style(style)
+    }
+    pub fn pass() -> Styled<&'static &'static str> {
+        let style = Style::new().green().on_default_color();
+        "☑  PASS".style(style)
     }
     pub fn read() -> Styled<&'static &'static str> {
         let style = Style::new().green().on_default_color();
@@ -1317,15 +1321,15 @@ pub fn add_forward_slash(path: PathBuf) -> PathBuf {
         path.to_path_buf()
     }
 }
-pub fn download_binary(url: String) -> Result<(), String> {
-    async fn download(url: String) -> Result<(), String> {
+pub fn download_binary(url: String, destination: PathBuf) -> Result<PathBuf, String> {
+    async fn download(url: String, destination: PathBuf) -> Result<(), String> {
         let client = reqwest::Client::new();
         let response = client.get(url.clone()).send();
         let filename = PathBuf::from(url.clone()).file_name().unwrap().to_str().unwrap().to_string();
         match response.await {
             | Ok(data) => match data.bytes().await {
                 | Ok(content) => {
-                    let mut output = File::create(filename.clone()).unwrap();
+                    let mut output = File::create(destination.join(filename.clone())).unwrap();
                     let _ = copy(&mut Cursor::new(content.clone()), &mut output);
                     debug!(filename = filename, "=> {} Downloaded", Label::output());
                     Ok(())
@@ -1336,8 +1340,9 @@ pub fn download_binary(url: String) -> Result<(), String> {
         }
     }
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-    let _ = runtime.block_on(download(url.clone()));
-    Ok(())
+    let _ = runtime.block_on(download(url.clone(), destination.clone()));
+    let filename = PathBuf::from(url.clone()).file_name().unwrap().to_str().unwrap().to_string();
+    Ok(destination.join(filename))
 }
 /// Get SHA256 hash of a file
 pub fn get_checksum(path: PathBuf) -> String {

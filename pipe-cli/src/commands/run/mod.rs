@@ -3,17 +3,44 @@ use color_eyre::eyre::Report;
 use exitcode;
 use nanoid::nanoid;
 use pipe_lib::{
-    get_parent, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script, ScriptTemplate, TemplateAttribute,
+    download_binary, get_checksum, get_parent, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script,
+    ScriptTemplate, TemplateAttribute,
 };
 use rayon::prelude::*;
 use std::convert::TryFrom;
 use std::env;
+use std::fs;
+#[cfg(any(unix, target_os = "wasi", target_os = "redox"))]
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 use uriparse::Scheme;
 use uriparse::URI;
 
 const DEFAULT_CONFIG_NAME: &str = "config.json";
+
+#[cfg(any(unix, target_os = "wasi", target_os = "redox"))]
+fn make_executable(path: &PathBuf) {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+#[cfg(windows)]
+fn make_executable(path: &PathBuf) {
+    // TODO: Add windows support...pass through?
+}
+fn check_requirements(config: &Config, skip: bool) {
+    if !skip {
+        config.requirements.iter().for_each(|name| {
+            let command = Command::init().name(name.clone()).build();
+            if !command.test() {
+                error!(name, "=> {} Requirement not met", Label::not_found());
+                std::process::exit(exitcode::UNAVAILABLE);
+            }
+        });
+    } else {
+        warn!("Skipping requirements verification");
+    }
+}
+fn check_resources(_config: &Config, _skip: bool) {}
 
 #[allow(clippy::too_many_arguments)]
 pub fn run(
@@ -31,7 +58,7 @@ pub fn run(
     match std::fs::create_dir_all(root.clone()) {
         | Ok(_) => {
             let path = root.clone().into_os_string().into_string().unwrap();
-            debug!(path, "Created temporary directory");
+            debug!(path, "=> {} Root directory", Label::using());
         }
         | Err(err) => error!("{}", err),
     }
@@ -49,33 +76,61 @@ pub fn run(
     };
     match Config::read(config_path) {
         | Some(cfg) => {
-            // Check requirements
-            if !skip_verify_requirements {
-                cfg.requirements.iter().for_each(|name| {
-                    let command = Command::init().name(name.clone()).build();
-                    if !command.test() {
-                        error!(name, "=> {} Requirement not met", Label::not_found());
-                        std::process::exit(exitcode::UNAVAILABLE);
-                    }
-                });
-            } else {
-                warn!("Skipping requirements verification");
-            }
+            check_requirements(&cfg, skip_verify_requirements);
+            check_resources(&cfg, false);
+            //
             // Prepare modules
+            //
             cfg.modules.par_iter().for_each(|module| match &module.module_type {
-                | ModuleType::Binary { uri, .. } => match ModuleUri::from(uri) {
+                | ModuleType::Binary { uri, checksum } => match ModuleUri::from(uri) {
                     | ModuleUri::Url(value) if !offline => match value.scheme() {
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                             let url = value.to_string();
-                            debug!(module = module.name, url, "=> {} Remote binary", Label::found());
                             // TODO: Filter URL using whitelist
                             // TODO: Check that URL exists
-                            // TODO: Download binary to temp directory
-                            if !skip_verify_checksum {
-                                // TODO: Verify binary checksum
-                                // TODO: Verify binary is executable (https://docs.rs/is_executable/latest/is_executable/)
+                            debug!(module = module.name, url, "=> {} Remote binary", Label::found());
+                            if !dry_run {
+                                let output = download_binary(url.clone(), root.clone());
+                                if !skip_verify_checksum {
+                                    let calculated_checksum = match output.clone() {
+                                        | Ok(path) => get_checksum(path),
+                                        | _ => "".to_string(),
+                                    };
+                                    match checksum {
+                                        | Some(value) if value == &calculated_checksum => {
+                                            info!(module = module.name, url, "=> {} Checksum verified", Label::pass());
+                                            if let Ok(path) = output {
+                                                make_executable(&path);
+                                            }
+                                        }
+                                        | Some(_) => {
+                                            error!(
+                                                module = module.name,
+                                                url,
+                                                checksum,
+                                                calculated = calculated_checksum,
+                                                "=> {} Remote binary checksum does not match",
+                                                Label::fail()
+                                            );
+                                            std::process::exit(exitcode::USAGE);
+                                        }
+                                        | None => {
+                                            error!(
+                                                module = module.name,
+                                                url,
+                                                checksum,
+                                                "=> {} Remote binary checksum does not match",
+                                                Label::fail()
+                                            );
+                                            std::process::exit(exitcode::UNAVAILABLE);
+                                        }
+                                    }
+                                    // TODO: Verify binary is executable (https://docs.rs/is_executable/latest/is_executable/)
+                                } else {
+                                    warn!("Skipping checksum verification");
+                                }
                             } else {
-                                warn!("Skipping checksum verification");
+                                info!(module = module.name, url, "=> {} Download remote binary", Label::dry_run());
                             }
                             unimplemented!("Remote binary modules are not supported yet");
                         }
