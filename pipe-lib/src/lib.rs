@@ -755,6 +755,11 @@ impl SemanticVersion {
     }
 }
 impl Script {
+    pub fn ensure_relative(mut self) -> Script {
+        let path = PathBuf::from(self.command.name);
+        self.command.name = add_dot_slash(path).to_str().unwrap().to_string();
+        self
+    }
     /// Expand environment variables in the script arguments from environment
     ///
     /// This method does not set environment variables, but only interpolates the values within the script arguments

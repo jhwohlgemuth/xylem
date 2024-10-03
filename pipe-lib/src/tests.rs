@@ -247,6 +247,18 @@ fn test_script() {
 }
 
 #[test]
+fn test_script_ensure_relative() {
+    let command = Command::init().name("pipe".to_string()).build();
+    let script = Script::init().command(command).build();
+    assert_eq!(script.command.name, "pipe".to_string());
+    let expected = "./pipe".to_string();
+    // Should add ./ to command name
+    assert_eq!(script.clone().ensure_relative().command.name, expected);
+    // Should not add ./ to command name if already relative
+    assert_eq!(script.ensure_relative().ensure_relative().command.name, expected);
+}
+
+#[test]
 fn test_script_expand_arguments() {
     set_var("_PIPE_INPUT_DIRECTORY", "/path/to/input");
     set_var("_PIPE_OUTPUT_DIRECTORY", "/path/to/output");
