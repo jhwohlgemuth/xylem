@@ -55,7 +55,7 @@ For more information, try '--help'.\n";
 
 #[test]
 fn test_version() {
-    let expected = "pipe-cli 0.0.3\n";
+    let expected = "pipe-cli 0.0.4\n";
     let mut cmd = Command::cargo_bin("pipe-cli").unwrap();
     let assert = cmd.args(["--version"]).assert();
     assert.success().code(0).stdout(expected);
