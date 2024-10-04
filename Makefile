@@ -13,6 +13,10 @@ test: clean lint
 	@cargo test
 	@cargo tarpaulin --out lcov --line --skip-clean
 
+test-ci: clean lint
+	@cargo build
+	@cargo test
+
 test-cross: clean
 	@for target in $(TARGETS) ; do \
         cross test --target $$target; \

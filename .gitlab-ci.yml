@@ -44,7 +44,7 @@ test:
   inherit:
     default: true
     variables: true
-  script: cargo test
+  script: make test-ci
 
 build-release:
   stage: build
