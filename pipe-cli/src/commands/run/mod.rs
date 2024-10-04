@@ -3,7 +3,7 @@ use color_eyre::eyre::Report;
 use exitcode;
 use nanoid::nanoid;
 use pipe_lib::{
-    download_binary, get_checksum, Command, Config, EnvironmentValue, Label, ModuleLanguage, ModuleType, ModuleUri, Script,
+    download_binary, get_checksum, Command, Config, EnvironmentValue, InputAttribute, Label, ModuleLanguage, ModuleType, ModuleUri, Script,
     ScriptTemplate, TemplateAttribute,
 };
 use rayon::prelude::*;
@@ -74,6 +74,20 @@ pub fn run(
     };
     match Config::read(config_path) {
         | Some(cfg) => {
+            let _input = match cfg.clone().input {
+                | Some(value) => match value {
+                    | InputAttribute::Path(_path) => {
+                        // TODO: Verify path points to directory and return Vec<String> of children
+                        Some(vec![])
+                    }
+                    | InputAttribute::List(value) => Some(value),
+                    | InputAttribute::ShellScript(_script) => {
+                        // TODO: Execute shell script and return Vec<String> of files (or folders)
+                        unimplemented!("Shell script workflow input");
+                    }
+                },
+                | None => None,
+            };
             check_requirements(&cfg, skip_verify_requirements);
             check_resources(&cfg, false);
             //
@@ -259,6 +273,16 @@ pub fn run(
                 | _ => unimplemented!("Only binary and script modules are currently supported"),
             });
             // Run workflow
+            match _input {
+                | Some(value) => value.iter().for_each(|path| {
+                    println!("Running workflow on {}", path);
+                    // TODO: Run workflow with path as INPUT_DIRECTORY
+                }),
+                | None => {
+                    println!("Running single workflow with no input");
+                    // TODO: Run workflow with path as INPUT_DIRECTORY
+                }
+            };
             cfg.modules.iter().for_each(|module| match &module.module_type {
                 | ModuleType::Binary { .. } => {
                     let envs = EnvironmentValue::get_from_config(&cfg, Some(module.clone()));

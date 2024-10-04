@@ -68,6 +68,13 @@ enum Extension {
     Yaml,
     Unknown,
 }
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum InputAttribute {
+    Path(String),
+    List(Vec<String>),
+    ShellScript(String),
+}
 #[derive(Clone, Debug, Serialize, Deserialize, Valuable)]
 #[serde(untagged)]
 pub enum Instruction {
@@ -269,12 +276,12 @@ pub struct Config {
     /// Workflow input
     ///
     /// Can be:
-    /// - a path to a file
-    /// - a path to a folder that contains files
-    /// - script that returns lists of file paths (executed in the current working directory)
+    /// - a list of paths
+    /// - a path to a folder that contains files (or folders)
+    /// - a script that returns a list of file (or folder) paths (executed in the current working directory)
     ///
     /// If input is not provided, the workflow will run similar to a 0-adic function.
-    pub input: Option<String>,
+    pub input: Option<InputAttribute>,
     /// Workflow output
     ///
     /// Designates a path to the workflow output artifacts for verification and export purposes
