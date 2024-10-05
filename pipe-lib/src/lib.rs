@@ -3,7 +3,7 @@
 #![allow(clippy::wrong_self_convention)]
 use bon::builder;
 use clap::ValueEnum;
-use clap_verbosity_flag::Level;
+use clap_verbosity_flag::{Level, Verbosity};
 use color_eyre::eyre::{Report, Result};
 use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
@@ -73,7 +73,7 @@ enum Extension {
 pub enum InputAttribute {
     Path(String),
     List(Vec<String>),
-    ShellScript(String),
+    ShellScript(ScriptTemplate),
 }
 #[derive(Clone, Debug, Serialize, Deserialize, Valuable)]
 #[serde(untagged)]
@@ -287,6 +287,21 @@ pub struct Config {
     /// Designates a path to the workflow output artifacts for verification and export purposes
     #[serde(alias = "artifacts")]
     pub output: Option<String>,
+}
+#[derive(Clone, Debug)]
+#[builder(start_fn(name = init))]
+pub struct ConfigOptions {
+    #[builder(default = PathBuf::from("."))]
+    pub root: PathBuf,
+    #[builder(default = false)]
+    pub dry_run: bool,
+    #[builder(default = false)]
+    pub offline: bool,
+    #[builder(default = false)]
+    pub skip_verify_checksum: bool,
+    #[builder(default = false)]
+    pub skip_verify_requirements: bool,
+    pub verbose: Verbosity,
 }
 /// Struct for using and sharing containerized environments
 ///
@@ -546,6 +561,31 @@ impl Config {
             | None => (),
         }
         Ok(())
+    }
+    /// Verify software requirements are met on host system (ex. Python, conda, etc...)
+    ///
+    /// Uses process similar to Linux `which` to determine if a given command is available on the host system.
+    ///
+    pub fn verify_requirements(self, options: &ConfigOptions) -> Config {
+        if !options.skip_verify_requirements {
+            self.requirements.iter().for_each(|name| {
+                let command = Command::init().name(name.clone()).build();
+                if !command.test() {
+                    error!(name, "=> {} Requirement not met", Label::not_found());
+                    std::process::exit(exitcode::UNAVAILABLE);
+                }
+            });
+        } else {
+            warn!("Skipping requirements verification");
+        }
+        self
+    }
+    /// Verify hardware resources (ex. GPU) are available for the workflow on host system
+    ///
+    /// Under construction
+    ///
+    pub fn verify_resources(self, _options: &ConfigOptions) -> Config {
+        self
     }
 }
 impl PartialEq for Details {
