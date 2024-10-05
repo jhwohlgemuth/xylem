@@ -3,15 +3,16 @@
 #![allow(clippy::wrong_self_convention)]
 use bon::builder;
 use clap::ValueEnum;
-use clap_verbosity_flag::{Level, Verbosity};
 use color_eyre::eyre::{Report, Result};
 use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
 use is_terminal::IsTerminal;
 use owo_colors::{OwoColorize, Style, Styled};
+use rayon::prelude::*;
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::error::Error;
@@ -23,10 +24,8 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::{
     env::{set_var, vars},
-    io,
+    fs, io,
 };
-
-use sha2::{Digest, Sha256};
 use tokio::time::{sleep, Duration, Sleep};
 use tracing::{debug, error, info, trace, warn};
 use uriparse::Scheme;
@@ -287,8 +286,9 @@ pub struct Config {
     /// Designates a path to the workflow output artifacts for verification and export purposes
     #[serde(alias = "artifacts")]
     pub output: Option<String>,
+    pub options: Option<ConfigOptions>,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
 pub struct ConfigOptions {
     #[builder(default = PathBuf::from("."))]
@@ -301,7 +301,6 @@ pub struct ConfigOptions {
     pub skip_verify_checksum: bool,
     #[builder(default = false)]
     pub skip_verify_requirements: bool,
-    pub verbose: Verbosity,
 }
 /// Struct for using and sharing containerized environments
 ///
@@ -488,6 +487,237 @@ impl Command {
     }
 }
 impl Config {
+    pub fn get_environment_variables(self, module: Option<Module>, input: Option<String>) -> HashMap<String, String> {
+        let config_vars = self.variables.clone().unwrap_or_default();
+        let module_vars = module.unwrap().variables.clone().unwrap_or_default();
+        let mut envs = EnvironmentValue::get_from_serde(&config_vars);
+        envs.extend(EnvironmentValue::get_from_serde(&module_vars));
+        envs.insert("INPUT".to_string(), input.unwrap_or_default());
+        envs
+    }
+    /// Get inputs from input attribute for concurrent workflow execution
+    ///
+    /// See [InputAttribute](crate::InputAttribute) for more details
+    ///
+    pub fn get_inputs(self) -> Option<Vec<String>> {
+        match self.input {
+            | Some(value) => match value {
+                | InputAttribute::Path(value) => {
+                    let path = PathBuf::from(value);
+                    match path.try_exists() {
+                        | Ok(true) => {
+                            if path.is_dir() {
+                                let children = get_children(path_to_string(path));
+                                Some(children)
+                            } else {
+                                error!(path = path.to_str().unwrap(), "=> {} Input directory", Label::not_found());
+                                None
+                            }
+                        }
+                        | _ => {
+                            error!(path = path.to_str().unwrap(), "=> {} Input directory", Label::not_found());
+                            None
+                        }
+                    }
+                }
+                | InputAttribute::List(value) => Some(value),
+                | InputAttribute::ShellScript(_script) => {
+                    // TODO: Execute shell script and return Vec<String> of files (or folders)
+                    unimplemented!("Shell script workflow input");
+                }
+            },
+            | None => None,
+        }
+    }
+    /// Prepare workflow modules for execution
+    ///
+    /// Module preparation is done in parallel and includes the following steps:
+    /// - Download binary files and verify file integrity
+    /// - Git clone script projects and setup virtual environments
+    /// - Validate local and downloaded remote modules are ready for execution
+    ///
+    pub fn prepare_modules(self, options: &ConfigOptions) -> Config {
+        self.modules.par_iter().for_each(|module| match &module.module_type {
+            | ModuleType::Binary { uri, checksum } => match ModuleUri::from(uri) {
+                | ModuleUri::Url(value) if !options.offline => match value.scheme() {
+                    | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
+                        let url = value.to_string();
+                        // TODO: Filter URL using whitelist
+                        // TODO: Check that URL exists
+                        debug!(module = module.name, url, "=> {} Remote binary", Label::found());
+                        if !options.dry_run {
+                            let output = download_binary(url.clone(), options.root.clone());
+                            if !options.skip_verify_checksum {
+                                let calculated_checksum = match output.clone() {
+                                    | Ok(path) => get_checksum(path),
+                                    | _ => "".to_string(),
+                                };
+                                match checksum {
+                                    | Some(value) if value == &calculated_checksum => {
+                                        info!(module = module.name, url, "=> {} Checksum verified", Label::pass());
+                                        if let Ok(path) = output {
+                                            make_executable(&path);
+                                        }
+                                    }
+                                    | Some(_) => {
+                                        error!(
+                                            module = module.name,
+                                            url,
+                                            checksum,
+                                            calculated = calculated_checksum,
+                                            "=> {} Remote binary checksum does not match",
+                                            Label::fail()
+                                        );
+                                        std::process::exit(exitcode::USAGE);
+                                    }
+                                    | None => {
+                                        error!(
+                                            module = module.name,
+                                            url,
+                                            checksum,
+                                            "=> {} Remote binary checksum does not match",
+                                            Label::fail()
+                                        );
+                                        std::process::exit(exitcode::UNAVAILABLE);
+                                    }
+                                }
+                                // TODO: Verify binary is executable (https://docs.rs/is_executable/latest/is_executable/)
+                            } else {
+                                warn!(module = module.name, url, "=> {} Skipping checksum verification", Label::pass());
+                            }
+                        } else {
+                            info!(module = module.name, url, "=> {} Download remote binary", Label::dry_run());
+                        }
+                    }
+                    | _ => unimplemented!("Only HTTP, HTTPS, and SSH are currently supported for remote binary modules"),
+                },
+                | ModuleUri::File(value) => match value.try_exists() {
+                    | Ok(true) => {
+                        let path = value.into_os_string().into_string().unwrap();
+                        // TODO: Verify binary is executable (https://docs.rs/is_executable/latest/is_executable/)
+                        debug!(module = module.name, path, "=> {} Local binary", Label::found());
+                    }
+                    | _ => {
+                        let path = value.into_os_string().into_string().unwrap();
+                        error!(module = module.name, path, "=> {} Local binary", Label::not_found());
+                        std::process::exit(exitcode::UNAVAILABLE);
+                    }
+                },
+                | _ => unimplemented!("Only URLs and files are currently supported for binary modules"),
+            },
+            | ModuleType::Script { programming_language, uri } => match programming_language {
+                | ModuleLanguage::Generic => match ModuleUri::from(uri) {
+                    | ModuleUri::Url(value) if !options.offline => match value.scheme() {
+                        | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
+                            debug!(uri, "=> {} Remote script repository", Label::found());
+                            // TODO: Filter URL using whitelist
+                            // TODO: Check that URL exists
+                            // TODO: Git clone module
+                            // TODO: Check script repository with is_valid_pipe_module_python
+                            unimplemented!("Remote Generic script modules are not supported yet");
+                        }
+                        | _ => unimplemented!("Only HTTP, HTTPS, and SSH are currently supported for remote generic script modules"),
+                    },
+                    | ModuleUri::File(value) => match value.try_exists() {
+                        | Ok(true) => {
+                            let path = value.into_os_string().into_string().unwrap();
+                            debug!(module = module.name, path, "=> {} Local script repository", Label::found());
+                            // TODO: Check script repository with is_valid_pipe_module_python
+                        }
+                        | _ => {
+                            let path = value.into_os_string().into_string().unwrap();
+                            error!(module = module.name, path, "=> {} Local script module", Label::not_found());
+                            std::process::exit(exitcode::UNAVAILABLE);
+                        }
+                    },
+                    | _ => unimplemented!("Only URLs and files are currently supported for Generic script modules"),
+                },
+                | ModuleLanguage::Python => match ModuleUri::from(uri) {
+                    | ModuleUri::Url(value) if !options.offline => match value.scheme() {
+                        | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
+                            debug!(uri, "=> {} Remote {} script repository", Label::found(), programming_language);
+                            // TODO: Filter URL using whitelist
+                            // TODO: Check that URL exists
+                            if ModuleUri::from(uri).test() {
+                                info!(module = module.name, uri, "=> {}", Label::found());
+                            } else {
+                                error!(module = module.name, uri, "=> {}", Label::rejected());
+                                std::process::exit(exitcode::USAGE);
+                            };
+                            let current_dir = options.root.clone().into_os_string().into_string().unwrap();
+                            let module_root = options.root.join(ModuleUri::from(uri).hash()).into_os_string().into_string().unwrap();
+                            if let Some(script) = Script::maybe_git_clone(uri.clone(), current_dir) {
+                                if options.dry_run {
+                                    let cwd = script.clone().current_dir;
+                                    warn!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
+                                } else {
+                                    script.run();
+                                }
+                            }
+                            // TODO: Check script repository with is_valid_pipe_module_python
+                            // TODO: Add support for designating virtual environment manager
+                            // let manager = match &module.template {
+                            //     | Some(TemplateAttribute::Template(ScriptTemplate { manager, .. })) => manager,
+                            //     | Some(TemplateAttribute::Path(_)) => &None,
+                            //     | _ => &None,
+                            // };
+                            if let Some(script) = Script::maybe_create_virtual_environment(module_root, None) {
+                                if options.dry_run {
+                                    let cwd = script.clone().current_dir;
+                                    info!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
+                                } else {
+                                    script.run();
+                                }
+                            };
+                        }
+                        | _ => unimplemented!("Only HTTP, HTTPS, and SSH are currently supported for Python script modules"),
+                    },
+                    | ModuleUri::File(value) => match value.try_exists() {
+                        | Ok(true) => {
+                            let path = value.into_os_string().into_string().unwrap();
+                            debug!(
+                                module = module.name,
+                                path,
+                                "=> {} Local {} script repository",
+                                Label::found(),
+                                programming_language
+                            );
+                            // TODO: Check script repository with is_valid_pipe_module_python
+                            // TODO: Add support for designating virtual environment manager
+                            // let manager = match &module.template {
+                            //     | Some(TemplateAttribute::Template(ScriptTemplate { manager, .. })) => manager,
+                            //     | Some(TemplateAttribute::Path(_)) => &None,
+                            //     | _ => &None,
+                            // };
+                            if let Some(script) = Script::maybe_create_virtual_environment(uri.to_string(), None) {
+                                if options.dry_run {
+                                    let cwd = script.clone().current_dir;
+                                    info!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
+                                } else {
+                                    script.run();
+                                }
+                            };
+                        }
+                        | _ => {
+                            let path = value.into_os_string().into_string().unwrap();
+                            error!(
+                                module = module.name,
+                                path,
+                                "=> {} Local {} script module",
+                                Label::not_found(),
+                                programming_language
+                            );
+                            std::process::exit(exitcode::UNAVAILABLE);
+                        }
+                    },
+                    | _ => unimplemented!("Only URLs and files are currently supported for Python script modules"),
+                },
+                | _ => unimplemented!("Only Generic and Python script modules are currently supported"),
+            },
+            | _ => unimplemented!("Only binary and script modules are currently supported"),
+        });
+        self
+    }
     pub fn read(path: PathBuf) -> Option<Config> {
         let content = match Extension::from_string(get_extension(&path)) {
             | Extension::Json => match Config::read_json(path.clone()) {
@@ -549,6 +779,81 @@ impl Config {
         debug!("=> {} Configuration = {:#?}", label, data.dimmed());
         data
     }
+    /// Run workflow modules
+    ///
+    /// Modules are run in the order they are defined in the configuration
+    ///
+    pub fn run_workflow(self, input: Option<String>, options: &ConfigOptions) {
+        self.modules.iter().for_each(|module| match &module.module_type {
+            | ModuleType::Binary { .. } => {
+                let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
+                let working_dir = options.root.clone().into_os_string().into_string().unwrap();
+                let loaded = Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())));
+                let script = loaded.ensure_relative().expand_arguments_from(envs).with_current_dir(working_dir);
+                if options.dry_run {
+                    EnvironmentValue::print_all();
+                    info!(
+                        module = module.name,
+                        script = script.to_string(),
+                        cwd = script.current_dir,
+                        "=> {}",
+                        Label::dry_run()
+                    );
+                } else {
+                    script.run();
+                }
+            }
+            | ModuleType::Script { programming_language, uri } => match programming_language {
+                | ModuleLanguage::Generic => {
+                    let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
+                    let working_dir = ModuleUri::from(uri).working_directory(Some(options.root.clone()));
+                    let loaded = Script::from_module(module.clone(), Some(options.root.clone()));
+                    let script = loaded.expand_arguments_from(envs).with_current_dir(working_dir);
+                    if options.dry_run {
+                        EnvironmentValue::print_all();
+                        info!(
+                            module = module.name,
+                            script = script.to_string(),
+                            cwd = script.current_dir,
+                            "=> {}",
+                            Label::dry_run()
+                        );
+                    } else {
+                        script.run();
+                    }
+                }
+                | ModuleLanguage::Python => {
+                    let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
+                    let working_dir = ModuleUri::from(uri).working_directory(Some(options.root.clone()));
+                    let virtual_environment = match &module.template {
+                        | Some(TemplateAttribute::Path(value)) => {
+                            ScriptTemplate::from_path(PathBuf::from(&working_dir).join(value)).virtual_environment
+                        }
+                        | Some(TemplateAttribute::Template(value)) => value.virtual_environment.clone(),
+                        | None => ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(working_dir.clone())),
+                    };
+                    let script = Script::from_module(module.clone(), Some(options.root.clone()))
+                        .expand_arguments_from(envs)
+                        .with_current_dir(working_dir)
+                        .with_virtual_environment(virtual_environment);
+                    if options.dry_run {
+                        EnvironmentValue::print_all();
+                        info!(
+                            module = module.name,
+                            script = script.to_string(),
+                            cwd = script.current_dir,
+                            "=> {}",
+                            Label::dry_run()
+                        );
+                    } else {
+                        script.run();
+                    }
+                }
+                | _ => unimplemented!("Only Generic and Python script modules are currently supported"),
+            },
+            | _ => unimplemented!("Only binary and script modules are currently supported"),
+        });
+    }
     /// Set environment variables from PIPE configuration "variables" attribute
     pub fn set_environment_variables(&self) -> Void {
         match &self.variables {
@@ -587,6 +892,10 @@ impl Config {
     pub fn verify_resources(self, _options: &ConfigOptions) -> Config {
         self
     }
+    // pub fn with_options(mut self, options: ConfigOptions) -> Config {
+    //     self.options = options;
+    //     return self
+    // }
 }
 impl PartialEq for Details {
     fn eq(&self, other: &Self) -> bool {
@@ -614,13 +923,6 @@ impl EnvironmentValue {
     fn trim_prefix(key: String) -> String {
         let pre = format!("_{}_", EnvironmentValue::PREFIX.to_uppercase());
         key.trim_start_matches(&pre).to_string()
-    }
-    pub fn get_from_config(config: &Config, module: Option<Module>) -> HashMap<String, String> {
-        let config_vars = config.variables.clone().unwrap_or_default();
-        let module_vars = module.unwrap().variables.clone().unwrap_or_default();
-        let mut envs = EnvironmentValue::get_from_serde(&config_vars);
-        envs.extend(EnvironmentValue::get_from_serde(&module_vars));
-        envs
     }
     pub fn get_from_serde(values: &Map<String, Value>) -> HashMap<String, String> {
         let mut lookup: HashMap<String, String> = HashMap::new();
@@ -681,25 +983,37 @@ impl Label {
         let style = Style::new().black().on_yellow();
         " DRY_RUN ■ ".style(style)
     }
-    pub fn invalid() -> Styled<&'static &'static str> {
-        let style = Style::new().red().on_default_color();
-        "INVALID".style(style)
+    pub fn invalid() -> String {
+        Label::fmt_invalid("INVALID")
     }
-    pub fn fail() -> Styled<&'static &'static str> {
+    pub fn fmt_invalid(value: &str) -> String {
+        let style = Style::new().red().on_default_color();
+        value.style(style).to_string()
+    }
+    pub fn fail() -> String {
+        Label::fmt_fail("FAIL")
+    }
+    pub fn fmt_fail(value: &str) -> String {
         let style = Style::new().white().on_red();
-        " ✗ FAIL ".style(style)
+        format!(" ✗ {} ", value).style(style).to_string()
     }
     pub fn found() -> Styled<&'static &'static str> {
         let style = Style::new().green().on_default_color();
         "FOUND".style(style)
     }
-    pub fn not_found() -> Styled<&'static &'static str> {
-        let style = Style::new().red().on_default_color();
-        "NOT_FOUND".style(style)
+    pub fn not_found() -> String {
+        Label::fmt_not_found("NOT_FOUND")
     }
-    pub fn output() -> Styled<&'static &'static str> {
+    pub fn fmt_not_found(value: &str) -> String {
+        let style = Style::new().red().on_default_color();
+        value.style(style).to_string()
+    }
+    pub fn output() -> String {
+        Label::fmt_output("OUTPUT")
+    }
+    pub fn fmt_output(value: &str) -> String {
         let style = Style::new().cyan().dimmed().on_default_color();
-        "OUTPUT".style(style)
+        value.style(style).to_string()
     }
     pub fn pass() -> Styled<&'static &'static str> {
         let style = Style::new().green().on_default_color();
@@ -1034,11 +1348,7 @@ impl Script {
     }
     /// Create virtual environment from associated manifest file (ex. environment.yml or pyproject.toml)
     // TODO: Add support for Pixi and other virtual environment managers
-    pub fn maybe_create_virtual_environment(
-        parent: String,
-        _manager: Option<VirtualEnvironmentManager>,
-        _verbosity: Option<Level>,
-    ) -> Option<Script> {
+    pub fn maybe_create_virtual_environment(parent: String, _manager: Option<VirtualEnvironmentManager>) -> Option<Script> {
         let current_dir = ModuleUri::from(&parent).working_directory(None);
         let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
         match manifest_path.try_exists() {
@@ -1079,7 +1389,7 @@ impl Script {
             }
         }
     }
-    pub fn maybe_git_clone(url: String, current_dir: String, _verbosity: Option<Level>) -> Option<Script> {
+    pub fn maybe_git_clone(url: String, current_dir: String) -> Option<Script> {
         let module_uri = ModuleUri::from(&url);
         let command = Command::init().name("git".to_string()).build();
         let arguments = to_string(vec!["clone", &url, &module_uri.hash()]);
@@ -1405,6 +1715,16 @@ pub fn get_checksum(path: PathBuf) -> String {
         unreachable!()
     }
 }
+/// Get list of directory children
+///
+/// Only first level children are returned
+///
+pub fn get_children(path: String) -> Vec<String> {
+    match fs::read_dir(path) {
+        | Ok(value) => value.flatten().map(|x| path_to_string(x.path())).collect::<Vec<_>>(),
+        | Err(_) => Vec::new(),
+    }
+}
 /// Get list of Conda virtual environments
 pub fn get_conda_environment_list() -> Vec<String> {
     let command = Command::init().name("conda".to_string()).build();
@@ -1518,6 +1838,23 @@ pub fn is_stdout_piped() -> StdoutIsPipedResult {
     } else {
         StdoutIsPipedResult::StdoutIsNotPiped
     }
+}
+#[cfg(any(unix, target_os = "wasi", target_os = "redox"))]
+fn make_executable(path: &PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+#[cfg(windows)]
+fn make_executable(path: &PathBuf) {
+    // TODO: Add windows support...pass through?
+}
+fn path_to_string(path: PathBuf) -> String {
+    // NOTE: fs::canonicalize might cause problems on Windows
+    let result = match fs::canonicalize(path.as_path()) {
+        | Ok(value) => value,
+        | Err(_) => path,
+    };
+    result.to_str().unwrap().to_string()
 }
 /// Read content of a file to a string
 ///

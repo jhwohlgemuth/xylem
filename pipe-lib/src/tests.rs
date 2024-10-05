@@ -134,6 +134,19 @@ fn test_get_checksum_panic() {
 }
 
 #[test]
+fn test_get_children() {
+    assert_eq!(get_children("../../does/not/exist".to_string()), Vec::<String>::new());
+    match PathBuf::from("/root/dev/command").try_exists() {
+        | Ok(true) => {
+            let expected = to_string(vec!["/root/dev/command/pipe-lib/src", "/root/dev/command/pipe-lib/Cargo.toml"]);
+            assert_eq!(get_children("../pipe-lib".to_string()), expected);
+        }
+        | Ok(false) => (),
+        | Err(_) => (),
+    };
+}
+
+#[test]
 fn test_get_conda_environment_list() {
     let list = get_conda_environment_list();
     let conda = Command::init().name("conda".to_string()).build();
@@ -220,6 +233,20 @@ fn test_module_uri_hash() {
     let expected = "example_com";
     let url = ModuleUri::from("http://example.com");
     assert_eq!(expected, url.hash());
+}
+
+#[test]
+fn test_path_to_string() {
+    assert_eq!(path_to_string(PathBuf::from("foo/bar")), "foo/bar");
+    assert_eq!(path_to_string(PathBuf::from("../../../does/not/exist")), "../../../does/not/exist");
+    let path = "/root/dev/command/pipe-cli/Cargo.toml";
+    match PathBuf::from(path).try_exists() {
+        | Ok(true) => {
+            assert_eq!(path_to_string(PathBuf::from("../pipe-cli/Cargo.toml")), path);
+        }
+        | Ok(false) => (),
+        | Err(_) => (),
+    }
 }
 
 #[test]
@@ -450,7 +477,7 @@ fn test_script_get_arguments() {
 fn test_script_git_clone() {
     let url = "https://code.ornl.gov/some/project".to_string();
     let current_dir = ".".to_string();
-    if let Some(script) = Script::maybe_git_clone(url.clone(), current_dir, None) {
+    if let Some(script) = Script::maybe_git_clone(url.clone(), current_dir) {
         assert_eq!(script.to_string(), format!("git clone {} code_ornl_gov_some_project", url.clone()));
     };
 }
