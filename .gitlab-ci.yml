@@ -99,6 +99,8 @@ publish-release:
     - if: $CI_COMMIT_TAG
       when: never
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - Cargo.toml
   release: 
     tag_name: "v$PKG_VERSION" 
     description: "PIPE CLI v$PKG_VERSION"

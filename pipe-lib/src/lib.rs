@@ -543,9 +543,14 @@ impl Config {
                 | ModuleUri::Url(value) if !options.offline => match value.scheme() {
                     | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                         let url = value.to_string();
-                        // TODO: Filter URL using whitelist
+                        if ModuleUri::is_allowed(value) {
+                            debug!(module = module.name, url, "=> {} Remote binary", Label::found());
+                            info!(module = module.name, url, "=> {} Remote binary URL is on whitelist", Label::pass());
+                        } else {
+                            error!(module = module.name, url, "=> {} Not on whitelist", Label::rejected());
+                            std::process::exit(exitcode::NOPERM);
+                        }
                         // TODO: Check that URL exists
-                        debug!(module = module.name, url, "=> {} Remote binary", Label::found());
                         if !options.dry_run {
                             let output = download_binary(url.clone(), options.root.clone());
                             if !options.skip_verify_checksum {
@@ -557,7 +562,9 @@ impl Config {
                                     | Some(value) if value == &calculated_checksum => {
                                         info!(module = module.name, url, "=> {} Checksum verified", Label::pass());
                                         if let Ok(path) = output {
-                                            if !make_executable(&path) {
+                                            if make_executable(&path) {
+                                                info!(module = module.name, url, "=> {} Downloaded binary is executable", Label::pass());
+                                            } else {
                                                 error!(
                                                     module = module.name,
                                                     url,
@@ -566,8 +573,6 @@ impl Config {
                                                     Label::fail()
                                                 );
                                                 std::process::exit(exitcode::USAGE);
-                                            } else {
-                                                info!(module = module.name, url, "=> {} Downloaded binary is executable", Label::pass());
                                             }
                                         }
                                     }
@@ -606,11 +611,11 @@ impl Config {
                     | Ok(true) => {
                         let path = value.into_os_string().into_string().unwrap();
                         debug!(module = module.name, path, "=> {} Local binary", Label::found());
-                        if !make_executable(&PathBuf::from(path.clone())) {
+                        if make_executable(&PathBuf::from(path.clone())) {
+                            info!(module = module.name, path, "=> {} Binary is executable", Label::pass());
+                        } else {
                             error!(module = module.name, path, "=> {} Binary is not executable", Label::fail());
                             std::process::exit(exitcode::USAGE);
-                        } else {
-                            info!(module = module.name, path, "=> {} Binary is executable", Label::pass());
                         }
                     }
                     | _ => {
@@ -625,8 +630,14 @@ impl Config {
                 | ModuleLanguage::Generic => match ModuleUri::from(uri) {
                     | ModuleUri::Url(value) if !options.offline => match value.scheme() {
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
-                            debug!(uri, "=> {} Remote script repository", Label::found());
-                            // TODO: Filter URL using whitelist
+                            let url = value.to_string();
+                            if ModuleUri::is_allowed(value) {
+                                debug!(module = module.name, url, "=> {} Remote script repository", Label::found());
+                                info!(module = module.name, url, "=> {} URL is on whitelist", Label::pass());
+                            } else {
+                                error!(module = module.name, url, "=> {} Not on whitelist", Label::rejected());
+                                std::process::exit(exitcode::NOPERM);
+                            }
                             // TODO: Check that URL exists
                             // TODO: Git clone module
                             // TODO: Check script repository with is_valid_pipe_module_python
@@ -651,8 +662,20 @@ impl Config {
                 | ModuleLanguage::Python => match ModuleUri::from(uri) {
                     | ModuleUri::Url(value) if !options.offline => match value.scheme() {
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
-                            debug!(uri, "=> {} Remote {} script repository", Label::found(), programming_language);
-                            // TODO: Filter URL using whitelist
+                            let url = value.to_string();
+                            if ModuleUri::is_allowed(value) {
+                                debug!(
+                                    module = module.name,
+                                    url,
+                                    "=> {} Remote {} script repository",
+                                    Label::found(),
+                                    programming_language
+                                );
+                                info!(module = module.name, url, "=> {} URL is on whitelist", Label::pass());
+                            } else {
+                                error!(module = module.name, url, "=> {} Not on whitelist", Label::rejected());
+                                std::process::exit(exitcode::NOPERM);
+                            }
                             // TODO: Check that URL exists
                             if ModuleUri::from(uri).test() {
                                 info!(module = module.name, uri, "=> {}", Label::found());
@@ -1040,8 +1063,8 @@ impl Label {
         "READ".style(style)
     }
     pub fn rejected() -> Styled<&'static &'static str> {
-        let style = Style::new().white().on_red();
-        " REJECTED ".style(style)
+        let style = Style::new().red().on_default_color();
+        "🛑 REJECTED ".style(style)
     }
     pub fn run() -> Styled<&'static &'static str> {
         let style = Style::new().black().on_yellow();
