@@ -16,7 +16,7 @@ stages:
   - prepare
   - test
   - build
-  - publish
+  - docs
   - release
 
 prepare-environment:
@@ -61,7 +61,7 @@ build-release:
       - bin/
 
 publish-docs:
-  stage: publish
+  stage: docs
   image: rust
   inherit:
     default: false
@@ -125,6 +125,8 @@ upload-binaries:
     - if: $CI_COMMIT_TAG
       when: never
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - Cargo.toml
   script:
     - echo "======== UPLOAD JOB ========"
     - ls -la bin/
