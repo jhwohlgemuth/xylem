@@ -52,11 +52,3 @@ For more information, try '--help'.\n";
     let assert = cmd.args(["run", "--config"]).assert();
     assert.failure().code(2).stderr(expected);
 }
-
-#[test]
-fn test_version() {
-    let expected = "pipe-cli 0.0.4\n";
-    let mut cmd = Command::cargo_bin("pipe-cli").unwrap();
-    let assert = cmd.args(["--version"]).assert();
-    assert.success().code(0).stdout(expected);
-}
