@@ -1656,6 +1656,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "is_executable"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4a1b5bad6f9072935961dfbf1cced2f3d129963d091b6f69f007fe04e758ae2"
+dependencies = [
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2234,6 +2243,7 @@ dependencies = [
  "exitcode",
  "fancy-regex",
  "is-terminal",
+ "is_executable",
  "owo-colors 4.0.0",
  "rayon",
  "reqwest",

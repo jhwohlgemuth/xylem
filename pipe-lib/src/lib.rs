@@ -6,6 +6,7 @@ use clap::ValueEnum;
 use color_eyre::eyre::{Report, Result};
 use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
+use is_executable::IsExecutable;
 use is_terminal::IsTerminal;
 use owo_colors::{OwoColorize, Style, Styled};
 use rayon::prelude::*;
@@ -556,7 +557,18 @@ impl Config {
                                     | Some(value) if value == &calculated_checksum => {
                                         info!(module = module.name, url, "=> {} Checksum verified", Label::pass());
                                         if let Ok(path) = output {
-                                            make_executable(&path);
+                                            if !make_executable(&path) {
+                                                error!(
+                                                    module = module.name,
+                                                    url,
+                                                    checksum,
+                                                    "=> {} Downloaded binary is not executable",
+                                                    Label::fail()
+                                                );
+                                                std::process::exit(exitcode::USAGE);
+                                            } else {
+                                                info!(module = module.name, url, "=> {} Downloaded binary is executable", Label::pass());
+                                            }
                                         }
                                     }
                                     | Some(_) => {
@@ -581,7 +593,6 @@ impl Config {
                                         std::process::exit(exitcode::UNAVAILABLE);
                                     }
                                 }
-                                // TODO: Verify binary is executable (https://docs.rs/is_executable/latest/is_executable/)
                             } else {
                                 warn!(module = module.name, url, "=> {} Skipping checksum verification", Label::pass());
                             }
@@ -594,8 +605,13 @@ impl Config {
                 | ModuleUri::File(value) => match value.try_exists() {
                     | Ok(true) => {
                         let path = value.into_os_string().into_string().unwrap();
-                        // TODO: Verify binary is executable (https://docs.rs/is_executable/latest/is_executable/)
                         debug!(module = module.name, path, "=> {} Local binary", Label::found());
+                        if !make_executable(&PathBuf::from(path.clone())) {
+                            error!(module = module.name, path, "=> {} Binary is not executable", Label::fail());
+                            std::process::exit(exitcode::USAGE);
+                        } else {
+                            info!(module = module.name, path, "=> {} Binary is executable", Label::pass());
+                        }
                     }
                     | _ => {
                         let path = value.into_os_string().into_string().unwrap();
@@ -1840,13 +1856,15 @@ pub fn is_stdout_piped() -> StdoutIsPipedResult {
     }
 }
 #[cfg(any(unix, target_os = "wasi", target_os = "redox"))]
-fn make_executable(path: &PathBuf) {
+fn make_executable(path: &PathBuf) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path.is_executable()
 }
 #[cfg(windows)]
-fn make_executable(path: &PathBuf) {
+fn make_executable(path: &PathBuf) -> bool {
     // TODO: Add windows support...pass through?
+    path.is_executable()
 }
 fn path_to_string(path: PathBuf) -> String {
     // NOTE: fs::canonicalize might cause problems on Windows
