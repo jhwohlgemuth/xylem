@@ -68,6 +68,14 @@ publish-docs:
     variables: true
   needs:
     - job: test
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - pipe-cli/**/*
+        - pipe-lib/**/*
+        - pipe-py/**/*
   script:
     - make doc
     - git config --global user.name "${USER}"
