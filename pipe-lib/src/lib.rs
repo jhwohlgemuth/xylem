@@ -13,6 +13,7 @@ use rayon::prelude::*;
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
+use serde_yml;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -943,10 +944,8 @@ impl PartialEq for Details {
 }
 impl EnvironmentValue {
     pub const PREFIX: &'static str = "pipe";
-
-    fn from_string(value: String) -> EnvironmentValue {
-        EnvironmentValue::String(value)
-    }
+    /// Convert serde Value to EnvironmentValue
+    /// 
     fn from_value(value: Value) -> EnvironmentValue {
         match value {
             | Value::String(val) => EnvironmentValue::String(val),
@@ -1005,7 +1004,7 @@ impl EnvironmentValue {
     pub fn set_variables(values: HashMap<String, String>) {
         values
             .into_iter()
-            .for_each(|(key, value)| EnvironmentValue::from_string(value).set_variable(key));
+            .for_each(|(key, value)| EnvironmentValue::String(value).set_variable(key));
     }
 }
 impl Extension {
