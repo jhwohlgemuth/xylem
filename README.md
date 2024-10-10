@@ -10,8 +10,23 @@ Parallel Integration & Processing Engine
 # PIPE Command
 > Parallel Integration and Processing Engine (PIPE) command line (multi)tool for sustainable science
 
-## Getting Started
-> **UNDER CONSTRUCTION**
+## Installation
+> PIPE is currently only tested rigorously on Linux, full Windows support is coming soon
+
+- Download newest binary from [releases page](https://code.ornl.gov/GSHS/common/pipe/command/-/releases)
+    ```shell
+    curl -LO https://code.ornl.gov/api/v4/projects/15383/packages/generic/x86_64-unknown-linux-gnu/v0.0.5/pipe
+    ```
+- Make binary executable
+    ```shell
+    chmod +x ./pipe
+    ```
+- Move binary to folder on path (ex. `/usr/local/bin`)
+    ```shell
+    mv pipe /usr/local/bin
+    ```
+- Verify installation with `pipe --version`
+
 
 ## Documentation
 > **TIP** Read the code docs at https://pipe.code.ornl and/or explore the [Wiki](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/home)
