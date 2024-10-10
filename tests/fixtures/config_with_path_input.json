@@ -1,0 +1,14 @@
+{
+    "version": "0.0.1",
+    "description": "Test workflow configuration with path input",
+    "requirements": [],
+    "keywords": [],
+    "input": "../tests/fixtures/input",
+    "modules": [
+        {
+            "name": "Local Binary Module",
+            "type": "binary",
+            "uri": "file:///path/to/wasm/module"
+        }
+    ]
+}

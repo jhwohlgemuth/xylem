@@ -20,6 +20,11 @@
         "BOOLEAN": true,
         "TOKEN": "X12E45678N"
     },
+    "input": [
+        "input_01",
+        "input_02",
+        "input_03"
+    ],
     "modules": [
         {
             "name": "Local Binary Module",

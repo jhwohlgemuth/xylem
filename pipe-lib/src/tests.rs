@@ -50,6 +50,29 @@ fn test_command() {
 }
 
 #[test]
+fn test_config_get_inputs() {
+    match Config::read(PathBuf::from(format!("{}/config.json", FIXTURES))) {
+        | Some(config) => {
+            assert_eq!(config.get_inputs(), Some(to_string(vec!["input_01", "input_02", "input_03"])));
+        }
+        | None => panic!("Cannot read config in get_input test"),
+    }
+    match Config::read(PathBuf::from(format!("{}/config_with_path_input.json", FIXTURES))) {
+        | Some(config) => {
+            let mut inputs = config
+                .get_inputs()
+                .unwrap()
+                .iter()
+                .map(|x| PathBuf::from(x).file_stem().unwrap().to_str().unwrap().to_string())
+                .collect::<Vec<String>>();
+            inputs.sort();
+            assert_eq!(inputs, to_string(vec!["one", "three", "two"]));
+        }
+        | None => panic!("Cannot read config in get_input test"),
+    }
+}
+
+#[test]
 fn test_config_get_module_list() {
     let path = format!("{}/config.json", FIXTURES);
     match Config::read(PathBuf::from(path)) {
