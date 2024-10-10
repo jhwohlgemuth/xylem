@@ -120,7 +120,7 @@ pub enum ModuleType {
     /// Provides legacy support for exceuting scripts (e.g. Python projects like [Module A](https://code.ornl.gov/GSHS/common/pipe/module-a))
     Script {
         #[serde(alias = "programmingLanguage")]
-        programming_language: ModuleLanguage,
+        programming_language: Option<ModuleLanguage>,
         uri: String,
     },
 }
@@ -643,7 +643,7 @@ impl Config {
                 | _ => unimplemented!("Only URLs and files are currently supported for binary modules"),
             },
             | ModuleType::Script { programming_language, uri } => match programming_language {
-                | ModuleLanguage::Generic => match ModuleUri::from(uri) {
+                | Some(ModuleLanguage::Generic) | None => match ModuleUri::from(uri) {
                     | ModuleUri::Url(value) if !options.offline => match value.scheme() {
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                             let url = value.to_string();
@@ -675,18 +675,12 @@ impl Config {
                     },
                     | _ => unimplemented!("Only URLs and files are currently supported for Generic script modules"),
                 },
-                | ModuleLanguage::Python => match ModuleUri::from(uri) {
+                | Some(ModuleLanguage::Python) => match ModuleUri::from(uri) {
                     | ModuleUri::Url(value) if !options.offline => match value.scheme() {
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                             let url = value.to_string();
                             if ModuleUri::is_allowed(value) {
-                                debug!(
-                                    module = module.name,
-                                    url,
-                                    "=> {} Remote {} script repository",
-                                    Label::found(),
-                                    programming_language
-                                );
+                                debug!(module = module.name, url, "=> {} Remote Python script repository", Label::found());
                                 info!(module = module.name, url, "=> {} URL is on whitelist", Label::pass());
                             } else {
                                 error!(module = module.name, url, "=> {} Not on whitelist", Label::rejected());
@@ -730,13 +724,7 @@ impl Config {
                     | ModuleUri::File(value) => match value.try_exists() {
                         | Ok(true) => {
                             let path = value.into_os_string().into_string().unwrap();
-                            debug!(
-                                module = module.name,
-                                path,
-                                "=> {} Local {} script repository",
-                                Label::found(),
-                                programming_language
-                            );
+                            debug!(module = module.name, path, "=> {} Local Python script repository", Label::found());
                             // TODO: Check script repository with is_valid_pipe_module_python
                             // TODO: Add support for designating virtual environment manager
                             // let manager = match &module.template {
@@ -755,13 +743,7 @@ impl Config {
                         }
                         | _ => {
                             let path = value.into_os_string().into_string().unwrap();
-                            error!(
-                                module = module.name,
-                                path,
-                                "=> {} Local {} script module",
-                                Label::not_found(),
-                                programming_language
-                            );
+                            error!(module = module.name, path, "=> {} Local Python script module", Label::not_found(),);
                             std::process::exit(exitcode::UNAVAILABLE);
                         }
                     },
@@ -859,7 +841,7 @@ impl Config {
                 }
             }
             | ModuleType::Script { programming_language, uri } => match programming_language {
-                | ModuleLanguage::Generic => {
+                | Some(ModuleLanguage::Generic) | None => {
                     let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
                     let working_dir = ModuleUri::from(uri).working_directory(Some(options.root.clone()));
                     let loaded = Script::from_module(module.clone(), Some(options.root.clone()));
@@ -877,7 +859,7 @@ impl Config {
                         script.run();
                     }
                 }
-                | ModuleLanguage::Python => {
+                | Some(ModuleLanguage::Python) => {
                     let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
                     let working_dir = ModuleUri::from(uri).working_directory(Some(options.root.clone()));
                     let virtual_environment = match &module.template {
