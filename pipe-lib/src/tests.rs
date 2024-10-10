@@ -1,4 +1,5 @@
 use crate::*;
+use pyproject_toml::Project;
 use std::env::set_var;
 use std::path::{Path, PathBuf};
 
@@ -246,6 +247,23 @@ fn test_path_to_string() {
         }
         | Ok(false) => (),
         | Err(_) => (),
+    }
+}
+
+#[test]
+fn test_read_pyproject_toml() {
+    let path = format!("{}/pyproject.toml", FIXTURES);
+    match PyProjectToml::read(PathBuf::from(path)) {
+        | Ok(pyproject) => {
+            match &pyproject.project {
+                | Some(Project { name, .. }) => {
+                    assert_eq!(name, "pipe-test-fixture");
+                }
+                | None => panic!("No project in pyproject.toml"),
+            }
+            assert_eq!(pyproject.get_module_name(), Some("some-module".to_string()));
+        }
+        | Err(_) => panic!("Cannot read pyproject.toml"),
     }
 }
 

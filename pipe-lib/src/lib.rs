@@ -13,7 +13,6 @@ use rayon::prelude::*;
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
-use serde_yml;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -364,6 +363,22 @@ pub struct Parameters {
     pub minimal: bool,
     /// Custom string data
     pub custom: Option<String>,
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PyProjectToml {
+    #[serde(flatten)]
+    inner: pyproject_toml::PyProjectToml,
+    tool: Option<PyProjectTool>,
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct PyProjectTool {
+    pipe: Option<ToolPipe>,
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct ToolPipe {
+    module_name: String,
 }
 #[derive(Clone, Debug)]
 pub struct Reporter {
@@ -945,7 +960,7 @@ impl PartialEq for Details {
 impl EnvironmentValue {
     pub const PREFIX: &'static str = "pipe";
     /// Convert serde Value to EnvironmentValue
-    /// 
+    ///
     fn from_value(value: Value) -> EnvironmentValue {
         match value {
             | Value::String(val) => EnvironmentValue::String(val),
@@ -1141,6 +1156,40 @@ impl ModuleUri<'_> {
             },
             | ModuleUri::File(value) => value.clone().into_os_string().into_string().unwrap(),
             | ModuleUri::Unknown(value) => value.to_string(),
+        }
+    }
+}
+impl std::ops::Deref for PyProjectToml {
+    type Target = pyproject_toml::PyProjectToml;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+impl PyProjectToml {
+    pub fn read(path: PathBuf) -> Result<Self, toml::de::Error> {
+        let content = match read_file(path.clone()) {
+            | Ok(value) if !value.is_empty() => value,
+            | Ok(_) | Err(_) => {
+                error!(path = path.to_str().unwrap(), "=> {} PyProject.toml content is not valid", Label::fail());
+                "{}".to_owned()
+            }
+        };
+        let data: Result<PyProjectToml, toml::de::Error> = toml::from_str(&content);
+        let label = match data {
+            | Ok(_) => Label::output(),
+            | Err(_) => Label::invalid(),
+        };
+        trace!("=> {} PyProject.toml = {:#?}", label, data.dimmed());
+        data
+    }
+    pub fn get_module_name(self) -> Option<String> {
+        match self.tool {
+            | Some(PyProjectTool { pipe, .. }) => match pipe {
+                | Some(ToolPipe { module_name, .. }) => Some(module_name),
+                | None => None,
+            },
+            | None => None,
         }
     }
 }

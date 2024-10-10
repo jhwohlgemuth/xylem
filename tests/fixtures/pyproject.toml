@@ -1,0 +1,81 @@
+# See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/ for documentation
+
+[project]
+name = "pipe-test-fixture"
+description = "Test fixture for testing PIPE Python script modules"
+readme = "README.md"
+license = {file = "LICENSE"}
+keywords = ["automation", "geospatial", "workflows"]
+requires-python = ">= 3.8"
+authors = [
+    { name = "Pradyun Gedam", email = "pradyun@example.com" },
+    { name = "Tzu-Ping Chung", email = "tzu-ping@example.com" },
+    { name = "Another person" },
+    { email = "different.person@example.com" },
+]
+maintainers = [{ name = "Brett Cannon", email = "brett@example.com" }]
+
+[tool.pytest.ini_options]
+minversion = "7.1.1"
+addopts = "-p no:warnings -v --cov=lib --cov-report term --cov-report xml"
+testpaths = ["tests"]
+
+[tool.ruff]
+extend-include = ["*.ipynb"]
+line-length = 150
+indent-width = 4
+preview = true
+show-fixes = true
+
+[tool.ruff.format]
+docstring-code-format = false
+docstring-code-line-length = "dynamic"
+indent-style = "space"
+line-ending = "auto"
+quote-style = "double"
+
+[tool.ruff.lint]
+select = [
+    "C90",  # mccabe complexity
+    "D",    # pydocstyle
+    "E",    # pycodestyle (error)
+    "F",    # pyflakes
+    "FLY",  # flynt
+    "I",    # isort
+    "PERF", # perflint
+    "PL",   # Pylint
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "D203",    # one-blank-line-before-class
+    "D212",    # multi-line-summary-first-line
+    "D211",    # no-blank-line-before-class
+    "D100",
+    "D101",
+    "D102",
+    "D103",
+    "D104",
+    "D107",
+    "D205",
+    "D400",
+    "D401",
+    "D415",
+    "D417",
+    "PLR0912", # too-many-branches
+    "PLR0913", # too-many-arguments
+    "PLR0914", # too-many-locals
+    "PLR0915", # too-many-statements
+    "PLR0917", # too-many-positional
+    "PLR2004", # magic-value-comparison
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25 # should eventually be closer to 10
+
+[tool.black]
+line-length = 150
+quiet = true
+target-version = ["py38"]
+
+[tool.pipe]
+module-name = "some-module"
