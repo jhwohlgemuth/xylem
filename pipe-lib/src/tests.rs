@@ -50,6 +50,18 @@ fn test_command() {
 }
 
 #[test]
+fn test_config_get_module_list() {
+    let path = format!("{}/config.json", FIXTURES);
+    match Config::read(PathBuf::from(path)) {
+        | Some(config) => {
+            let expected = "local_binary_module,local_python_script_module,remote_python_script_module";
+            assert_eq!(config.get_module_list(), expected);
+        }
+        | None => panic!("Cannot read config in tests"),
+    }
+}
+
+#[test]
 fn test_config_read() {
     let path = format!("{}/config.json", FIXTURES);
     // Load variables into configuration (JSON or YAML)
@@ -571,6 +583,12 @@ fn test_string_template_handlebars() {
         StringTemplate::new("FOO {{ BAR }} BAZ {{ BIN }}").remove_spaces().value,
         "FOO {{BAR}} BAZ {{BIN}}"
     );
+}
+
+#[test]
+fn test_to_snake_case() {
+    let expected = "some_module_name";
+    assert_eq!(to_snake_case("Some Module Name".to_string()), expected);
 }
 
 #[test]

@@ -50,7 +50,11 @@ pub fn run(
         .build();
     match Config::read(config_path) {
         | Some(cfg) => {
-            let config = cfg.verify_requirements(&options).verify_resources(&options).prepare_modules(&options);
+            let config = cfg
+                .verify_requirements(&options)
+                .verify_resources(&options)
+                .prepare_modules(&options)
+                .set_environment_variables();
             match config.clone().get_inputs() {
                 | Some(values) if !values.is_empty() => values.par_iter().for_each(|value| {
                     info!(value, "=> {} Configuration with input", Label::using());

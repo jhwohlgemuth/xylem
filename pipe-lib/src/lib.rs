@@ -546,6 +546,14 @@ impl Config {
             | None => None,
         }
     }
+    fn get_module_list(self) -> String {
+        let names = self
+            .modules
+            .iter()
+            .map(|module| to_snake_case(module.name.clone()))
+            .collect::<Vec<String>>();
+        names.join(",").to_string()
+    }
     /// Prepare workflow modules for execution
     ///
     /// Module preparation is done in parallel and includes the following steps:
@@ -821,6 +829,7 @@ impl Config {
     /// Modules are run in the order they are defined in the configuration
     ///
     pub fn run_workflow(self, input: Option<String>, options: &ConfigOptions) {
+        EnvironmentValue::print_all();
         self.modules.iter().for_each(|module| match &module.module_type {
             | ModuleType::Binary { .. } => {
                 let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
@@ -828,7 +837,6 @@ impl Config {
                 let loaded = Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())));
                 let script = loaded.ensure_relative().expand_arguments_from(envs).with_current_dir(working_dir);
                 if options.dry_run {
-                    EnvironmentValue::print_all();
                     info!(
                         module = module.name,
                         script = script.to_string(),
@@ -847,7 +855,6 @@ impl Config {
                     let loaded = Script::from_module(module.clone(), Some(options.root.clone()));
                     let script = loaded.expand_arguments_from(envs).with_current_dir(working_dir);
                     if options.dry_run {
-                        EnvironmentValue::print_all();
                         info!(
                             module = module.name,
                             script = script.to_string(),
@@ -874,7 +881,6 @@ impl Config {
                         .with_current_dir(working_dir)
                         .with_virtual_environment(virtual_environment);
                     if options.dry_run {
-                        EnvironmentValue::print_all();
                         info!(
                             module = module.name,
                             script = script.to_string(),
@@ -892,7 +898,7 @@ impl Config {
         });
     }
     /// Set environment variables from PIPE configuration "variables" attribute
-    pub fn set_environment_variables(&self) -> Void {
+    pub fn set_environment_variables(self) -> Config {
         match &self.variables {
             | Some(variables) => {
                 for (k, v) in variables {
@@ -902,7 +908,9 @@ impl Config {
             }
             | None => (),
         }
-        Ok(())
+        let module_list = EnvironmentValue::String(self.clone().get_module_list());
+        module_list.set_variable("MODULE_LIST".to_string());
+        self
     }
     /// Verify software requirements are met on host system (ex. Python, conda, etc...)
     ///
@@ -941,6 +949,9 @@ impl PartialEq for Details {
 }
 impl EnvironmentValue {
     pub const PREFIX: &'static str = "pipe";
+    fn formatted_prefix() -> String {
+        format!("_{}_", EnvironmentValue::PREFIX.to_uppercase())
+    }
     /// Convert serde Value to EnvironmentValue
     ///
     fn from_value(value: Value) -> EnvironmentValue {
@@ -952,11 +963,11 @@ impl EnvironmentValue {
         }
     }
     fn prepend_prefix(value: String) -> String {
-        let prefixed = format!("_{}_{}", EnvironmentValue::PREFIX.to_uppercase(), value);
+        let prefixed = format!("{}{}", EnvironmentValue::formatted_prefix(), value);
         prefixed
     }
     fn trim_prefix(key: String) -> String {
-        let pre = format!("_{}_", EnvironmentValue::PREFIX.to_uppercase());
+        let pre = EnvironmentValue::formatted_prefix();
         key.trim_start_matches(&pre).to_string()
     }
     pub fn get_from_serde(values: &Map<String, Value>) -> HashMap<String, String> {
@@ -974,7 +985,7 @@ impl EnvironmentValue {
         lookup
     }
     pub fn get_all() -> Vec<(String, String)> {
-        let pre = format!("_{}_", EnvironmentValue::PREFIX.to_uppercase());
+        let pre = EnvironmentValue::formatted_prefix();
         vars()
             .filter(|(key, _)| key.starts_with(&pre))
             .map(|(key, value)| {
@@ -985,7 +996,13 @@ impl EnvironmentValue {
     }
     pub fn print_all() {
         EnvironmentValue::get_all().into_iter().for_each(|(key, value)| {
-            debug!(key, value, "=> [{}]", "ENV".dimmed());
+            trace!(
+                "=> {} {}{} = {}",
+                Label::using(),
+                EnvironmentValue::formatted_prefix().dimmed(),
+                key,
+                value
+            );
         });
     }
     pub fn set_variable(self, key: String) {
@@ -1954,6 +1971,9 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
 }
 pub fn to_string(values: Vec<&str>) -> Vec<String> {
     values.iter().map(|s| s.to_string()).collect()
+}
+pub fn to_snake_case(value: String) -> String {
+    value.replace(" ", "_").to_lowercase()
 }
 
 #[cfg(test)]
