@@ -41,15 +41,15 @@ pub fn run(
             default_config
         }
     };
-    let options = ConfigOptions::init()
-        .root(root.clone())
-        .dry_run(dry_run)
-        .offline(offline)
-        .skip_verify_checksum(skip_verify_checksum)
-        .skip_verify_requirements(skip_verify_requirements)
-        .build();
     match Config::read(config_path) {
         | Some(cfg) => {
+            let options = ConfigOptions::init()
+                .root(root.clone())
+                .dry_run(dry_run)
+                .offline(offline)
+                .skip_verify_checksum(skip_verify_checksum)
+                .skip_verify_requirements(skip_verify_requirements)
+                .build();
             let config = cfg
                 .verify_requirements(&options)
                 .verify_resources(&options)

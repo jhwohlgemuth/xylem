@@ -252,13 +252,14 @@ pub struct Command {
     pub container: Option<ContainerEnvironment>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[builder(start_fn(name = init))]
 pub struct Config {
     /// Unique workflow identifier
     pub id: Option<String>,
     /// Configuration version in semver format
-    pub version: String,
+    pub version: Option<String>,
     #[serde(alias = "doc")]
-    pub description: String,
+    pub description: Option<String>,
     /// Software requirements for workflow (e.g. python, conda, etc.)
     pub requirements: Vec<String>,
     /// Hardward resources required for workflow (e.g. CPUs, GPUs, etc.)
@@ -292,15 +293,18 @@ pub struct Config {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
 pub struct ConfigOptions {
-    #[builder(default = PathBuf::from("."))]
-    pub root: PathBuf,
+    #[builder]
+    pub root: Option<PathBuf>,
     #[builder(default = false)]
+    #[serde(alias = "dry-run")]
     pub dry_run: bool,
     #[builder(default = false)]
     pub offline: bool,
     #[builder(default = false)]
+    #[serde(alias = "skip-checksum", alias = "skip-verify-checksum")]
     pub skip_verify_checksum: bool,
     #[builder(default = false)]
+    #[serde(alias = "skip-requirements", alias = "skip-verify-requirements")]
     pub skip_verify_requirements: bool,
 }
 /// Struct for using and sharing containerized environments
@@ -576,7 +580,10 @@ impl Config {
                         }
                         // TODO: Check that URL exists
                         if !options.dry_run {
-                            let output = download_binary(url.clone(), options.root.clone());
+                            let output = match options.root.clone() {
+                                | Some(value) => download_binary(url.clone(), value),
+                                | None => Err("Root directory not found".to_string()),
+                            };
                             if !options.skip_verify_checksum {
                                 let calculated_checksum = match output.clone() {
                                     | Ok(path) => get_checksum(path),
@@ -701,8 +708,14 @@ impl Config {
                                 error!(module = module.name, uri, "=> {}", Label::rejected());
                                 std::process::exit(exitcode::USAGE);
                             };
-                            let current_dir = options.root.clone().into_os_string().into_string().unwrap();
-                            let module_root = options.root.join(ModuleUri::from(uri).hash()).into_os_string().into_string().unwrap();
+                            let current_dir = match options.root.clone() {
+                                | Some(value) => path_to_string(value),
+                                | None => ".".to_string(),
+                            };
+                            let module_root = match options.root.clone() {
+                                | Some(value) => path_to_string(value.join(ModuleUri::from(uri).hash())),
+                                | None => ModuleUri::from(uri).hash(),
+                            };
                             if let Some(script) = Script::maybe_git_clone(uri.clone(), current_dir) {
                                 if options.dry_run {
                                     let cwd = script.clone().current_dir;
@@ -833,7 +846,10 @@ impl Config {
         self.modules.iter().for_each(|module| match &module.module_type {
             | ModuleType::Binary { .. } => {
                 let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
-                let working_dir = options.root.clone().into_os_string().into_string().unwrap();
+                let working_dir = match options.root.clone() {
+                    | Some(value) => path_to_string(value),
+                    | None => ".".to_owned(),
+                };
                 let loaded = Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())));
                 let script = loaded.ensure_relative().expand_arguments_from(envs).with_current_dir(working_dir);
                 if options.dry_run {
@@ -851,8 +867,12 @@ impl Config {
             | ModuleType::Script { programming_language, uri } => match programming_language {
                 | Some(ModuleLanguage::Generic) | None => {
                     let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
-                    let working_dir = ModuleUri::from(uri).working_directory(Some(options.root.clone()));
-                    let loaded = Script::from_module(module.clone(), Some(options.root.clone()));
+                    let root = match options.root.clone() {
+                        | Some(value) => Some(value),
+                        | None => Some(PathBuf::from(".".to_owned())),
+                    };
+                    let working_dir = ModuleUri::from(uri).working_directory(root.clone());
+                    let loaded = Script::from_module(module.clone(), root);
                     let script = loaded.expand_arguments_from(envs).with_current_dir(working_dir);
                     if options.dry_run {
                         info!(
@@ -868,7 +888,11 @@ impl Config {
                 }
                 | Some(ModuleLanguage::Python) => {
                     let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
-                    let working_dir = ModuleUri::from(uri).working_directory(Some(options.root.clone()));
+                    let root = match options.root.clone() {
+                        | Some(value) => Some(value),
+                        | None => Some(PathBuf::from(".".to_owned())),
+                    };
+                    let working_dir = ModuleUri::from(uri).working_directory(root.clone());
                     let virtual_environment = match &module.template {
                         | Some(TemplateAttribute::Path(value)) => {
                             ScriptTemplate::from_path(PathBuf::from(&working_dir).join(value)).virtual_environment
@@ -876,7 +900,7 @@ impl Config {
                         | Some(TemplateAttribute::Template(value)) => value.virtual_environment.clone(),
                         | None => ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(working_dir.clone())),
                     };
-                    let script = Script::from_module(module.clone(), Some(options.root.clone()))
+                    let script = Script::from_module(module.clone(), root)
                         .expand_arguments_from(envs)
                         .with_current_dir(working_dir)
                         .with_virtual_environment(virtual_environment);
