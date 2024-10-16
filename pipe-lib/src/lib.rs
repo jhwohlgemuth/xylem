@@ -295,17 +295,17 @@ pub struct Config {
 pub struct ConfigOptions {
     #[builder]
     pub root: Option<PathBuf>,
-    #[builder(default = false)]
+    #[builder]
     #[serde(alias = "dry-run")]
-    pub dry_run: bool,
-    #[builder(default = false)]
-    pub offline: bool,
-    #[builder(default = false)]
+    pub dry_run: Option<bool>,
+    #[builder]
+    pub offline: Option<bool>,
+    #[builder]
     #[serde(alias = "skip-checksum", alias = "skip-verify-checksum")]
-    pub skip_verify_checksum: bool,
-    #[builder(default = false)]
+    pub skip_verify_checksum: Option<bool>,
+    #[builder]
     #[serde(alias = "skip-requirements", alias = "skip-verify-requirements")]
-    pub skip_verify_requirements: bool,
+    pub skip_verify_requirements: Option<bool>,
 }
 /// Struct for using and sharing containerized environments
 ///
@@ -568,7 +568,7 @@ impl Config {
     pub fn prepare_modules(self, options: &ConfigOptions) -> Config {
         self.modules.par_iter().for_each(|module| match &module.module_type {
             | ModuleType::Binary { uri, checksum } => match ModuleUri::from(uri) {
-                | ModuleUri::Url(value) if !options.offline => match value.scheme() {
+                | ModuleUri::Url(value) if !options.offline.unwrap_or_default() => match value.scheme() {
                     | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                         let url = value.to_string();
                         if ModuleUri::is_allowed(value) {
@@ -579,12 +579,12 @@ impl Config {
                             std::process::exit(exitcode::NOPERM);
                         }
                         // TODO: Check that URL exists
-                        if !options.dry_run {
+                        if !options.dry_run.unwrap_or_default() {
                             let output = match options.root.clone() {
                                 | Some(value) => download_binary(url.clone(), value),
                                 | None => Err("Root directory not found".to_string()),
                             };
-                            if !options.skip_verify_checksum {
+                            if !options.skip_verify_checksum.unwrap_or_default() {
                                 let calculated_checksum = match output.clone() {
                                     | Ok(path) => get_checksum(path),
                                     | _ => "".to_string(),
@@ -659,7 +659,7 @@ impl Config {
             },
             | ModuleType::Script { programming_language, uri } => match programming_language {
                 | Some(ModuleLanguage::Generic) | None => match ModuleUri::from(uri) {
-                    | ModuleUri::Url(value) if !options.offline => match value.scheme() {
+                    | ModuleUri::Url(value) if !options.offline.unwrap_or_default() => match value.scheme() {
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                             let url = value.to_string();
                             if ModuleUri::is_allowed(value) {
@@ -691,7 +691,7 @@ impl Config {
                     | _ => unimplemented!("Only URLs and files are currently supported for Generic script modules"),
                 },
                 | Some(ModuleLanguage::Python) => match ModuleUri::from(uri) {
-                    | ModuleUri::Url(value) if !options.offline => match value.scheme() {
+                    | ModuleUri::Url(value) if !options.offline.unwrap_or_default() => match value.scheme() {
                         | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
                             let url = value.to_string();
                             if ModuleUri::is_allowed(value) {
@@ -717,7 +717,7 @@ impl Config {
                                 | None => ModuleUri::from(uri).hash(),
                             };
                             if let Some(script) = Script::maybe_git_clone(uri.clone(), current_dir) {
-                                if options.dry_run {
+                                if options.dry_run.unwrap_or_default() {
                                     let cwd = script.clone().current_dir;
                                     warn!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
                                 } else {
@@ -732,7 +732,7 @@ impl Config {
                             //     | _ => &None,
                             // };
                             if let Some(script) = Script::maybe_create_virtual_environment(module_root, None) {
-                                if options.dry_run {
+                                if options.dry_run.unwrap_or_default() {
                                     let cwd = script.clone().current_dir;
                                     info!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
                                 } else {
@@ -754,7 +754,7 @@ impl Config {
                             //     | _ => &None,
                             // };
                             if let Some(script) = Script::maybe_create_virtual_environment(uri.to_string(), None) {
-                                if options.dry_run {
+                                if options.dry_run.unwrap_or_default() {
                                     let cwd = script.clone().current_dir;
                                     info!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
                                 } else {
@@ -810,7 +810,7 @@ impl Config {
         };
         let data: serde_json::Result<Config> = serde_json::from_str(&content);
         let label = match data {
-            | Ok(_) => Label::output(),
+            | Ok(_) => Label::using(),
             | Err(_) => Label::invalid(),
         };
         debug!("=> {} Configuration = {:#?}", label, data.dimmed());
@@ -852,7 +852,7 @@ impl Config {
                 };
                 let loaded = Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())));
                 let script = loaded.ensure_relative().expand_arguments_from(envs).with_current_dir(working_dir);
-                if options.dry_run {
+                if options.dry_run.unwrap_or_default() {
                     info!(
                         module = module.name,
                         script = script.to_string(),
@@ -874,7 +874,7 @@ impl Config {
                     let working_dir = ModuleUri::from(uri).working_directory(root.clone());
                     let loaded = Script::from_module(module.clone(), root);
                     let script = loaded.expand_arguments_from(envs).with_current_dir(working_dir);
-                    if options.dry_run {
+                    if options.dry_run.unwrap_or_default() {
                         info!(
                             module = module.name,
                             script = script.to_string(),
@@ -904,7 +904,7 @@ impl Config {
                         .expand_arguments_from(envs)
                         .with_current_dir(working_dir)
                         .with_virtual_environment(virtual_environment);
-                    if options.dry_run {
+                    if options.dry_run.unwrap_or_default() {
                         info!(
                             module = module.name,
                             script = script.to_string(),
@@ -941,7 +941,7 @@ impl Config {
     /// Uses process similar to Linux `which` to determine if a given command is available on the host system.
     ///
     pub fn verify_requirements(self, options: &ConfigOptions) -> Config {
-        if !options.skip_verify_requirements {
+        if !options.skip_verify_requirements.unwrap_or_default() {
             self.requirements.iter().for_each(|name| {
                 let command = Command::init().name(name.clone()).build();
                 if !command.test() {
@@ -1107,9 +1107,12 @@ impl Label {
         let style = Style::new().black().on_yellow();
         " RUN ▶ ".style(style)
     }
-    pub fn using() -> Styled<&'static &'static str> {
+    pub fn using() -> String {
+        Label::fmt_using("USING")
+    }
+    pub fn fmt_using(value: &str) -> String {
         let style = Style::new().cyan();
-        "USING".style(style)
+        value.style(style).to_string()
     }
 }
 impl ModuleUri<'_> {

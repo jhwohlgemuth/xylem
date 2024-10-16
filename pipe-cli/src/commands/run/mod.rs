@@ -1,6 +1,7 @@
 use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
 use nanoid::nanoid;
+use owo_colors::OwoColorize;
 use pipe_lib::{Config, ConfigOptions, EnvironmentValue, Label};
 use rayon::prelude::*;
 use std::env;
@@ -14,10 +15,10 @@ pub fn run(
     config: &Option<PathBuf>,
     _reporter: &Option<Vec<String>>,
     _output: &Option<PathBuf>,
-    dry_run: bool,
-    offline: bool,
-    skip_verify_checksum: bool,
-    skip_verify_requirements: bool,
+    cli_dry_run: bool,
+    cli_offline: bool,
+    cli_skip_verify_checksum: bool,
+    cli_skip_verify_requirements: bool,
     _verbose: Verbosity,
 ) -> Result<(), Report> {
     let id = nanoid!(10, &nanoid::alphabet::SAFE);
@@ -43,13 +44,29 @@ pub fn run(
     };
     match Config::read(config_path) {
         | Some(cfg) => {
-            let options = ConfigOptions::init()
-                .root(root.clone())
-                .dry_run(dry_run)
-                .offline(offline)
-                .skip_verify_checksum(skip_verify_checksum)
-                .skip_verify_requirements(skip_verify_requirements)
-                .build();
+            let options = match &cfg.options {
+                | Some(ConfigOptions {
+                    dry_run,
+                    offline,
+                    skip_verify_checksum,
+                    skip_verify_requirements,
+                    ..
+                }) => ConfigOptions::init()
+                    .root(root.clone())
+                    .dry_run(cli_dry_run || dry_run.unwrap_or_default())
+                    .offline(cli_offline || offline.unwrap_or_default())
+                    .skip_verify_checksum(cli_skip_verify_checksum || skip_verify_checksum.unwrap_or_default())
+                    .skip_verify_requirements(cli_skip_verify_requirements || skip_verify_requirements.unwrap_or_default())
+                    .build(),
+                | None => ConfigOptions::init()
+                    .root(root.clone())
+                    .dry_run(cli_dry_run)
+                    .offline(cli_offline)
+                    .skip_verify_checksum(cli_skip_verify_checksum)
+                    .skip_verify_requirements(cli_skip_verify_requirements)
+                    .build(),
+            };
+            debug!("=> {} Run configuration options = {}", Label::using(), format!("{:#?}", options).dimmed());
             let config = cfg
                 .verify_requirements(&options)
                 .verify_resources(&options)

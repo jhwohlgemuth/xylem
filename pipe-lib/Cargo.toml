@@ -12,7 +12,7 @@ derive_more = { version = "1.0.0", features = ["display", "from_str"] }
 env_logger = "0.11.3"
 fancy-regex = "0.13.0"
 is-terminal = "0.4.9"
-owo-colors = "4.0.0"
+owo-colors = { workspace = true }
 serde_yml = "0.0.12"
 tokio = { version = "1.39.2", features = ["rt", "time", "rt-multi-thread"] }
 valuable = "0.1.0"

@@ -2248,6 +2248,7 @@ dependencies = [
  "glob",
  "indicatif",
  "nanoid",
+ "owo-colors 4.0.0",
  "pipe-lib",
  "rayon",
  "serde",
