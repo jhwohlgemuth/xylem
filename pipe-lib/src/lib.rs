@@ -710,11 +710,17 @@ impl Config {
                             };
                             let current_dir = match options.root.clone() {
                                 | Some(value) => path_to_string(value),
-                                | None => ".".to_string(),
+                                | None => {
+                                    error!(module = module.name, "=> {} Root directory", Label::not_found());
+                                    std::process::exit(exitcode::UNAVAILABLE);
+                                }
                             };
                             let module_root = match options.root.clone() {
                                 | Some(value) => path_to_string(value.join(ModuleUri::from(uri).hash())),
-                                | None => ModuleUri::from(uri).hash(),
+                                | None => {
+                                    error!(module = module.name, "=> {} Root directory", Label::not_found());
+                                    std::process::exit(exitcode::UNAVAILABLE);
+                                }
                             };
                             if let Some(script) = Script::maybe_git_clone(uri.clone(), current_dir) {
                                 if options.dry_run.unwrap_or_default() {
@@ -848,7 +854,10 @@ impl Config {
                 let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
                 let working_dir = match options.root.clone() {
                     | Some(value) => path_to_string(value),
-                    | None => ".".to_owned(),
+                    | None => {
+                        error!(module = module.name, "=> {} Root directory", Label::not_found());
+                        std::process::exit(exitcode::UNAVAILABLE);
+                    }
                 };
                 let loaded = Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())));
                 let script = loaded.ensure_relative().expand_arguments_from(envs).with_current_dir(working_dir);
@@ -869,7 +878,10 @@ impl Config {
                     let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
                     let root = match options.root.clone() {
                         | Some(value) => Some(value),
-                        | None => Some(PathBuf::from(".".to_owned())),
+                        | None => {
+                            error!(module = module.name, "=> {} Root directory", Label::not_found());
+                            std::process::exit(exitcode::UNAVAILABLE);
+                        }
                     };
                     let working_dir = ModuleUri::from(uri).working_directory(root.clone());
                     let loaded = Script::from_module(module.clone(), root);
@@ -890,7 +902,10 @@ impl Config {
                     let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
                     let root = match options.root.clone() {
                         | Some(value) => Some(value),
-                        | None => Some(PathBuf::from(".".to_owned())),
+                        | None => {
+                            error!(module = module.name, "=> {} Root directory", Label::not_found());
+                            std::process::exit(exitcode::UNAVAILABLE);
+                        }
                     };
                     let working_dir = ModuleUri::from(uri).working_directory(root.clone());
                     let virtual_environment = match &module.template {
