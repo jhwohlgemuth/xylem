@@ -1164,8 +1164,8 @@ impl ModuleUri<'_> {
             | ModuleUri::Url(uri) => match uri.scheme() {
                 | Scheme::SSH if ModuleUri::is_allowed(uri.clone()) => true,
                 | _ if ModuleUri::is_allowed(uri.clone()) => {
-                    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-                    let _ = runtime.block_on(check(uri.to_string()));
+                    // let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                    // let _ = runtime.block_on(check(uri.to_string()));
                     true
                 }
                 | _ => false,
