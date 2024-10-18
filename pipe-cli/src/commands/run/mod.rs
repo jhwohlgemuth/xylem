@@ -68,9 +68,10 @@ pub fn run(
             };
             debug!("=> {} Run configuration options = {}", Label::using(), format!("{:#?}", options).dimmed());
             let config = cfg
-                .verify_requirements(&options)
-                .verify_resources(&options)
-                .prepare_modules(&options)
+                .with_options(options.clone())
+                .verify_requirements()
+                .verify_resources()
+                .prepare_modules()
                 .set_environment_variables();
             match config.clone().get_inputs() {
                 | Some(values) if !values.is_empty() => values.par_iter().for_each(|value| {

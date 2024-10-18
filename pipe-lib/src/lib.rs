@@ -565,7 +565,14 @@ impl Config {
     /// - Git clone script projects and setup virtual environments
     /// - Validate local and downloaded remote modules are ready for execution
     ///
-    pub fn prepare_modules(self, options: &ConfigOptions) -> Config {
+    pub fn prepare_modules(self) -> Config {
+        let options = match self.clone().options {
+            | Some(value) => value,
+            | None => {
+                warn!("=> {} Configuration options", Label::not_found());
+                ConfigOptions::init().build()
+            }
+        };
         self.modules.par_iter().for_each(|module| match &module.module_type {
             | ModuleType::Binary { uri, checksum } => match ModuleUri::from(uri) {
                 | ModuleUri::Url(value) if !options.offline.unwrap_or_default() => match value.scheme() {
@@ -955,17 +962,19 @@ impl Config {
     ///
     /// Uses process similar to Linux `which` to determine if a given command is available on the host system.
     ///
-    pub fn verify_requirements(self, options: &ConfigOptions) -> Config {
-        if !options.skip_verify_requirements.unwrap_or_default() {
-            self.requirements.iter().for_each(|name| {
-                let command = Command::init().name(name.clone()).build();
-                if !command.test() {
-                    error!(name, "=> {} Requirement not met", Label::not_found());
-                    std::process::exit(exitcode::UNAVAILABLE);
-                }
-            });
-        } else {
-            warn!("Skipping requirements verification");
+    pub fn verify_requirements(self) -> Config {
+        if let Some(options) = &self.options {
+            if !options.skip_verify_requirements.unwrap_or_default() {
+                self.requirements.iter().for_each(|name| {
+                    let command = Command::init().name(name.clone()).build();
+                    if !command.test() {
+                        error!(name, "=> {} Requirement not met", Label::not_found());
+                        std::process::exit(exitcode::UNAVAILABLE);
+                    }
+                });
+            } else {
+                warn!("Skipping requirements verification");
+            }
         }
         self
     }
@@ -973,13 +982,13 @@ impl Config {
     ///
     /// Under construction
     ///
-    pub fn verify_resources(self, _options: &ConfigOptions) -> Config {
+    pub fn verify_resources(self) -> Config {
         self
     }
-    // pub fn with_options(mut self, options: ConfigOptions) -> Config {
-    //     self.options = options;
-    //     return self
-    // }
+    pub fn with_options(mut self, options: ConfigOptions) -> Config {
+        self.options = Some(options);
+        self
+    }
 }
 impl PartialEq for Details {
     fn eq(&self, other: &Self) -> bool {
