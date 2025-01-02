@@ -354,7 +354,7 @@ FNDA:0,Config::get_environment_variables
 FNDA:1,Config::get_inputs
 FNDA:1,Config::get_module_list
 FNDA:0,Config::prepare_modules
-FNDA:2,Config::read
+FNDA:3,Config::read
 FNDA:1,Config::read_json
 FNDA:1,Config::read_yaml
 FNDA:0,Config::run_workflow
@@ -580,8 +580,8 @@ DA:784,0
 DA:786,0
 DA:788,0
 DA:790,0
-DA:792,2
-DA:793,3
+DA:792,3
+DA:793,6
 DA:794,6
 DA:795,3
 DA:796,0
@@ -597,7 +597,7 @@ DA:817,2
 DA:818,2
 DA:820,0
 DA:821,0
-DA:824,8
+DA:824,5
 DA:825,4
 DA:826,8
 DA:827,0
@@ -1030,7 +1030,7 @@ DA:1629,0
 DA:1630,0
 DA:1631,0
 DA:1671,1
-DA:1672,2
+DA:1672,1
 DA:1673,1
 DA:1677,1
 DA:1678,2
@@ -1056,7 +1056,7 @@ DA:1707,0
 DA:1717,1
 DA:1719,1
 DA:1726,1
-DA:1727,4
+DA:1727,6
 DA:1728,3
 DA:1733,1
 DA:1734,2
@@ -1075,7 +1075,7 @@ DA:1799,2
 DA:1800,1
 DA:1801,0
 DA:1803,3
-DA:1804,1
+DA:1804,2
 DA:1808,1
 DA:1809,2
 DA:1810,2
