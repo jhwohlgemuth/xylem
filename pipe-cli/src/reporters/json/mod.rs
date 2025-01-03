@@ -1,4 +1,6 @@
-use pipe_lib::{is_stdout_piped, Details, Output, Parameters, StdoutIsPipedResult, Void};
+use pipe_lib::config::Parameters;
+use pipe_lib::util::{is_stdout_piped, StdoutIsPipedResult};
+use pipe_lib::{Details, Output, Void};
 use std::env;
 use std::fs;
 use std::io::{self, Write};

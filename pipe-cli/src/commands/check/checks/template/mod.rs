@@ -1,4 +1,5 @@
-use pipe_lib::{Output, Parameters};
+use pipe_lib::config::Parameters;
+use pipe_lib::Output;
 use std::path::Path;
 
 /// Process check on a given path to a directory
