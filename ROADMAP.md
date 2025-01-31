@@ -24,10 +24,9 @@
   - [X] Support remote script module (using `git clone <URI>`)
   - [X] Auto-create (Conda/[Mamba](https://mamba.readthedocs.io/en/latest/index.html)) virtual environments
   - [X] Parallelize module preparation
-- [ ] Enhanced URL security
+- [X] URL security
   - [X] Provide `--offline` flag to disable reachability check
   - [X] Filter remote module URLs against white list
-  - [ ] Check remote URLs are valid and reachable
 - [X] MVP<sup>[1](#1)</sup> (+binary module support)
     - [X] Verify binary with checksum hash (provide `--skip-verify-checksum` flag)
     - [X] Handle binary execution when not executable (`./cmd` vs `cmd`)
@@ -40,10 +39,15 @@
     - [X] Add Docker (and Podman) environment
     - [X] Add Apptainer environment
 - [X] `--skip-verify-requirements` flag for running workflow without verifying environment
-- [ ] Workflow input concurrency
+- [x] Workflow input concurrency
+- [ ] Apply `{{ }}` string interpolation to values defined in `variable` attributes
+- [ ] Set workflow environment variables (e.g., `MODULE_LIST`)
 
 ## v0.2.0
+- [ ] TIFF Viewer capability (part of pipe and/or separate app)
 - [ ] Test modules for automated end-to-end testing
+- [ ] Enhanced URL security
+  - [ ] Check remote URLs are valid and reachable
 - [ ] Configuration interoperability and export
   - [ ] Export configuration to [CWL](https://www.commonwl.org/)
   - [ ] Export configuration to [RO-Crate](https://www.researchobject.org/ro-crate/)
