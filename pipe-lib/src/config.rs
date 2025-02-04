@@ -128,7 +128,7 @@ impl Config {
             .to_string();
         envs.extend(EnvironmentValue::get_from_serde(&module_vars));
         envs.insert("INPUT".to_string(), input.unwrap_or_default());
-        envs.insert("INPUT_PARENT".to_string(), parent);
+        envs.insert("PARENT_DIRECTORY".to_string(), parent);
         println!("Envs: {:#?}", envs);
         envs
     }
