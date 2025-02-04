@@ -120,8 +120,16 @@ impl Config {
         let config_vars = self.variables.clone().unwrap_or_default();
         let module_vars = module.unwrap().variables.clone().unwrap_or_default();
         let mut envs = EnvironmentValue::get_from_serde(&config_vars);
+        let parent = PathBuf::from(input.clone().unwrap_or_default())
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
         envs.extend(EnvironmentValue::get_from_serde(&module_vars));
         envs.insert("INPUT".to_string(), input.unwrap_or_default());
+        envs.insert("INPUT_PARENT".to_string(), parent);
+        println!("Envs: {:#?}", envs);
         envs
     }
     /// Get inputs from input attribute for concurrent workflow execution
