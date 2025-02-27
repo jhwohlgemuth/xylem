@@ -117,20 +117,20 @@ pub struct Rule {
 }
 impl Config {
     pub fn get_environment_variables(self, module: Option<Module>, input: Option<String>) -> HashMap<String, String> {
-        let config_vars = self.variables.clone().unwrap_or_default();
-        let module_vars = module.unwrap().variables.clone().unwrap_or_default();
-        let mut envs = EnvironmentValue::get_from_serde(&config_vars);
-        let parent = PathBuf::from(input.clone().unwrap_or_default())
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string();
-        envs.extend(EnvironmentValue::get_from_serde(&module_vars));
-        envs.insert("INPUT".to_string(), input.unwrap_or_default());
-        envs.insert("PARENT_DIRECTORY".to_string(), parent);
-        println!("Envs: {:#?}", envs);
-        envs
+        match input {
+            | Some(value) => {
+                let config_vars = self.variables.clone().unwrap_or_default();
+                let module_vars = module.unwrap().variables.clone().unwrap_or_default();
+                let mut envs = EnvironmentValue::get_from_serde(&config_vars);
+                let parent = PathBuf::from(value.clone()).file_name().unwrap().to_str().unwrap().to_string();
+                envs.extend(EnvironmentValue::get_from_serde(&module_vars));
+                envs.insert("INPUT".to_string(), value);
+                envs.insert("PARENT_DIRECTORY".to_string(), parent);
+                debug!("=> {} Environment variables: {:#?}", Label::using(), envs.dimmed());
+                envs
+            }
+            | None => HashMap::new(),
+        }
     }
     /// Get inputs from input attribute for concurrent workflow execution
     ///

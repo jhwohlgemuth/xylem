@@ -17,6 +17,7 @@ pub fn run(
     config: &Option<PathBuf>,
     _reporter: &Option<Vec<String>>,
     _output: &Option<PathBuf>,
+    cli_input: &Option<Vec<String>>,
     cli_dry_run: bool,
     cli_offline: bool,
     cli_skip_verify_checksum: bool,
@@ -80,10 +81,16 @@ pub fn run(
                     info!(value, "=> {} Configuration with input", Label::using());
                     config.clone().run_workflow(Some(value.to_string()), &options);
                 }),
-                | Some(_) | None => {
-                    info!("=> {} Configuration with {}", Label::using(), Label::fmt_not_found("NO INPUTS"));
-                    config.run_workflow(None, &options);
-                }
+                | Some(_) | None => match cli_input {
+                    | Some(values) if !values.is_empty() => values.par_iter().for_each(|value| {
+                        info!(value, "=> {} CLI input", Label::using());
+                        config.clone().run_workflow(Some(value.to_string()), &options);
+                    }),
+                    | Some(_) | None => {
+                        info!("=> {} Configuration with {}", Label::using(), Label::fmt_not_found("NO INPUTS"));
+                        config.run_workflow(None, &options);
+                    }
+                },
             };
         }
         | None => error!("=> {} Could not import configuration", Label::fail()),

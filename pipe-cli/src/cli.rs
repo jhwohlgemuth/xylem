@@ -35,25 +35,25 @@ pub enum Commands {
         #[arg(value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         path: Option<std::path::PathBuf>,
         /// Path to configuration file
-        #[arg(short = 'c', long = "config", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         config: Option<std::path::PathBuf>,
         /// Reporter(s) to use to output the results - console (default) and/or json
-        #[arg(short = 'r', long = "reporter", value_name = "STRING", num_args=0..=2)]
+        #[arg(short, long, value_name = "STRING", num_args=0..=2)]
         reporter: Option<Vec<String>>,
         /// Destination path for reporters that use one
-        #[arg(short = 'o', long = "output", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         output: Option<std::path::PathBuf>,
         /// Return all results that pass or fail check conditions
-        #[arg(short = 'a', long = "all", value_name = "BOOL")]
+        #[arg(short, long, value_name = "BOOL")]
         all: bool,
         /// Only return results that pass their associated check
-        #[arg(short = 'p', long = "pass", value_name = "BOOL")]
+        #[arg(short, long, value_name = "BOOL")]
         pass: bool,
         /// Report results in minimal format
-        #[arg(short = 'm', long = "minimal", value_name = "BOOL")]
+        #[arg(short, long, value_name = "BOOL")]
         minimal: bool,
         /// Deduplicate results
-        #[arg(short = 'u', long = "unique", value_name = "BOOL")]
+        #[arg(short, long, value_name = "BOOL")]
         unique: bool,
     },
     /// Check environment parameters and verify PIPE requirements are met
@@ -67,10 +67,10 @@ pub enum Commands {
         /// Path to configuration file
         ///
         /// Validate PIPE requirements are met for a given configuration
-        #[arg(short = 'c', long = "config", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         config: Option<std::path::PathBuf>,
         /// Scan environment and attempt to fix unmet requirements
-        #[arg(short = 'f', long = "fix", value_name = "BOOL")]
+        #[arg(short, long, value_name = "BOOL")]
         fix: bool,
     },
     /// Run workflow using configuration file
@@ -84,19 +84,22 @@ pub enum Commands {
     #[clap(verbatim_doc_comment)]
     Run {
         /// Path to configuration file
-        #[arg(short = 'c', long = "config", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         config: Option<std::path::PathBuf>,
         /// Reporter(s) to use to output the results - console (default) and/or json
-        #[arg(short = 'r', long = "reporter", value_name = "STRING", num_args=0..=2)]
+        #[arg(short, long, value_name = "STRING", num_args=0..=2)]
         reporter: Option<Vec<String>>,
         /// Destination path for reporters that use one
-        #[arg(short = 'o', long = "output", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         output: Option<std::path::PathBuf>,
+        /// Value(s) to use as INPUT variable in workflow
+        #[arg(short, long, value_name = "LIST", value_delimiter = ',')]
+        input: Option<Vec<String>>,
         /// Execute workflow dry run (do not actually make changes to environment)
-        #[arg(short = 'd', long = "dry-run", value_name = "BOOL")]
+        #[arg(short, long = "dry-run", value_name = "BOOL")]
         dry_run: bool,
         /// Execute workflow without connection to the internet
-        #[arg(long = "offline", value_name = "BOOL")]
+        #[arg(long, value_name = "BOOL")]
         offline: bool,
         /// Skip calculating and verifying checksum for downloaded binary files
         #[arg(long = "skip-verify-checksum", value_name = "BOOL")]
