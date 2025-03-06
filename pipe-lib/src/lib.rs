@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::wrong_self_convention)]
-use bon::builder;
+use bon::Builder;
 use clap::ValueEnum;
 use color_eyre::eyre::{Report, Result};
 use derive_more::Display;
@@ -63,7 +63,7 @@ pub struct Reporter {
 /// Semantic version
 ///
 /// see <https://semver.org/>
-#[derive(Clone, Debug, Deserialize, Display, Serialize)]
+#[derive(Builder, Clone, Debug, Deserialize, Display, Serialize)]
 #[display("{}.{}.{}", major, minor, patch)]
 #[builder(start_fn(name = init))]
 pub struct SemanticVersion {

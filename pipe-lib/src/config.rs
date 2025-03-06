@@ -1,4 +1,4 @@
-use bon::builder;
+use bon::Builder;
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -34,7 +34,7 @@ pub struct Check {
     /// Parent directory of the item being checked when not used within a workflow
     pub parent: Option<String>,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Builder, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
 pub struct Config {
     /// Unique workflow identifier
@@ -73,7 +73,7 @@ pub struct Config {
     pub output: Option<String>,
     pub options: Option<ConfigOptions>,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
 pub struct ConfigOptions {
     #[builder]
@@ -103,7 +103,7 @@ pub struct Parameters {
     /// Custom string data
     pub custom: Option<String>,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
 pub struct Rule {
     /// Name of the rule (displayed by the progress bar)

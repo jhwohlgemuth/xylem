@@ -1,4 +1,4 @@
-use bon::builder;
+use bon::Builder;
 use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
 use owo_colors::OwoColorize;
@@ -183,7 +183,7 @@ pub enum VirtualEnvironmentManager {
     #[display("unknown")]
     Unknown,
 }
-#[derive(Clone, Debug, Display)]
+#[derive(Builder, Clone, Debug, Display)]
 #[display("{}", name)]
 #[builder(start_fn(name = init))]
 pub struct Command {
@@ -206,7 +206,7 @@ pub struct Command {
 /// let container = ContainerEnvironment::init().name("myenv").build();
 /// let container = ContainerEnvironment::init().name("myenv").runtime(ContainerRuntime::Podman).build();
 /// ```
-#[derive(Clone, Debug, Deserialize, Display, Serialize)]
+#[derive(Builder, Clone, Debug, Deserialize, Display, Serialize)]
 #[display("{}", "{runtime}:{image}")]
 #[builder(start_fn(name = init))]
 pub struct ContainerEnvironment {
@@ -248,7 +248,7 @@ pub struct Module {
 /// let arguments = vec!["hello".to_string()];
 /// let script = Script::init().command(command).arguments(arguments).build();
 /// ```
-#[derive(Clone, Debug, Display)]
+#[derive(Builder, Clone, Debug, Display)]
 #[display("{} {}", self.get_command(), self.get_arguments().join(" "))]
 #[builder(start_fn(name = init))]
 pub struct Script {
@@ -275,7 +275,7 @@ pub struct StringTemplate {
     pub value: String,
     pub template_type: TemplateType,
 }
-#[derive(Clone, Debug, Deserialize, Display, PartialEq, Serialize)]
+#[derive(Builder, Clone, Debug, Deserialize, Display, PartialEq, Serialize)]
 #[display("{name}")]
 #[builder(start_fn(name = init))]
 pub struct VirtualEnvironment {
