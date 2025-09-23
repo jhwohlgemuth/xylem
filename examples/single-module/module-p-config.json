@@ -1,0 +1,46 @@
+{
+    "version": "0.0.9",
+    "description": "Test workflow configuration",
+    "requirements": [
+        "python",
+        "conda"
+    ],
+    "input": [
+        "/path/to/input/order1",
+        "/path/to/input/order2",
+        "/path/to/input/order3",
+        "/path/to/input/order4"
+    ],
+    "modules": [
+        {
+            "name": "Module P (local)",
+            "type": "script",
+            "programmingLanguage": "python",
+            "uri": "file:///path/to/module-p",
+            "variables": {
+                "OUTPUT_DIRECTORY": "/path/to/output/directory",
+                "METHOD": "nn_diffuse",
+                "MODULE_LIST": "MODP"
+            },
+            "template": {
+                "command": "python",
+                "environment": {
+                    "name": "module-p",
+                    "manager": "conda"
+                },
+                "arguments": [
+                    "-m",
+                    "lib",
+                    "--source_directory",
+                    "{{ INPUT }}",
+                    "--output_directory",
+                    "{{ OUTPUT_DIRECTORY }}",
+                    "--method",
+                    "{{ METHOD }}",
+                    "--module_list",
+                    "{{ MODULE_LIST }}"
+                ]
+            }
+        }
+    ]
+}
