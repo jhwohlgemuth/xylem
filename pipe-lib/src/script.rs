@@ -21,7 +21,7 @@ use which::which;
 
 use crate::util::*;
 
-pub type CommandResult = Result<(), Box<(dyn StdError + 'static)>>;
+pub type CommandResult = Result<(), Box<dyn StdError + 'static>>;
 
 #[derive(Clone, Debug, Display, Serialize, Deserialize, Valuable)]
 #[serde(rename_all = "lowercase")]
@@ -1031,8 +1031,9 @@ pub fn get_conda_environment_list() -> Vec<String> {
             .replace(['#', '*'], "")
             .split('\n')
             .filter(|x| !x.is_empty())
-            .skip(2)
+            .skip(1)
             .map(|x| x.trim().chars().take_while(|x| !x.is_whitespace()).collect())
+            .filter(|x: &String| !x.contains(std::path::is_separator))
             .collect::<Vec<String>>()
     } else {
         vec![]
