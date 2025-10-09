@@ -38,7 +38,7 @@ impl Label {
     }
     pub fn fmt_fail(value: &str) -> String {
         let style = Style::new().white().on_red();
-        format!(" ✗ {} ", value).style(style).to_string()
+        format!(" ✗ {value} ").style(style).to_string()
     }
     pub fn found() -> Styled<&'static &'static str> {
         let style = Style::new().green().on_default_color();
@@ -172,7 +172,7 @@ pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
 pub fn get_checksum(path: PathBuf) -> String {
     if let Ok(content) = read_file(path) {
         let hash = Sha256::digest(content);
-        format!("{:x}", hash)
+        format!("{hash:x}")
     } else {
         unreachable!()
     }

@@ -54,13 +54,13 @@ fn test_command() {
 
 #[test]
 fn test_config_get_inputs() {
-    match Config::read(PathBuf::from(format!("{}/config.json", FIXTURES))) {
+    match Config::read(PathBuf::from(format!("{FIXTURES}/config.json"))) {
         | Some(config) => {
             assert_eq!(config.get_inputs(), Some(to_string(vec!["input_01", "input_02", "input_03"])));
         }
         | None => panic!("Cannot read config in get_input test"),
     }
-    match Config::read(PathBuf::from(format!("{}/config_with_path_input.json", FIXTURES))) {
+    match Config::read(PathBuf::from(format!("{FIXTURES}/config_with_path_input.json"))) {
         | Some(config) => {
             let mut inputs = config
                 .get_inputs()
@@ -77,7 +77,7 @@ fn test_config_get_inputs() {
 
 #[test]
 fn test_config_get_module_list() {
-    let path = format!("{}/config.json", FIXTURES);
+    let path = format!("{FIXTURES}/config.json");
     match Config::read(PathBuf::from(path)) {
         | Some(config) => {
             let expected = "local_binary_module,local_python_script_module,remote_python_script_module";
@@ -89,12 +89,12 @@ fn test_config_get_module_list() {
 
 #[test]
 fn test_config_read() {
-    let path = format!("{}/config.json", FIXTURES);
+    let path = format!("{FIXTURES}/config.json");
     // Load variables into configuration (JSON or YAML)
     let config = Config::read(PathBuf::from(path));
     assert_eq!(config.clone().unwrap().variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.unwrap().modules.len(), 3);
-    let path = format!("{}/config.yaml", FIXTURES);
+    let path = format!("{FIXTURES}/config.yaml");
     let config = Config::read(PathBuf::from(path));
     assert_eq!(config.clone().unwrap().variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.unwrap().modules.len(), 3);
@@ -103,7 +103,7 @@ fn test_config_read() {
 #[test]
 fn test_config_read_json() {
     // Load variables into configuration from JSON file
-    let path = format!("{}/config.json", FIXTURES);
+    let path = format!("{FIXTURES}/config.json");
     let config = Config::read_json(PathBuf::from(path)).expect("=> [ERROR] Cannot import config in tests");
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.modules.len(), 3);
@@ -112,7 +112,7 @@ fn test_config_read_json() {
 #[test]
 fn test_config_read_yaml() {
     // Load variables into configuration from YAML file
-    let path = format!("{}/config.yaml", FIXTURES);
+    let path = format!("{FIXTURES}/config.yaml");
     let config = Config::read_yaml(PathBuf::from(path)).expect("=> [ERROR] Cannot import config in tests");
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.modules.len(), 3);
@@ -198,7 +198,7 @@ fn test_get_conda_environment_list() {
 
 #[test]
 fn test_get_conda_environment_name() {
-    let path = format!("{}/environment.yml", FIXTURES);
+    let path = format!("{FIXTURES}/environment.yml");
     let manifest_path = PathBuf::from(path);
     assert!(get_conda_environment_name(manifest_path)
         .unwrap()
@@ -290,7 +290,7 @@ fn test_path_to_string() {
 
 #[test]
 fn test_read_pyproject_toml() {
-    let path = format!("{}/pyproject.toml", FIXTURES);
+    let path = format!("{FIXTURES}/pyproject.toml");
     match PyProjectToml::read(PathBuf::from(path)) {
         | Ok(pyproject) => {
             match &pyproject.project {
@@ -311,18 +311,18 @@ fn test_semantic_version() {
     assert_eq!(version.major, 1);
     assert_eq!(version.minor, 2);
     assert_eq!(version.patch, 3);
-    assert_eq!(format!("{}", version), "1.2.3");
+    assert_eq!(format!("{version}"), "1.2.3");
     let default = SemanticVersion::init().build();
     assert_eq!(default.major, 0);
     assert_eq!(default.minor, 0);
     assert_eq!(default.patch, 0);
-    assert_eq!(format!("{}", default), "0.0.0");
+    assert_eq!(format!("{default}"), "0.0.0");
 }
 
 #[test]
 fn test_script() {
     let script = Script::init().build();
-    println!("{:?}", script);
+    println!("{script:?}");
     assert_eq!(script.command.name, "".to_string());
     assert_eq!(script.command.virtual_environment, None);
     assert!(script.arguments.is_empty());
@@ -373,8 +373,7 @@ fn test_script_expand_arguments() {
             .with_virtual_environment(Some(environment.clone()))
             .to_string(),
         format!(
-            "conda run --name {} --no-capture-output python -m lib --input /path/to/input --output /path/to/output",
-            environment
+            "conda run --name {environment} --no-capture-output python -m lib --input /path/to/input --output /path/to/output"
         )
     );
     assert_eq!(
@@ -424,8 +423,7 @@ fn test_script_expand_arguments_from() {
             .with_virtual_environment(Some(environment.clone()))
             .to_string(),
         format!(
-            "conda run --name {} --no-capture-output python -m lib --input FOO --output BAR",
-            environment
+            "conda run --name {environment} --no-capture-output python -m lib --input FOO --output BAR"
         )
     );
     assert_eq!(
@@ -463,28 +461,28 @@ fn test_script_expand_arguments_from() {
 #[test]
 fn test_script_from_template() {
     // "shell" format arguments
-    let path = PathBuf::from(format!("{}/template.json", FIXTURES));
+    let path = PathBuf::from(format!("{FIXTURES}/template.json"));
     let script = Script::from_path(path);
     let expected_value: Vec<String> = to_string(vec!["-m", "lib", "--input", "{{INPUT_DIRECTORY}}", "--output", "{{OUTPUT_DIRECTORY}}"]);
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
     // "exec" format arguments
-    let path = PathBuf::from(format!("{}/template_exec.json", FIXTURES));
+    let path = PathBuf::from(format!("{FIXTURES}/template_exec.json"));
     let script = Script::from_path(path);
     let expected = "conda run --name base --no-capture-output python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}";
-    assert_eq!(format!("{}", script), expected);
+    assert_eq!(format!("{script}"), expected);
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
     // Pixi virtual environment manager
-    let path = PathBuf::from(format!("{}/template_pixi.json", FIXTURES));
+    let path = PathBuf::from(format!("{FIXTURES}/template_pixi.json"));
     let script = Script::from_path(path);
     let expected = "pixi run --environment cuda python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}";
-    assert_eq!(format!("{}", script), expected);
+    assert_eq!(format!("{script}"), expected);
     // Docker + Pixi
-    let path = PathBuf::from(format!("{}/template_docker_pixi.json", FIXTURES));
+    let path = PathBuf::from(format!("{FIXTURES}/template_docker_pixi.json"));
     let script = Script::from_path(path);
     let expected = "docker exec CONTAINER pixi run --environment ENVIRONMENT python -m lib --method {{METHOD}} --profile {{PROFILE}}";
-    assert_eq!(format!("{}", script), expected);
+    assert_eq!(format!("{script}"), expected);
 }
 
 #[test]
@@ -496,7 +494,7 @@ fn test_script_get_arguments() {
     let arguments = to_string(vec!["hello", "world"]);
     let script = Script::init().command(command).arguments(arguments).build();
     // Docker runtime (default)
-    assert_eq!(format!("{}", script), "echo hello world");
+    assert_eq!(format!("{script}"), "echo hello world");
     assert_eq!(
         format!("{}", script.clone().with_virtual_environment(Some(virtual_environment.clone()))),
         "conda run --name base --no-capture-output echo hello world"
@@ -552,7 +550,7 @@ fn test_script_run() {
         let script = Script::init().command(command).build();
         let output = script.with_current_dir("/root".to_string()).run();
         assert_eq!(&output, &vec!["/root".to_string()]);
-        let path = PathBuf::from(format!("{}/template_run.json", FIXTURES));
+        let path = PathBuf::from(format!("{FIXTURES}/template_run.json"));
         let script = Script::from_path(path);
         assert_eq!(script.run(), vec!["hello world".to_string()]);
     }

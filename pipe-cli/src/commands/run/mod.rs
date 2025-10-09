@@ -69,7 +69,7 @@ pub fn run(
                     .skip_verify_requirements(cli_skip_verify_requirements)
                     .build(),
             };
-            debug!("=> {} Run configuration options = {}", Label::using(), format!("{:#?}", options).dimmed());
+            debug!("=> {} Run configuration options = {}", Label::using(), format!("{options:#?}").dimmed());
             let config = cfg
                 .with_options(options.clone())
                 .verify_requirements()

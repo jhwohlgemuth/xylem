@@ -47,7 +47,7 @@ fn print_pass(value: String, minimal: bool) {
         static CHECKMARK: Emoji<'_, '_> = Emoji("✔", ":-)");
         format!("\t{} {}", style(CHECKMARK).green(), value)
     };
-    println!("{}", output);
+    println!("{output}");
 }
 fn print_fail(value: String, err: String, minimal: bool) {
     let output = if minimal {
@@ -56,5 +56,5 @@ fn print_fail(value: String, err: String, minimal: bool) {
         const RED_X: Emoji<'_, '_> = Emoji("✘", ":-(");
         format!("\t{} {} {}", style(RED_X).red(), value, style(err).red())
     };
-    println!("{}", output)
+    println!("{output}")
 }
