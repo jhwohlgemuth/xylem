@@ -205,7 +205,10 @@ impl Config {
                             };
                             if !options.skip_verify_checksum.unwrap_or_default() {
                                 let calculated_checksum = match output.clone() {
-                                    | Ok(path) => util::checksum(path),
+                                    | Ok(path) => match util::checksum(path) {
+                                        | Some(value) => value,
+                                        | None => "".to_string(),
+                                    },
                                     | _ => "".to_string(),
                                 };
                                 match checksum {

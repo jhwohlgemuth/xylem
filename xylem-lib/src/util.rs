@@ -169,12 +169,12 @@ pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
     }
 }
 /// Get SHA256 hash of a file
-pub fn checksum(path: PathBuf) -> String {
+pub fn checksum(path: PathBuf) -> Option<String> {
     if let Ok(content) = read_file(path) {
         let hash = Sha256::digest(content);
-        format!("{hash:x}")
+        Some(format!("{hash:x}"))
     } else {
-        unreachable!()
+        None
     }
 }
 /// Get list of directory children
