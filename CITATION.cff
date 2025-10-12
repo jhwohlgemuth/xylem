@@ -3,8 +3,7 @@
 
 cff-version: 1.2.0
 title: >-
-  Parallel Integration and Processing Engine (PIPE) CLI
-  Application
+  Xylem CLI Application
 message: >-
   If you use this software, please cite it using the
   metadata from this file.
@@ -20,7 +19,7 @@ authors:
     email: clarkcn@ornl.gov
     affiliation: Oak Ridge National Laboratory
     orcid: 'https://orcid.org/0000-0002-4826-2152'
-repository-code: 'https://code.ornl.gov/GSHS/common/pipe/command'
+repository-code: 'https://code.ornl.gov/research-enablement/xylem'
 abstract: >-
   Command line (multi)tool for sustainable science that can
   be used in myriad automation contexts including the

@@ -1,15 +1,15 @@
 [workspace]
-members = ["pipe-cli", "pipe-lib"]
+members = ["xylem-cli", "xylem-lib"]
 resolver = "2"
 
 [workspace.package]
 version = "0.0.9"
 authors = ["Jason Wohlgemuth <wohlgemuthjh@ornl.gov>"]
 description = "Parallel Integration and Processing Engine"
-documentation = "https://pipe.ornl.gov"
+documentation = "https://xylem.ornl.gov"
 readme = "README.md"
-homepage = "https://pipe.ornl.gov"
-repository = "https://code.ornl.gov/GSHS/common/pipe/command"
+homepage = "https://xylem.ornl.gov"
+repository = "https://code.ornl.gov/research-enablement/xylem"
 
 [workspace.dependencies]
 clap-verbosity-flag = "2.2.0"

@@ -42,7 +42,7 @@
             "name": "Remote Python Script Module",
             "type": "script",
             "programmingLanguage": "python",
-            "uri": "https://code.ornl.gov/GSHS/GDS/Common/PIPE/module"
+            "uri": "https://code.ornl.gov/research-enablement/xylem/module"
         }
     ]
 }

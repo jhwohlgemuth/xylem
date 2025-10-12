@@ -73,19 +73,19 @@ publish-docs:
       when: never
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
-        - pipe-cli/**/*
-        - pipe-lib/**/*
-        - pipe-py/**/*
+        - xylem-cli/**/*
+        - xylem-lib/**/*
+        - xylem-py/**/*
   script:
     - make doc
     - git config --global user.name "${USER}"
     - git config --global user.email "${EMAIL}"
-    - git clone https://user:${ACCESS_TOKEN}@code-int.ornl.gov/sites/pipe.git site
+    - git clone https://user:${ACCESS_TOKEN}@code-int.ornl.gov/sites/xylem.git site
     - ls
     - ls site
     - rm -rf ./site/html
     - mv target/doc/ ./site/html
-    - echo '<meta http-equiv="refresh" content="0; url=pipe_lib/index.html">' > ./site/html/index.html
+    - echo '<meta http-equiv="refresh" content="0; url=xylem_lib/index.html">' > ./site/html/index.html
     - cd site
     - git add html
     - git commit -m "Publish changes"
@@ -111,12 +111,12 @@ publish-release:
         - Cargo.toml
   release: 
     tag_name: "v$PKG_VERSION" 
-    description: "PIPE CLI v$PKG_VERSION"
+    description: "Xylem v$PKG_VERSION"
     ref: "$CI_COMMIT_SHA"
     assets:
       links:
         - name: "v$PKG_VERSION"
-          url: "${PKG_REGISTRY_URL}/x86_64-unknown-linux-gnu/v${PKG_VERSION}/pipe"
+          url: "${PKG_REGISTRY_URL}/x86_64-unknown-linux-gnu/v${PKG_VERSION}/xylem"
 
 upload-binaries:
   stage: release
@@ -138,5 +138,5 @@ upload-binaries:
   script:
     - echo "======== UPLOAD JOB ========"
     - ls -la bin/
-    - 'curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file bin/pipe-v${PKG_VERSION} ${PKG_REGISTRY_URL}/x86_64-unknown-linux-gnu/v${PKG_VERSION}/pipe'
+    - 'curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file bin/xylem-v${PKG_VERSION} ${PKG_REGISTRY_URL}/x86_64-unknown-linux-gnu/v${PKG_VERSION}/xylem'
 

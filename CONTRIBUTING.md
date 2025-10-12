@@ -7,7 +7,7 @@
     ```
 - Within your container, clone the project <sup>[1](#1)</sup> with
     ```shell
-    git clone git@code.ornl.gov:GSHS/common/pipe/command.git
+    git clone git@code.ornl.gov:research-enablement/xylem.git
     ```
 - Ensure Docker container is running, then chose one of more of the following:
     - Open a web browser <sup>[2](#2)</sup> and navigate to `https://localhost:1337` (password = `password`)
@@ -18,12 +18,12 @@
     ```
 - Development involves mulitple [make](./Makefile) and cargo tasks:
     - `cargo run` - Execute code
-        - `cargo run -- help` - Print PIPE CLI help
+        - `cargo run -- help` - Print Xylem CLI help
         - `cargo run -- check --help` - Print check command CLI help
         - `cargo run -- run --config /path/to/config.json --dry-run -vvv` - Run workflow dry run with logging
     - `make lint` -  Format and lint code
     - `make test` - Run tests and generate code coverage
-    - `make doc` - Generate documentation (see https://pipe.ornl.gov)
+    - `make doc` - Generate documentation (see https://xylem.ornl.gov)
     - `make build` - Build release binaries
 - Make a git branch, push changes to it, open a merge request, resolve issues
 
@@ -97,4 +97,4 @@ cargo binstall cross
 
 [5]
 ---
-> See the `TARGETS` variable in [./Makefile](https://code.ornl.gov/GSHS/common/pipe/command/-/blob/main/Makefile?ref_type=heads#L31)
+> See the `TARGETS` variable in [./Makefile](https://code.ornl.gov/research-enablement/xylem/-/blob/main/Makefile?ref_type=heads#L31)

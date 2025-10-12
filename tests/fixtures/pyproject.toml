@@ -1,8 +1,8 @@
 # See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/ for documentation
 
 [project]
-name = "pipe-test-fixture"
-description = "Test fixture for testing PIPE Python script modules"
+name = "xylem-test-fixture"
+description = "Test fixture for testing Xylem Python script modules"
 readme = "README.md"
 license = {file = "LICENSE"}
 keywords = ["automation", "geospatial", "workflows"]
@@ -77,5 +77,5 @@ line-length = 150
 quiet = true
 target-version = ["py38"]
 
-[tool.pipe]
+[tool.xylem]
 module-name = "some-module"

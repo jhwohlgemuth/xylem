@@ -1,14 +1,14 @@
 use clap::{Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
 
-/// Multi-tool for verifying myriad aspects of data processing pipelines
 ///
-///    ███████  ██  ███████  ████▓▒░
-///    ██   ██  ██  ██   ██  ██
-/// ░▒▓██████████████████████████▓▒░
-///    ██       ██  ██       ██
-///    ██       ██  ██       ████▓▒░
-/// Parallel Integration & Processing Engine
+/// ░  ░░░░  ░░  ░░░░  ░░  ░░░░░░░░        ░░  ░░░░  ░
+/// ▒▒  ▒▒  ▒▒▒▒  ▒▒  ▒▒▒  ▒▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒▒   ▒▒   ▒
+/// ▓▓▓    ▓▓▓▓▓▓    ▓▓▓▓  ▓▓▓▓▓▓▓▓      ▓▓▓▓        ▓
+/// ██  ██  ██████  █████  ████████  ████████  █  █  █
+/// █  ████  █████  █████        ██        ██  ████  █
+///
+/// "Digital xylem" that transports data through workflows with structure and support
 ///
 #[derive(Debug, Parser)]
 #[command(author, version, about, verbatim_doc_comment)]
@@ -23,11 +23,11 @@ pub struct Arguments {
 pub enum Commands {
     /// Run checks on a given path to a directory
     ///
-    ///     $> pipe check /path/to/folder
+    ///     $> xylem check /path/to/folder
     ///
-    ///     $> echo /path/to/folder | pipe check -pm
+    ///     $> echo /path/to/folder | xylem check -pm
     ///
-    ///     $> pipe check /path/to/folder --reporter json console --output results.json
+    ///     $> xylem check /path/to/folder --reporter json console --output results.json
     ///
     #[clap(verbatim_doc_comment)]
     Check {
@@ -56,17 +56,17 @@ pub enum Commands {
         #[arg(short, long, value_name = "BOOL")]
         unique: bool,
     },
-    /// Check environment parameters and verify PIPE requirements are met
+    /// Check environment parameters and verify Xylem requirements are met
     ///
-    ///     $> pipe doctor --config /path/to/config
+    ///     $> xylem doctor --config /path/to/config
     ///
-    ///     $> pipe doctor --fix
+    ///     $> xylem doctor --fix
     ///
     #[clap(verbatim_doc_comment)]
     Doctor {
         /// Path to configuration file
         ///
-        /// Validate PIPE requirements are met for a given configuration
+        /// Validate Xylem requirements are met for a given configuration
         #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         config: Option<std::path::PathBuf>,
         /// Scan environment and attempt to fix unmet requirements
@@ -76,10 +76,10 @@ pub enum Commands {
     /// Run workflow using configuration file
     ///
     ///     Run with INFO logging level, loads config.json from current directory
-    ///     $> pipe run -vv
+    ///     $> xylem run -vv
     ///
     ///     Perform dry run using configuration file at /path/to/config.json
-    ///     $> pipe run --config /path/to/config --dry-run
+    ///     $> xylem run --config /path/to/config --dry-run
     ///
     #[clap(verbatim_doc_comment)]
     Run {

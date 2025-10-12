@@ -29,14 +29,14 @@ doc:
 build: clean
 	@mkdir -p ./bin
 	@cargo build --release --target $(DEFAULT_TARGET)
-	@mv target/$(DEFAULT_TARGET)/release/pipe-cli ./bin/pipe-v$(VERSION)
+	@mv target/$(DEFAULT_TARGET)/release/xylem-cli ./bin/xylem-v$(VERSION)
 
 build-cross: clean
 	@mkdir -p ./bin
 	@for target in $(TARGETS) ; do \
 		export DISPLAY=:0; \
         cross build --release --target $$target; \
-		mv target/$${target}/release/pipe-cli ./bin/pipe_v$(VERSION)_$${target}; \
+		mv target/$${target}/release/xylem-cli ./bin/xylem_v$(VERSION)_$${target}; \
     done
 
 release: clean
