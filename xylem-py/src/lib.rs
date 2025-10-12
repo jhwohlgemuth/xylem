@@ -1,4 +1,4 @@
-use pipe_lib::add_forward_slash as _add_forward_slash;
+use xylem_lib::add_forward_slash as _add_forward_slash;
 use pyo3::prelude::*;
 use rand::Rng;
 use std::cmp::Ordering;
@@ -35,7 +35,7 @@ fn guess_the_number() {
 }
 
 #[pymodule]
-fn pipe(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn xylem(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add_forward_slash, m)?)?;
     m.add_function(wrap_pyfunction!(guess_the_number, m)?)?;
     Ok(())

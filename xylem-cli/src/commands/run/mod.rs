@@ -2,13 +2,13 @@ use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
 use nanoid::nanoid;
 use owo_colors::OwoColorize;
-use pipe_lib::config::{Config, ConfigOptions};
-use pipe_lib::script::EnvironmentValue;
-use pipe_lib::util::Label;
 use rayon::prelude::*;
 use std::env;
 use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
+use xylem_lib::config::{Config, ConfigOptions};
+use xylem_lib::script::EnvironmentValue;
+use xylem_lib::util::Label;
 
 const DEFAULT_CONFIG_NAME: &str = "config.json";
 

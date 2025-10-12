@@ -1,11 +1,11 @@
 use clap::Parser;
 use dotenvy::dotenv;
-use pipe_lib::Void;
 use tracing::instrument;
 use tracing_log::AsTrace;
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
+use xylem_lib::Void;
 
 mod cli;
 mod commands;
@@ -14,7 +14,7 @@ mod reporters;
 use cli::{Arguments, Commands};
 
 // Environment variables
-const LOG_LEVEL: &str = "PIPE_LOG_LEVEL";
+const LOG_LEVEL: &str = "XYLEM_LOG_LEVEL";
 const DISPLAY_LEVEL: bool = true;
 const DISPLAY_LINE_NUMBER: bool = false;
 const DISPLAY_TARGET: bool = false;

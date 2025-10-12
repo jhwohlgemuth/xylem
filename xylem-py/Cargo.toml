@@ -1,15 +1,15 @@
 [package]
-name = "pipe-py"
+name = "xylem-py"
 version.workspace = true
 authors.workspace = true
 description.workspace = true
 edition = "2021"
 
 [lib]
-name = "pipe"
+name = "xylem"
 crate-type = ["cdylib"]
 
 [dependencies]
-pipe-lib = { path = "../pipe-lib" }
+xylem-lib = { path = "../xylem-lib" }
 pyo3 = { version = "0.22.2", features = ["abi3-py310", "extension-module"] }
 rand = "0.8.5"

@@ -44,11 +44,11 @@ pub struct PyProjectToml {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct PyProjectTool {
-    pipe: Option<ToolPipe>,
+    xylem: Option<ToolXylem>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
-pub struct ToolPipe {
+pub struct ToolXylem {
     module_name: String,
 }
 #[derive(Clone, Debug)]
@@ -108,8 +108,8 @@ impl PyProjectToml {
     }
     pub fn get_module_name(self) -> Option<String> {
         match self.tool {
-            | Some(PyProjectTool { pipe, .. }) => match pipe {
-                | Some(ToolPipe { module_name, .. }) => Some(module_name),
+            | Some(PyProjectTool { xylem, .. }) => match xylem {
+                | Some(ToolXylem { module_name, .. }) => Some(module_name),
                 | None => None,
             },
             | None => None,

@@ -1,11 +1,11 @@
-use pipe_lib::config::Parameters;
-use pipe_lib::util::{is_stdout_piped, StdoutIsPipedResult};
-use pipe_lib::{Details, Output, Void};
 use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use tracing::{debug, info};
+use xylem_lib::config::Parameters;
+use xylem_lib::util::{is_stdout_piped, StdoutIsPipedResult};
+use xylem_lib::{Details, Output, Void};
 
 pub fn run(output: Output, parameters: Option<Parameters>) -> Void {
     eprintln!("\n");
@@ -32,7 +32,7 @@ pub fn run(output: Output, parameters: Option<Parameters>) -> Void {
             drop(stdout);
         }
         | StdoutIsPipedResult::StdoutIsNotPiped => {
-            let default_filename = "pipe_results.json";
+            let default_filename = "xylem_results.json";
             let default_dir = match env::var("PWD") {
                 | Ok(pwd) => PathBuf::from(pwd).join(default_filename),
                 | Err(_) => env::current_dir()?.with_file_name(default_filename),

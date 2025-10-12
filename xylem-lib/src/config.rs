@@ -294,7 +294,7 @@ impl Config {
                             }
                             // TODO: Check that URL exists
                             // TODO: Git clone module
-                            // TODO: Check script repository with is_valid_pipe_module_python
+                            // TODO: Check script repository with is_valid_xylem_module_python
                             unimplemented!("Remote Generic script modules are not supported yet");
                         }
                         | _ => unimplemented!("Only HTTP, HTTPS, and SSH are currently supported for remote generic script modules"),
@@ -303,7 +303,7 @@ impl Config {
                         | Ok(true) => {
                             let path = value.into_os_string().into_string().unwrap();
                             debug!(module = module.name, path, "=> {} Local script repository", Label::found());
-                            // TODO: Check script repository with is_valid_pipe_module_python
+                            // TODO: Check script repository with is_valid_xylem_module_python
                         }
                         | _ => {
                             let path = value.into_os_string().into_string().unwrap();
@@ -353,7 +353,7 @@ impl Config {
                                     script.run();
                                 }
                             }
-                            // TODO: Check script repository with is_valid_pipe_module_python
+                            // TODO: Check script repository with is_valid_xylem_module_python
                             // TODO: Add support for designating virtual environment manager
                             // let manager = match &module.template {
                             //     | Some(TemplateAttribute::Template(ScriptTemplate { manager, .. })) => manager,
@@ -375,7 +375,7 @@ impl Config {
                         | Ok(true) => {
                             let path = value.into_os_string().into_string().unwrap();
                             debug!(module = module.name, path, "=> {} Local Python script repository", Label::found());
-                            // TODO: Check script repository with is_valid_pipe_module_python
+                            // TODO: Check script repository with is_valid_xylem_module_python
                             // TODO: Add support for designating virtual environment manager
                             // let manager = match &module.template {
                             //     | Some(TemplateAttribute::Template(ScriptTemplate { manager, .. })) => manager,
@@ -424,9 +424,9 @@ impl Config {
             std::process::exit(exitcode::UNAVAILABLE);
         }
     }
-    /// Import PIPE configuration JSON file
+    /// Import Xylem configuration JSON file
     ///
-    /// See the [PIPE configuration syntax wiki page](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Configuration-Syntax)
+    /// See the [Xylem configuration syntax wiki page](https://code.ornl.gov/groups/research-enablement/xylem/-/wikis/Xylem-Standards/Configuration-Syntax)
     /// for more information configuration files
     ///
     pub fn read_json(path: PathBuf) -> serde_json::Result<Config> {
@@ -445,9 +445,9 @@ impl Config {
         debug!("=> {} Configuration = {:#?}", label, data.dimmed());
         data
     }
-    /// Import PIPE configuration YAML file
+    /// Import Xylem configuration YAML file
     ///
-    /// See the [PIPE configuration syntax wiki page](https://code.ornl.gov/groups/GSHS/common/pipe/-/wikis/PIPE-Standards/Configuration-Syntax)
+    /// See the [Xylem configuration syntax wiki page](https://code.ornl.gov/groups/research-enablement/xylem/-/wikis/Xylem-Standards/Configuration-Syntax)
     /// for more information configuration files
     ///
     pub fn read_yaml(path: PathBuf) -> serde_yml::Result<Config> {
@@ -559,12 +559,12 @@ impl Config {
             | _ => unimplemented!("Only binary and script modules are currently supported"),
         });
     }
-    /// Set environment variables from PIPE configuration "variables" attribute
+    /// Set environment variables from Xylem configuration "variables" attribute
     pub fn set_environment_variables(self) -> Config {
         match &self.variables {
             | Some(variables) => {
                 for (k, v) in variables {
-                    debug!("Setting PIPE environment variable: {:?} = {:?}", k, v);
+                    debug!("Setting Xylem environment variable: {:?} = {:?}", k, v);
                     EnvironmentValue::from_value(v.clone()).set_variable(k.clone());
                 }
             }

@@ -9,20 +9,19 @@ fn test_cli() {
 
 #[test]
 fn test_help() {
-    let expected = "Multi-tool for verifying myriad aspects of data processing pipelines
+    let expected = "░  ░░░░  ░░  ░░░░  ░░  ░░░░░░░░        ░░  ░░░░  ░
+▒▒  ▒▒  ▒▒▒▒  ▒▒  ▒▒▒  ▒▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒▒   ▒▒   ▒
+▓▓▓    ▓▓▓▓▓▓    ▓▓▓▓  ▓▓▓▓▓▓▓▓      ▓▓▓▓        ▓
+██  ██  ██████  █████  ████████  ████████  █  █  █
+█  ████  █████  █████        ██        ██  ████  █
 
-   ███████  ██  ███████  ████▓▒░
-   ██   ██  ██  ██   ██  ██
-░▒▓██████████████████████████▓▒░
-   ██       ██  ██       ██
-   ██       ██  ██       ████▓▒░
-Parallel Integration & Processing Engine
+\"Digital xylem\" that transports data through workflows with structure and support
 
-Usage: pipe-cli [OPTIONS] [COMMAND]
+Usage: xylem [OPTIONS] [COMMAND]
 
 Commands:
   check   Run checks on a given path to a directory
-  doctor  Check environment parameters and verify PIPE requirements are met
+  doctor  Check environment parameters and verify Xylem requirements are met
   run     Run workflow using configuration file
   help    Print this message or the help of the given subcommand(s)
 
@@ -38,7 +37,7 @@ Options:
 
   -V, --version
           Print version\n";
-    let mut cmd = Command::cargo_bin("pipe-cli").unwrap();
+    let mut cmd = Command::cargo_bin("xylem").unwrap();
     let assert = cmd.arg("help").assert();
     assert.success().stdout(expected);
 }
@@ -48,7 +47,7 @@ fn test_run() {
     let expected = "error: a value is required for '--config <PATH>' but none was supplied
 
 For more information, try '--help'.\n";
-    let mut cmd = Command::cargo_bin("pipe-cli").unwrap();
+    let mut cmd = Command::cargo_bin("xylem").unwrap();
     let assert = cmd.args(["run", "--config"]).assert();
     assert.failure().code(2).stderr(expected);
 }

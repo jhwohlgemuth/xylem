@@ -88,7 +88,7 @@ pub enum ModuleType {
     /// Nested workflow module that allows for grouping modules
     #[serde(alias = "config")]
     Configuration { uri: String },
-    /// Provides legacy support for exceuting scripts (e.g. Python projects like [Module A](https://code.ornl.gov/GSHS/common/pipe/module-a))
+    /// Provides support for executing scripts
     Script {
         #[serde(alias = "programmingLanguage")]
         programming_language: Option<ModuleLanguage>,
@@ -201,7 +201,7 @@ pub struct Command {
 ///
 /// Examples:
 /// ```ignore
-/// use pipe_lib::script::ContainerEnvironment;
+/// use xylem_lib::script::ContainerEnvironment;
 ///
 /// let container = ContainerEnvironment::init().name("myenv").build();
 /// let container = ContainerEnvironment::init().name("myenv").runtime(ContainerRuntime::Podman).build();
@@ -242,7 +242,7 @@ pub struct Module {
 ///
 /// Example:
 /// ```
-/// use pipe_lib::script::*;
+/// use xylem_lib::script::*;
 ///
 /// let command = Command::init().name("echo".to_string()).build();
 /// let arguments = vec!["hello".to_string()];
@@ -292,7 +292,7 @@ impl Command {
     ///
     /// # Examples
     /// ```ignore
-    /// use pipe_lib::Command;
+    /// use xylem_lib::Command;
     ///
     /// let command = Command::init().name("ls".to_string()).build();
     /// assert!(command.test());
@@ -320,7 +320,7 @@ impl Command {
     }
 }
 impl EnvironmentValue {
-    pub const PREFIX: &'static str = "pipe";
+    pub const PREFIX: &'static str = "xylem";
     fn formatted_prefix() -> String {
         format!("_{}_", EnvironmentValue::PREFIX.to_uppercase())
     }
@@ -475,8 +475,8 @@ impl Script {
     ///
     /// Example:
     /// ```
-    /// use pipe_lib::script::*;
-    /// use pipe_lib::util::*;
+    /// use xylem_lib::script::*;
+    /// use xylem_lib::util::*;
     ///
     /// // Environment: ANSWER=42
     /// let command = Command::init().name("echo".to_string()).build();
@@ -507,7 +507,7 @@ impl Script {
     ///
     /// Example:
     /// ```
-    /// use pipe_lib::script::*;
+    /// use xylem_lib::script::*;
     /// use std::collections::HashMap;
     ///
     /// let envs = HashMap::from([("ANSWER".to_string(), "42".to_string())]);
@@ -605,7 +605,7 @@ impl Script {
     ///
     /// You can easily import the script with
     /// ```
-    /// use pipe_lib::script::*;
+    /// use xylem_lib::script::*;
     /// use std::path::PathBuf;
     ///
     /// let path = PathBuf::from("../tests/fixtures/template.json");
@@ -620,7 +620,7 @@ impl Script {
     ///
     /// You can easily import the script with
     /// ```
-    /// use pipe_lib::script::*;
+    /// use xylem_lib::script::*;
     /// use std::path::PathBuf;
     ///
     /// let path = PathBuf::from("../tests/fixtures/template.json");
@@ -850,8 +850,8 @@ impl Script {
     ///
     /// For a given script,
     /// ```
-    /// use pipe_lib::script::*;
-    /// use pipe_lib::util::*;
+    /// use xylem_lib::script::*;
+    /// use xylem_lib::util::*;
     ///
     /// let command = Command::init().name("python".to_string()).build();
     /// let arguments = to_string(vec!["-m", "lib"]);
@@ -860,8 +860,8 @@ impl Script {
     ///
     /// Run with no virtual environment
     /// ```
-    /// use pipe_lib::script::*;
-    /// use pipe_lib::util::*;
+    /// use xylem_lib::script::*;
+    /// use xylem_lib::util::*;
     ///
     /// let command = Command::init().name("python".to_string()).build();
     /// let arguments = to_string(vec!["-m", "lib"]);
@@ -871,8 +871,8 @@ impl Script {
     ///
     /// Run using "module-a" Conda virtual environment (basically executes script with `conda run -n <name>`)
     /// ```
-    /// use pipe_lib::script::*;
-    /// use pipe_lib::util::*;
+    /// use xylem_lib::script::*;
+    /// use xylem_lib::util::*;
     ///
     /// let command = Command::init().name("python".to_string()).build();
     /// let arguments = to_string(vec!["-m", "lib"]);
@@ -966,7 +966,7 @@ impl StringTemplate {
     ///
     /// # Examples
     /// ```
-    /// use pipe_lib::script::StringTemplate;
+    /// use xylem_lib::script::StringTemplate;
     ///
     /// // OK
     /// let template = StringTemplate::new("{{ INPUT_DIRECTORY }}");
@@ -993,7 +993,7 @@ impl StringTemplate {
     ///
     /// # Examples
     /// ```
-    /// use pipe_lib::script::StringTemplate;
+    /// use xylem_lib::script::StringTemplate;
     ///
     /// let expected = "{{VARIABLE}}";
     ///

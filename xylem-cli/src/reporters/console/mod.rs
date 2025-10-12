@@ -1,6 +1,6 @@
 use console::{style, Emoji};
-use pipe_lib::config::Parameters;
-use pipe_lib::{Details, Output, Void};
+use xylem_lib::config::Parameters;
+use xylem_lib::{Details, Output, Void};
 
 pub fn run(output: Output, parameters: Option<Parameters>) -> Void {
     eprintln!("\n");

@@ -141,7 +141,7 @@ pub fn download_binary(url: String, destination: PathBuf) -> Result<PathBuf, Str
 /// Get the environment name
 /// ```
 /// use std::path::PathBuf;
-/// use pipe_lib::util::get_conda_environment_name;
+/// use xylem_lib::util::get_conda_environment_name;
 ///
 /// get_conda_environment_name(PathBuf::from("/path/to/environment.yml"));
 /// ```
@@ -192,7 +192,7 @@ pub fn get_children(path: String) -> Vec<String> {
 /// # Examples
 /// ```
 /// use std::path::Path;
-/// use pipe_lib::util::get_extension;
+/// use xylem_lib::util::get_extension;
 ///
 /// assert_eq!("txt", get_extension(Path::new("hello.txt")));
 /// assert_eq!("md", get_extension(Path::new("README.md")));
@@ -206,20 +206,7 @@ pub fn get_extension(path: &Path) -> String {
 pub fn get_parent(path: PathBuf) -> PathBuf {
     PathBuf::from(path.parent().unwrap())
 }
-/// Check if a file has a given file extension
-///
-/// # Examples
-/// ```
-/// use std::path::Path;
-/// use pipe_lib::util::has_extension;
-///
-/// assert!(has_extension("txt", Path::new("hello.txt")));
-/// assert!(!has_extension("txt", Path::new("hello.md")));
-/// ```
-pub fn has_extension(extension: &str, path: &Path) -> bool {
-    extension == get_extension(path)
-}
-/// Check if stdin is piped (e.g., `echo "hello world" | pipe`)
+/// Check if stdin is piped (e.g., `echo "hello world" | xylem`)
 pub fn is_stdin_piped() -> StdinIsPipedResult {
     if !io::stdin().is_terminal() {
         StdinIsPipedResult::StdinIsPiped
@@ -227,7 +214,7 @@ pub fn is_stdin_piped() -> StdinIsPipedResult {
         StdinIsPipedResult::StdinIsNotPiped
     }
 }
-/// Check if stdout is piped (e.g., `pipe | process`)
+/// Check if stdout is piped (e.g., `xylem | process`)
 pub fn is_stdout_piped() -> StdoutIsPipedResult {
     if !io::stdout().is_terminal() {
         StdoutIsPipedResult::StdoutIsPiped
@@ -261,7 +248,7 @@ pub fn path_to_string(path: PathBuf) -> String {
 /// # Examples
 /// ```
 /// use std::path::PathBuf;
-/// use pipe_lib::util::read_file;
+/// use xylem_lib::util::read_file;
 ///
 /// let path = PathBuf::from("./tests/fixtures/template.json");
 /// let content = read_file(path).unwrap();

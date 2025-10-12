@@ -3,15 +3,15 @@ pub mod checks;
 use color_eyre::eyre::{Report, Result};
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
-use xylem_lib::config::{Config, Parameters};
-use xylem_lib::util::{is_stdin_piped, Label, StdinIsPipedResult};
-use xylem_lib::{Reporter, ReporterType};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::env;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 use tracing::{error, info, warn};
+use xylem_lib::config::{Config, Parameters};
+use xylem_lib::util::{is_stdin_piped, Label, StdinIsPipedResult};
+use xylem_lib::{Reporter, ReporterType};
 
 use crate::reporters;
 use checks::*;

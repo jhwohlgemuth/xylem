@@ -1,13 +1,17 @@
 [package]
-name = "pipe-cli"
+name = "xylem-cli"
 version.workspace = true
 authors.workspace = true
 description.workspace = true
 documentation.workspace = true
 edition = "2021"
 
+[[bin]]
+name = "xylem"
+path = "src/main.rs"
+
 [dependencies]
-pipe-lib = { path = "../pipe-lib" }
+xylem-lib = { path = "../xylem-lib" }
 clap = { version = "4.4.2", features = ["derive", "unstable-doc"] }
 console = { version = "0.15.7", default-features = false, features = ["ansi-parsing"] }
 glob = "0.3.1"
@@ -26,9 +30,6 @@ tracing-log = { workspace = true }
 tracing-subscriber = { workspace = true }
 uriparse = { workspace = true }
 assert_cmd = "2.0.16"
-
-[dev-dependencies]
-cargo-watch = "8.4.1"
 
 [lints.rust]
 unsafe_code = "forbid"

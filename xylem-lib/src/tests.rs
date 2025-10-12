@@ -4,7 +4,7 @@ use crate::*;
 use pyproject_toml::Project;
 use std::collections::HashMap;
 use std::env::set_var;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 const FIXTURES: &str = "../tests/fixtures";
 
@@ -15,7 +15,6 @@ fn test_add_dot_slash() {
     assert_eq!(add_dot_slash(PathBuf::from("foo/bar")), PathBuf::from("./foo/bar"));
     assert_eq!(add_dot_slash(PathBuf::from("foo/bar.json")), PathBuf::from("./foo/bar.json"));
 }
-
 #[test]
 fn test_add_forward_slash() {
     assert_eq!(add_forward_slash(PathBuf::from("foo")), PathBuf::from("foo/"));
@@ -24,7 +23,6 @@ fn test_add_forward_slash() {
     assert_eq!(add_forward_slash(PathBuf::from("foo/bar/")), PathBuf::from("foo/bar/"));
     assert_eq!(add_forward_slash(PathBuf::from("foo/bar.json")), PathBuf::from("foo/bar.json"));
 }
-
 #[test]
 fn test_command() {
     let nonexistent: Command = Command::init().name("does-not-exist".to_string()).build();
@@ -51,7 +49,6 @@ fn test_command() {
         }
     }
 }
-
 #[test]
 fn test_config_get_inputs() {
     match Config::read(PathBuf::from(format!("{FIXTURES}/config.json"))) {
@@ -74,7 +71,6 @@ fn test_config_get_inputs() {
         | None => panic!("Cannot read config in get_input test"),
     }
 }
-
 #[test]
 fn test_config_get_module_list() {
     let path = format!("{FIXTURES}/config.json");
@@ -86,7 +82,6 @@ fn test_config_get_module_list() {
         | None => panic!("Cannot read config in tests"),
     }
 }
-
 #[test]
 fn test_config_read() {
     let path = format!("{FIXTURES}/config.json");
@@ -99,7 +94,6 @@ fn test_config_read() {
     assert_eq!(config.clone().unwrap().variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.unwrap().modules.len(), 3);
 }
-
 #[test]
 fn test_config_read_json() {
     // Load variables into configuration from JSON file
@@ -108,7 +102,6 @@ fn test_config_read_json() {
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.modules.len(), 3);
 }
-
 #[test]
 fn test_config_read_yaml() {
     // Load variables into configuration from YAML file
@@ -117,7 +110,6 @@ fn test_config_read_yaml() {
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.modules.len(), 3);
 }
-
 #[test]
 fn test_details() {
     let good_foo = Details {
@@ -154,7 +146,6 @@ fn test_details() {
     results.dedup();
     assert_eq!(results.len(), 5);
 }
-
 #[test]
 fn test_get_checksum() {
     let checksum = get_checksum(PathBuf::from("../LICENSE"));
@@ -165,26 +156,23 @@ fn test_get_checksum() {
         assert_eq!(checksum, expected);
     }
 }
-
 #[test]
 #[should_panic]
 fn test_get_checksum_panic() {
     assert_eq!(get_checksum(PathBuf::from("/path/does/not/exist.txt")), "");
 }
-
 #[test]
 fn test_get_children() {
     assert_eq!(get_children("../../does/not/exist".to_string()), Vec::<String>::new());
     match PathBuf::from("/root/dev/command").try_exists() {
         | Ok(true) => {
-            let expected = to_string(vec!["/root/dev/command/pipe-lib/src", "/root/dev/command/pipe-lib/Cargo.toml"]);
-            assert_eq!(get_children("../pipe-lib".to_string()), expected);
+            let expected = to_string(vec!["/root/dev/command/xylem-lib/src", "/root/dev/command/xylem-lib/Cargo.toml"]);
+            assert_eq!(get_children("../xylem-lib".to_string()), expected);
         }
         | Ok(false) => (),
         | Err(_) => (),
     };
 }
-
 #[test]
 fn test_get_conda_environment_list() {
     let list = get_conda_environment_list();
@@ -195,7 +183,6 @@ fn test_get_conda_environment_list() {
         assert!(list.is_empty());
     }
 }
-
 #[test]
 fn test_get_conda_environment_name() {
     let path = format!("{FIXTURES}/environment.yml");
@@ -206,23 +193,10 @@ fn test_get_conda_environment_name() {
     let manifest_path = PathBuf::from("/non/existing/manifest.yml");
     assert_eq!(get_conda_environment_name(manifest_path), None);
 }
-
 #[test]
 fn test_get_parent() {
     assert_eq!(get_parent(PathBuf::from("foo/bar.json")), PathBuf::from("foo"));
 }
-
-#[test]
-fn test_has_extension() {
-    assert!(has_extension("txt", Path::new("foo.txt")));
-    assert!(has_extension("txt", Path::new("foo/bar.txt")));
-    assert!(!has_extension("txt", Path::new("foo/bar.md")));
-    assert!(has_extension("", Path::new("foo")));
-    assert!(has_extension("", Path::new("foo/bar")));
-    assert!(has_extension("", Path::new(".foo")));
-    assert!(has_extension("", Path::new("foo/.bar")))
-}
-
 #[test]
 fn test_module() {
     let module = Module {
@@ -236,7 +210,6 @@ fn test_module() {
     };
     assert_eq!(module.to_string(), "module-a");
 }
-
 #[test]
 fn test_module_uri() {
     assert_eq!(ModuleUri::from(""), ModuleUri::Unknown("".to_string()));
@@ -261,33 +234,30 @@ fn test_module_uri() {
         | _ => panic!(),
     }
 }
-
 #[test]
 fn test_module_uri_hash() {
-    let expected = "code_ornl_gov_pipe_module-a";
-    let url = ModuleUri::from("http://code.ornl.gov/PIPE/module-a");
+    let expected = "code_ornl_gov_xylem_module-a";
+    let url = ModuleUri::from("http://code.ornl.gov/xylem/module-a");
     assert_eq!(expected, url.hash());
-    let url = ModuleUri::from("https://code.ornl.gov/GSHS/GDS/Common/PIPE/module-a");
+    let url = ModuleUri::from("https://code.ornl.gov/research-enablement/xylem/module-a");
     assert_eq!(expected, url.hash());
     let expected = "example_com";
     let url = ModuleUri::from("http://example.com");
     assert_eq!(expected, url.hash());
 }
-
 #[test]
 fn test_path_to_string() {
     assert_eq!(path_to_string(PathBuf::from("foo/bar")), "foo/bar");
     assert_eq!(path_to_string(PathBuf::from("../../../does/not/exist")), "../../../does/not/exist");
-    let path = "/root/dev/command/pipe-cli/Cargo.toml";
+    let path = "/root/dev/command/xylem-cli/Cargo.toml";
     match PathBuf::from(path).try_exists() {
         | Ok(true) => {
-            assert_eq!(path_to_string(PathBuf::from("../pipe-cli/Cargo.toml")), path);
+            assert_eq!(path_to_string(PathBuf::from("../xylem-cli/Cargo.toml")), path);
         }
         | Ok(false) => (),
         | Err(_) => (),
     }
 }
-
 #[test]
 fn test_read_pyproject_toml() {
     let path = format!("{FIXTURES}/pyproject.toml");
@@ -295,7 +265,7 @@ fn test_read_pyproject_toml() {
         | Ok(pyproject) => {
             match &pyproject.project {
                 | Some(Project { name, .. }) => {
-                    assert_eq!(name, "pipe-test-fixture");
+                    assert_eq!(name, "xylem-test-fixture");
                 }
                 | None => panic!("No project in pyproject.toml"),
             }
@@ -304,7 +274,6 @@ fn test_read_pyproject_toml() {
         | Err(_) => panic!("Cannot read pyproject.toml"),
     }
 }
-
 #[test]
 fn test_semantic_version() {
     let version = SemanticVersion::from_string("1.2.3");
@@ -318,7 +287,6 @@ fn test_semantic_version() {
     assert_eq!(default.patch, 0);
     assert_eq!(format!("{default}"), "0.0.0");
 }
-
 #[test]
 fn test_script() {
     let script = Script::init().build();
@@ -328,26 +296,24 @@ fn test_script() {
     assert!(script.arguments.is_empty());
     assert_eq!(script.envs, None);
 }
-
 #[test]
 fn test_script_ensure_relative() {
-    let command = Command::init().name("pipe".to_string()).build();
+    let command = Command::init().name("xylem".to_string()).build();
     let script = Script::init().command(command).build();
-    assert_eq!(script.command.name, "pipe".to_string());
-    let expected = "./pipe".to_string();
+    assert_eq!(script.command.name, "xylem".to_string());
+    let expected = "./xylem".to_string();
     // Should add ./ to command name
     assert_eq!(script.clone().ensure_relative().command.name, expected);
     // Should not add ./ to command name if already relative
     assert_eq!(script.ensure_relative().ensure_relative().command.name, expected);
 }
-
 #[test]
 fn test_script_expand_arguments() {
-    set_var("_PIPE_INPUT_DIRECTORY", "/path/to/input");
-    set_var("_PIPE_OUTPUT_DIRECTORY", "/path/to/output");
-    set_var("_PIPE_FOO", "one!");
-    set_var("_PIPE_BAR", "two!");
-    set_var("_PIPE_BAZ", "three!");
+    set_var("_XYLEM_INPUT_DIRECTORY", "/path/to/input");
+    set_var("_XYLEM_OUTPUT_DIRECTORY", "/path/to/output");
+    set_var("_XYLEM_FOO", "one!");
+    set_var("_XYLEM_BAR", "two!");
+    set_var("_XYLEM_BAZ", "three!");
     let command = Command::init().name("python".to_string()).build();
     let arguments = to_string(vec![
         "-m",
@@ -372,9 +338,7 @@ fn test_script_expand_arguments() {
             .expand_arguments()
             .with_virtual_environment(Some(environment.clone()))
             .to_string(),
-        format!(
-            "conda run --name {environment} --no-capture-output python -m lib --input /path/to/input --output /path/to/output"
-        )
+        format!("conda run --name {environment} --no-capture-output python -m lib --input /path/to/input --output /path/to/output")
     );
     assert_eq!(
         script.clone().expand_arguments().with_virtual_environment(None).to_string(),
@@ -394,7 +358,6 @@ fn test_script_expand_arguments() {
         "echo one! two! and three! one! two! three! one!/three!"
     );
 }
-
 #[test]
 fn test_script_expand_arguments_from() {
     let command = Command::init().name("python".to_string()).build();
@@ -422,9 +385,7 @@ fn test_script_expand_arguments_from() {
             .expand_arguments_from(envs.clone())
             .with_virtual_environment(Some(environment.clone()))
             .to_string(),
-        format!(
-            "conda run --name {environment} --no-capture-output python -m lib --input FOO --output BAR"
-        )
+        format!("conda run --name {environment} --no-capture-output python -m lib --input FOO --output BAR")
     );
     assert_eq!(
         script
@@ -457,7 +418,6 @@ fn test_script_expand_arguments_from() {
         .to_string();
     assert_eq!(script, "echo one two and three one two three one/three");
 }
-
 #[test]
 fn test_script_from_template() {
     // "shell" format arguments
@@ -484,7 +444,6 @@ fn test_script_from_template() {
     let expected = "docker exec CONTAINER pixi run --environment ENVIRONMENT python -m lib --method {{METHOD}} --profile {{PROFILE}}";
     assert_eq!(format!("{script}"), expected);
 }
-
 #[test]
 fn test_script_get_arguments() {
     let command = Command::init().name("echo".to_string()).build();
@@ -526,7 +485,6 @@ fn test_script_get_arguments() {
         "apptainer exec CONTAINER conda run --name base --no-capture-output echo hello world"
     );
 }
-
 #[test]
 fn test_script_git_clone() {
     let url = "https://code.ornl.gov/some/project".to_string();
@@ -535,7 +493,6 @@ fn test_script_git_clone() {
         assert_eq!(script.to_string(), format!("git clone {} code_ornl_gov_some_project", url.clone()));
     };
 }
-
 #[test]
 fn test_script_run() {
     if cfg!(target_os = "windows") {
@@ -555,7 +512,6 @@ fn test_script_run() {
         assert_eq!(script.run(), vec!["hello world".to_string()]);
     }
 }
-
 #[test]
 fn test_string_template_expand() {
     let vars = vec![
@@ -570,7 +526,6 @@ fn test_string_template_expand() {
     let template = StringTemplate::new("Hello World!!!");
     assert_eq!(template.expand(vars.clone()), expected);
 }
-
 #[test]
 fn test_string_template_handlebars() {
     // invalid string values
@@ -608,13 +563,11 @@ fn test_string_template_handlebars() {
         "FOO {{BAR}} BAZ {{BIN}}"
     );
 }
-
 #[test]
 fn test_to_snake_case() {
     let expected = "some_module_name";
     assert_eq!(to_snake_case("Some Module Name".to_string()), expected);
 }
-
 #[test]
 fn test_to_string() {
     let input = vec!["a", "b", "c"];
