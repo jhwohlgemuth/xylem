@@ -9,7 +9,7 @@ use tracing::{debug, error, info, warn};
 use uriparse::Scheme;
 
 use crate::script::*;
-use crate::util::{self, download_binary, get_children, get_extension, make_executable, path_to_string, read_file, snake_case, Label};
+use crate::util::{self, download_binary, extension, get_children, make_executable, path_to_string, read_file, snake_case, Label};
 
 enum Extension {
     Json,
@@ -402,7 +402,7 @@ impl Config {
         self
     }
     pub fn read(path: PathBuf) -> Option<Config> {
-        let content = match Extension::from_string(get_extension(&path)) {
+        let content = match Extension::from_string(extension(&path)) {
             | Extension::Json => match Config::read_json(path.clone()) {
                 | Ok(value) => Some(value),
                 | Err(_) => None,

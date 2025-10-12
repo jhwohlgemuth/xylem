@@ -192,14 +192,14 @@ pub fn get_children(path: String) -> Vec<String> {
 /// # Examples
 /// ```
 /// use std::path::Path;
-/// use xylem_lib::util::get_extension;
+/// use xylem_lib::util::extension;
 ///
-/// assert_eq!("txt", get_extension(Path::new("hello.txt")));
-/// assert_eq!("md", get_extension(Path::new("README.md")));
-/// assert_eq!("", get_extension(Path::new(".dotfile")));
-/// assert_eq!("", get_extension(Path::new("/path/to/folder")));
+/// assert_eq!("txt", extension(Path::new("hello.txt")));
+/// assert_eq!("md", extension(Path::new("README.md")));
+/// assert_eq!("", extension(Path::new(".dotfile")));
+/// assert_eq!("", extension(Path::new("/path/to/folder")));
 /// ```
-pub fn get_extension(path: &Path) -> String {
+pub fn extension(path: &Path) -> String {
     path.extension().unwrap_or_default().to_str().unwrap_or_default().to_string()
 }
 /// Check if stdin is piped (e.g., `echo "hello world" | xylem`)
