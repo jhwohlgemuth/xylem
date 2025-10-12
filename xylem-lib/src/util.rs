@@ -169,7 +169,7 @@ pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
     }
 }
 /// Get SHA256 hash of a file
-pub fn get_checksum(path: PathBuf) -> String {
+pub fn checksum(path: PathBuf) -> String {
     if let Ok(content) = read_file(path) {
         let hash = Sha256::digest(content);
         format!("{hash:x}")

@@ -147,19 +147,19 @@ fn test_details() {
     assert_eq!(results.len(), 5);
 }
 #[test]
-fn test_get_checksum() {
-    let checksum = get_checksum(PathBuf::from("../LICENSE"));
+fn test_checksum() {
+    let result = checksum(PathBuf::from("../LICENSE"));
     if cfg!(target_os = "windows") {
-        assert_eq!(checksum.len(), 64);
+        assert_eq!(result.len(), 64);
     } else {
         let expected = "debe0f22e2b4e8dffd88d4bbe8b15cca98c5950b1b857d1747f211465fba972e";
-        assert_eq!(checksum, expected);
+        assert_eq!(result, expected);
     }
 }
 #[test]
 #[should_panic]
-fn test_get_checksum_panic() {
-    assert_eq!(get_checksum(PathBuf::from("/path/does/not/exist.txt")), "");
+fn test_checksum_panic() {
+    assert_eq!(checksum(PathBuf::from("/path/does/not/exist.txt")), "");
 }
 #[test]
 fn test_get_children() {

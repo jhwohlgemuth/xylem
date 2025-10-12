@@ -9,7 +9,7 @@ use tracing::{debug, error, info, warn};
 use uriparse::Scheme;
 
 use crate::script::*;
-use crate::util::*;
+use crate::util::{self, download_binary, get_children, get_extension, make_executable, path_to_string, read_file, snake_case, Label};
 
 enum Extension {
     Json,
@@ -205,7 +205,7 @@ impl Config {
                             };
                             if !options.skip_verify_checksum.unwrap_or_default() {
                                 let calculated_checksum = match output.clone() {
-                                    | Ok(path) => get_checksum(path),
+                                    | Ok(path) => util::checksum(path),
                                     | _ => "".to_string(),
                                 };
                                 match checksum {
