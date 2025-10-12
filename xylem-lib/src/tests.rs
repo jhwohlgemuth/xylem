@@ -194,10 +194,6 @@ fn test_get_conda_environment_name() {
     assert_eq!(get_conda_environment_name(manifest_path), None);
 }
 #[test]
-fn test_get_parent() {
-    assert_eq!(get_parent(PathBuf::from("foo/bar.json")), PathBuf::from("foo"));
-}
-#[test]
 fn test_module() {
     let module = Module {
         name: "module-a".to_string(),

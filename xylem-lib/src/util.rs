@@ -202,10 +202,6 @@ pub fn get_children(path: String) -> Vec<String> {
 pub fn get_extension(path: &Path) -> String {
     path.extension().unwrap_or_default().to_str().unwrap_or_default().to_string()
 }
-/// Get parent of a file/folder path
-pub fn get_parent(path: PathBuf) -> PathBuf {
-    PathBuf::from(path.parent().unwrap())
-}
 /// Check if stdin is piped (e.g., `echo "hello world" | xylem`)
 pub fn is_stdin_piped() -> StdinIsPipedResult {
     if !io::stdin().is_terminal() {
