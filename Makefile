@@ -1,4 +1,4 @@
-.PHONY: doc lint test
+.PHONY: $(TASKS)
 
 clean:
 	@rm -rf ./bin
@@ -29,14 +29,14 @@ doc:
 build: clean
 	@mkdir -p ./bin
 	@cargo build --release --target $(DEFAULT_TARGET)
-	@mv target/$(DEFAULT_TARGET)/release/xylem-cli ./bin/xylem-v$(VERSION)
+	@mv target/$(DEFAULT_TARGET)/release/xylem ./bin/xylem-v$(VERSION)
 
 build-cross: clean
 	@mkdir -p ./bin
 	@for target in $(TARGETS) ; do \
 		export DISPLAY=:0; \
         cross build --release --target $$target; \
-		mv target/$${target}/release/xylem-cli ./bin/xylem_v$(VERSION)_$${target}; \
+		mv target/$${target}/release/xylem ./bin/xylem_v$(VERSION)_$${target}; \
     done
 
 release: clean
@@ -48,7 +48,7 @@ version:
 # Variables
 #
 VERSION = `awk -F ' = ' '$$1 ~ /version/ { gsub(/["]/, "", $$2); printf("%s",$$2) }' Cargo.toml`
-DEFAULT_TARGET = `awk -F ' = ' '$$1 ~ /default-target/ { gsub(/["]/, "", $$2); printf("%s",$$2) }' Cross.toml | tr . _`
+DEFAULT_TARGET = `awk -F ' = ' '$$1 ~ /default-target/ { gsub(/["]/, "", $$2); printf("%s",$$2) }' Cargo.toml | tr . _`
 TARGETS = \
 	i586-unknown-linux-musl \
 	i686-unknown-linux-gnu \
@@ -58,3 +58,14 @@ TARGETS = \
 	riscv64gc-unknown-linux-gnu \
 	x86_64-unknown-linux-gnu \
 	x86_64-unknown-linux-musl
+TASKS = \
+	clean \
+	lint \
+	test \
+	test-ci \
+	test-cross \
+	doc \
+	build \
+	build-cross \
+	release \
+	version

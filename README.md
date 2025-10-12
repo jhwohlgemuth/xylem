@@ -5,11 +5,10 @@
 ██  ██  ██████  █████  ████████  ████████  █  █  █
 █  ████  █████  █████        ██        ██  ████  █
 
-"Digital xylem" that transports data through workflows with structure and support
 ```
 
 # Xylem
-> Parallel Integration and Processing Engine (Xylem) command line (multi)tool for sustainable science
+> "Digital xylem" that transports data through workflows with structure and support
 
 ## Installation
 > Xylem is currently only tested rigorously on Linux, full Windows support is coming soon
