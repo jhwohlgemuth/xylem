@@ -266,7 +266,7 @@ pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
     };
     Ok(content)
 }
-pub fn to_snake_case(value: String) -> String {
+pub fn snake_case(value: String) -> String {
     value.replace(" ", "_").to_lowercase()
 }
 pub fn to_string(values: Vec<&str>) -> Vec<String> {

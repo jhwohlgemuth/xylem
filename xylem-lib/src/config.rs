@@ -167,11 +167,7 @@ impl Config {
         }
     }
     pub fn get_module_list(self) -> String {
-        let names = self
-            .modules
-            .iter()
-            .map(|module| to_snake_case(module.name.clone()))
-            .collect::<Vec<String>>();
+        let names = self.modules.iter().map(|module| snake_case(module.name.clone())).collect::<Vec<String>>();
         names.join(",").to_string()
     }
     /// Prepare workflow modules for execution

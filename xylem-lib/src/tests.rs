@@ -566,7 +566,7 @@ fn test_string_template_handlebars() {
 #[test]
 fn test_to_snake_case() {
     let expected = "some_module_name";
-    assert_eq!(to_snake_case("Some Module Name".to_string()), expected);
+    assert_eq!(snake_case("Some Module Name".to_string()), expected);
 }
 #[test]
 fn test_to_string() {
