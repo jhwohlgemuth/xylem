@@ -1,15 +1,11 @@
-use is_executable::IsExecutable;
+use acorn_lib::util::{read_file, Label};
 use is_terminal::IsTerminal;
-use owo_colors::{OwoColorize, Style, Styled};
-use sha2::{Digest, Sha256};
-use std::error::Error;
 use std::fs::File;
 use std::io::copy;
 use std::io::Cursor;
-use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::{fs, io};
-use tracing::{debug, error};
+use tracing::debug;
 
 pub enum StdinIsPipedResult {
     StdinIsPiped,
@@ -18,69 +14,6 @@ pub enum StdinIsPipedResult {
 pub enum StdoutIsPipedResult {
     StdoutIsPiped,
     StdoutIsNotPiped,
-}
-/// Struct for using and sharing colorized logging labels
-pub struct Label {}
-impl Label {
-    pub fn dry_run() -> Styled<&'static &'static str> {
-        let style = Style::new().black().on_yellow();
-        " DRY_RUN ■ ".style(style)
-    }
-    pub fn invalid() -> String {
-        Label::fmt_invalid("INVALID")
-    }
-    pub fn fmt_invalid(value: &str) -> String {
-        let style = Style::new().red().on_default_color();
-        value.style(style).to_string()
-    }
-    pub fn fail() -> String {
-        Label::fmt_fail("FAIL")
-    }
-    pub fn fmt_fail(value: &str) -> String {
-        let style = Style::new().white().on_red();
-        format!(" ✗ {value} ").style(style).to_string()
-    }
-    pub fn found() -> Styled<&'static &'static str> {
-        let style = Style::new().green().on_default_color();
-        "FOUND".style(style)
-    }
-    pub fn not_found() -> String {
-        Label::fmt_not_found("NOT_FOUND")
-    }
-    pub fn fmt_not_found(value: &str) -> String {
-        let style = Style::new().red().on_default_color();
-        value.style(style).to_string()
-    }
-    pub fn output() -> String {
-        Label::fmt_output("OUTPUT")
-    }
-    pub fn fmt_output(value: &str) -> String {
-        let style = Style::new().cyan().dimmed().on_default_color();
-        value.style(style).to_string()
-    }
-    pub fn pass() -> Styled<&'static &'static str> {
-        let style = Style::new().green().on_default_color();
-        "☑  PASS".style(style)
-    }
-    pub fn read() -> Styled<&'static &'static str> {
-        let style = Style::new().green().on_default_color();
-        "READ".style(style)
-    }
-    pub fn rejected() -> Styled<&'static &'static str> {
-        let style = Style::new().red().on_default_color();
-        "🛑 REJECTED ".style(style)
-    }
-    pub fn run() -> Styled<&'static &'static str> {
-        let style = Style::new().black().on_yellow();
-        " RUN ▶ ".style(style)
-    }
-    pub fn using() -> String {
-        Label::fmt_using("USING")
-    }
-    pub fn fmt_using(value: &str) -> String {
-        let style = Style::new().cyan();
-        value.style(style).to_string()
-    }
 }
 /// Add forward slash to end of folder path
 pub fn add_dot_slash(path: PathBuf) -> PathBuf {
@@ -168,15 +101,6 @@ pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
         | _ => None,
     }
 }
-/// Get SHA256 hash of a file
-pub fn checksum(path: PathBuf) -> Option<String> {
-    if let Ok(content) = read_file(path) {
-        let hash = Sha256::digest(content);
-        Some(format!("{hash:x}"))
-    } else {
-        None
-    }
-}
 /// Get list of directory children
 ///
 /// Only first level children are returned
@@ -186,21 +110,6 @@ pub fn get_children(path: String) -> Vec<String> {
         | Ok(value) => value.flatten().map(|x| path_to_string(x.path())).collect::<Vec<_>>(),
         | Err(_) => Vec::new(),
     }
-}
-/// Get file extension
-///
-/// # Examples
-/// ```
-/// use std::path::Path;
-/// use xylem_lib::util::extension;
-///
-/// assert_eq!("txt", extension(Path::new("hello.txt")));
-/// assert_eq!("md", extension(Path::new("README.md")));
-/// assert_eq!("", extension(Path::new(".dotfile")));
-/// assert_eq!("", extension(Path::new("/path/to/folder")));
-/// ```
-pub fn extension(path: &Path) -> String {
-    path.extension().unwrap_or_default().to_str().unwrap_or_default().to_string()
 }
 /// Check if stdin is piped (e.g., `echo "hello world" | xylem`)
 pub fn is_stdin_piped() -> StdinIsPipedResult {
@@ -218,17 +127,6 @@ pub fn is_stdout_piped() -> StdoutIsPipedResult {
         StdoutIsPipedResult::StdoutIsNotPiped
     }
 }
-#[cfg(any(unix, target_os = "wasi", target_os = "redox"))]
-pub fn make_executable(path: &PathBuf) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    path.is_executable()
-}
-#[cfg(windows)]
-pub fn make_executable(path: &PathBuf) -> bool {
-    // TODO: Add windows support...pass through?
-    path.is_executable()
-}
 pub fn path_to_string(path: PathBuf) -> String {
     // NOTE: fs::canonicalize might cause problems on Windows
     let result = match fs::canonicalize(path.as_path()) {
@@ -236,34 +134,6 @@ pub fn path_to_string(path: PathBuf) -> String {
         | Err(_) => path,
     };
     result.to_str().unwrap().to_string()
-}
-/// Read content of a file to a string
-///
-/// Fails when the file cannot be found or read
-///
-/// # Examples
-/// ```
-/// use std::path::PathBuf;
-/// use xylem_lib::util::read_file;
-///
-/// let path = PathBuf::from("./tests/fixtures/template.json");
-/// let content = read_file(path).unwrap();
-pub fn read_file(path: PathBuf) -> Result<String, Box<dyn Error>> {
-    let mut content = String::new();
-    let _ = match File::open(path.clone()) {
-        | Ok(mut file) => {
-            debug!(path = path.to_str().unwrap(), "=> {}", Label::read());
-            file.read_to_string(&mut content)
-        }
-        | Err(err) => {
-            error!(path = path.to_str().unwrap(), "=> {} Cannot read file", Label::fail());
-            Err(err)
-        }
-    };
-    Ok(content)
-}
-pub fn snake_case(value: String) -> String {
-    value.replace(" ", "_").to_lowercase()
 }
 pub fn to_string(values: Vec<&str>) -> Vec<String> {
     values.iter().map(|s| s.to_string()).collect()

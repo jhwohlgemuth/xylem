@@ -1,3 +1,4 @@
+use acorn_lib::util::{extension, make_executable, read_file, snake_case, Label};
 use bon::Builder;
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
@@ -9,7 +10,7 @@ use tracing::{debug, error, info, warn};
 use uriparse::Scheme;
 
 use crate::script::*;
-use crate::util::{self, download_binary, extension, get_children, make_executable, path_to_string, read_file, snake_case, Label};
+use crate::util::{download_binary, get_children, path_to_string};
 
 enum Extension {
     Json,
@@ -205,7 +206,7 @@ impl Config {
                             };
                             if !options.skip_verify_checksum.unwrap_or_default() {
                                 let calculated_checksum = match output.clone() {
-                                    | Ok(path) => match util::checksum(path) {
+                                    | Ok(path) => match acorn_lib::util::checksum(path) {
                                         | Some(value) => value,
                                         | None => "".to_string(),
                                     },

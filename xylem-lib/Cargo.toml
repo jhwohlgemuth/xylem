@@ -17,6 +17,7 @@ serde_yml = "0.0.12"
 tokio = { version = "1.39.2", features = ["rt", "time", "rt-multi-thread"] }
 valuable = "0.1.0"
 valuable-derive = "0.1.0"
+acorn-lib = { workspace = true }
 clap-verbosity-flag = { workspace = true }
 color-eyre = { workspace = true }
 dotenvy = { workspace = true }

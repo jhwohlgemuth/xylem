@@ -1,3 +1,4 @@
+use acorn_lib::util::Label;
 use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
 use nanoid::nanoid;
@@ -8,7 +9,6 @@ use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 use xylem_lib::config::{Config, ConfigOptions};
 use xylem_lib::script::EnvironmentValue;
-use xylem_lib::util::Label;
 
 const DEFAULT_CONFIG_NAME: &str = "config.json";
 

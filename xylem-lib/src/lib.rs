@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::wrong_self_convention)]
+use acorn_lib::util::{read_file, Label};
 use bon::Builder;
 use clap::ValueEnum;
 use color_eyre::eyre::{Report, Result};
@@ -15,7 +16,6 @@ pub mod script;
 pub mod util;
 
 use config::*;
-use util::*;
 
 pub type Void = Result<(), Report>;
 pub type Output = Vec<Option<Details>>;

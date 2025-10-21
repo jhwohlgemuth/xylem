@@ -545,11 +545,6 @@ fn test_string_template_handlebars() {
     );
 }
 #[test]
-fn test_to_snake_case() {
-    let expected = "some_module_name";
-    assert_eq!(snake_case("Some Module Name".to_string()), expected);
-}
-#[test]
 fn test_to_string() {
     let input = vec!["a", "b", "c"];
     let expected_output = vec!["a".to_string(), "b".to_string(), "c".to_string()];

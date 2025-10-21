@@ -1,5 +1,4 @@
-pub mod checks;
-
+use acorn_lib::util::Label;
 use color_eyre::eyre::{Report, Result};
 use glob::glob;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -10,8 +9,10 @@ use std::io::{self, BufRead};
 use std::path::PathBuf;
 use tracing::{error, info, warn};
 use xylem_lib::config::{Config, Parameters};
-use xylem_lib::util::{is_stdin_piped, Label, StdinIsPipedResult};
+use xylem_lib::util::{is_stdin_piped, StdinIsPipedResult};
 use xylem_lib::{Reporter, ReporterType};
+
+pub mod checks;
 
 use crate::reporters;
 use checks::*;

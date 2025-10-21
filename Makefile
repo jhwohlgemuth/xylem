@@ -4,18 +4,18 @@ clean:
 	@rm -rf ./bin
 	@cargo clean
 
+coverage: clean lint
+	@cargo tarpaulin --out lcov --line --skip-clean --no-dead-code --engine llvm --lib
+
 lint:
 	@cargo fmt --verbose
 	@cargo clippy --no-deps --all-targets --fix --allow-dirty
 
-test: clean lint
-	@cargo build
-	@cargo test
-	@cargo tarpaulin --out lcov --line --skip-clean
+test:
+	@cargo nextest run --run-ignored all
 
 test-ci: clean lint
-	@cargo build
-	@cargo test
+	@cargo test --lib --bins --tests
 
 test-cross: clean
 	@for target in $(TARGETS) ; do \

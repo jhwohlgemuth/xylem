@@ -15,6 +15,7 @@ homepage = "https://xylem.ornl.gov"
 repository = "https://code.ornl.gov/research-enablement/xylem"
 
 [workspace.dependencies]
+acorn-lib = "0.1.31"
 clap-verbosity-flag = "2.2.0"
 color-eyre = "0.6.3"
 dotenvy = "0.15.0"
