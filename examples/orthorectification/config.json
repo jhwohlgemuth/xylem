@@ -6,10 +6,10 @@
         "conda"
     ],
     "input": [
-        "/path/to/input/order1",
-        "/path/to/input/order2",
-        "/path/to/input/order3",
-        "/path/to/input/order4"
+        "/data/test-cases/test-case-GE01-medium-low-mid",
+        "/data/test-cases/test-case-WV02-medium-mid-high",
+        "/data/test-cases/test-case-wv03-large-high-mid",
+        "/data/test-cases/test-case-wv03-large-mid-low"
     ],
     "modules": [
         {
@@ -18,7 +18,7 @@
             "programmingLanguage": "python",
             "uri": "file:///path/to/module-o",
             "variables": {
-                "OUTPUT_DIRECTORY": "/path/to/output/directory"
+                "OUTPUT_DIRECTORY": "/data/output"
             },
             "template": {
                 "command": "python",

@@ -6,15 +6,15 @@
         - In the associated `config.json`, there is a single directory listed. Xylem will parse through this main directory and concurrently process all available subdirectories.
         ```json
         "input": 
-            "/path/to/input/directory"
+            "/data/test-cases"
         ```
         - Multiple directories may also be specified. Note that when listing multiple directories, they are listed within `[ ]`, signaling to Xylem these specific directories should be concurrently processed.
         ```json
         "input": [
-            "/path/to/input/order1",
-            "/path/to/input/order2",
-            "/path/to/input/order3",
-            "/path/to/input/order4"
+            "/data/test-cases/test-case-GE01-medium-low-mid",
+            "/data/test-cases/test-case-WV02-medium-mid-high",
+            "/data/test-cases/test-case-wv03-large-high-mid",
+            "/data/test-cases/test-case-wv03-large-mid-low"
         ]
         ```
 - Define the module:

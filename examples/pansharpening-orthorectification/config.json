@@ -7,7 +7,7 @@
     ],
     "keywords": [],
     "input": 
-        "/path/to/input/directory",
+        "/data/test-cases",
     "modules": [
         {
             "name": "Module P (local)",
@@ -15,7 +15,7 @@
             "programmingLanguage": "python",
             "uri": "file:///path/to/module-p",
             "variables": {
-                "OUTPUT_DIRECTORY": "/path/to/output/directory",
+                "OUTPUT_DIRECTORY": "/data/output",
                 "METHOD": "nn_diffuse",
                 "MODULE_LIST": "MODP, MODO"
             },
@@ -45,8 +45,8 @@
             "programmingLanguage": "python",
             "uri": "file:///path/to/module-o",
             "variables": {
-                "SOURCE_DIRECTORY": "/path/to/output/directory",
-                "OUTPUT_DIRECTORY": "/path/to/output/directory"
+                "SOURCE_DIRECTORY": "/data/output",
+                "OUTPUT_DIRECTORY": "/data/output"
             },
             "template": {
                 "command": "python",

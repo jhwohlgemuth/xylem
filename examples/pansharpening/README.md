@@ -6,16 +6,16 @@
         - In the associated `config.json`, multiple directories are listed. Note that when listing multiple directories, they are listed within `[ ]`, signaling to Xylem these specific directories should be concurrently processed.
         ```json
         "input": [
-            "/path/to/input/order1",
-            "/path/to/input/order2",
-            "/path/to/input/order3",
-            "/path/to/input/order4"
+            "/data/test-cases/test-case-GE01-medium-low-mid",
+            "/data/test-cases/test-case-WV02-medium-mid-high",
+            "/data/test-cases/test-case-wv03-large-high-mid",
+            "/data/test-cases/test-case-wv03-large-mid-low"
         ]
         ```
         - A single directory may also be specified. Xylem will parse through this main directory and concurrently process all available subdirectories.
         ```json
         "input": 
-            "/path/to/input/directory"
+            "/data/test-cases"
         ```
 - Define the module:
     - Within the module variable, specify the `name` and `uri` to the module. The `uri` specifically informs Xylem from where to install the module environment. For example, if a user has Xylem installed and has cloned each of the modules in their `dev` directory within a Docker container, this path may look something like:
