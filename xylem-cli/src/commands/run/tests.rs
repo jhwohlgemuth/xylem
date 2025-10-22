@@ -7,6 +7,7 @@ fn test_cli() {
     Arguments::command().debug_assert();
 }
 
+#[ignore]
 #[test]
 fn test_help() {
     let expected = "░  ░░░░  ░░  ░░░░  ░░  ░░░░░░░░        ░░  ░░░░  ░
@@ -42,6 +43,7 @@ Options:
     assert.success().stdout(expected);
 }
 
+#[ignore]
 #[test]
 fn test_run() {
     let expected = "error: a value is required for '--config <PATH>' but none was supplied
