@@ -6,7 +6,7 @@ resolver = "2"
 debug = true
 
 [workspace.package]
-version = "0.0.9"
+version = "0.0.10"
 authors = ["Jason Wohlgemuth <wohlgemuthjh@ornl.gov>"]
 description = "Parallel Integration and Processing Engine"
 documentation = "https://xylem.ornl.gov"
