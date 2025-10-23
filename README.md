@@ -13,9 +13,13 @@
 ## Installation
 > Xylem is currently only tested rigorously on Linux, full Windows support is coming soon
 
+### Install with cargo
+> 🚧 Under Construction
+
+### Download pre-compiled binary
 - Download newest binary from [releases page](https://code.ornl.gov/research-enablement/xylem/-/releases)
     ```shell
-    curl -LO https://code.ornl.gov/api/v4/projects/15383/packages/generic/x86_64-unknown-linux-gnu/v0.0.5/xylem
+    curl -LO https://code.ornl.gov/api/v4/projects/15383/packages/generic/x86_64-unknown-linux-gnu/v0.0.10/xylem
     ```
 - Make binary executable
     ```shell
@@ -25,11 +29,27 @@
     ```shell
     mv xylem /usr/local/bin
     ```
-- Verify installation with `xylem --version`
+- Verify installation with `xylem help`
 
+### Build from source
+- Clone this project and navigate to it
+  ```shell
+  git clone https://code.ornl.gov/research-enablement/xylem
+  cd ./xylem
+  ```
+
+- Install `xylem` command
+  ```shell
+  cargo install --path ./xylem-cli
+  ```
+
+- Test the installation
+  ```shell
+  xylem help
+  ```
 
 ## Documentation
-> **TIP** Read the code docs at https://xylem.code.ornl and/or explore the [Wiki](https://code.ornl.gov/groups/research-enablement/xylem/-/wikis/home)
+> **TIP** Read the code docs at https://xylem.code.ornl and/or explore the [Wiki](https://code.ornl.gov/research-enablement/xylem/-/wikis/home)
 
 Print the help with `xylem help` or save the configuration below to `config.json` and use `xylem run`
 
@@ -42,7 +62,7 @@ Print the help with `xylem help` or save the configuration below to `config.json
         {
             "name": "Meta Module",
             "type": "binary",
-            "uri": "https://code.ornl.gov/api/v4/projects/15383/packages/generic/x86_64-unknown-linux-gnu/v0.0.3/xylem",
+            "uri": "https://code.ornl.gov/api/v4/projects/15383/packages/generic/x86_64-unknown-linux-gnu/v0.0.10/xylem",
             "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "template": {
                 "command": "xylem",
