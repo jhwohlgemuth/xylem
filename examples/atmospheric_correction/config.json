@@ -1,0 +1,43 @@
+{
+    "version": "0.0.9",
+    "description": "Test workflow configuration",
+    "requirements": [
+        "python",
+        "conda"
+    ],
+    "keywords": [],
+    "input": 
+        "/data/test-cases",
+    "modules": [
+        {
+            "name": "Module A (local)",
+            "type": "script",
+            "programmingLanguage": "python",
+            "uri": "file:///path/to/module-a",
+            "variables": {
+                "OUTPUT_DIRECTORY": "/data/output",
+                "METHOD": "boa_reflectance",
+                "PROFILE": "urban"
+            },
+            "template": {
+                "command": "python",
+                "environment": {
+                    "name": "module-a",
+                    "manager": "conda"
+                },
+                "arguments": [
+                    "-m",
+                    "lib",
+                    "--input_directory",
+                    "{{ INPUT }}",
+                    "--output_directory",
+                    "{{ OUTPUT_DIRECTORY }}",
+                    "--method",
+                    "{{ METHOD }}",
+                    "--profile",
+                    "{{ PROFILE }}"
+                ]
+            }
+        }
+    ]
+}

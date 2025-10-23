@@ -1,0 +1,68 @@
+{
+    "version": "0.0.9",
+    "description": "Test workflow configuration",
+    "requirements": [
+        "python",
+        "conda"
+    ],
+    "keywords": [],
+    "input": 
+        "/data/test-cases",
+    "modules": [
+        {
+            "name": "Module P (local)",
+            "type": "script",
+            "programmingLanguage": "python",
+            "uri": "file:///path/to/module-p",
+            "variables": {
+                "OUTPUT_DIRECTORY": "/data/output",
+                "METHOD": "nn_diffuse",
+                "MODULE_LIST": "MODP, MODO"
+            },
+            "template": {
+                "command": "python",
+                "environment": {
+                    "name": "module-p",
+                    "manager": "conda"
+                },
+                "arguments": [
+                    "-m",
+                    "lib",
+                    "--source_directory",
+                    "{{ INPUT }}",
+                    "--output_directory",
+                    "{{ OUTPUT_DIRECTORY }}",
+                    "--method",
+                    "{{ METHOD }}",
+                    "--module_list",
+                    "{{ MODULE_LIST }}"
+                ]
+            }
+        },
+        {
+            "name": "Module O (local)",
+            "type": "script",
+            "programmingLanguage": "python",
+            "uri": "file:///path/to/module-o",
+            "variables": {
+                "SOURCE_DIRECTORY": "/data/output",
+                "OUTPUT_DIRECTORY": "/data/output"
+            },
+            "template": {
+                "command": "python",
+                "environment": {
+                    "name": "module-o",
+                    "manager": "conda"
+                },
+                "arguments": [
+                    "-m",
+                    "lib",
+                    "--source_directory",
+                    "{{ SOURCE_DIRECTORY }}",
+                    "--output_directory",
+                    "{{ OUTPUT_DIRECTORY }}"
+                ]
+            }
+        }
+    ]
+}

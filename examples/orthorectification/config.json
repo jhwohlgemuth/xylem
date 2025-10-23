@@ -1,0 +1,40 @@
+{
+    "version": "0.0.9",
+    "description": "Test workflow configuration",
+    "requirements": [
+        "python",
+        "conda"
+    ],
+    "input": [
+        "/data/test-cases/test-case-GE01-medium-low-mid",
+        "/data/test-cases/test-case-WV02-medium-mid-high",
+        "/data/test-cases/test-case-wv03-large-high-mid",
+        "/data/test-cases/test-case-wv03-large-mid-low"
+    ],
+    "modules": [
+        {
+            "name": "Module O (local)",
+            "type": "script",
+            "programmingLanguage": "python",
+            "uri": "file:///path/to/module-o",
+            "variables": {
+                "OUTPUT_DIRECTORY": "/data/output"
+            },
+            "template": {
+                "command": "python",
+                "environment": {
+                    "name": "module-o",
+                    "manager": "conda"
+                },
+                "arguments": [
+                    "-m",
+                    "lib",
+                    "--source_directory",
+                    "{{ INPUT }}",
+                    "--output_directory", 
+                    "{{ OUTPUT_DIRECTORY }}"
+                ]
+            }
+        }
+    ]
+}
