@@ -1,8 +1,14 @@
+#!make
 .PHONY: $(TASKS)
+-include .env
 
 clean:
 	@rm -rf ./bin
 	@cargo clean
+
+changelog:
+	@git pull origin main --tags
+	@git-cliff --output CHANGELOG.md --gitlab-token ${GITLAB_TOKEN}
 
 coverage: clean lint
 	@cargo tarpaulin --out lcov --line --skip-clean --no-dead-code --engine llvm --lib
