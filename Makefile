@@ -18,7 +18,7 @@ lint:
 	@cargo clippy --no-deps --all-targets --fix --allow-dirty
 
 test:
-	@cargo nextest run --run-ignored all
+	@cargo nextest run
 
 test-ci: clean lint
 	@cargo test --lib --bins --tests

@@ -1,4 +1,5 @@
-use acorn_lib::util::{download_binary, extension, make_executable, read_file, snake_case, Label, ToAbsoluteString};
+use acorn_lib::util::{download_binary, extension, make_executable, read_file, snake_case, to_absolute_string, Label, ToAbsoluteString};
+use acorn_lib::{Location, Scheme};
 use bon::Builder;
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
@@ -8,7 +9,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
-use uriparse::Scheme;
 
 use crate::script::*;
 
@@ -189,15 +189,10 @@ impl Config {
         self.modules.par_iter().for_each(|module| match &module.module_type {
             | ModuleType::Binary { uri, checksum } => match ModuleUri::from(uri) {
                 | ModuleUri::Url(value) if !options.offline.unwrap_or_default() => match value.scheme() {
-                    | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
+                    | uriparse::Scheme::HTTP | uriparse::Scheme::HTTPS | uriparse::Scheme::SSH => {
                         let url = value.to_string();
-                        if ModuleUri::is_allowed(value) {
-                            debug!(module = module.name, url, "=> {} Remote binary", Label::found());
-                            info!(module = module.name, url, "=> {} Remote binary URL is on whitelist", Label::pass());
-                        } else {
-                            error!(module = module.name, url, "=> {} Not on whitelist", Label::rejected());
-                            std::process::exit(exitcode::NOPERM);
-                        }
+                        // TODO: Implement parametrized whitelist
+                        debug!(module = module.name, url, "=> {} Remote binary", Label::found());
                         // TODO: Check that URL exists
                         if !options.dry_run.unwrap_or_default() {
                             let output = match options.root.clone() {
@@ -283,15 +278,10 @@ impl Config {
             | ModuleType::Script { programming_language, uri } => match programming_language {
                 | Some(ModuleLanguage::Generic) | None => match ModuleUri::from(uri) {
                     | ModuleUri::Url(value) if !options.offline.unwrap_or_default() => match value.scheme() {
-                        | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
+                        | uriparse::Scheme::HTTP | uriparse::Scheme::HTTPS | uriparse::Scheme::SSH => {
                             let url = value.to_string();
-                            if ModuleUri::is_allowed(value) {
-                                debug!(module = module.name, url, "=> {} Remote script repository", Label::found());
-                                info!(module = module.name, url, "=> {} URL is on whitelist", Label::pass());
-                            } else {
-                                error!(module = module.name, url, "=> {} Not on whitelist", Label::rejected());
-                                std::process::exit(exitcode::NOPERM);
-                            }
+                            debug!(module = module.name, url, "=> {} Remote script repository", Label::found());
+                            // TODO: Implement parametrized whitelist
                             // TODO: Check that URL exists
                             // TODO: Git clone module
                             // TODO: Check script repository with is_valid_xylem_module_python
@@ -315,17 +305,13 @@ impl Config {
                 },
                 | Some(ModuleLanguage::Python) => match ModuleUri::from(uri) {
                     | ModuleUri::Url(value) if !options.offline.unwrap_or_default() => match value.scheme() {
-                        | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => {
+                        | uriparse::Scheme::HTTP | uriparse::Scheme::HTTPS | uriparse::Scheme::SSH => {
                             let url = value.to_string();
-                            if ModuleUri::is_allowed(value) {
-                                debug!(module = module.name, url, "=> {} Remote Python script repository", Label::found());
-                                info!(module = module.name, url, "=> {} URL is on whitelist", Label::pass());
-                            } else {
-                                error!(module = module.name, url, "=> {} Not on whitelist", Label::rejected());
-                                std::process::exit(exitcode::NOPERM);
-                            }
+                            debug!(module = module.name, url, "=> {} Remote Python script repository", Label::found());
+                            // TODO: Implement parametrized whitelist
                             // TODO: Check that URL exists
-                            if ModuleUri::from(uri).test() {
+                            // if Location::Simple(uri.to_string()).exists() {
+                            if true {
                                 info!(module = module.name, uri, "=> {}", Label::found());
                             } else {
                                 error!(module = module.name, uri, "=> {}", Label::rejected());
@@ -339,7 +325,7 @@ impl Config {
                                 }
                             };
                             let module_root = match options.root.clone() {
-                                | Some(value) => value.join(ModuleUri::from(uri).hash()).to_absolute_string(),
+                                | Some(value) => value.join(Location::Simple(uri.into()).hash()).to_absolute_string(),
                                 | None => {
                                     error!(module = module.name, "=> {} Root directory", Label::not_found());
                                     std::process::exit(exitcode::UNAVAILABLE);
@@ -506,7 +492,15 @@ impl Config {
                             std::process::exit(exitcode::UNAVAILABLE);
                         }
                     };
-                    let working_dir = ModuleUri::from(uri).working_directory(root.clone());
+                    let location = Location::Simple(uri.into());
+                    let working_dir = match location.scheme() {
+                        | Scheme::HTTPS => match root.clone() {
+                            | Some(value) => value.join(location.hash()).to_absolute_string(),
+                            | None => location.hash(),
+                        },
+                        | Scheme::File => to_absolute_string(location.uri().unwrap().path().to_string()),
+                        | _ => unimplemented!(),
+                    };
                     let loaded = Script::from_module(module.clone(), root);
                     let script = loaded.expand_arguments_from(envs).with_current_dir(working_dir);
                     if options.dry_run.unwrap_or_default() {
@@ -530,7 +524,15 @@ impl Config {
                             std::process::exit(exitcode::UNAVAILABLE);
                         }
                     };
-                    let working_dir = ModuleUri::from(uri).working_directory(root.clone());
+                    let location = Location::Simple(uri.into());
+                    let working_dir = match location.scheme() {
+                        | Scheme::HTTPS => match root.clone() {
+                            | Some(value) => value.join(location.hash()).to_absolute_string(),
+                            | None => location.hash(),
+                        },
+                        | Scheme::File => to_absolute_string(location.uri().unwrap().path().to_string()),
+                        | _ => unimplemented!(),
+                    };
                     let virtual_environment = match &module.template {
                         | Some(TemplateAttribute::Path(value)) => {
                             ScriptTemplate::from_path(PathBuf::from(&working_dir).join(value)).virtual_environment

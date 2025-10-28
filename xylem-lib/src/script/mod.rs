@@ -1,4 +1,5 @@
-use acorn_lib::util::{read_file, Label};
+use acorn_lib::util::{read_file, to_absolute_string, Label, ToAbsoluteString};
+use acorn_lib::{Location, Scheme};
 use bon::Builder;
 use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
@@ -13,9 +14,7 @@ use std::ffi::OsStr;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process;
-use tokio::time::{sleep, Duration, Sleep};
 use tracing::{debug, error, info, trace, warn};
-use uriparse::Scheme;
 use uriparse::URI;
 use valuable_derive::Valuable;
 use which::which;
@@ -396,69 +395,11 @@ impl ModuleUri<'_> {
     pub fn from(value: &str) -> ModuleUri<'_> {
         match URI::try_from(value) {
             | Ok(uri) => match uri.scheme() {
-                | Scheme::HTTP | Scheme::HTTPS | Scheme::SSH => ModuleUri::Url(uri),
-                | Scheme::File => ModuleUri::File(PathBuf::from(uri.path().to_string())),
+                | uriparse::Scheme::HTTP | uriparse::Scheme::HTTPS | uriparse::Scheme::SSH => ModuleUri::Url(uri),
+                | uriparse::Scheme::File => ModuleUri::File(PathBuf::from(uri.path().to_string())),
                 | _ => ModuleUri::Unknown(value.to_string()),
             },
             | Err(_) => ModuleUri::Unknown(value.to_string()),
-        }
-    }
-    pub fn hash(&self) -> String {
-        match self {
-            | ModuleUri::Url(uri) => {
-                let host = match uri.host() {
-                    | Some(value) => value.clone().to_string().replace('.', "_"),
-                    | None => "".to_string(),
-                };
-                let segments = uri
-                    .path()
-                    .segments()
-                    .iter()
-                    .map(|s| s.to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect::<Vec<_>>();
-                if segments.is_empty() {
-                    host.to_string()
-                } else {
-                    format!("{}_{}", host, segments[segments.len() - 2..].join("_").to_lowercase())
-                }
-            }
-            | ModuleUri::File(value) => value.clone().into_os_string().into_string().unwrap(),
-            | ModuleUri::Unknown(_) => unimplemented!(),
-        }
-    }
-    pub fn get_whitelist() -> Vec<String> {
-        vec!["code.ornl.gov", "code-int.ornl.gov"].into_iter().map(String::from).collect()
-    }
-    pub fn is_allowed(uri: URI) -> bool {
-        ModuleUri::get_whitelist().contains(&uri.host().unwrap().to_string())
-    }
-    pub fn test(&self) -> bool {
-        async fn check(_url: String) -> Sleep {
-            sleep(Duration::from_secs(2))
-        }
-        match self {
-            | ModuleUri::Url(uri) => match uri.scheme() {
-                | Scheme::SSH if ModuleUri::is_allowed(uri.clone()) => true,
-                | _ if ModuleUri::is_allowed(uri.clone()) => {
-                    // let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-                    // let _ = runtime.block_on(check(uri.to_string()));
-                    true
-                }
-                | _ => false,
-            },
-            | ModuleUri::File(value) => value.clone().exists(),
-            | ModuleUri::Unknown(_) => unimplemented!(),
-        }
-    }
-    pub fn working_directory(&self, root: Option<PathBuf>) -> String {
-        match self {
-            | ModuleUri::Url(_) => match root {
-                | Some(value) => value.join(self.hash()).into_os_string().into_string().unwrap(),
-                | None => self.hash(),
-            },
-            | ModuleUri::File(value) => value.clone().into_os_string().into_string().unwrap(),
-            | ModuleUri::Unknown(value) => value.to_string(),
         }
     }
 }
@@ -556,11 +497,18 @@ impl Script {
     pub fn from_module(module: Module, root: Option<PathBuf>) -> Script {
         const DEFAULT_FILENAME: &str = "template.json";
         let module_uri = match module.module_type {
-            | ModuleType::Binary { ref uri, .. } => ModuleUri::from(uri),
-            | ModuleType::Script { ref uri, .. } => ModuleUri::from(uri),
+            | ModuleType::Binary { ref uri, .. } => Location::Simple(uri.into()),
+            | ModuleType::Script { ref uri, .. } => Location::Simple(uri.into()),
             | ModuleType::Configuration { .. } => unimplemented!("Configuration module type"),
         };
-        let working_dir = module_uri.working_directory(Some(root.unwrap_or_default().clone()));
+        let working_dir = match root {
+            | Some(path) => match module_uri.scheme() {
+                | Scheme::HTTPS => path.join(module_uri.hash()).to_absolute_string(),
+                | Scheme::File => module_uri.uri().unwrap().to_string(),
+                | _ => module_uri.hash(),
+            },
+            | None => module_uri.hash(),
+        };
         let default_template_path = PathBuf::from(&working_dir).join(DEFAULT_FILENAME);
         match &module.template {
             | Some(attribute) => match attribute {
@@ -708,7 +656,12 @@ impl Script {
     /// Create virtual environment from associated manifest file (ex. environment.yml or pyproject.toml)
     // TODO: Add support for Pixi and other virtual environment managers
     pub fn maybe_create_virtual_environment(parent: String, _manager: Option<VirtualEnvironmentManager>) -> Option<Script> {
-        let current_dir = ModuleUri::from(&parent).working_directory(None);
+        let location = Location::Simple(parent);
+        let current_dir = match location.scheme() {
+            | Scheme::HTTPS => location.hash(),
+            | Scheme::File => to_absolute_string(location.uri().unwrap().path().to_string()),
+            | _ => unimplemented!(),
+        };
         let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
         match manifest_path.try_exists() {
             | Ok(true) => {
@@ -749,9 +702,9 @@ impl Script {
         }
     }
     pub fn maybe_git_clone(url: String, current_dir: String) -> Option<Script> {
-        let module_uri = ModuleUri::from(&url);
+        let location = Location::Simple(url.clone());
         let command = Command::init().name("git".to_string()).build();
-        let arguments = vec!["clone".to_string(), url.clone(), module_uri.hash()];
+        let arguments = vec!["clone".to_string(), url, location.hash()];
         let script = Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir);
         Some(script)
     }
