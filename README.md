@@ -51,29 +51,8 @@
 ## Documentation
 > **TIP** Read the code docs at https://xylem.code.ornl and/or explore the [Wiki](https://code.ornl.gov/research-enablement/xylem/-/wikis/home)
 
-Print the help with `xylem help` or save the configuration below to `config.json` and use `xylem run`
-
-```json
-{
-    "version": "0.0.1",
-    "description": "Print Xylem help",
-    "requirements": [],
-    "modules": [
-        {
-            "name": "Meta Module",
-            "type": "binary",
-            "uri": "https://code.ornl.gov/api/v4/projects/15383/packages/generic/x86_64-unknown-linux-musl/v0.0.11/xylem",
-            "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-            "template": {
-                "command": "xylem",
-                "arguments": [
-                    "help"
-                ]
-            }
-        }
-    ]
-}
-```
+- See [xylem.ornl.gov](https://xylem.ornl.gov) to see generated code documentation
+- See example configurations in the [`/examples`](./examples/) folder
 
 ### Architecture
 > See [ARCHITECTURE.md](./ARCHITECTURE.md)
