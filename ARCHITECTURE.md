@@ -9,17 +9,12 @@
 - `xylem-lib` (Rust code)
   - Utility functions
   - Code for handling user input, ingesting configuration data, running workflows, etc...
-- `xylem-py` (Python library)
-  - 🚧 Under construction
-  - Export Rust code as Python library using [PyO3/Maturin](https://github.com/PyO3/maturin)
-  - Export select `xylem-lib` functions as Python functions
 
 ## Diagram
 ```mermaid
 graph LR
     a[Xylem] --> b[xylem-cli/]
     a --> c[xylem-lib/]
-    a --> d[xylem-py/]
     b --> e[CLI application]
     c --> f[Rust crate]
     d --> g[Python</br>package]
