@@ -20,8 +20,6 @@ use uriparse::URI;
 use valuable_derive::Valuable;
 use which::which;
 
-use crate::util::*;
-
 pub type CommandResult = Result<(), Box<dyn StdError + 'static>>;
 
 #[derive(Clone, Debug, Display, Serialize, Deserialize, Valuable)]
@@ -430,7 +428,7 @@ impl ModuleUri<'_> {
         }
     }
     pub fn get_whitelist() -> Vec<String> {
-        to_string(vec!["code.ornl.gov", "code-int.ornl.gov"])
+        vec!["code.ornl.gov", "code-int.ornl.gov"].into_iter().map(String::from).collect()
     }
     pub fn is_allowed(uri: URI) -> bool {
         ModuleUri::get_whitelist().contains(&uri.host().unwrap().to_string())
@@ -662,9 +660,20 @@ impl Script {
         let self_arguments = match &self.command.virtual_environment {
             | Some(VirtualEnvironment { name, manager, .. }) => {
                 let mut arguments = match manager {
-                    | VirtualEnvironmentManager::Conda => to_string(vec!["run", "--name", name, "--no-capture-output", &self.command.name]),
-                    | VirtualEnvironmentManager::Pixi => to_string(vec!["run", "--environment", name, &self.command.name]),
-                    | VirtualEnvironmentManager::Poetry => to_string(vec!["run", &self.command.name]),
+                    | VirtualEnvironmentManager::Conda => vec![
+                        "run".to_string(),
+                        "--name".to_string(),
+                        name.to_string(),
+                        "--no-capture-output".to_string(),
+                        self.command.name.clone(),
+                    ],
+                    | VirtualEnvironmentManager::Pixi => vec![
+                        "run".to_string(),
+                        "--environment".to_string(),
+                        name.to_string(),
+                        self.command.name.clone(),
+                    ],
+                    | VirtualEnvironmentManager::Poetry => vec!["run".to_string(), self.command.name.clone()],
                     | _ => {
                         error!(name = manager.to_string(), "=> {} Virtual environment manager", Label::not_found());
                         vec![]
@@ -683,8 +692,8 @@ impl Script {
                 };
                 let mut arguments = match runtime {
                     //TODO: Add support for using "docker run" when container does not exist and image is known
-                    | ContainerRuntime::Docker | ContainerRuntime::Podman => to_string(vec!["exec", name, &wrapped_command]),
-                    | ContainerRuntime::Apptainer => to_string(vec!["exec", name, &wrapped_command]),
+                    | ContainerRuntime::Docker | ContainerRuntime::Podman => vec!["exec".to_string(), name.to_string(), wrapped_command],
+                    | ContainerRuntime::Apptainer => vec!["exec".to_string(), name.to_string(), wrapped_command],
                     | ContainerRuntime::Unknown => {
                         error!(name = runtime.to_string(), "=> {} Container runtime", Label::not_found());
                         vec![]
@@ -712,7 +721,7 @@ impl Script {
                         } else {
                             let mamba = Command::init().name("mamba".to_string()).build();
                             let name = (if mamba.test() { "mamba" } else { "conda" }).to_string();
-                            let arguments = to_string(vec!["env", "create", "-f", "environment.yml"]);
+                            let arguments = vec!["env", "create", "-f", "environment.yml"].into_iter().map(String::from).collect();
                             let command = Command::init().name(name).build();
                             let script = Script::init()
                                 .command(command)
@@ -742,20 +751,20 @@ impl Script {
     pub fn maybe_git_clone(url: String, current_dir: String) -> Option<Script> {
         let module_uri = ModuleUri::from(&url);
         let command = Command::init().name("git".to_string()).build();
-        let arguments = to_string(vec!["clone", &url, &module_uri.hash()]);
+        let arguments = vec!["clone".to_string(), url.clone(), module_uri.hash()];
         let script = Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir);
         Some(script)
     }
     pub fn python_default() -> Script {
         let command = Command::init().name("python".to_string()).build();
-        let arguments = to_string(vec![
-            "-m",
-            "lib",
-            "--input_directory",
-            "{{ INPUT_DIRECTORY }}",
-            "--output_directory",
-            "{{ OUTPUT_DIRECTORY }}",
-        ]);
+        let arguments = vec![
+            "-m".to_string(),
+            "lib".to_string(),
+            "--input_directory".to_string(),
+            "{{ INPUT_DIRECTORY }}".to_string(),
+            "--output_directory".to_string(),
+            "{{ OUTPUT_DIRECTORY }}".to_string(),
+        ];
         Script::init().command(command).arguments(arguments).build()
     }
     /// Execute script in child process and wait for it to finish, print to stdout and ignore output
@@ -1020,10 +1029,18 @@ impl StringTemplate {
         self
     }
 }
+/// Add forward slash to end of folder path
+fn add_dot_slash(path: PathBuf) -> PathBuf {
+    if path.starts_with("./") {
+        path.to_path_buf()
+    } else {
+        PathBuf::from(format!("./{}", path.display()))
+    }
+}
 /// Get list of Conda virtual environments
 pub fn get_conda_environment_list() -> Vec<String> {
     let command = Command::init().name("conda".to_string()).build();
-    let arguments = to_string(vec!["env", "list"]);
+    let arguments = vec!["env".to_string(), "list".to_string()];
     let script = Script::init().command(command.clone()).arguments(arguments).build();
     if command.test() {
         script
@@ -1040,3 +1057,53 @@ pub fn get_conda_environment_list() -> Vec<String> {
         vec![]
     }
 }
+/// Get name of Conda virtual environment from manifest file
+///
+/// Not super sophisticated. "name" needs to be first line in environment.yml
+///
+/// Example:
+///
+/// `environment.yml`
+/// ```yaml
+/// name: module-a
+/// channels:
+///   - conda-forge
+///   - defaults
+/// dependencies:
+///   - pip
+///   - numpy
+/// ```
+///
+/// Get the environment name
+/// ```
+/// use std::path::PathBuf;
+/// use xylem_lib::util::get_conda_environment_name;
+///
+/// get_conda_environment_name(PathBuf::from("/path/to/environment.yml"));
+/// ```
+pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
+    match path.try_exists() {
+        | Ok(true) => match read_file(path) {
+            | Ok(content) => {
+                let name = content
+                    .split('\n')
+                    .collect::<Vec<_>>()
+                    .clone()
+                    .into_iter()
+                    .next()?
+                    .split("name: ")
+                    .collect::<Vec<_>>()
+                    .clone()
+                    .into_iter()
+                    .nth(1)?
+                    .to_string();
+                Some(name)
+            }
+            | _ => None,
+        },
+        | _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests;

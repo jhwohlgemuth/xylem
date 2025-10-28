@@ -2,7 +2,6 @@
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::wrong_self_convention)]
 use acorn_lib::util::{read_file, Label};
-use bon::Builder;
 use clap::ValueEnum;
 use color_eyre::eyre::{Report, Result};
 use derive_more::Display;
@@ -13,7 +12,6 @@ use tracing::{error, trace};
 
 pub mod config;
 pub mod script;
-pub mod util;
 
 use config::*;
 
@@ -60,23 +58,6 @@ pub struct Reporter {
     /// Options to pass to the reporter
     pub parameters: Option<Parameters>,
 }
-/// Semantic version
-///
-/// see <https://semver.org/>
-#[derive(Builder, Clone, Debug, Deserialize, Display, Serialize)]
-#[display("{}.{}.{}", major, minor, patch)]
-#[builder(start_fn(name = init))]
-pub struct SemanticVersion {
-    /// Version when you make incompatible API changes
-    #[builder(default = 0)]
-    pub major: u32,
-    /// Version when you add functionality in a backward compatible manner
-    #[builder(default = 0)]
-    pub minor: u32,
-    /// Version when you make backward compatible bug fixes
-    #[builder(default = 0)]
-    pub patch: u32,
-}
 impl PartialEq for Details {
     fn eq(&self, other: &Self) -> bool {
         (self.description == other.description) && (self.condition == other.condition)
@@ -114,15 +95,6 @@ impl PyProjectToml {
             },
             | None => None,
         }
-    }
-}
-impl SemanticVersion {
-    pub fn from_string(version: &str) -> SemanticVersion {
-        let mut parts = version.split('.');
-        let major = parts.next().unwrap().parse::<u32>().unwrap();
-        let minor = parts.next().unwrap().parse::<u32>().unwrap();
-        let patch = parts.next().unwrap().parse::<u32>().unwrap();
-        SemanticVersion { major, minor, patch }
     }
 }
 

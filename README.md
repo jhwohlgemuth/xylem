@@ -62,7 +62,7 @@ Print the help with `xylem help` or save the configuration below to `config.json
         {
             "name": "Meta Module",
             "type": "binary",
-            "uri": "https://code.ornl.gov/api/v4/projects/15383/packages/generic/x86_64-unknown-linux-gnu/v0.0.10/xylem",
+            "uri": "https://code.ornl.gov/api/v4/projects/15383/packages/generic/x86_64-unknown-linux-musl/v0.0.11/xylem",
             "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "template": {
                 "command": "xylem",

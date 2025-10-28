@@ -1,16 +1,16 @@
-use acorn_lib::util::{extension, make_executable, read_file, snake_case, Label};
+use acorn_lib::util::{download_binary, extension, make_executable, read_file, snake_case, Label, ToAbsoluteString};
 use bon::Builder;
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 use uriparse::Scheme;
 
 use crate::script::*;
-use crate::util::{download_binary, get_children, path_to_string};
 
 enum Extension {
     Json,
@@ -145,7 +145,7 @@ impl Config {
                     match path.try_exists() {
                         | Ok(true) => {
                             if path.is_dir() {
-                                let children = get_children(path_to_string(path));
+                                let children = get_children(path.to_absolute_string());
                                 Some(children)
                             } else {
                                 error!(path = path.to_str().unwrap(), "=> {} Input directory", Label::not_found());
@@ -201,7 +201,7 @@ impl Config {
                         // TODO: Check that URL exists
                         if !options.dry_run.unwrap_or_default() {
                             let output = match options.root.clone() {
-                                | Some(value) => download_binary(url.clone(), value),
+                                | Some(value) => download_binary(&url, value),
                                 | None => Err("Root directory not found".to_string()),
                             };
                             if !options.skip_verify_checksum.unwrap_or_default() {
@@ -332,14 +332,14 @@ impl Config {
                                 std::process::exit(exitcode::USAGE);
                             };
                             let current_dir = match options.root.clone() {
-                                | Some(value) => path_to_string(value),
+                                | Some(value) => value.to_absolute_string(),
                                 | None => {
                                     error!(module = module.name, "=> {} Root directory", Label::not_found());
                                     std::process::exit(exitcode::UNAVAILABLE);
                                 }
                             };
                             let module_root = match options.root.clone() {
-                                | Some(value) => path_to_string(value.join(ModuleUri::from(uri).hash())),
+                                | Some(value) => value.join(ModuleUri::from(uri).hash()).to_absolute_string(),
                                 | None => {
                                     error!(module = module.name, "=> {} Root directory", Label::not_found());
                                     std::process::exit(exitcode::UNAVAILABLE);
@@ -476,7 +476,7 @@ impl Config {
             | ModuleType::Binary { .. } => {
                 let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
                 let working_dir = match options.root.clone() {
-                    | Some(value) => path_to_string(value),
+                    | Some(value) => value.to_absolute_string(),
                     | None => {
                         error!(module = module.name, "=> {} Root directory", Label::not_found());
                         std::process::exit(exitcode::UNAVAILABLE);
@@ -615,3 +615,16 @@ impl Extension {
         }
     }
 }
+/// Get list of directory children
+///
+/// Only first level children are returned
+///
+fn get_children(path: String) -> Vec<String> {
+    match fs::read_dir(path) {
+        | Ok(value) => value.flatten().map(|x| x.path().to_absolute_string()).collect::<Vec<_>>(),
+        | Err(_) => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests;

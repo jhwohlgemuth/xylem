@@ -1,5 +1,4 @@
 use crate::script::*;
-use crate::util::*;
 use crate::*;
 use pyproject_toml::Project;
 use std::collections::HashMap;
@@ -8,21 +7,10 @@ use std::path::PathBuf;
 
 const FIXTURES: &str = "../tests/fixtures";
 
-#[test]
-fn test_add_dot_slash() {
-    assert_eq!(add_dot_slash(PathBuf::from("foo")), PathBuf::from("./foo"));
-    assert_eq!(add_dot_slash(PathBuf::from("./foo")), PathBuf::from("./foo"));
-    assert_eq!(add_dot_slash(PathBuf::from("foo/bar")), PathBuf::from("./foo/bar"));
-    assert_eq!(add_dot_slash(PathBuf::from("foo/bar.json")), PathBuf::from("./foo/bar.json"));
+fn to_string(values: Vec<&str>) -> Vec<String> {
+    values.iter().map(|s| s.to_string()).collect()
 }
-#[test]
-fn test_add_forward_slash() {
-    assert_eq!(add_forward_slash(PathBuf::from("foo")), PathBuf::from("foo/"));
-    assert_eq!(add_forward_slash(PathBuf::from("foo/")), PathBuf::from("foo/"));
-    assert_eq!(add_forward_slash(PathBuf::from("foo/bar")), PathBuf::from("foo/bar/"));
-    assert_eq!(add_forward_slash(PathBuf::from("foo/bar/")), PathBuf::from("foo/bar/"));
-    assert_eq!(add_forward_slash(PathBuf::from("foo/bar.json")), PathBuf::from("foo/bar.json"));
-}
+
 #[test]
 fn test_command() {
     let nonexistent: Command = Command::init().name("does-not-exist".to_string()).build();
@@ -147,38 +135,6 @@ fn test_details() {
     assert_eq!(results.len(), 5);
 }
 #[test]
-fn test_get_children() {
-    assert_eq!(get_children("../../does/not/exist".to_string()), Vec::<String>::new());
-    match PathBuf::from("/root/dev/command").try_exists() {
-        | Ok(true) => {
-            let expected = to_string(vec!["/root/dev/command/xylem-lib/src", "/root/dev/command/xylem-lib/Cargo.toml"]);
-            assert_eq!(get_children("../xylem-lib".to_string()), expected);
-        }
-        | Ok(false) => (),
-        | Err(_) => (),
-    };
-}
-#[test]
-fn test_get_conda_environment_list() {
-    let list = get_conda_environment_list();
-    let conda = Command::init().name("conda".to_string()).build();
-    if conda.test() {
-        assert!(list.contains(&"base".to_string()));
-    } else {
-        assert!(list.is_empty());
-    }
-}
-#[test]
-fn test_get_conda_environment_name() {
-    let path = format!("{FIXTURES}/environment.yml");
-    let manifest_path = PathBuf::from(path);
-    assert!(get_conda_environment_name(manifest_path)
-        .unwrap()
-        .starts_with("some-really-interesting-name"));
-    let manifest_path = PathBuf::from("/non/existing/manifest.yml");
-    assert_eq!(get_conda_environment_name(manifest_path), None);
-}
-#[test]
 fn test_module() {
     let module = Module {
         name: "module-a".to_string(),
@@ -227,19 +183,6 @@ fn test_module_uri_hash() {
     assert_eq!(expected, url.hash());
 }
 #[test]
-fn test_path_to_string() {
-    assert_eq!(path_to_string(PathBuf::from("foo/bar")), "foo/bar");
-    assert_eq!(path_to_string(PathBuf::from("../../../does/not/exist")), "../../../does/not/exist");
-    let path = "/root/dev/command/xylem-cli/Cargo.toml";
-    match PathBuf::from(path).try_exists() {
-        | Ok(true) => {
-            assert_eq!(path_to_string(PathBuf::from("../xylem-cli/Cargo.toml")), path);
-        }
-        | Ok(false) => (),
-        | Err(_) => (),
-    }
-}
-#[test]
 fn test_read_pyproject_toml() {
     let path = format!("{FIXTURES}/pyproject.toml");
     match PyProjectToml::read(PathBuf::from(path)) {
@@ -254,19 +197,6 @@ fn test_read_pyproject_toml() {
         }
         | Err(_) => panic!("Cannot read pyproject.toml"),
     }
-}
-#[test]
-fn test_semantic_version() {
-    let version = SemanticVersion::from_string("1.2.3");
-    assert_eq!(version.major, 1);
-    assert_eq!(version.minor, 2);
-    assert_eq!(version.patch, 3);
-    assert_eq!(format!("{version}"), "1.2.3");
-    let default = SemanticVersion::init().build();
-    assert_eq!(default.major, 0);
-    assert_eq!(default.minor, 0);
-    assert_eq!(default.patch, 0);
-    assert_eq!(format!("{default}"), "0.0.0");
 }
 #[test]
 fn test_script() {

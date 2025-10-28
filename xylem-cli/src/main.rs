@@ -9,7 +9,6 @@ use xylem_lib::Void;
 
 mod cli;
 mod commands;
-mod reporters;
 
 use cli::{Arguments, Commands};
 
@@ -54,18 +53,6 @@ fn main() -> Void {
         }
     }
     match &args.command {
-        | Some(Commands::Check {
-            path,
-            config,
-            reporter,
-            output,
-            all,
-            pass,
-            minimal,
-            unique,
-            ..
-        }) => commands::check::run(path, config, reporter, output, *all, *pass, *minimal, *unique),
-        | Some(Commands::Doctor { .. }) => Ok(()),
         | Some(Commands::Run {
             config,
             reporter,
