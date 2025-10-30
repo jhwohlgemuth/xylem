@@ -43,3 +43,8 @@ assert_cmd = "2.1.1"
 
 [lints.rust]
 unsafe_code = "forbid"
+
+[lints.clippy]
+std_instead_of_core = "warn"
+std_instead_of_alloc = "warn"
+alloc_instead_of_core = "warn"

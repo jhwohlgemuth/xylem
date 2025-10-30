@@ -63,7 +63,7 @@ impl PartialEq for Details {
         (self.description == other.description) && (self.condition == other.condition)
     }
 }
-impl std::ops::Deref for PyProjectToml {
+impl core::ops::Deref for PyProjectToml {
     type Target = pyproject_toml::PyProjectToml;
 
     fn deref(&self) -> &Self::Target {

@@ -8,7 +8,7 @@ use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
 use std::collections::HashMap;
-use std::convert::TryFrom;
+use core::convert::TryFrom;
 use std::env::{set_var, vars};
 use std::ffi::OsStr;
 use std::io::{BufRead, BufReader};
