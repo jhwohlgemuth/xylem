@@ -73,7 +73,7 @@ fn main() -> Void {
             *offline,
             *skip_verify_checksum,
             *skip_verify_requirements,
-            verbose.clone(),
+            *verbose,
         ),
         | None => Ok(()),
     }
