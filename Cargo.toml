@@ -15,19 +15,19 @@ homepage = "https://xylem.ornl.gov"
 repository = "https://code.ornl.gov/research-enablement/xylem"
 
 [workspace.dependencies]
-acorn-lib = "0.1.31"
-clap-verbosity-flag = "3.0.4"
-color-eyre = "0.6.5"
-dotenvy = "0.15.7"
-exitcode = "1.1.2"
-owo-colors = "4.2.3"
-rayon = "1.11.0"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
-tracing = { version = "0.1.41" }
-tracing-log = "0.2.0"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"]}
-uriparse = "0.6.4"
+acorn-lib = { version = "0.1.31", default-features = false }
+clap-verbosity-flag = { version = "3.0.4", features = ["log"], default-features = false }
+color-eyre = { version = "0.6.5", default-features = false }
+dotenvy = { version = "0.15.7", default-features = false }
+exitcode = { version = "1.1.2", default-features = false }
+owo-colors = { version = "4.2.3", default-features = false }
+rayon = { version = "1.11.0", default-features = false }
+serde = { version = "1.0.228", features = ["derive"], default-features = false }
+serde_json = { version = "1.0.145", default-features = false }
+tracing = { version = "0.1.41", default-features = false }
+tracing-log = { version = "0.2.0", default-features = false }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"], default-features = false }
+uriparse = { version = "0.6.4", default-features = false }
 
 [workspace.metadata.cross.build]
 default-target = "x86_64-unknown-linux-musl"
