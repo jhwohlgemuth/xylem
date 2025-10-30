@@ -1,6 +1,5 @@
-#![allow(dead_code)]
-#![allow(clippy::large_enum_variant)]
-#![allow(clippy::wrong_self_convention)]
+//! Xylem Library
+//! > "Digital xylem" that transports data through workflows with structure and support
 use acorn_lib::util::{read_file, Label};
 use clap::ValueEnum;
 use color_eyre::eyre::{Report, Result};

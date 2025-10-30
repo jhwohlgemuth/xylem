@@ -42,6 +42,8 @@ uriparse = { workspace = true }
 assert_cmd = "2.1.1"
 
 [lints.rust]
+# missing-docs = "deny"
+rust-2018-idioms = "warn"
 unsafe_code = "forbid"
 
 [lints.clippy]

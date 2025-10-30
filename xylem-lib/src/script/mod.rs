@@ -1,6 +1,7 @@
 use acorn_lib::util::{read_file, to_absolute_string, Label, ToAbsoluteString};
 use acorn_lib::{Location, Scheme};
 use bon::{builder, Builder};
+use core::convert::TryFrom;
 use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
 use owo_colors::OwoColorize;
@@ -8,7 +9,6 @@ use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
 use std::collections::HashMap;
-use core::convert::TryFrom;
 use std::env::{set_var, vars};
 use std::ffi::OsStr;
 use std::io::{BufRead, BufReader};
@@ -131,7 +131,7 @@ pub enum ModuleUri<'a> {
     /// }
     /// ```
     //TODO: Implement Serialize/Deserialize for URI - https://serde.rs/impl-serialize.html
-    Url(URI<'a>),
+    Url(Box<URI<'a>>),
     Unknown(String),
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -389,7 +389,7 @@ impl ModuleUri<'_> {
     pub fn from(value: &str) -> ModuleUri<'_> {
         match URI::try_from(value) {
             | Ok(uri) => match uri.scheme() {
-                | uriparse::Scheme::HTTP | uriparse::Scheme::HTTPS | uriparse::Scheme::SSH => ModuleUri::Url(uri),
+                | uriparse::Scheme::HTTP | uriparse::Scheme::HTTPS | uriparse::Scheme::SSH => ModuleUri::Url(Box::new(uri)),
                 | uriparse::Scheme::File => ModuleUri::File(PathBuf::from(uri.path().to_string())),
                 | _ => ModuleUri::Unknown(value.to_string()),
             },
