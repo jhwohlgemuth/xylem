@@ -1,6 +1,6 @@
 use acorn_lib::util::{read_file, to_absolute_string, Label, ToAbsoluteString};
 use acorn_lib::{Location, Scheme};
-use bon::Builder;
+use bon::{builder, Builder};
 use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
 use owo_colors::OwoColorize;
@@ -189,10 +189,8 @@ pub struct Command {
     #[builder(default)]
     pub name: String,
     /// Virtual environment struct that contains details about the associated virtual environment
-    #[builder]
     pub virtual_environment: Option<VirtualEnvironment>,
     /// Container struct that contains details about the associated containerized environment
-    #[builder]
     pub container: Option<ContainerEnvironment>,
 }
 /// Struct for using and sharing containerized environments
@@ -214,10 +212,8 @@ pub struct ContainerEnvironment {
     #[builder(default=ContainerRuntime::Docker)]
     pub runtime: ContainerRuntime,
     /// Context name to use (defaults to active context)
-    #[builder]
     pub context: Option<String>,
     /// Name of image container was built from
-    #[builder]
     pub image: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Display, Serialize)]
@@ -257,7 +253,6 @@ pub struct Script {
     /// Directory in which the script should be executed when run method is invoked
     #[builder(default = ".".to_string())]
     pub current_dir: String,
-    #[builder]
     pub envs: Option<HashMap<String, String>>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -278,7 +273,6 @@ pub struct StringTemplate {
 #[builder(start_fn(name = init))]
 pub struct VirtualEnvironment {
     pub name: String,
-    #[builder]
     pub path: Option<String>,
     #[builder(default=VirtualEnvironmentManager::Conda)]
     pub manager: VirtualEnvironmentManager,

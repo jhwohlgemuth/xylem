@@ -1,6 +1,6 @@
 use acorn_lib::util::{download_binary, extension, make_executable, read_file, snake_case, to_absolute_string, Label, ToAbsoluteString};
 use acorn_lib::{Location, Scheme};
-use bon::Builder;
+use bon::{builder, Builder};
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -77,17 +77,12 @@ pub struct Config {
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
 pub struct ConfigOptions {
-    #[builder]
     pub root: Option<PathBuf>,
-    #[builder]
     #[serde(alias = "dry-run")]
     pub dry_run: Option<bool>,
-    #[builder]
     pub offline: Option<bool>,
-    #[builder]
     #[serde(alias = "skip-checksum", alias = "skip-verify-checksum")]
     pub skip_verify_checksum: Option<bool>,
-    #[builder]
     #[serde(alias = "skip-requirements", alias = "skip-verify-requirements")]
     pub skip_verify_requirements: Option<bool>,
 }
@@ -110,10 +105,8 @@ pub struct Rule {
     /// Name of the rule (displayed by the progress bar)
     #[builder(default)]
     pub name: String,
-    #[builder]
     pub uri: Option<String>,
     /// Options to pass to the checker
-    #[builder]
     pub parameters: Option<Parameters>,
 }
 impl Config {

@@ -6,7 +6,7 @@ description.workspace = true
 edition = "2021"
 
 [dependencies]
-bon = "2.0.1"
+bon = "3.8.1"
 bytes = "1.7.2"
 clap = { version = "4.4.2" }
 derive_more = { version = "1.0.0", features = ["display", "from_str"] }
@@ -37,6 +37,9 @@ tracing = { workspace = true }
 tracing-log = { workspace = true }
 tracing-subscriber = { workspace = true }
 uriparse = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = "2.0.16"
 
 [lints.rust]
 unsafe_code = "forbid"
