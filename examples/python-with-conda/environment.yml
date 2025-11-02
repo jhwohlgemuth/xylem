@@ -1,0 +1,8 @@
+name: example
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - polars
+  - pyarrow
+  - python=3.10

@@ -1,0 +1,24 @@
+{
+    "version": "0.0.1",
+    "description": "Run Python (with conda) module example",
+    "requirements": [],
+    "modules": [
+        {
+            "name": "Conda Example",
+            "uri": "file:./examples/python-with-conda/",
+            "type": "script",
+            "programmingLanguage": "python",
+            "template": {
+                "environment": {
+                    "name": "example",
+                    "manager": "conda"
+                },
+                "command": "python",
+                "arguments": [
+                    "-m",
+                    "lib.run"
+                ]
+            }
+        }
+    ]
+}
