@@ -28,6 +28,7 @@ fn main() -> Void {
         | Ok(_) if !dotenvy::var(LOG_LEVEL).unwrap_or_default().is_empty() => {
             // Configure tracing with a .env file
             let format = fmt::layer()
+                .with_ansi(true)
                 .with_level(DISPLAY_LEVEL)
                 .with_line_number(DISPLAY_LINE_NUMBER)
                 .with_target(DISPLAY_TARGET)
@@ -39,6 +40,7 @@ fn main() -> Void {
         | _ => {
             // Configure tracing with command line argument
             let format = fmt::format()
+                .with_ansi(true)
                 .with_level(DISPLAY_LEVEL)
                 .with_line_number(DISPLAY_LINE_NUMBER)
                 .with_target(DISPLAY_TARGET)

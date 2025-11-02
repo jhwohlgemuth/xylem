@@ -26,7 +26,11 @@ serde = { version = "1.0.228", features = ["derive"], default-features = false }
 serde_json = { version = "1.0.145", default-features = false }
 tracing = { version = "0.1.41", default-features = false }
 tracing-log = { version = "0.2.0", default-features = false }
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"], default-features = false }
+# Pinned to ensure colored ANSI output
+tracing-subscriber = { version = "=0.3.19", features = [
+  "ansi",
+  "env-filter",
+], default-features = false }
 uriparse = { version = "0.6.4", default-features = false }
 
 [workspace.metadata.cross.build]
