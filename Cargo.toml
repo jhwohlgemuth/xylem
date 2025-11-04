@@ -7,6 +7,7 @@ debug = true
 
 [workspace.package]
 version = "0.0.11"
+license = "MIT"
 authors = ["Jason Wohlgemuth <wohlgemuthjh@ornl.gov>"]
 description = "Parallel Integration and Processing Engine"
 documentation = "https://xylem.ornl.gov"

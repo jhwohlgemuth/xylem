@@ -1,6 +1,7 @@
 [package]
 name = "xylem-cli"
 version.workspace = true
+license.workspace = true
 authors.workspace = true
 description.workspace = true
 documentation.workspace = true

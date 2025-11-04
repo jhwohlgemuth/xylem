@@ -1,6 +1,6 @@
 use acorn_lib::util::{download_binary, extension, make_executable, read_file, snake_case, to_absolute_string, Label, ToAbsoluteString};
 use acorn_lib::{Location, Scheme};
-use bon::{builder, Builder};
+use bon::Builder;
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
