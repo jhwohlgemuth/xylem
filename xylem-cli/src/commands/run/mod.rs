@@ -1,4 +1,4 @@
-use acorn_lib::util::Label;
+use acorn::util::Label;
 use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::Report;
 use nanoid::nanoid;

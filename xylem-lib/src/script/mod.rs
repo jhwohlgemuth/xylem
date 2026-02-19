@@ -1,5 +1,6 @@
-use acorn_lib::util::{read_file, to_absolute_string, Label, ToAbsoluteString};
-use acorn_lib::{Location, Scheme};
+use acorn::io::{read_file, to_absolute_string};
+use acorn::util::{Label, ToAbsoluteString};
+use acorn::{Location, Scheme};
 use bon::Builder;
 use core::convert::TryFrom;
 use derive_more::{Display, FromStr};
@@ -248,7 +249,7 @@ pub struct Module {
 pub struct Script {
     #[builder(default = Command::init().build())]
     pub command: Command,
-    #[builder(default = bon::vec![])]
+    #[builder(default = Vec::<String>::new())]
     pub arguments: Vec<String>,
     /// Directory in which the script should be executed when run method is invoked
     #[builder(default = ".".to_string())]

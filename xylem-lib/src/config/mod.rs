@@ -1,5 +1,6 @@
-use acorn_lib::util::{download_binary, extension, make_executable, read_file, snake_case, to_absolute_string, Label, ToAbsoluteString};
-use acorn_lib::{Location, Scheme};
+use acorn::io::{download_binary, file_checksum, make_executable, read_file, to_absolute_string};
+use acorn::util::{file_extension, snake_case, Label, ToAbsoluteString};
+use acorn::{Location, Scheme};
 use bon::Builder;
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
@@ -194,7 +195,7 @@ impl Config {
                             };
                             if !options.skip_verify_checksum.unwrap_or_default() {
                                 let calculated_checksum = match output.clone() {
-                                    | Ok(path) => match acorn_lib::util::checksum(path) {
+                                    | Ok(path) => match file_checksum(path) {
                                         | Some(value) => value,
                                         | None => "".to_string(),
                                     },
@@ -385,7 +386,7 @@ impl Config {
         self
     }
     pub fn read(path: PathBuf) -> Option<Config> {
-        let content = match Extension::from_string(extension(&path)) {
+        let content = match Extension::from_string(file_extension(path.to_string_lossy().to_string()).unwrap_or_default()) {
             | Extension::Json => match Config::read_json(path.clone()) {
                 | Ok(value) => Some(value),
                 | Err(_) => None,

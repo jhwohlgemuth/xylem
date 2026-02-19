@@ -1,6 +1,7 @@
 //! Xylem Library
 //! > "Digital xylem" that transports data through workflows with structure and support
-use acorn_lib::util::{read_file, Label};
+use acorn::io::read_file;
+use acorn::util::Label;
 use clap::ValueEnum;
 use color_eyre::eyre::{Report, Result};
 use derive_more::Display;
