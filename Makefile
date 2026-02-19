@@ -22,8 +22,8 @@ build: clean
 	@cargo build --release --package xylem-cli --target $(DEFAULT_TARGET)
 	@mv target/$(DEFAULT_TARGET)/release/xylem ./bin/xylem-v$(VERSION)
 	@pwsh -Command New-Item -ItemType Directory -Path ".\bin" -Force
-	@cargo build --release --package acorn-cli --target $(DEFAULT_WINDOWS_TARGET)
-	@pwsh -Command Move-Item -Path "target\$(DEFAULT_WINDOWS_TARGET)\release\acorn.exe" -Destination ".\bin\acorn-v${VERSION}.exe"
+	@cargo build --release --package xylem-cli --target $(DEFAULT_WINDOWS_TARGET)
+	@pwsh -Command Move-Item -Path "target\$(DEFAULT_WINDOWS_TARGET)\release\xylem.exe" -Destination ".\bin\xylem-v${VERSION}.exe"
 
 clean:
 	@rm -rf ./bin
