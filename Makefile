@@ -43,28 +43,18 @@ lint:
 test:
 	@cargo nextest run
 
+test-all:
+	@cargo nextest run --run-ignored all
+
 test-ci: clean lint
 	@cargo test --lib --bins --tests
-
-test-cross: clean
-	@for target in $(TARGETS) ; do \
-        cross test --target $$target; \
-    done
 
 doc:
 	@cargo clean --doc
 	@cargo doc --no-deps --all-features
 
-build-cross: clean
-	@mkdir -p ./bin
-	@for target in $(TARGETS) ; do \
-		export DISPLAY=:0; \
-        cross build --release --target $$target; \
-		mv target/$${target}/release/xylem ./bin/xylem_v$(VERSION)_$${target}; \
-    done
-
-release: clean
-	@echo "Under Construction"
+doctest:
+	@cargo test --doc
 
 version: 
 	@echo $(VERSION)
@@ -94,15 +84,18 @@ TARGETS = \
 	arm-unknown-linux-musleabi \
 	riscv64gc-unknown-linux-gnu \
 	x86_64-unknown-linux-gnu \
-	x86_64-unknown-linux-musl
+	x86_64-unknown-linux-musl \
+	x86_64-pc-windows-gnu
 TASKS = \
+	audit \
+	book \
+	build \
+	changelog \
 	clean \
+	coverage \
+	doc \
 	lint \
+	setup \
 	test \
 	test-ci \
-	test-cross \
-	doc \
-	build \
-	build-cross \
-	release \
 	version
