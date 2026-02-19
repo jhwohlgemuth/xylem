@@ -17,6 +17,14 @@ audit:
 		--ignore RUSTSEC-2024-0388 \
 		--ignore RUSTSEC-2024-0436
 
+build: clean
+	@mkdir -p ./bin
+	@cargo build --release --package xylem-cli --target $(DEFAULT_TARGET)
+	@mv target/$(DEFAULT_TARGET)/release/xylem ./bin/xylem-v$(VERSION)
+	@pwsh -Command New-Item -ItemType Directory -Path ".\bin" -Force
+	@cargo build --release --package acorn-cli --target $(DEFAULT_WINDOWS_TARGET)
+	@pwsh -Command Move-Item -Path "target\$(DEFAULT_WINDOWS_TARGET)\release\acorn.exe" -Destination ".\bin\acorn-v${VERSION}.exe"
+
 clean:
 	@rm -rf ./bin
 	@cargo clean
@@ -47,11 +55,6 @@ doc:
 	@cargo clean --doc
 	@cargo doc --no-deps --all-features
 
-build: clean
-	@mkdir -p ./bin
-	@cargo build --release --target $(DEFAULT_TARGET)
-	@mv target/$(DEFAULT_TARGET)/release/xylem ./bin/xylem-v$(VERSION)
-
 build-cross: clean
 	@mkdir -p ./bin
 	@for target in $(TARGETS) ; do \
@@ -70,13 +73,19 @@ version:
 #
 VERSION = `awk -F ' = ' '$$1 ~ /version/ { gsub(/["]/, "", $$2); printf("%s",$$2) }' Cargo.toml`
 DEFAULT_TARGET = `awk -F ' = ' '$$1 ~ /default-target/ { gsub(/["]/, "", $$2); printf("%s",$$2) }' Cargo.toml | tr . _`
+DEFAULT_WINDOWS_TARGET = x86_64-pc-windows-gnu
 DEV_DEPENDENCIES = \
 	cargo-audit \
 	cargo-auditable \
 	cargo-deny \
+	cargo-insta \
 	cargo-nextest \
+	cargo-shear \
 	cargo-tarpaulin \
-	cargo-udeps
+	cargo-udeps \
+	mdbook \
+	mdbook-mermaid \
+	mdbook-pikchr
 TARGETS = \
 	i586-unknown-linux-musl \
 	i686-unknown-linux-gnu \
