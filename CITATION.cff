@@ -20,6 +20,9 @@ authors:
     affiliation: Oak Ridge National Laboratory
     orcid: 'https://orcid.org/0000-0002-4826-2152'
 repository-code: 'https://code.ornl.gov/research-enablement/xylem'
+identifiers:
+  - type: doi
+  - value: 10.11578/dc.20260310.2
 abstract: >-
   Command line (multi)tool for sustainable science that can
   be used in myriad automation contexts including the
