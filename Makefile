@@ -1,5 +1,4 @@
 #!make
-.PHONY: $(TASKS)
 -include .env
 
 setup:
@@ -33,8 +32,10 @@ changelog:
 	@git pull origin main --tags
 	@git-cliff --output CHANGELOG.md --gitlab-token ${GITLAB_TOKEN}
 
-coverage: clean lint
-	@cargo tarpaulin --out lcov --line --skip-clean --no-dead-code --engine llvm --lib
+cover:
+	@cargo tarpaulin --out lcov --line --skip-clean --no-dead-code --engine llvm --profile coverage --locked
+
+coverage: cover
 
 lint:
 	@cargo fmt --verbose
@@ -92,6 +93,7 @@ TASKS = \
 	build \
 	changelog \
 	clean \
+	cover \
 	coverage \
 	doc \
 	lint \
@@ -99,3 +101,5 @@ TASKS = \
 	test \
 	test-ci \
 	version
+
+.PHONY: $(TASKS)

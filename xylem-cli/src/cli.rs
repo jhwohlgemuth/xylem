@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
+use xylem_lib::execution::ExecutionLimits;
 
 ///
 /// ░  ░░░░  ░░  ░░░░  ░░  ░░░░░░░░        ░░  ░░░░  ░
@@ -15,6 +16,9 @@ use clap_verbosity_flag::Verbosity;
 pub struct Arguments {
     #[command(flatten)]
     pub verbose: Verbosity,
+    /// Maximum number of Rayon workers used by Xylem (does not limit child tools)
+    #[arg(default_value_t = ExecutionLimits::default(), short = 't', long, value_name = "N", global = true)]
+    pub threads: ExecutionLimits,
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -58,4 +62,45 @@ pub enum Commands {
         #[command(flatten)]
         verbose: Verbosity,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    fn parse(arguments: &[&str]) -> Arguments {
+        Arguments::try_parse_from(arguments).expect("arguments should parse")
+    }
+
+    #[test]
+    fn threads_default_to_ten() {
+        assert_eq!(parse(&["xylem"]).threads.threads(), 10);
+    }
+    #[test]
+    fn threads_accept_short_and_long_flags() {
+        assert_eq!(parse(&["xylem", "-t", "1", "run"]).threads.threads(), 1);
+        assert_eq!(parse(&["xylem", "run", "--threads", "24"]).threads.threads(), 24);
+    }
+    #[test]
+    fn threads_reject_zero_non_numeric_and_missing_values() {
+        for arguments in [
+            &["xylem", "--threads", "0"][..],
+            &["xylem", "--threads", "many"][..],
+            &["xylem", "--threads"][..],
+        ] {
+            assert!(Arguments::try_parse_from(arguments).is_err(), "{arguments:?} should fail");
+        }
+        let zero = Arguments::try_parse_from(["xylem", "--threads", "0"])
+            .expect_err("zero should fail")
+            .to_string();
+        assert!(zero.contains("thread count must be greater than zero"));
+    }
+    #[test]
+    fn help_documents_thread_contract() {
+        let help = Arguments::command().render_long_help().to_string();
+        assert!(help.contains("-t, --threads <N>"));
+        assert!(help.contains("[default: 10]"));
+        assert!(help.contains("does not limit child tools"));
+    }
 }

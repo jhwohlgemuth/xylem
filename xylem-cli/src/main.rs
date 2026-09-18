@@ -76,6 +76,7 @@ fn main() -> Void {
             *skip_verify_checksum,
             *skip_verify_requirements,
             *verbose,
+            args.threads,
         ),
         | None => Ok(()),
     }

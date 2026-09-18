@@ -22,7 +22,8 @@
         - `cargo run -- check --help` - Print check command CLI help
         - `cargo run -- run --config /path/to/config.json --dry-run -vvv` - Run workflow dry run with logging
     - `make lint` -  Format and lint code
-    - `make test` - Run tests and generate code coverage
+    - `make test` - Run tests
+    - `make cover` - Run tests and generate LCOV code coverage
     - `make doc` - Generate documentation (see https://xylem.ornl.gov)
     - `make build` - Build release binaries
 - Make a git branch, push changes to it, open a merge request, resolve issues

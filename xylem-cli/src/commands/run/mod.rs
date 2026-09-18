@@ -8,6 +8,7 @@ use std::env;
 use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 use xylem_lib::config::{Config, ConfigOptions};
+use xylem_lib::execution::{ExecutionContext, ExecutionLimits};
 use xylem_lib::script::EnvironmentValue;
 
 const DEFAULT_CONFIG_NAME: &str = "config.json";
@@ -23,7 +24,10 @@ pub fn run(
     cli_skip_verify_checksum: bool,
     cli_skip_verify_requirements: bool,
     _verbose: Verbosity,
+    limits: ExecutionLimits,
 ) -> Result<(), Report> {
+    let execution = ExecutionContext::new(limits).map_err(|why| color_eyre::eyre::eyre!("Initialize Xylem worker pool — {why}"))?;
+    debug!(threads = execution.limits().threads(), "=> {} Rayon worker limit", Label::using());
     let id = nanoid!(10, &nanoid::alphabet::SAFE);
     let root = env::temp_dir().join(EnvironmentValue::PREFIX).join(id.clone());
     match std::fs::create_dir_all(root.clone()) {
@@ -74,9 +78,9 @@ pub fn run(
                 .with_options(options.clone())
                 .verify_requirements()
                 .verify_resources()
-                .prepare_modules()
+                .prepare_modules(&execution)
                 .set_environment_variables();
-            match config.clone().get_inputs() {
+            execution.install(|| match config.clone().get_inputs() {
                 | Some(values) if !values.is_empty() => values.par_iter().for_each(|value| {
                     info!(value, "=> {} Configuration with input", Label::using());
                     config.clone().run_workflow(Some(value.to_string()), &options);
@@ -88,10 +92,10 @@ pub fn run(
                     }),
                     | Some(_) | None => {
                         info!("=> {} Configuration with {}", Label::using(), Label::fmt_not_found("NO INPUTS"));
-                        config.run_workflow(None, &options);
+                        config.clone().run_workflow(None, &options);
                     }
                 },
-            };
+            });
         }
         | None => error!("=> {} Could not import configuration", Label::fail()),
     };

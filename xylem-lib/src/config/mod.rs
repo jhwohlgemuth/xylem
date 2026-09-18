@@ -13,6 +13,7 @@ use std::fs;
 use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 
+use crate::execution::ExecutionContext;
 use crate::script::*;
 
 enum Extension {
@@ -181,7 +182,10 @@ impl Config {
     /// - Git clone script projects and setup virtual environments
     /// - Validate local and downloaded remote modules are ready for execution
     ///
-    pub fn prepare_modules(self) -> Config {
+    pub fn prepare_modules(self, execution: &ExecutionContext) -> Config {
+        execution.install(|| self.prepare_modules_in_pool())
+    }
+    fn prepare_modules_in_pool(self) -> Config {
         let options = match self.clone().options {
             | Some(value) => value,
             | None => {

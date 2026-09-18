@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use tracing::{error, trace};
 
 pub mod config;
+pub mod execution;
 pub mod script;
 pub mod util;
 

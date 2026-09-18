@@ -58,3 +58,7 @@ overflow-checks = true
 panic = "abort"
 strip = true
 lto = true
+
+[profile.coverage]
+inherits = "test"
+debug = 1

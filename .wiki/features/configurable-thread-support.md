@@ -6,7 +6,7 @@ difficulty: medium
 impact: high
 package: [xylem-lib, xylem-cli]
 tags: [feature, cli, threads, rayon, concurrency, orchestration]
-status: planned
+status: complete
 ---
 
 # Goal
