@@ -1,0 +1,13 @@
+{
+    "version": "1.0.0",
+    "description": "Failing end-to-end workflow fixture",
+    "requirements": ["sh"],
+    "modules": [
+        {
+            "name": "Failure Probe",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:./tests/e2e/modules/failure-probe"
+        }
+    ]
+}

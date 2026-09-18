@@ -9,10 +9,12 @@ This map records implementation dependencies found while auditing Xylem 1.0.0 on
 ## Correctness and execution path
 
 ```text
-ACORN 0.2 upgrade       maintained YAML parser
-          |                    |
-          +---------+----------+
-                    v
+ACORN 0.2 upgrade ----> ACORN command environment sync
+          |                         |
+          +------------+------------+
+                       |
+maintained YAML parser-+
+                       v
        typed errors and workflow outcomes
           |              |              |
           v              v              v
@@ -39,9 +41,9 @@ The configuration plan may start parser-independent validation design while the 
 ACORN upgrade ----+
 YAML migration ---+----> dependency and security gates
                              |
-hermetic tests ---------------+----> CI and release pipeline
+hermetic tests ---------------+----> CI and release pipeline ----> Homebrew export
 
-user-facing contracts + CI behavior ----> documentation and examples
+user-facing contracts + CI behavior + Homebrew export ----> documentation and examples
 ```
 
 The hermetic test plan starts immediately with host-independent fixtures. Its final CLI failure assertions consume the typed outcome and reporter contracts.
@@ -49,6 +51,7 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 ## Direct dependency edges
 
 - [ACORN 0.2 upgrade](migrations/acorn-0-2-upgrade.md) precedes acquisition changes because `download_binary` is asynchronous, checksum values are typed, portable location types moved to `acorn-core`, and SSH is no longer an ACORN `Scheme` variant.
+- [ACORN command environment sync](migrations/acorn-command-environment-sync.md) follows the base upgrade, develops upstream and downstream validation in parallel, and precedes removal of Xylem's environment-bearing command fallback.
 - [Maintained YAML parser](migrations/maintained-yaml-parser.md) precedes final configuration validation so JSON and YAML share one semantic error model.
 - [Typed errors and workflow outcomes](refactors/typed-error-and-outcome-boundary.md) precedes process, configuration, acquisition, and reporter work; none of those plans may encode failure as logging plus `Vec::new()` or `process::exit`.
 - [Configurable thread support](features/configurable-thread-support.md) follows typed errors, establishes the ACORN-compatible `-t`/`--threads` execution limit, and precedes advanced environment/concurrency orchestration.
@@ -59,26 +62,27 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 - [Dependency and security gates](refactors/dependency-surface-and-security-gates.md) follows both dependency migrations so its accepted graph is not immediately invalidated.
 - [Hermetic tests](testing/hermetic-workflow-tests.md) provides the regression gate required by the CI plan and validates every correctness plan as its contracts land.
 - [CI and release pipeline](refactors/ci-release-pipeline.md) consumes the hermetic suite and dependency gates.
-- [Documentation and examples](refactors/documentation-and-examples.md) follows user-facing contract decisions and the repaired build/release workflow.
+- [Homebrew release export](features/homebrew-export.md) consumes immutable tagged artifacts and checksums from the CI/release pipeline.
+- [Documentation and examples](refactors/documentation-and-examples.md) follows user-facing contract decisions, the repaired build/release workflow, and the verified Homebrew installation contract.
 
 ## Shared integration boundaries
 
 | Shared boundary | Plans that overlap | Coordination rule |
 |---|---|---|
-| `Cargo.toml`, crate manifests, `Cargo.lock` | ACORN, YAML, dependency gates, process parsing, testing tools | One manifest owner at a time. Land migrations first, then regenerate and audit the final lockfile once. |
+| `Cargo.toml`, crate manifests, `Cargo.lock` | ACORN, ACORN command sync, YAML, dependency gates, process parsing, testing tools | One manifest owner at a time. Land upstream ACORN work before pinning its commit, then regenerate and audit the final lockfile once. |
 | `xylem-lib/src/config/mod.rs` | Errors, thread support, validation, environments, acquisition, reporters | Typed errors own signature conversion first; thread support scopes existing Rayon work; validation owns parse/plan separation; later plans modify only their extracted modules. |
-| `xylem-lib/src/script/mod.rs` | Errors, process execution, environments, acquisition | Process execution owns `Script` and child-result contracts; environment work follows instead of editing them concurrently. |
+| `xylem-lib/src/script/mod.rs` | Errors, process execution, environments, acquisition, ACORN command sync | Process execution owns `Script` and child-result contracts; the ACORN sync changes only the execution adapter after the upstream commit is fixed. |
 | `xylem-cli/src/{main,cli}.rs` and `commands/run/mod.rs` | Errors, thread support, environment/concurrency, reporters, tests | One CLI integration owner. Unit/fixture work may proceed without changing command arguments or top-level dispatch. |
-| `Makefile` and `.gitlab-ci.yml` | Dependency gates, tests, CI/release | Dependency-gate commands land before CI wires them into required jobs. |
+| `Makefile` and `.gitlab-ci.yml` | Dependency gates, tests, CI/release, Homebrew export | Dependency-gate commands land before CI wires them into required jobs; Homebrew publication follows the immutable release contract. |
 | `README.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `CONTRIBUTING.md`, `examples/` | Every user-visible plan | Documentation may inventory drift early, but final edits wait for accepted names and behavior. |
 
 ## Target ownership
 
 | Package | Boundary | Plans |
 |---|---|---|
-| `xylem-lib` | Configuration, planning, process execution, acquisition, workflow outcomes | ACORN, YAML, errors, threads, process, environment, validation, acquisition |
+| `xylem-lib` | Configuration, planning, process execution, acquisition, workflow outcomes | ACORN, ACORN command sync, YAML, errors, threads, process, environment, validation, acquisition |
 | `xylem-cli` | Argument precedence, presentation, exit status, temporary workspace lifetime | Errors, threads, environment, reporters, tests |
-| `workspace` | Dependency graph, CI, releases, docs, examples | Dependency gates, CI/release, documentation, hermetic tests |
+| `workspace` | Dependency graph, CI, releases, package exports, docs, examples | Dependency gates, CI/release, Homebrew export, documentation, hermetic tests |
 
 ## Handoff checklist
 

@@ -12,6 +12,7 @@ use tracing::{error, trace};
 
 pub mod config;
 pub mod script;
+pub mod util;
 
 use config::*;
 

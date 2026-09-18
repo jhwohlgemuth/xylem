@@ -3,3 +3,5 @@
 /bin
 notebooks/sandbox.ipynb
 .env
+.pixi/
+__pycache__/

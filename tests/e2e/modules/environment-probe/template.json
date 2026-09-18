@@ -1,0 +1,8 @@
+{
+    "command": "sh",
+    "arguments": [
+        "run.sh",
+        "{{ MESSAGE }}",
+        "{{ MODULE_LIST }}"
+    ]
+}

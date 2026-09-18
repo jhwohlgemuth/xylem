@@ -1,7 +1,7 @@
 use acorn::io::{async_runtime, download_binary, file_checksum, make_executable, read_file};
 use acorn::util::Label;
 use acorn_core::util::alloc::StringConversion;
-use acorn_core::util::{file_extension, Checksum, ChecksumAlgorithm};
+use acorn_core::util::{file_extension, Checksum};
 use bon::Builder;
 use convert_case::{Case, Casing};
 use owo_colors::OwoColorize;
@@ -114,20 +114,23 @@ pub struct Rule {
 }
 impl Config {
     pub fn get_environment_variables(self, module: Option<Module>, input: Option<String>) -> HashMap<String, String> {
-        match input {
-            | Some(value) => {
-                let config_vars = self.variables.clone().unwrap_or_default();
-                let module_vars = module.unwrap().variables.clone().unwrap_or_default();
-                let mut envs = EnvironmentValue::get_from_serde(&config_vars);
-                let parent = PathBuf::from(value.clone()).file_name().unwrap().to_str().unwrap().to_string();
-                envs.extend(EnvironmentValue::get_from_serde(&module_vars));
-                envs.insert("INPUT".to_string(), value);
-                envs.insert("PARENT_DIRECTORY".to_string(), parent);
-                debug!("=> {} Environment variables: {:#?}", Label::using(), envs.dimmed());
-                envs
-            }
-            | None => HashMap::new(),
+        let mut variables = self.variables.clone().unwrap_or_default();
+        if let Some(module) = module {
+            variables.extend(module.variables.unwrap_or_default());
         }
+        variables.insert("MODULE_LIST".to_string(), Value::String(self.clone().get_module_list()));
+        if let Some(value) = input {
+            let parent = PathBuf::from(&value)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(&value)
+                .to_string();
+            variables.insert("INPUT".to_string(), Value::String(value));
+            variables.insert("PARENT_DIRECTORY".to_string(), Value::String(parent));
+        }
+        let envs = EnvironmentValue::expand(EnvironmentValue::get_from_serde(&variables));
+        debug!("=> {} Environment variables: {:#?}", Label::using(), envs.dimmed());
+        envs
     }
     /// Get inputs from input attribute for concurrent workflow execution
     ///
@@ -201,7 +204,7 @@ impl Config {
                             };
                             if !options.skip_verify_checksum.unwrap_or_default() {
                                 let calculated_checksum = output.as_ref().ok().and_then(|path| file_checksum(path.clone(), None));
-                                let expected_checksum = checksum.as_deref().and_then(parse_sha256);
+                                let expected_checksum = checksum.as_deref().map(Checksum::from);
                                 match (checksum, expected_checksum.as_ref(), calculated_checksum.as_ref()) {
                                     | (Some(_), Some(expected), Some(calculated))
                                         if expected.algorithm == calculated.algorithm && expected.checksum_value == calculated.checksum_value =>
@@ -350,13 +353,8 @@ impl Config {
                                 }
                             }
                             // TODO: Check script repository with is_valid_xylem_module_python
-                            // TODO: Add support for designating virtual environment manager
-                            // let manager = match &module.template {
-                            //     | Some(TemplateAttribute::Template(ScriptTemplate { manager, .. })) => manager,
-                            //     | Some(TemplateAttribute::Path(_)) => &None,
-                            //     | _ => &None,
-                            // };
-                            if let Some(script) = Script::maybe_create_virtual_environment(module_root, None) {
+                            let environment = module.resolve_virtual_environment(&module_root);
+                            if let Some(script) = Script::maybe_create_virtual_environment(module_root, environment) {
                                 if options.dry_run.unwrap_or_default() {
                                     let cwd = script.clone().current_dir;
                                     info!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
@@ -372,13 +370,8 @@ impl Config {
                             let path = value.into_os_string().into_string().unwrap();
                             debug!(module = module.name, path, "=> {} Local Python script repository", Label::found());
                             // TODO: Check script repository with is_valid_xylem_module_python
-                            // TODO: Add support for designating virtual environment manager
-                            // let manager = match &module.template {
-                            //     | Some(TemplateAttribute::Template(ScriptTemplate { manager, .. })) => manager,
-                            //     | Some(TemplateAttribute::Path(_)) => &None,
-                            //     | _ => &None,
-                            // };
-                            if let Some(script) = Script::maybe_create_virtual_environment(uri.to_string(), None) {
+                            let environment = module.resolve_virtual_environment(&path);
+                            if let Some(script) = Script::maybe_create_virtual_environment(path, environment) {
                                 if options.dry_run.unwrap_or_default() {
                                     let cwd = script.clone().current_dir;
                                     info!(module = module.name, script = script.to_string(), cwd, "=> {}", Label::dry_run());
@@ -479,7 +472,11 @@ impl Config {
                     }
                 };
                 let loaded = Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())));
-                let script = loaded.ensure_relative().expand_arguments_from(envs).with_current_dir(working_dir);
+                let script = loaded
+                    .ensure_relative()
+                    .expand_arguments_from(envs.clone())
+                    .with_current_dir(working_dir)
+                    .with_envs(envs);
                 if options.dry_run.unwrap_or_default() {
                     info!(
                         module = module.name,
@@ -507,7 +504,7 @@ impl Config {
                         std::process::exit(exitcode::USAGE);
                     });
                     let loaded = Script::from_module(module.clone(), root);
-                    let script = loaded.expand_arguments_from(envs).with_current_dir(working_dir);
+                    let script = loaded.expand_arguments_from(envs.clone()).with_current_dir(working_dir).with_envs(envs);
                     if options.dry_run.unwrap_or_default() {
                         info!(
                             module = module.name,
@@ -533,17 +530,12 @@ impl Config {
                         error!(module = module.name, uri, "=> {} Module URI", Label::invalid());
                         std::process::exit(exitcode::USAGE);
                     });
-                    let virtual_environment = match &module.template {
-                        | Some(TemplateAttribute::Path(value)) => {
-                            ScriptTemplate::from_path(PathBuf::from(&working_dir).join(value)).virtual_environment
-                        }
-                        | Some(TemplateAttribute::Template(value)) => value.virtual_environment.clone(),
-                        | None => ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(working_dir.clone())),
-                    };
+                    let virtual_environment = module.resolve_virtual_environment(&working_dir);
                     let script = Script::from_module(module.clone(), root)
-                        .expand_arguments_from(envs)
+                        .expand_arguments_from(envs.clone())
                         .with_current_dir(working_dir)
-                        .with_virtual_environment(virtual_environment);
+                        .with_virtual_environment(virtual_environment)
+                        .with_envs(envs);
                     if options.dry_run.unwrap_or_default() {
                         info!(
                             module = module.name,
@@ -563,17 +555,8 @@ impl Config {
     }
     /// Set environment variables from Xylem configuration "variables" attribute
     pub fn set_environment_variables(self) -> Config {
-        match &self.variables {
-            | Some(variables) => {
-                for (k, v) in variables {
-                    debug!("Setting Xylem environment variable: {:?} = {:?}", k, v);
-                    EnvironmentValue::from_value(v.clone()).set_variable(k.clone());
-                }
-            }
-            | None => (),
-        }
-        let module_list = EnvironmentValue::String(self.clone().get_module_list());
-        module_list.set_variable("MODULE_LIST".to_string());
+        let variables = self.clone().get_environment_variables(None, None);
+        EnvironmentValue::set_namespaced_variables(variables);
         self
     }
     /// Verify software requirements are met on host system (ex. Python, conda, etc...)
@@ -627,19 +610,5 @@ fn get_children(path: String) -> Vec<String> {
         | Err(_) => Vec::new(),
     }
 }
-fn parse_sha256(value: &str) -> Option<Checksum> {
-    let value = value.trim();
-    let digest = match value.split_once(':') {
-        | Some((algorithm, digest)) if algorithm.eq_ignore_ascii_case("sha256") => digest,
-        | Some(_) => return None,
-        | None => value,
-    };
-    let checksum_value = digest.to_ascii_lowercase();
-    (checksum_value.len() == 64 && checksum_value.bytes().all(|value| value.is_ascii_hexdigit())).then_some(Checksum {
-        algorithm: ChecksumAlgorithm::Sha256,
-        checksum_value,
-    })
-}
-
 #[cfg(test)]
 mod tests;

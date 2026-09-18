@@ -1,0 +1,26 @@
+{
+    "version": "1.0.0",
+    "description": "End-to-end workflow fixture",
+    "requirements": ["sh"],
+    "variables": {
+        "GREETING": "Hello",
+        "MESSAGE": "{{ GREETING }}, workflow!"
+    },
+    "modules": [
+        {
+            "name": "Environment Probe",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:./tests/e2e/modules/environment-probe"
+        },
+        {
+            "name": "Second Probe",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:./tests/e2e/modules/second-probe",
+            "variables": {
+                "GREETING": "Goodbye"
+            }
+        }
+    ]
+}

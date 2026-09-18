@@ -10,11 +10,11 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 
 | Lock | Files | Owner rule |
 |---|---|---|
-| Manifest lock | `Cargo.toml`, `Cargo.lock`, `xylem-*/Cargo.toml`, `deny.toml` | One migration or dependency-gate owner at a time. |
+| Manifest lock | `Cargo.toml`, `Cargo.lock`, `xylem-*/Cargo.toml`, `deny.toml` | One migration or dependency-gate owner at a time; ACORN command sync may claim it only after the upstream commit is fixed. |
 | Configuration lock | `xylem-lib/src/config/mod.rs` and its future extracted modules | Error signatures land first; thread support scopes existing Rayon calls; validation then owns extraction. |
-| Process lock | `xylem-lib/src/script/mod.rs` and process fixtures | The process contract lands before environment or lifecycle integration. |
+| Process lock | `xylem-lib/src/script/mod.rs` and process fixtures | The process contract lands before environment or lifecycle integration; ACORN command sync changes its adapter only during final handoff. |
 | CLI lock | `xylem-cli/src/{main,cli}.rs`, `xylem-cli/src/commands/run/mod.rs` | One owner for argument registration, thread-pool setup, exit mapping, and generated help. |
-| Delivery lock | `Makefile`, `.gitlab-ci.yml` | Security commands land before CI/release wiring. |
+| Delivery lock | `Makefile`, `.gitlab-ci.yml`, release exporters | Security commands land before CI/release wiring; package export consumes the immutable release contract. |
 | Documentation lock | top-level Markdown and `examples/` | Final updates occur after behavior and command names are stable. |
 
 ## Work lanes
@@ -22,8 +22,9 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 ### Lane A: dependency migrations
 
 1. [ACORN 0.2 upgrade](migrations/acorn-0-2-upgrade.md)
-2. [Maintained YAML parser](migrations/maintained-yaml-parser.md)
-3. [Dependency and security gates](refactors/dependency-surface-and-security-gates.md)
+2. [ACORN command environment sync](migrations/acorn-command-environment-sync.md), with upstream API work and downstream fixtures proceeding in parallel while the manifest pin waits
+3. [Maintained YAML parser](migrations/maintained-yaml-parser.md)
+4. [Dependency and security gates](refactors/dependency-surface-and-security-gates.md)
 
 ACORN and YAML investigation can run concurrently, but their manifest and lockfile edits are serialized.
 
@@ -55,7 +56,8 @@ Tests that assert new outcomes wait for the owning contract. Fixture cleanup and
 
 1. CI/release analysis and isolated script prototypes
 2. [CI and release pipeline](refactors/ci-release-pipeline.md) after required checks exist
-3. [Documentation and examples](refactors/documentation-and-examples.md) after public behavior stabilizes
+3. [Homebrew release export](features/homebrew-export.md) after immutable release artifacts and checksums exist
+4. [Documentation and examples](refactors/documentation-and-examples.md) after public behavior and installation commands stabilize
 
 ## Safe initial batch
 

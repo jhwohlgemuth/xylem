@@ -53,6 +53,8 @@
 
 - See [xylem.ornl.gov](https://xylem.ornl.gov) to see generated code documentation
 - See example configurations in the [`/examples`](./examples/) folder
+- Run the self-contained [Python with Pixi example](./examples/python-with-pixi/README.md)
+- Read the versioned [Xylem module specification](./MODULE_SPEC.md)
 
 ### Architecture
 > See [ARCHITECTURE.md](./ARCHITECTURE.md)

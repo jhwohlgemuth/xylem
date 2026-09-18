@@ -1,4 +1,7 @@
-use crate::script::{add_dot_slash, get_conda_environment_list, get_conda_environment_name, Command};
+use crate::script::{
+    add_dot_slash, get_conda_environment_list, get_conda_environment_name, Command, Script, ScriptTemplate, VirtualEnvironment,
+    VirtualEnvironmentManager,
+};
 use std::path::PathBuf;
 
 const FIXTURES: &str = "../tests/fixtures";
@@ -29,4 +32,33 @@ fn test_get_conda_environment_name() {
         .starts_with("some-really-interesting-name"));
     let manifest_path = PathBuf::from("/non/existing/manifest.yml");
     assert_eq!(get_conda_environment_name(manifest_path), None);
+}
+#[test]
+fn test_create_pixi_environment() {
+    let path = PathBuf::from(format!("{FIXTURES}/pixi-module"));
+    let environment = VirtualEnvironment::init()
+        .name("default".to_string())
+        .manager(VirtualEnvironmentManager::Pixi)
+        .build();
+    let script = Script::maybe_create_virtual_environment(path.to_string_lossy().to_string(), Some(environment))
+        .expect("Pixi manifest should produce an install command");
+
+    assert_eq!(script.to_string(), "pixi install --environment default");
+    assert!(script.current_dir.ends_with("tests/fixtures/pixi-module"));
+}
+#[test]
+fn test_resolve_pixi_environment() {
+    let path = PathBuf::from(format!("{FIXTURES}/pixi-module"));
+    let environment = ScriptTemplate::resolve_python_virtual_environment(path).expect("Pixi should be detected from pixi.toml");
+
+    assert_eq!(environment.name, "default");
+    assert_eq!(environment.manager, VirtualEnvironmentManager::Pixi);
+}
+#[test]
+fn test_resolve_pixi_environment_from_pyproject() {
+    let path = PathBuf::from(format!("{FIXTURES}/pixi-pyproject-module"));
+    let environment = ScriptTemplate::resolve_python_virtual_environment(path).expect("Pixi should be detected from pyproject.toml");
+
+    assert_eq!(environment.name, "default");
+    assert_eq!(environment.manager, VirtualEnvironmentManager::Pixi);
 }

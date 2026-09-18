@@ -61,6 +61,40 @@ fn test_config_get_module_list() {
     }
 }
 #[test]
+fn test_config_environment_variables_without_input() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "variables": {
+            "GREETING": "Hello",
+            "MESSAGE": "{{ GREETING }}, workflow!"
+        },
+        "modules": [
+            {
+                "name": "Environment Probe",
+                "type": "script",
+                "programmingLanguage": "generic",
+                "uri": "file:./module",
+                "variables": {
+                    "GREETING": "Goodbye"
+                }
+            },
+            {
+                "name": "Second Probe",
+                "type": "script",
+                "programmingLanguage": "generic",
+                "uri": "file:./module"
+            }
+        ]
+    }))
+    .expect("test config should deserialize");
+    let module = config.modules[0].clone();
+    let variables = config.get_environment_variables(Some(module), None);
+
+    assert_eq!(variables.get("_XYLEM_GREETING"), Some(&"Goodbye".to_string()));
+    assert_eq!(variables.get("_XYLEM_MESSAGE"), Some(&"Goodbye, workflow!".to_string()));
+    assert_eq!(variables.get("_XYLEM_MODULE_LIST"), Some(&"environment_probe,second_probe".to_string()));
+}
+#[test]
 fn test_config_read() {
     let path = format!("{FIXTURES}/config.json");
     // Load variables into configuration (JSON or YAML)
@@ -399,6 +433,16 @@ fn test_script_run() {
     }
 }
 #[test]
+fn test_script_run_checked_reports_failure() {
+    if !cfg!(target_os = "windows") {
+        let command = Command::init().name("sh".to_string()).build();
+        let arguments = to_string(vec!["-c", "exit 7"]);
+        let script = Script::init().command(command).arguments(arguments).build();
+
+        assert!(script.run_checked().is_err());
+    }
+}
+#[test]
 fn test_string_template_expand() {
     let vars = vec![
         ("GREETING".to_string(), "Hello".to_string()),
@@ -411,6 +455,8 @@ fn test_string_template_expand() {
     assert_eq!(template.expand(vars.clone()), expected);
     let template = StringTemplate::new("Hello World!!!");
     assert_eq!(template.expand(vars.clone()), expected);
+    let template = StringTemplate::new("GREETING={{ GREETING }}; UNKNOWN={{ UNKNOWN }}");
+    assert_eq!(template.expand(vars), "GREETING=Hello; UNKNOWN={{UNKNOWN}}");
 }
 #[test]
 fn test_string_template_handlebars() {

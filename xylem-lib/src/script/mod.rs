@@ -1,5 +1,7 @@
+use crate::util::constants::{RE_HANDLEBARS, RE_TEMPLATE_SPACES};
 use acorn::io::read_file;
 use acorn::util::Label;
+use acorn::{args, cmd};
 use acorn_core::util::alloc::StringConversion;
 use acorn_core::Location;
 use bon::Builder;
@@ -13,7 +15,6 @@ use serde_json::{Map, Number, Value};
 use std::collections::HashMap;
 use std::env::{set_var, vars};
 use std::ffi::OsStr;
-use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process;
 use tracing::{debug, error, info, trace, warn};
@@ -315,6 +316,33 @@ impl Command {
 }
 impl EnvironmentValue {
     pub const PREFIX: &'static str = "xylem";
+    /// Resolve `{{ VARIABLE }}` references in namespaced environment values.
+    ///
+    /// Values may reference other values in the same map.
+    /// Resolution is repeated until the map stabilizes or every value has had a chance to resolve a dependency chain.
+    /// Unknown and cyclic references are left intact.
+    pub fn expand(values: HashMap<String, String>) -> HashMap<String, String> {
+        let raw = values
+            .into_iter()
+            .map(|(key, value)| (EnvironmentValue::trim_prefix(key), value))
+            .collect::<HashMap<_, _>>();
+        let mut expanded = raw.clone();
+        for _ in 0..=raw.len() {
+            let variables = expanded.clone().into_iter().collect::<Vec<_>>();
+            let next = raw
+                .iter()
+                .map(|(key, value)| (key.clone(), StringTemplate::new(value).expand(variables.clone())))
+                .collect::<HashMap<_, _>>();
+            if next == expanded {
+                break;
+            }
+            expanded = next;
+        }
+        expanded
+            .into_iter()
+            .map(|(key, value)| (EnvironmentValue::prepend_prefix(key), value))
+            .collect()
+    }
     fn formatted_prefix() -> String {
         format!("_{}_", EnvironmentValue::PREFIX.to_uppercase())
     }
@@ -386,6 +414,10 @@ impl EnvironmentValue {
             .into_iter()
             .for_each(|(key, value)| EnvironmentValue::String(value).set_variable(key));
     }
+    /// Set values that already use Xylem's `_XYLEM_` namespace.
+    pub fn set_namespaced_variables(values: HashMap<String, String>) {
+        values.into_iter().for_each(|(key, value)| set_var(key, value));
+    }
 }
 impl ModuleUri<'_> {
     pub fn from(value: &str) -> ModuleUri<'_> {
@@ -396,6 +428,22 @@ impl ModuleUri<'_> {
                 | _ => ModuleUri::Unknown(value.to_string()),
             },
             | Err(_) => ModuleUri::Unknown(value.to_string()),
+        }
+    }
+}
+impl Module {
+    /// Resolve the module's explicitly configured or auto-detected virtual environment.
+    pub fn resolve_virtual_environment(&self, working_dir: &str) -> Option<VirtualEnvironment> {
+        match &self.template {
+            | Some(TemplateAttribute::Path(value)) => {
+                let template_path = PathBuf::from(working_dir).join(value);
+                template_path
+                    .is_file()
+                    .then(|| ScriptTemplate::from_path(template_path).virtual_environment)
+                    .flatten()
+            }
+            | Some(TemplateAttribute::Template(value)) => value.virtual_environment.clone(),
+            | None => ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(working_dir)),
         }
     }
 }
@@ -419,16 +467,16 @@ impl Script {
     ///
     /// This method does not set environment variables, but only interpolates the values within the script arguments
     ///
-    /// Example:
+    /// ### Example
     /// ```
     /// use xylem_lib::script::*;
-    /// use xylem_lib::util::*;
     ///
     /// // Environment: ANSWER=42
+    /// std::env::set_var("_XYLEM_ANSWER", "42");
     /// let command = Command::init().name("echo".to_string()).build();
-    /// let arguments = to_string(vec!["{{ ANSWER }}"]);
+    /// let arguments = vec!["{{ ANSWER }}".to_string()];
     /// let script = Script::init().command(command).arguments(arguments).build().expand_arguments();
-    /// // "echo 42"
+    /// assert_eq!(script.to_string(), "echo 42");
     /// ```
     pub fn expand_arguments(mut self) -> Script {
         let expanded = self
@@ -555,7 +603,7 @@ impl Script {
     ///
     /// let path = PathBuf::from("../tests/fixtures/template.json");
     /// let script = Script::from_path(path);
-    /// let output = script.run();
+    /// assert_eq!(script.command.name, "python");
     /// ```
     pub fn from_path(path: PathBuf) -> Script {
         let template = ScriptTemplate::from_path(path);
@@ -566,11 +614,14 @@ impl Script {
     /// You can easily import the script with
     /// ```
     /// use xylem_lib::script::*;
-    /// use std::path::PathBuf;
-    ///
-    /// let path = PathBuf::from("../tests/fixtures/template.json");
-    /// let script = Script::from_path(path);
-    /// let _ = script.run();
+    /// let template = ScriptTemplate {
+    ///     command: "echo".to_string(),
+    ///     container: None,
+    ///     virtual_environment: None,
+    ///     arguments: Instruction::ExecFormat(vec!["hello".to_string()]),
+    /// };
+    /// let script = Script::from_template(template);
+    /// assert_eq!(script.to_string(), "echo hello");
     /// ```
     pub fn from_template(template: ScriptTemplate) -> Script {
         let arguments = match template.arguments {
@@ -651,47 +702,23 @@ impl Script {
             | _ => self_arguments,
         }
     }
-    /// Create virtual environment from associated manifest file (ex. environment.yml or pyproject.toml)
-    // TODO: Add support for Pixi and other virtual environment managers
-    pub fn maybe_create_virtual_environment(parent: String, _manager: Option<VirtualEnvironmentManager>) -> Option<Script> {
+    /// Create a virtual environment from an associated Conda or Pixi manifest.
+    pub fn maybe_create_virtual_environment(parent: String, environment: Option<VirtualEnvironment>) -> Option<Script> {
         let current_dir = PathBuf::from(parent).to_absolute_path();
-        let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
-        match manifest_path.try_exists() {
-            | Ok(true) => {
-                info!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::found());
-                match get_conda_environment_name(manifest_path.clone()) {
-                    | Some(name) => {
-                        if get_conda_environment_list().contains(&name) {
-                            info!(name, "=> {} Virtual environment", Label::found());
-                            None
-                        } else {
-                            let mamba = Command::init().name("mamba".to_string()).build();
-                            let name = (if mamba.test() { "mamba" } else { "conda" }).to_string();
-                            let arguments = vec!["env", "create", "-f", "environment.yml"].into_iter().map(String::from).collect();
-                            let command = Command::init().name(name).build();
-                            let script = Script::init()
-                                .command(command)
-                                .arguments(arguments)
-                                .build()
-                                .with_current_dir(current_dir.clone());
-                            Some(script)
-                        }
-                    }
-                    | None => None,
-                }
-            }
-            | Ok(false) => {
-                debug!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::not_found());
-                None
-            }
-            | Err(_) => {
-                error!(
-                    path = manifest_path.to_str().unwrap(),
-                    "=> {} Error while trying to test existence",
-                    Label::fail()
+        let environment = environment.or_else(|| ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(&current_dir)));
+        match environment {
+            | Some(value) if value.manager == VirtualEnvironmentManager::Pixi => create_pixi_environment_script(current_dir, value),
+            | Some(value) if value.manager == VirtualEnvironmentManager::Conda => create_conda_environment_script(current_dir),
+            | Some(value) => {
+                let manager = value.manager;
+                debug!(
+                    manager = manager.to_string(),
+                    "=> {} Unsupported environment creation manager",
+                    Label::not_found()
                 );
                 None
             }
+            | None => None,
         }
     }
     pub fn maybe_git_clone(url: String, current_dir: String) -> Option<Script> {
@@ -713,73 +740,53 @@ impl Script {
         ];
         Script::init().command(command).arguments(arguments).build()
     }
-    /// Execute script in child process and wait for it to finish, print to stdout and ignore output
-    /// TODO: This function should return `Option<Vec<String>>`
+    /// Execute a script and return its combined standard output and standard error.
+    ///
+    /// A failed child process stops the workflow with the software-error exit code.
     pub fn run(&self) -> Vec<String> {
+        match self.run_checked() {
+            | Ok(output) => output,
+            | Err(error) => {
+                error!(error, script = self.to_string(), "=> {} Workflow stopped", Label::fail());
+                process::exit(exitcode::SOFTWARE);
+            }
+        }
+    }
+    /// Execute a script and preserve command failures for the caller.
+    pub fn run_checked(&self) -> Result<Vec<String>, String> {
         let command = &self.get_command();
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
         warn!(cwd = current_dir.to_str().unwrap(), script = self.to_string(), "=> {}", Label::run());
-        let mut output: Vec<String> = vec![];
-        if let Ok(mut cmd) = process::Command::new(command)
-            .args(arguments.iter())
-            .current_dir(current_dir)
-            .stdout(process::Stdio::piped())
-            .stderr(process::Stdio::piped())
-            .envs(envs)
-            .spawn()
-        {
-            {
-                // stdout
-                let stdout = match cmd.stdout.as_mut() {
-                    | Some(value) => value,
-                    | None => {
-                        error!(script = self.to_string(), "=> {}", Label::fail());
-                        return vec![];
-                    }
-                };
-                let reader = BufReader::new(stdout);
-                let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
-                if !lines.is_empty() {
-                    output.extend(lines);
-                }
-                // stderr
-                let stderr = match cmd.stderr.as_mut() {
-                    | Some(value) => value,
-                    | None => {
-                        error!(script = self.to_string(), "=> {}", Label::fail());
-                        return vec![];
-                    }
-                };
-                let reader: BufReader<&mut process::ChildStderr> = BufReader::new(stderr);
-                let lines = reader.lines().map_while(Result::ok).collect::<Vec<String>>();
-                if !lines.is_empty() {
-                    error!("=> {} {:#?}", Label::fail(), lines.join("\n").red());
-                    output.extend(lines);
-                }
-            }
-            match cmd.wait_with_output() {
-                | Ok(result) => {
-                    if result.status.success() {
-                        let output = output;
+        match cmd!(command, args![..arguments]; dir: current_dir, env: envs) {
+            | Ok(result) => {
+                let stdout = String::from_utf8_lossy(&result.stdout).lines().map(String::from).collect::<Vec<_>>();
+                let stderr = String::from_utf8_lossy(&result.stderr).lines().map(String::from).collect::<Vec<_>>();
+                let mut output = stdout;
+                output.extend(stderr.clone());
+                match result.status.success() {
+                    | true => {
                         trace!("=> {} {:#?}", Label::output(), result.dimmed());
                         trace!("=> {} {:#?}", Label::output(), output.dimmed());
-                        output
-                    } else {
-                        error!(script = self.to_string(), "=> {}", Label::fail());
-                        trace!("=> {} {:#?}", Label::output(), result);
-                        vec![]
+                        Ok(output)
+                    }
+                    | false => {
+                        let details = stderr.join("\n");
+                        error!(script = self.to_string(), status = %result.status, details, "=> {}", Label::fail());
+                        Err(format!("script exited with status {}", result.status))
                     }
                 }
-                | Err(error) => {
-                    error!(error = error.to_string(), script = self.to_string(), "=> {}", Label::fail());
-                    vec![]
-                }
             }
-        } else {
-            error!(script = self.to_string(), "=> {} Failed to spawn child process", Label::fail());
-            vec![]
+            | Err(error) => {
+                error!(
+                    error = error.to_string(),
+                    script = self.to_string(),
+                    "=> {} Failed to run child process",
+                    Label::fail()
+                );
+                Err(error.to_string())
+            }
         }
     }
     pub fn with_container(mut self, container: ContainerEnvironment) -> Self {
@@ -802,36 +809,32 @@ impl Script {
     ///
     /// Provides builder interface and returns reference to self
     ///
-    /// # Examples
-    ///
+    /// ### Examples
     /// For a given script,
     /// ```
     /// use xylem_lib::script::*;
-    /// use xylem_lib::util::*;
     ///
     /// let command = Command::init().name("python".to_string()).build();
-    /// let arguments = to_string(vec!["-m", "lib"]);
+    /// let arguments = vec!["-m".to_string(), "lib".to_string()];
     /// let script = Script::init().command(command).arguments(arguments).build();
     /// ```
     ///
     /// Run with no virtual environment
-    /// ```
+    /// ```no_run
     /// use xylem_lib::script::*;
-    /// use xylem_lib::util::*;
     ///
     /// let command = Command::init().name("python".to_string()).build();
-    /// let arguments = to_string(vec!["-m", "lib"]);
+    /// let arguments = vec!["-m".to_string(), "lib".to_string()];
     /// let script = Script::init().command(command).arguments(arguments).build();
     /// let output = script.with_virtual_environment(None).run();
     /// ```
     ///
     /// Run using "module-a" Conda virtual environment (basically executes script with `conda run -n <name>`)
-    /// ```
+    /// ```no_run
     /// use xylem_lib::script::*;
-    /// use xylem_lib::util::*;
     ///
     /// let command = Command::init().name("python".to_string()).build();
-    /// let arguments = to_string(vec!["-m", "lib"]);
+    /// let arguments = vec!["-m".to_string(), "lib".to_string()];
     /// let script = Script::init().command(command).arguments(arguments).build();
     /// let virtual_environment = VirtualEnvironment::init()
     ///     .name("module-a".to_string())
@@ -844,6 +847,76 @@ impl Script {
         self
     }
 }
+fn create_conda_environment_script(current_dir: String) -> Option<Script> {
+    let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
+    match manifest_path.try_exists() {
+        | Ok(true) => {
+            info!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::found());
+            match get_conda_environment_name(manifest_path) {
+                | Some(name) if get_conda_environment_list().contains(&name) => {
+                    info!(name, "=> {} Virtual environment", Label::found());
+                    None
+                }
+                | Some(_) => {
+                    let mamba = Command::init().name("mamba".to_string()).build();
+                    let name = (if mamba.test() { "mamba" } else { "conda" }).to_string();
+                    let arguments = vec!["env", "create", "-f", "environment.yml"].into_iter().map(String::from).collect();
+                    let command = Command::init().name(name).build();
+                    Some(Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir))
+                }
+                | None => None,
+            }
+        }
+        | Ok(false) => {
+            debug!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::not_found());
+            None
+        }
+        | Err(_) => {
+            error!(
+                path = manifest_path.to_str().unwrap(),
+                "=> {} Error while trying to test existence",
+                Label::fail()
+            );
+            None
+        }
+    }
+}
+fn create_pixi_environment_script(current_dir: String, environment: VirtualEnvironment) -> Option<Script> {
+    match find_pixi_manifest(PathBuf::from(&current_dir)) {
+        | Some(manifest_path) => {
+            info!(path = manifest_path.to_str().unwrap(), "=> {} Pixi manifest file", Label::found());
+            let command = Command::init().name("pixi".to_string()).build();
+            let arguments = vec!["install", "--environment", &environment.name]
+                .into_iter()
+                .map(String::from)
+                .collect();
+            Some(Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir))
+        }
+        | None => {
+            debug!(path = current_dir, "=> {} Pixi manifest file", Label::not_found());
+            None
+        }
+    }
+}
+fn find_pixi_manifest(path: PathBuf) -> Option<PathBuf> {
+    let pixi_toml = path.join("pixi.toml");
+    match pixi_toml.is_file() {
+        | true => Some(pixi_toml),
+        | false => {
+            let pyproject = path.join("pyproject.toml");
+            read_file(pyproject.clone())
+                .ok()
+                .and_then(|content| content.parse::<toml::Table>().ok())
+                .and_then(|manifest| {
+                    manifest
+                        .get("tool")
+                        .and_then(toml::Value::as_table)
+                        .and_then(|tool| tool.get("pixi"))
+                        .map(|_| pyproject)
+                })
+        }
+    }
+}
 impl ScriptTemplate {
     pub fn from_path(path: PathBuf) -> ScriptTemplate {
         let content = match read_file(path.clone()) {
@@ -854,37 +927,36 @@ impl ScriptTemplate {
             }
         };
         let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
-
         json.expect("=> [ERROR] Failed to parse script template").clone()
     }
     pub fn resolve_python_virtual_environment(path: PathBuf) -> Option<VirtualEnvironment> {
         let default_template_path = path.join("template.json");
         let conda_manifest_path = PathBuf::from(&path).join("environment.yml");
-        match conda_manifest_path.try_exists() {
-            | Ok(true) => match get_conda_environment_name(conda_manifest_path.clone()) {
-                | Some(value) => {
-                    debug!(path = conda_manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::using());
-                    Some(VirtualEnvironment::init().name(value).manager(VirtualEnvironmentManager::Conda).build())
+        let configured = default_template_path
+            .is_file()
+            .then(|| ScriptTemplate::from_path(default_template_path).virtual_environment)
+            .flatten();
+        match configured {
+            | Some(environment) => Some(environment),
+            | None => match find_pixi_manifest(path) {
+                | Some(manifest_path) => {
+                    debug!(path = manifest_path.to_str().unwrap(), "=> {} Pixi manifest file", Label::using());
+                    Some(
+                        VirtualEnvironment::init()
+                            .name("default".to_string())
+                            .manager(VirtualEnvironmentManager::Pixi)
+                            .build(),
+                    )
                 }
-                | None => match default_template_path.try_exists() {
-                    | Ok(true) => ScriptTemplate::from_path(default_template_path).virtual_environment,
-                    | _ => None,
-                },
+                | None => get_conda_environment_name(conda_manifest_path.clone()).map(|value| {
+                    debug!(path = conda_manifest_path.to_str().unwrap(), "=> {} Conda manifest file", Label::using());
+                    VirtualEnvironment::init().name(value).manager(VirtualEnvironmentManager::Conda).build()
+                }),
             },
-            | _ => {
-                // TODO: Check if other package manager is being used
-                match default_template_path.try_exists() {
-                    | Ok(true) => ScriptTemplate::from_path(default_template_path).virtual_environment,
-                    | _ => None,
-                }
-            }
         }
     }
 }
 impl StringTemplate {
-    const RE_HANDLEBARS: &'static str = r"\{\{(?P<variable>[A-Z_ ]*)\}\}";
-    const RE_SPACES: &'static str = r"((?<=\{\{) *(?=[A-Z])|(?<=[A-Z]) *(?=\}\}))";
-
     pub fn new(value: &str) -> StringTemplate {
         Self {
             value: value.to_string(),
@@ -895,14 +967,13 @@ impl StringTemplate {
     ///
     /// Non-terminal method that provides builder interface and returns reference to self
     pub fn expand(self, vars: Vec<(String, String)>) -> String {
-        vars.into_iter()
-            .fold(self.remove_spaces().value, |acc, (key, value)| acc.replace(&key, &value))
-            .replace("{{", "")
-            .replace("}}", "")
+        vars.into_iter().fold(self.remove_spaces().value, |acc, (key, value)| {
+            acc.replace(&format!("{{{{{key}}}}}"), &value)
+        })
     }
     /// Get variable name from a template string value
     pub fn get_variable(self) -> String {
-        match Regex::new(StringTemplate::RE_HANDLEBARS) {
+        match Regex::new(RE_HANDLEBARS) {
             | Ok(re) => match re.captures(&self.value) {
                 | Ok(Some(captures)) => captures["variable"].trim().to_string(),
                 | _ => "".to_string(),
@@ -932,7 +1003,7 @@ impl StringTemplate {
     /// assert!(!template.is_handlebars());
     /// ```
     pub fn is_handlebars(self) -> bool {
-        match Regex::new(StringTemplate::RE_HANDLEBARS) {
+        match Regex::new(RE_HANDLEBARS) {
             | Ok(re) => match re.is_match(&self.value) {
                 | Ok(value) => value,
                 | _ => false,
@@ -967,7 +1038,7 @@ impl StringTemplate {
     /// assert_eq!(template.remove_spaces().value, "{{ variable }}");
     /// ```
     pub fn remove_spaces(mut self) -> Self {
-        let updated = match Regex::new(StringTemplate::RE_SPACES) {
+        let updated = match Regex::new(RE_TEMPLATE_SPACES) {
             | Ok(re) => re.replace_all(&self.value, "").to_string(),
             | _ => self.value,
         };
@@ -1023,28 +1094,14 @@ pub fn get_conda_environment_list() -> Vec<String> {
 /// Get the environment name
 /// ```
 /// use std::path::PathBuf;
-/// use xylem_lib::util::get_conda_environment_name;
+/// use xylem_lib::script::get_conda_environment_name;
 ///
 /// get_conda_environment_name(PathBuf::from("/path/to/environment.yml"));
 /// ```
 pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
     match path.try_exists() {
         | Ok(true) => match read_file(path) {
-            | Ok(content) => {
-                let name = content
-                    .split('\n')
-                    .collect::<Vec<_>>()
-                    .clone()
-                    .into_iter()
-                    .next()?
-                    .split("name: ")
-                    .collect::<Vec<_>>()
-                    .clone()
-                    .into_iter()
-                    .nth(1)?
-                    .to_string();
-                Some(name)
-            }
+            | Ok(content) => content.lines().next().and_then(|line| line.strip_prefix("name: ")).map(str::to_string),
             | _ => None,
         },
         | _ => None,

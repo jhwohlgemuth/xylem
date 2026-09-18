@@ -1,0 +1,33 @@
+{
+    "version": "1.0.0",
+    "description": "Create and run a Python module in a Pixi environment",
+    "requirements": ["pixi"],
+    "variables": {
+        "GREETING": "Hello",
+        "AUDIENCE": "from Xylem",
+        "MESSAGE": "{{ GREETING }} {{ AUDIENCE }}"
+    },
+    "modules": [
+        {
+            "name": "Pixi Example",
+            "uri": "file:./examples/python-with-pixi",
+            "type": "script",
+            "programmingLanguage": "python",
+            "template": {
+                "environment": {
+                    "name": "default",
+                    "manager": "pixi"
+                },
+                "command": "python",
+                "arguments": [
+                    "-m",
+                    "lib.run",
+                    "--message",
+                    "{{ MESSAGE }}",
+                    "--modules",
+                    "{{ MODULE_LIST }}"
+                ]
+            }
+        }
+    ]
+}
