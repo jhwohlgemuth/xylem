@@ -1,7 +1,9 @@
-use acorn::io::{download_binary, file_checksum, make_executable, read_file, to_absolute_string};
-use acorn::util::{file_extension, snake_case, Label, ToAbsoluteString};
-use acorn::{Location, Scheme};
+use acorn::io::{async_runtime, download_binary, file_checksum, make_executable, read_file};
+use acorn::util::Label;
+use acorn_core::util::alloc::StringConversion;
+use acorn_core::util::{file_extension, Checksum, ChecksumAlgorithm};
 use bon::Builder;
+use convert_case::{Case, Casing};
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -139,7 +141,7 @@ impl Config {
                     match path.try_exists() {
                         | Ok(true) => {
                             if path.is_dir() {
-                                let children = get_children(path.to_absolute_string());
+                                let children = get_children(path.to_absolute_path());
                                 Some(children)
                             } else {
                                 error!(path = path.to_str().unwrap(), "=> {} Input directory", Label::not_found());
@@ -162,7 +164,11 @@ impl Config {
         }
     }
     pub fn get_module_list(self) -> String {
-        let names = self.modules.iter().map(|module| snake_case(module.name.clone())).collect::<Vec<String>>();
+        let names = self
+            .modules
+            .iter()
+            .map(|module| module.name.to_case(Case::Snake))
+            .collect::<Vec<String>>();
         names.join(",").to_string()
     }
     /// Prepare workflow modules for execution
@@ -183,29 +189,32 @@ impl Config {
         self.modules.par_iter().for_each(|module| match &module.module_type {
             | ModuleType::Binary { uri, checksum } => match ModuleUri::from(uri) {
                 | ModuleUri::Url(value) if !options.offline.unwrap_or_default() => match value.scheme() {
-                    | uriparse::Scheme::HTTP | uriparse::Scheme::HTTPS | uriparse::Scheme::SSH => {
+                    | uriparse::Scheme::HTTP | uriparse::Scheme::HTTPS => {
                         let url = value.to_string();
                         // TODO: Implement parametrized whitelist
                         debug!(module = module.name, url, "=> {} Remote binary", Label::found());
                         // TODO: Check that URL exists
                         if !options.dry_run.unwrap_or_default() {
                             let output = match options.root.clone() {
-                                | Some(value) => download_binary(&url, value),
-                                | None => Err("Root directory not found".to_string()),
+                                | Some(value) => async_runtime().block_on(download_binary(url.as_str(), value)),
+                                | None => Err(color_eyre::eyre::eyre!("Root directory not found")),
                             };
                             if !options.skip_verify_checksum.unwrap_or_default() {
-                                let calculated_checksum = match output.clone() {
-                                    | Ok(path) => match file_checksum(path) {
-                                        | Some(value) => value,
-                                        | None => "".to_string(),
-                                    },
-                                    | _ => "".to_string(),
-                                };
-                                match checksum {
-                                    | Some(value) if value == &calculated_checksum => {
-                                        info!(module = module.name, url, "=> {} Checksum verified", Label::pass());
+                                let calculated_checksum = output.as_ref().ok().and_then(|path| file_checksum(path.clone(), None));
+                                let expected_checksum = checksum.as_deref().and_then(parse_sha256);
+                                match (checksum, expected_checksum.as_ref(), calculated_checksum.as_ref()) {
+                                    | (Some(_), Some(expected), Some(calculated))
+                                        if expected.algorithm == calculated.algorithm && expected.checksum_value == calculated.checksum_value =>
+                                    {
+                                        info!(
+                                            module = module.name,
+                                            url,
+                                            algorithm = %calculated.algorithm,
+                                            "=> {} Checksum verified",
+                                            Label::pass()
+                                        );
                                         if let Ok(path) = output {
-                                            if make_executable(&path) {
+                                            if make_executable(path) {
                                                 info!(module = module.name, url, "=> {} Downloaded binary is executable", Label::pass());
                                             } else {
                                                 error!(
@@ -219,25 +228,30 @@ impl Config {
                                             }
                                         }
                                     }
-                                    | Some(_) => {
+                                    | (Some(value), _, Some(calculated)) => {
                                         error!(
                                             module = module.name,
                                             url,
-                                            checksum,
-                                            calculated = calculated_checksum,
+                                            checksum = value,
+                                            algorithm = %calculated.algorithm,
+                                            calculated = calculated.checksum_value,
                                             "=> {} Remote binary checksum does not match",
                                             Label::fail()
                                         );
                                         std::process::exit(exitcode::USAGE);
                                     }
-                                    | None => {
+                                    | (Some(value), _, None) => {
                                         error!(
                                             module = module.name,
                                             url,
-                                            checksum,
+                                            checksum = value,
                                             "=> {} Remote binary checksum does not match",
                                             Label::fail()
                                         );
+                                        std::process::exit(exitcode::USAGE);
+                                    }
+                                    | (None, _, _) => {
+                                        error!(module = module.name, url, "=> {} Remote binary checksum is required", Label::fail());
                                         std::process::exit(exitcode::UNAVAILABLE);
                                     }
                                 }
@@ -248,13 +262,13 @@ impl Config {
                             info!(module = module.name, url, "=> {} Download remote binary", Label::dry_run());
                         }
                     }
-                    | _ => unimplemented!("Only HTTP, HTTPS, and SSH are currently supported for remote binary modules"),
+                    | _ => unimplemented!("Only HTTP and HTTPS are currently supported for remote binary modules"),
                 },
                 | ModuleUri::File(value) => match value.try_exists() {
                     | Ok(true) => {
                         let path = value.into_os_string().into_string().unwrap();
                         debug!(module = module.name, path, "=> {} Local binary", Label::found());
-                        if make_executable(&PathBuf::from(path.clone())) {
+                        if make_executable(PathBuf::from(path.clone())) {
                             info!(module = module.name, path, "=> {} Binary is executable", Label::pass());
                         } else {
                             error!(module = module.name, path, "=> {} Binary is not executable", Label::fail());
@@ -304,7 +318,6 @@ impl Config {
                             debug!(module = module.name, url, "=> {} Remote Python script repository", Label::found());
                             // TODO: Implement parametrized whitelist
                             // TODO: Check that URL exists
-                            // if Location::Simple(uri.to_string()).exists() {
                             if true {
                                 info!(module = module.name, uri, "=> {}", Label::found());
                             } else {
@@ -312,14 +325,17 @@ impl Config {
                                 std::process::exit(exitcode::USAGE);
                             };
                             let current_dir = match options.root.clone() {
-                                | Some(value) => value.to_absolute_string(),
+                                | Some(value) => value.to_absolute_path(),
                                 | None => {
                                     error!(module = module.name, "=> {} Root directory", Label::not_found());
                                     std::process::exit(exitcode::UNAVAILABLE);
                                 }
                             };
                             let module_root = match options.root.clone() {
-                                | Some(value) => value.join(Location::Simple(uri.into()).hash()).to_absolute_string(),
+                                | Some(value) => module_working_directory(uri, Some(&value)).unwrap_or_else(|| {
+                                    error!(module = module.name, uri, "=> {} Module URI", Label::invalid());
+                                    std::process::exit(exitcode::USAGE);
+                                }),
                                 | None => {
                                     error!(module = module.name, "=> {} Root directory", Label::not_found());
                                     std::process::exit(exitcode::UNAVAILABLE);
@@ -456,7 +472,7 @@ impl Config {
             | ModuleType::Binary { .. } => {
                 let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
                 let working_dir = match options.root.clone() {
-                    | Some(value) => value.to_absolute_string(),
+                    | Some(value) => value.to_absolute_path(),
                     | None => {
                         error!(module = module.name, "=> {} Root directory", Label::not_found());
                         std::process::exit(exitcode::UNAVAILABLE);
@@ -486,15 +502,10 @@ impl Config {
                             std::process::exit(exitcode::UNAVAILABLE);
                         }
                     };
-                    let location = Location::Simple(uri.into());
-                    let working_dir = match location.scheme() {
-                        | Scheme::HTTPS => match root.clone() {
-                            | Some(value) => value.join(location.hash()).to_absolute_string(),
-                            | None => location.hash(),
-                        },
-                        | Scheme::File => to_absolute_string(location.uri().unwrap().path().to_string()),
-                        | _ => unimplemented!(),
-                    };
+                    let working_dir = module_working_directory(uri, root.as_ref()).unwrap_or_else(|| {
+                        error!(module = module.name, uri, "=> {} Module URI", Label::invalid());
+                        std::process::exit(exitcode::USAGE);
+                    });
                     let loaded = Script::from_module(module.clone(), root);
                     let script = loaded.expand_arguments_from(envs).with_current_dir(working_dir);
                     if options.dry_run.unwrap_or_default() {
@@ -518,15 +529,10 @@ impl Config {
                             std::process::exit(exitcode::UNAVAILABLE);
                         }
                     };
-                    let location = Location::Simple(uri.into());
-                    let working_dir = match location.scheme() {
-                        | Scheme::HTTPS => match root.clone() {
-                            | Some(value) => value.join(location.hash()).to_absolute_string(),
-                            | None => location.hash(),
-                        },
-                        | Scheme::File => to_absolute_string(location.uri().unwrap().path().to_string()),
-                        | _ => unimplemented!(),
-                    };
+                    let working_dir = module_working_directory(uri, root.as_ref()).unwrap_or_else(|| {
+                        error!(module = module.name, uri, "=> {} Module URI", Label::invalid());
+                        std::process::exit(exitcode::USAGE);
+                    });
                     let virtual_environment = match &module.template {
                         | Some(TemplateAttribute::Path(value)) => {
                             ScriptTemplate::from_path(PathBuf::from(&working_dir).join(value)).virtual_environment
@@ -617,9 +623,22 @@ impl Extension {
 ///
 fn get_children(path: String) -> Vec<String> {
     match fs::read_dir(path) {
-        | Ok(value) => value.flatten().map(|x| x.path().to_absolute_string()).collect::<Vec<_>>(),
+        | Ok(value) => value.flatten().map(|x| x.path().to_absolute_path()).collect::<Vec<_>>(),
         | Err(_) => Vec::new(),
     }
+}
+fn parse_sha256(value: &str) -> Option<Checksum> {
+    let value = value.trim();
+    let digest = match value.split_once(':') {
+        | Some((algorithm, digest)) if algorithm.eq_ignore_ascii_case("sha256") => digest,
+        | Some(_) => return None,
+        | None => value,
+    };
+    let checksum_value = digest.to_ascii_lowercase();
+    (checksum_value.len() == 64 && checksum_value.bytes().all(|value| value.is_ascii_hexdigit())).then_some(Checksum {
+        algorithm: ChecksumAlgorithm::Sha256,
+        checksum_value,
+    })
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@ resolver = "2"
 
 [workspace.package]
 version = "1.0.0"
+rust-version = "1.96.0"
 license = "MIT"
 authors = ["Jason Wohlgemuth <wohlgemuthjh@ornl.gov>"]
 description = "Parallel Integration and Processing Engine"
@@ -23,16 +24,20 @@ unsafe_code = "forbid"
 broken-intra-doc-links = "forbid"
 
 [workspace.dependencies]
-acorn-lib = { version = "0.1.50", features = ["std", "analyzer"], default-features = false }
+# ACORN 0.2 is not published on crates.io yet. Pin the audited upstream
+# revision so builds remain reproducible without relying on a sibling checkout.
+acorn-core = { version = "0.2.0", git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "cee92e65f21094f8f6d29286e471ce33382761b8", features = ["alloc"], default-features = false }
+acorn-lib = { version = "0.2.0", git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "cee92e65f21094f8f6d29286e471ce33382761b8", features = ["analysis"], default-features = false }
 clap-verbosity-flag = { version = "3.0.4", features = ["log"], default-features = false }
 color-eyre = { version = "0.6.5", default-features = false }
+convert_case = { version = "0.11.0", default-features = false }
 dotenvy = { version = "0.15.7", default-features = false }
 exitcode = { version = "1.1.2", default-features = false }
 owo-colors = { version = "4.2.3", default-features = false }
-rayon = { version = "1.11.0", default-features = false }
+rayon = { version = "1.12.0", default-features = false }
 serde = { version = "1.0.228", features = ["derive"], default-features = false }
 serde_json = { version = "1.0.149", default-features = false }
-tracing = { version = "0.1.44", default-features = false }
+tracing = { version = "0.1.44", features = ["attributes"], default-features = false }
 tracing-log = { version = "0.2.0", default-features = false }
 # Pinned to ensure colored ANSI output
 tracing-subscriber = { version = "=0.3.22", features = [

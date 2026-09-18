@@ -1,6 +1,7 @@
-use acorn::io::{read_file, to_absolute_string};
-use acorn::util::{Label, ToAbsoluteString};
-use acorn::{Location, Scheme};
+use acorn::io::read_file;
+use acorn::util::Label;
+use acorn_core::util::alloc::StringConversion;
+use acorn_core::Location;
 use bon::Builder;
 use core::convert::TryFrom;
 use derive_more::{Display, FromStr};
@@ -398,6 +399,16 @@ impl ModuleUri<'_> {
         }
     }
 }
+pub(crate) fn module_working_directory(uri: &str, root: Option<&PathBuf>) -> Option<String> {
+    let location = Location::from(uri);
+    match ModuleUri::from(uri) {
+        | ModuleUri::Url(value) if matches!(value.scheme(), uriparse::Scheme::HTTP | uriparse::Scheme::HTTPS | uriparse::Scheme::SSH) => {
+            Some(root.map_or_else(|| location.hash(), |path| path.join(location.hash()).to_absolute_path()))
+        }
+        | ModuleUri::File(path) => Some(path.to_absolute_path()),
+        | ModuleUri::Url(_) | ModuleUri::Unknown(_) => None,
+    }
+}
 impl Script {
     pub fn ensure_relative(mut self) -> Script {
         let path = PathBuf::from(self.command.name);
@@ -491,19 +502,11 @@ impl Script {
     /// ```
     pub fn from_module(module: Module, root: Option<PathBuf>) -> Script {
         const DEFAULT_FILENAME: &str = "template.json";
-        let module_uri = match module.module_type {
-            | ModuleType::Binary { ref uri, .. } => Location::Simple(uri.into()),
-            | ModuleType::Script { ref uri, .. } => Location::Simple(uri.into()),
+        let module_uri = match &module.module_type {
+            | ModuleType::Binary { uri, .. } | ModuleType::Script { uri, .. } => uri,
             | ModuleType::Configuration { .. } => unimplemented!("Configuration module type"),
         };
-        let working_dir = match root {
-            | Some(path) => match module_uri.scheme() {
-                | Scheme::HTTPS => path.join(module_uri.hash()).to_absolute_string(),
-                | Scheme::File => module_uri.uri().unwrap().to_string(),
-                | _ => module_uri.hash(),
-            },
-            | None => module_uri.hash(),
-        };
+        let working_dir = module_working_directory(module_uri, root.as_ref()).unwrap_or_else(|| Location::from(module_uri).hash());
         let default_template_path = PathBuf::from(&working_dir).join(DEFAULT_FILENAME);
         match &module.template {
             | Some(attribute) => match attribute {
@@ -651,12 +654,7 @@ impl Script {
     /// Create virtual environment from associated manifest file (ex. environment.yml or pyproject.toml)
     // TODO: Add support for Pixi and other virtual environment managers
     pub fn maybe_create_virtual_environment(parent: String, _manager: Option<VirtualEnvironmentManager>) -> Option<Script> {
-        let location = Location::Simple(parent);
-        let current_dir = match location.scheme() {
-            | Scheme::HTTPS => location.hash(),
-            | Scheme::File => to_absolute_string(location.uri().unwrap().path().to_string()),
-            | _ => unimplemented!(),
-        };
+        let current_dir = PathBuf::from(parent).to_absolute_path();
         let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
         match manifest_path.try_exists() {
             | Ok(true) => {
@@ -697,7 +695,7 @@ impl Script {
         }
     }
     pub fn maybe_git_clone(url: String, current_dir: String) -> Option<Script> {
-        let location = Location::Simple(url.clone());
+        let location = Location::from(&url);
         let command = Command::init().name("git".to_string()).build();
         let arguments = vec!["clone".to_string(), url, location.hash()];
         let script = Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir);

@@ -23,11 +23,30 @@ ignore = [
     "RUSTSEC-2024-0388",
     # paste - no longer maintained
     "RUSTSEC-2024-0436",
+    # ttf-parser is unmaintained with no patched release; it is pulled in by
+    # ACORN's analysis feature, and Xylem does not use its font parsing path.
+    "RUSTSEC-2026-0192",
+    # rsa has no patched release for this timing advisory; it is pulled in by
+    # ACORN's network feature, and Xylem does not perform RSA private-key operations.
+    "RUSTSEC-2023-0071",
+    # bincode is unmaintained with no patched release; ACORN's analysis feature
+    # pulls it in through tooling paths that Xylem does not use.
+    "RUSTSEC-2025-0141",
+    # number_prefix is unmaintained with no patched release; it is transitive
+    # through progress rendering and is not used by Xylem's Acorn integration.
+    "RUSTSEC-2025-0119",
+    # proc-macro-error2 is an unmaintained build-time dependency with no patched release.
+    "RUSTSEC-2026-0173",
+    # ACORN pins quick-xml ^0.39.1, while these fixes require 0.41. Xylem does
+    # not invoke Acorn's XML readers; remove these exceptions after ACORN upgrades.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
 ]
 
 [licenses]
 allow = [
     "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
     # Berkeley Software Distribution License
     "BSD-2-Clause",
     "BSD-3-Clause",
@@ -45,6 +64,7 @@ allow = [
     # GNU Lesser General Public License v3
     "LGPL-3.0-or-later",
     "MIT",
+    "MIT-0",
     # Mozilla Public License 2.0
     # Often termed a “weak copyleft”
     # https://fossa.com/blog/open-source-software-licenses-101-mozilla-public-license-2-0/
@@ -77,9 +97,9 @@ skip-tree = []
 unknown-registry = "warn"
 unknown-git = "warn"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+allow-git = ["https://code.ornl.gov/research-enablement/acorn.git"]
 
 [sources.allow-org]
 github = []
-gitlab = ["https://code.ornl.gov"]
+gitlab = []
 bitbucket = []

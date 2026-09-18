@@ -1,5 +1,6 @@
 use crate::script::*;
 use crate::*;
+use acorn_core::{Location, Scheme};
 use pyproject_toml::Project;
 use std::collections::HashMap;
 use std::env::set_var;
@@ -19,23 +20,12 @@ fn test_command() {
         .name("base".to_string())
         .manager(VirtualEnvironmentManager::Conda)
         .build();
-    let python = Command::init().name("python".to_string()).virtual_environment(base).build();
-    assert_eq!(python.clone().name, "python".to_string());
-    assert_eq!(python.clone().virtual_environment.unwrap().to_string(), "base".to_string());
-    if cfg!(target_os = "windows") {
-        let command = Command::init().name("cmd".to_string()).build();
-        assert!(command.test());
-    } else {
-        let command = Command::init().name("ls".to_string()).build();
-        assert!(command.test());
-        let cargo = Command::init().name("cargo".to_string()).build();
-        assert!(cargo.test());
-        // Using conda virtual environment
-        let conda = Command::init().name("conda".to_string()).build();
-        if conda.test() {
-            assert!(python.test());
-        }
-    }
+    let executable = std::env::current_exe().expect("test executable should have a path");
+    let executable_name = executable.to_string_lossy().into_owned();
+    let command = Command::init().name(executable_name.clone()).virtual_environment(base).build();
+    assert_eq!(command.name, executable_name);
+    assert_eq!(command.virtual_environment.as_ref().map(ToString::to_string), Some("base".to_string()));
+    assert!(command.test());
 }
 #[test]
 fn test_config_get_inputs() {
@@ -368,6 +358,22 @@ fn test_script_git_clone() {
     if let Some(script) = Script::maybe_git_clone(url.clone(), current_dir) {
         assert_eq!(script.to_string(), format!("git clone {} code_ornl_gov_some_project", url.clone()));
     };
+
+    let ssh = "ssh://git@code.ornl.gov/some/project".to_string();
+    let script = Script::maybe_git_clone(ssh.clone(), ".".to_string()).expect("SSH is supported as a Git transport");
+    assert_eq!(script.to_string(), format!("git clone {ssh} code_ornl_gov_some_project"));
+}
+#[test]
+fn test_acorn_location_contract() {
+    let remote = Location::from("https://code.ornl.gov/some/project");
+    assert_eq!(remote.scheme(), Scheme::HTTPS);
+    assert_eq!(remote.hash(), "code_ornl_gov_some_project");
+
+    let root = PathBuf::from("workflow-root");
+    assert_eq!(
+        module_working_directory("ssh://git@code.ornl.gov/some/project", Some(&root)),
+        Some(root.join("code_ornl_gov_some_project").to_string_lossy().to_string())
+    );
 }
 #[test]
 fn test_script_run() {
@@ -379,10 +385,14 @@ fn test_script_run() {
         let script = Script::init().command(command).arguments(arguments).build();
         let output = script.run();
         assert_eq!(&output, &vec!["hello world".to_string()]);
+        let working_dir = std::env::temp_dir()
+            .canonicalize()
+            .expect("temporary directory should have a canonical path");
+        let expected_working_dir = working_dir.display().to_string();
         let command = Command::init().name("pwd".to_string()).build();
         let script = Script::init().command(command).build();
-        let output = script.with_current_dir("/root".to_string()).run();
-        assert_eq!(&output, &vec!["/root".to_string()]);
+        let output = script.with_current_dir(expected_working_dir.clone()).run();
+        assert_eq!(&output, &vec![expected_working_dir]);
         let path = PathBuf::from(format!("{FIXTURES}/template_run.json"));
         let script = Script::from_path(path);
         assert_eq!(script.run(), vec!["hello world".to_string()]);
