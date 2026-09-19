@@ -11,7 +11,7 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 | Lock | Files | Owner rule |
 |---|---|---|
 | Manifest lock | `Cargo.toml`, `Cargo.lock`, `xylem-*/Cargo.toml`, `deny.toml` | One migration or dependency-gate owner at a time; ACORN command sync may claim it only after the upstream commit is fixed. |
-| Configuration lock | `xylem-lib/src/config/mod.rs` and its future extracted modules | Error signatures land first; thread support scopes existing Rayon calls; validation then owns extraction. |
+| Configuration lock | `xylem-lib/src/config/mod.rs` and its future extracted modules | Error signatures land first; validation then owns extraction; environment work preserves the existing Rayon execution limit. |
 | Process lock | `xylem-lib/src/script/mod.rs` and process fixtures | The process contract lands before environment or lifecycle integration; ACORN command sync changes its adapter only during final handoff. |
 | CLI lock | `xylem-cli/src/{main,cli}.rs`, `xylem-cli/src/commands/run/mod.rs` | One owner for argument registration, thread-pool setup, exit mapping, and generated help. |
 | Delivery lock | `Makefile`, `.gitlab-ci.yml`, release exporters | Security commands land before CI/release wiring; package export consumes the immutable release contract. |
@@ -39,10 +39,10 @@ This lane owns configuration extraction and validated execution plans.
 ### Lane C: execution runtime
 
 1. [Typed errors and outcomes](refactors/typed-error-and-outcome-boundary.md)
-2. [Configurable thread support](features/configurable-thread-support.md) and [process execution contract](refactors/process-execution-contract.md), in either order while respecting the CLI and process locks
-3. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), after both step 2 contracts land
+2. [Process execution contract](refactors/process-execution-contract.md)
+3. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), after the process contract lands
 
-Thread support and process execution have different primary implementation boundaries after typed errors, but their CLI integration must be serialized. Advanced orchestration consumes both contracts.
+Configurable thread support is an existing baseline rather than an active lane. Advanced orchestration preserves its CLI contract and consumes the process result contract.
 
 ### Lane D: CLI and verification
 

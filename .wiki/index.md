@@ -24,8 +24,7 @@ Stabilize the dependency and failure foundations before adding workflow behavior
 3. [Replace the unmaintained YAML parser](migrations/maintained-yaml-parser.md)
 4. [Introduce typed errors and workflow outcomes](refactors/typed-error-and-outcome-boundary.md)
 5. [Make process execution lossless and deadlock-free](refactors/process-execution-contract.md)
-6. [Add configurable thread support](features/configurable-thread-support.md)
-7. [Isolate workflow environments and define concurrency](refactors/workflow-environment-and-concurrency.md)
+6. [Isolate workflow environments and define concurrency](refactors/workflow-environment-and-concurrency.md)
 
 The [hermetic workflow test suite](testing/hermetic-workflow-tests.md) may establish fixtures and host-independent helpers alongside the first three items, but assertions that depend on the new error or execution contracts land after those contracts.
 

@@ -1,0 +1,50 @@
+variables:
+  HOMEBREW_LINUX_RUNNER_TAG: cpu
+  HOMEBREW_MACOS_RUNNER_TAG: macos
+  HOMEBREW_NO_ANALYTICS: "1"
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+
+stages:
+  - test
+
+.homebrew-validation:
+  stage: test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}"
+    - |
+      set -eu
+      formula_path="${CI_PROJECT_DIR}/Formula/xylem.rb"
+      previous_ref="origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}"
+      tap_name="xylem/release-validation"
+      tap_formula="${tap_name}/xylem"
+      if brew tap | grep -qx "${tap_name}"; then
+        brew untap --force "${tap_name}"
+      fi
+      brew tap-new --no-git "${tap_name}"
+      tap_repository="$(brew --repository "${tap_name}")"
+      if git cat-file -e "${previous_ref}:Formula/xylem.rb" 2>/dev/null; then
+        git show "${previous_ref}:Formula/xylem.rb" > "${tap_repository}/Formula/xylem.rb"
+        brew install --build-from-source "${tap_formula}"
+        cp "${formula_path}" "${tap_repository}/Formula/xylem.rb"
+        brew upgrade --build-from-source "${tap_formula}"
+      else
+        cp "${formula_path}" "${tap_repository}/Formula/xylem.rb"
+        brew install --build-from-source "${tap_formula}"
+      fi
+      brew style "${tap_formula}"
+      brew audit --strict --formula "${tap_formula}"
+      brew test "${tap_formula}"
+
+homebrew-linux:
+  extends: .homebrew-validation
+  image: homebrew/brew:latest
+  tags:
+    - $HOMEBREW_LINUX_RUNNER_TAG
+
+homebrew-macos:
+  extends: .homebrew-validation
+  tags:
+    - $HOMEBREW_MACOS_RUNNER_TAG

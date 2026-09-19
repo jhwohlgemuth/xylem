@@ -21,3 +21,7 @@ Changes to public configuration or CLI behavior should update the relevant
 book page in the same merge request. CI builds the book for documentation
 changes, while successful main-branch or version-tag pipelines can publish it
 to the Xylem documentation site.
+
+Homebrew formula updates are submitted to the organization tap as merge
+requests. Its required macOS and Linux jobs audit, build, install, test, and
+exercise upgrades before the formula can merge.

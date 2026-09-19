@@ -15,11 +15,13 @@ Let macOS and Linux users install and upgrade Xylem through an official Homebrew
 
 # Current evidence
 
-- The repository now contains a deterministic source-formula template and generator under `scripts/homebrew/`, plus local `make homebrew-formula` support.
-- Version-tag pipelines test the workspace, render the formula from the immutable GitLab tag archive, and publish it to `research-enablement/homebrew-xylem`.
-- The publisher handles both the currently empty tap and subsequent updates to its configured branch.
-- The v1.0.0 archive was installed with the formula's Cargo command, its version test passed, and the rendered formula passed `brew style`.
-- External activation still requires a protected `HOMEBREW_TAP_ACCESS_TOKEN` and a new version tag; tap-side `brew test-bot` validation remains follow-up work.
+- The repository uses one deterministic formula generator and one formula template under `scripts/homebrew/`, plus local `make homebrew-formula` support. Formula checks run directly in GitLab CI instead of through additional helper programs.
+- Release binaries are uploaded before the release tag is created. The tag pipeline verifies those immutable artifacts, renders the source formula, and submits a `release/xylem-vMAJOR.MINOR.PATCH` merge request to `research-enablement/homebrew-xylem`.
+- The tag job handles both the currently empty tap and subsequent updates without pushing formula changes directly to the protected default branch.
+- The formula stages Cargo dependencies before its offline install and tests both `xylem --version` and a local, offline workflow configuration.
+- The tap configuration runs `brew style`, `brew audit --strict`, source installation, `brew test`, and upgrade coverage directly on macOS and Linux before merge. Because Homebrew limits `brew test-bot` to GitHub Actions, the GitLab tap invokes the same lifecycle commands directly.
+- The rendered formula passes current `brew style` and `brew audit --strict`. The immutable v1.0.0 archive no longer compiles with Homebrew Rust 1.98 because it locked `ethnum` 1.5.2; the current repository locks the compatible 1.5.3 release and passes a full workspace check with Rust 1.98, so activation must use a new release tag rather than republish v1.0.0.
+- External activation requires a protected `HOMEBREW_TAP_ACCESS_TOKEN`, protected release tags, required tap merge-request pipelines, compatible `cpu` and `macos` runners, and a new version tag.
 
 # Project code boundaries
 
@@ -36,13 +38,13 @@ The [CI and release pipeline](../refactors/ci-release-pipeline.md) must first pr
 ## Formula contract
 
 - Start with a source formula for the `xylem` CLI and keep it in a dedicated, organization-owned tap. Treat prebuilt bottles as a later optimization once target runners and provenance are established.
-- Generate `url`, `version`, and `sha256` from the immutable release tag and archive metadata; do not duplicate version literals in CI configuration.
+- Generate the immutable release `url` and `sha256` from tag metadata and let Homebrew infer `version` from that URL; do not duplicate a redundant version field or literals in CI configuration.
 - Follow the Rust installation pattern in the [Formula Cookbook](https://docs.brew.sh/Formula-Cookbook): declare the Rust build dependency, stage Cargo dependencies, build with locked inputs, and install only the CLI binary.
 - Add a formula `test do` block that runs `xylem --version` and a small local configuration smoke test without network access.
 
 ## Export and publication
 
-- Add one deterministic command that renders the formula for an explicit tag and checksum, validates that the tag matches the workspace version, and fails when the generated file differs from its fixture.
+- Add one deterministic command that renders the formula for an explicit tag and checksum and validates that the tag matches the workspace version. Keep determinism and drift comparisons in CI.
 - Have the successful tag pipeline create a reviewable pull or merge request in the tap repository instead of pushing directly to its default branch.
 - Scope the tap credential to that repository and publication action. Never expose it to merge-request or branch pipelines.
 - Publish only after all release artifacts and checksums exist, so a failed platform build cannot leave a formula pointing at a partial release.
@@ -51,15 +53,15 @@ The [CI and release pipeline](../refactors/ci-release-pipeline.md) must first pr
 
 - Run `brew style`, `brew audit --strict`, installation from the generated formula, and `brew test` on a supported macOS runner.
 - Add Linuxbrew coverage when the release support matrix declares Linux as a Homebrew tier.
-- Use `brew test-bot` for tap CI once the tap exists; Homebrew documents its formula audit, build, install, test, and bottle workflow in [BrewTestBot](https://docs.brew.sh/BrewTestBot).
-- Rehearse export against a temporary tap before enabling credentials or publishing a real release.
+- Run the `brew test-bot` lifecycle directly in GitLab tap CI; the `brew test-bot` command itself supports GitHub Actions only.
+- Keep publication commands in the tag-only CI job so the release gate and credential boundary are visible in one place.
 
 # Validation
 
 - Generate the same formula twice from identical release metadata and assert byte-for-byte equality.
 - Reject mismatched tags, package versions, missing checksums, mutable branch URLs, and unsupported targets.
 - Install from the rendered formula in a clean Homebrew environment and run the formula test offline.
-- Exercise publication in dry-run mode and assert that non-tag pipelines cannot access credentials or modify the tap.
+- Assert deterministic output and rejection of invalid versions, checksums, and formula drift in the formula test job.
 - Upgrade from the previous formula version and verify that `brew upgrade xylem` selects the new immutable release.
 
 # Acceptance criteria

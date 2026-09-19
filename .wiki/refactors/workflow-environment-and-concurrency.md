@@ -32,7 +32,7 @@ Give each workflow input an immutable execution context containing its variables
 
 # Dependencies and ordering
 
-Follows [typed outcomes](typed-error-and-outcome-boundary.md), the [process execution contract](process-execution-contract.md), and [configurable thread support](../features/configurable-thread-support.md). It extends the thread plan's single Rayon budget with scheduling, failure, and cancellation semantics rather than redefining `-t`. Its aggregate results feed [run reporters](../features/run-reporters.md).
+Follows [typed outcomes](typed-error-and-outcome-boundary.md) and the [process execution contract](process-execution-contract.md). It extends the existing single Rayon budget with scheduling, failure, and cancellation semantics rather than redefining `-t`. Its aggregate results feed [run reporters](../features/run-reporters.md).
 
 # Recommendation
 
@@ -79,7 +79,6 @@ Use an RAII temporary workspace. Remove it after success by default, retain it o
 
 # Related plans
 
-- [Configurable thread support](../features/configurable-thread-support.md)
 - [Process execution contract](process-execution-contract.md)
 - [Configuration validation and dry-run](configuration-validation-and-dry-run.md)
 - [Structured run reporters](../features/run-reporters.md)

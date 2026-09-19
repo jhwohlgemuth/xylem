@@ -1,7 +1,8 @@
 # Homebrew custom tap helpers
 
-This directory contains the formula template and generator used to publish
-Xylem to the `research-enablement/homebrew-xylem` tap.
+The Homebrew implementation follows the same small structure as ACORN: one
+formula template and one generator. GitLab CI owns publication, while the tap
+CI configuration owns Homebrew validation.
 
 ## Generate a formula locally
 
@@ -11,19 +12,31 @@ Xylem to the `research-enablement/homebrew-xylem` tap.
 
 The version must match the workspace version in `Cargo.toml`. The generator
 downloads the immutable GitLab tag archive, calculates its SHA-256 digest, and
-renders `formula.template.rb`.
+renders `formula.template.rb`. For deterministic offline generation from
+explicit release metadata, use:
+
+```shell
+./scripts/homebrew/generate-formula.sh 1.0.0 ./Formula/xylem.rb <sha256>
+```
+
+The `test-homebrew-formula` GitLab job checks deterministic output, immutable
+URLs, Ruby syntax, invalid versions and checksums, and formula drift directly;
+there is no separate Homebrew test program.
 
 ## CI publication
 
-The `publish-homebrew-formula` GitLab job runs only for `vMAJOR.MINOR.PATCH`
-tags. It supports a newly created empty tap as well as updates to an existing
-tap branch.
+Release binaries are uploaded before GitLab creates the version tag. The tag
+pipeline then verifies both binary artifacts, renders the formula, and runs the
+publication commands only for `vMAJOR.MINOR.PATCH` tags. Those commands
+initialize a newly created empty tap when needed and push
+`release/xylem-vMAJOR.MINOR.PATCH` with GitLab push options that open a merge
+request against the configured tap branch. Formula updates are never pushed
+directly to that branch.
 
 Required CI variable:
 
 - `HOMEBREW_TAP_ACCESS_TOKEN`: masked, protected project access token for the
-  tap with `write_repository` scope. `ACCESS_TOKEN` is accepted as a legacy
-  fallback.
+  tap with only the `write_repository` scope.
 
 Optional CI variables:
 
@@ -33,4 +46,17 @@ Optional CI variables:
 - `HOMEBREW_TAP_FORMULA_PATH` (default: `Formula/xylem.rb`)
 
 When the access token is protected, protect release tags so tagged pipelines
-can use it.
+can use it. The tap's default branch should be protected and configured to
+require successful merge-request pipelines.
+
+## Tap validation
+
+Each formula merge request installs and tests the formula on both Linuxbrew and
+Homebrew for macOS. The tap pipeline runs `brew style`,
+`brew audit --strict`, a source install, `brew test`, and, when a previous
+formula exists, `brew upgrade`.
+
+The tap expects GitLab runners tagged `cpu` and `macos`. Override
+`HOMEBREW_LINUX_RUNNER_TAG` or `HOMEBREW_MACOS_RUNNER_TAG` in the tap project
+when the runner tags differ. Homebrew's `brew test-bot` supports GitHub Actions
+only, so the GitLab tap runs the equivalent lifecycle commands directly.

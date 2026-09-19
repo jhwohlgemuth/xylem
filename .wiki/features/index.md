@@ -6,8 +6,4 @@
 
 ## In progress
 
-- [Homebrew release export](homebrew-export.md) - Generate, validate, and publish a Homebrew formula from immutable Xylem releases; repository automation is complete and awaits tap credentials plus a new release tag.
-
-## Completed
-
-- [Configurable thread support](configurable-thread-support.md) - Adds an ACORN-compatible `-t`/`--threads` budget as the first explicit control for later orchestration.
+- [Homebrew release export](homebrew-export.md) - Repository and tap automation is complete; operational activation awaits protected tap credentials, required Homebrew runners, merge checks, and a new release tag.

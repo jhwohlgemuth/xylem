@@ -3,12 +3,14 @@ set -euo pipefail
 
 VERSION="${1:-}"
 OUT_PATH="${2:-Formula/xylem.rb}"
+SHA256="${3:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 TEMPLATE_PATH="${SCRIPT_DIR}/formula.template.rb"
+SOURCE_URL="https://code.ornl.gov/research-enablement/xylem/-/archive/v${VERSION}/xylem-v${VERSION}.tar.gz"
 
 if [[ -z "${VERSION}" ]]; then
-  echo "Usage: $0 <version-without-v-prefix> [output-path]" >&2
+  echo "Usage: $0 <version-without-v-prefix> [output-path] [sha256]" >&2
   exit 64
 fi
 if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -26,40 +28,41 @@ if [[ "${VERSION}" != "${WORKSPACE_VERSION}" ]]; then
   exit 65
 fi
 
-SOURCE_URL="https://code.ornl.gov/research-enablement/xylem/-/archive/v${VERSION}/xylem-v${VERSION}.tar.gz"
-
 hash_file() {
-  local file_path="$1"
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "${file_path}" | awk '{print $1}'
-    return
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    echo "No SHA-256 utility found (need sha256sum or shasum)" >&2
+    exit 69
   fi
-  if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "${file_path}" | awk '{print $1}'
-    return
-  fi
-  if command -v openssl >/dev/null 2>&1; then
-    openssl dgst -sha256 "${file_path}" | awk '{print $NF}'
-    return
-  fi
-  echo "No SHA-256 utility found (need one of: sha256sum, shasum, openssl)" >&2
-  exit 69
 }
 
-source_archive="$(mktemp)"
-rendered_formula="$(mktemp)"
-trap 'rm -f "${source_archive}" "${rendered_formula}"' EXIT
+TEMP_DIRECTORY="$(mktemp -d "${XYLEM_TEMP_ROOT:-/tmp}/xylem-formula.XXXXXX")"
+trap 'rm -rf "${TEMP_DIRECTORY}"' EXIT
 
-curl -A "xylem-homebrew-formula/1.0" --retry 3 --retry-delay 1 -LsSf "${SOURCE_URL}" -o "${source_archive}"
-SHA256="$(hash_file "${source_archive}")"
+if [[ -z "${SHA256}" ]]; then
+  curl -A "xylem-homebrew-formula/1.0" --retry 3 --retry-delay 1 -LsSf "${SOURCE_URL}" -o "${TEMP_DIRECTORY}/source.tar.gz"
+  SHA256="$(hash_file "${TEMP_DIRECTORY}/source.tar.gz")"
+fi
+if [[ ! "${SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "SHA-256 must contain exactly 64 lowercase hexadecimal characters" >&2
+  exit 64
+fi
 
 sed \
   -e "s|__VERSION__|${VERSION}|g" \
   -e "s|__SHA256__|${SHA256}|g" \
-  "${TEMPLATE_PATH}" > "${rendered_formula}"
+  "${TEMPLATE_PATH}" > "${TEMP_DIRECTORY}/formula.rb"
+
+if grep -Eq '__[A-Z0-9_]+__' "${TEMP_DIRECTORY}/formula.rb"; then
+  echo "Rendered formula contains unresolved template values" >&2
+  exit 65
+fi
 
 mkdir -p "$(dirname "${OUT_PATH}")"
-mv "${rendered_formula}" "${OUT_PATH}"
+mv "${TEMP_DIRECTORY}/formula.rb" "${OUT_PATH}"
 chmod 0644 "${OUT_PATH}"
 
 echo "Wrote ${OUT_PATH}"

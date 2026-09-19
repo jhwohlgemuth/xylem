@@ -42,14 +42,18 @@ The formula generator renders an immutable source formula from a Xylem version t
 Version-tag pipelines publish the generated formula to
 [`research-enablement/homebrew-xylem`](https://code.ornl.gov/research-enablement/homebrew-xylem).
 Configure `HOMEBREW_TAP_ACCESS_TOKEN` as a masked, protected CI variable with
-`write_repository` access to that project. The job falls back to `ACCESS_TOKEN`
-for compatibility with the ACORN release setup. Optional variables are
+only `write_repository` access to that project. Optional variables are
 `HOMEBREW_TAP_BRANCH` (default `main`) and `HOMEBREW_TAP_FORMULA_PATH` (default
 `Formula/xylem.rb`). Protected version tags are required when the token is
 protected.
 
 The first tagged publication initializes an empty tap repository; later tagged
-publications update the same formula and branch.
+publications update the same formula through a
+`release/xylem-vMAJOR.MINOR.PATCH` merge request. Protect the tap's default
+branch, require successful merge-request pipelines, and configure Homebrew
+runners tagged `cpu` (Linux) and `macos`. See
+[`scripts/homebrew/README.md`](./scripts/homebrew/README.md) for validation and
+runner overrides.
 
 ## Cross-platform testing
 - Ensure your environment has either [Docker](https://www.docker.com/products/docker-desktop/) or [Podman](https://podman.io/) installed and running

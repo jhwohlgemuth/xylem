@@ -4,6 +4,7 @@ variables:
   USER: Xylem CI
   EMAIL: $GITLAB_USER_EMAIL
   HOMEBREW_TAP_REPO_URL: https://code.ornl.gov/research-enablement/homebrew-xylem.git
+  HOMEBREW_TAP_BRANCH: main
   HOMEBREW_TAP_FORMULA_PATH: Formula/xylem.rb
   CI_DEBUG_SERVICES: true
   IS_VERSION_TAGGED: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
@@ -80,6 +81,50 @@ test-docs:
     - mdbook --version
     - make book
 
+test-homebrew-formula:
+  stage: test
+  image: alpine@sha256:79ff19e9084a00eece421b2523fb93e22d730e2c0e525905de047e848e56d95f
+  tags:
+    - cpu
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - Makefile
+        - scripts/homebrew/**/*
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - .gitlab-ci.yml
+        - Makefile
+        - scripts/homebrew/**/*
+  before_script:
+    - apk add --no-cache bash ruby
+  script:
+    - |
+      set -eu
+      version="$(awk -F ' = ' '$1 == "version" { gsub(/[\"]/, "", $2); print $2; exit }' Cargo.toml)"
+      sha256="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      test_directory="$(mktemp -d)"
+      trap 'rm -rf "${test_directory}"' EXIT
+      expect_failure() {
+        if "$@" >/dev/null 2>&1; then
+          echo "Expected command to fail: $*" >&2
+          exit 1
+        fi
+      }
+      ./scripts/homebrew/generate-formula.sh "${version}" "${test_directory}/first.rb" "${sha256}"
+      ./scripts/homebrew/generate-formula.sh "${version}" "${test_directory}/second.rb" "${sha256}"
+      cmp "${test_directory}/first.rb" "${test_directory}/second.rb"
+      grep -Fq "archive/v${version}/xylem-v${version}.tar.gz" "${test_directory}/first.rb"
+      grep -Fq "sha256 \"${sha256}\"" "${test_directory}/first.rb"
+      ruby -c "${test_directory}/first.rb"
+      expect_failure ./scripts/homebrew/generate-formula.sh "v${version}" "${test_directory}/invalid.rb" "${sha256}"
+      expect_failure ./scripts/homebrew/generate-formula.sh "9.9.9" "${test_directory}/invalid.rb" "${sha256}"
+      expect_failure ./scripts/homebrew/generate-formula.sh "${version}" "${test_directory}/invalid.rb" missing
+      printf '\n# drift\n' >> "${test_directory}/second.rb"
+      expect_failure cmp "${test_directory}/first.rb" "${test_directory}/second.rb"
+
 build-release:
   stage: build
   image: savannah.ornl.gov/research-enablement/acorn/rust:latest
@@ -105,6 +150,27 @@ build-release:
     paths:
       - bin/  
 
+prepare-homebrew-formula:
+  stage: build
+  image: alpine@sha256:79ff19e9084a00eece421b2523fb93e22d730e2c0e525905de047e848e56d95f
+  tags:
+    - cpu
+  needs:
+    - job: prepare-environment
+      artifacts: true
+    - job: test
+    - job: test-homebrew-formula
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+  before_script:
+    - apk add --no-cache bash curl
+  script:
+    - test "${CI_COMMIT_TAG}" = "v${PKG_VERSION}"
+    - ./scripts/homebrew/generate-formula.sh "${PKG_VERSION}" Formula/xylem.rb
+  artifacts:
+    paths:
+      - Formula/xylem.rb
+
 publish-release-linux:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
@@ -114,7 +180,7 @@ publish-release-linux:
   needs:
     - job: prepare-environment
       artifacts: true
-    - job: build-release
+    - job: upload-binaries
   script:
     - echo "Publishing ${BINARY_NAME} v${PKG_VERSION}"
   rules:
@@ -146,7 +212,6 @@ upload-binaries:
       artifacts: true
     - job: build-release
       artifacts: true
-    - job: publish-release-linux
   rules:
     - if: $CI_COMMIT_TAG
       when: never
@@ -172,26 +237,61 @@ publish-homebrew-formula:
     - job: prepare-environment
       artifacts: true
     - job: test
+    - job: prepare-homebrew-formula
+      artifacts: true
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
   before_script:
     - apk add --no-cache bash curl git
   script:
-    - test -n "${HOMEBREW_TAP_REPO_URL:-}" || (echo "HOMEBREW_TAP_REPO_URL is required" && exit 1)
-    - TAP_ACCESS_TOKEN="${HOMEBREW_TAP_ACCESS_TOKEN:-${ACCESS_TOKEN:-}}"
-    - test -n "${TAP_ACCESS_TOKEN}" || (echo "HOMEBREW_TAP_ACCESS_TOKEN is required" && exit 1)
-    - VERSION="${CI_COMMIT_TAG#v}"
-    - TAP_BRANCH="${HOMEBREW_TAP_BRANCH:-main}"
-    - git clone "${HOMEBREW_TAP_REPO_URL}" tap
-    - if git -C tap show-ref --verify --quiet "refs/remotes/origin/${TAP_BRANCH}"; then git -C tap checkout -B "${TAP_BRANCH}" "origin/${TAP_BRANCH}"; else git -C tap checkout --orphan "${TAP_BRANCH}"; fi
-    - ./scripts/homebrew/generate-formula.sh "${VERSION}" "tap/${HOMEBREW_TAP_FORMULA_PATH}"
-    - cd tap
-    - if ! git status --porcelain | grep -q .; then echo "No Homebrew formula changes detected"; exit 0; fi
-    - git config user.name "${USER}"
-    - git config user.email "${EMAIL}"
-    - git add "${HOMEBREW_TAP_FORMULA_PATH}"
-    - 'git commit -m "chore(homebrew): update xylem ${CI_COMMIT_TAG}"'
-    - 'git push "https://oauth2:${TAP_ACCESS_TOKEN}@${HOMEBREW_TAP_REPO_URL#https://}" "HEAD:${TAP_BRANCH}"'
+    - |
+      set -eu
+      test -n "${HOMEBREW_TAP_REPO_URL:-}" || { echo "HOMEBREW_TAP_REPO_URL is required" >&2; exit 1; }
+      test -n "${HOMEBREW_TAP_ACCESS_TOKEN:-}" || { echo "HOMEBREW_TAP_ACCESS_TOKEN is required" >&2; exit 1; }
+      version="${CI_COMMIT_TAG#v}"
+      test "${version}" = "${PKG_VERSION}"
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --range 0-0 --output /dev/null --retry 5 --retry-all-errors -LsSf "${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${version}/${BINARY_NAME}"
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --range 0-0 --output /dev/null --retry 5 --retry-all-errors -LsSf "${PKG_REGISTRY_URL}/${DEFAULT_WINDOWS_TARGET}/v${version}/${BINARY_NAME}.exe"
+
+      tap_branch="${HOMEBREW_TAP_BRANCH:-main}"
+      tap_formula_path="${HOMEBREW_TAP_FORMULA_PATH:-Formula/xylem.rb}"
+      release_branch="release/xylem-v${version}"
+      authenticated_url="https://oauth2:${HOMEBREW_TAP_ACCESS_TOKEN}@${HOMEBREW_TAP_REPO_URL#https://}"
+      git clone "${authenticated_url}" tap
+      git -C tap remote set-url origin "${HOMEBREW_TAP_REPO_URL}"
+      git -C tap config user.name "${USER}"
+      git -C tap config user.email "${EMAIL:-xylem-ci@noreply.invalid}"
+
+      if git -C tap show-ref --verify --quiet "refs/remotes/origin/${tap_branch}"; then
+        git -C tap checkout -B "${tap_branch}" "origin/${tap_branch}"
+      else
+        git -C tap checkout --orphan "${tap_branch}"
+        cp scripts/homebrew/tap.README.md tap/README.md
+        git -C tap add README.md
+        git -C tap commit -m "chore: initialize Xylem tap"
+        git -C tap push "${authenticated_url}" "HEAD:${tap_branch}"
+      fi
+
+      if git -C tap show-ref --verify --quiet "refs/remotes/origin/${release_branch}"; then
+        git -C tap checkout -B "${release_branch}" "origin/${release_branch}"
+      else
+        git -C tap checkout -B "${release_branch}"
+      fi
+      mkdir -p "tap/$(dirname "${tap_formula_path}")"
+      cp Formula/xylem.rb "tap/${tap_formula_path}"
+      cp scripts/homebrew/tap.gitlab-ci.yml tap/.gitlab-ci.yml
+      git -C tap add "${tap_formula_path}" .gitlab-ci.yml
+      if git -C tap diff --cached --quiet; then
+        echo "No Homebrew tap changes detected"
+        exit 0
+      fi
+      git -C tap commit -m "chore(homebrew): update xylem v${version}"
+      git -C tap push \
+        -o merge_request.create \
+        -o "merge_request.target=${tap_branch}" \
+        -o merge_request.remove_source_branch \
+        -o "merge_request.title=chore(homebrew): update xylem v${version}" \
+        "${authenticated_url}" "HEAD:${release_branch}"
 
 publish-book:
   stage: docs
