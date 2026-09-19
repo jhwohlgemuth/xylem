@@ -25,8 +25,31 @@
     - `make test` - Run tests
     - `make cover` - Run tests and generate LCOV code coverage
     - `make doc` - Generate documentation (see https://xylem.ornl.gov)
+    - `make book` - Build the Xylem mdBook in `docs/book`
+    - `make book-write` - Serve the book locally and open it in a browser
+    - `make homebrew-formula` - Generate the current Homebrew formula
     - `make build` - Build release binaries
 - Make a git branch, push changes to it, open a merge request, resolve issues
+
+## Homebrew Tap Maintenance
+
+The formula generator renders an immutable source formula from a Xylem version tag:
+
+```shell
+./scripts/homebrew/generate-formula.sh 1.0.0 ./Formula/xylem.rb
+```
+
+Version-tag pipelines publish the generated formula to
+[`research-enablement/homebrew-xylem`](https://code.ornl.gov/research-enablement/homebrew-xylem).
+Configure `HOMEBREW_TAP_ACCESS_TOKEN` as a masked, protected CI variable with
+`write_repository` access to that project. The job falls back to `ACCESS_TOKEN`
+for compatibility with the ACORN release setup. Optional variables are
+`HOMEBREW_TAP_BRANCH` (default `main`) and `HOMEBREW_TAP_FORMULA_PATH` (default
+`Formula/xylem.rb`). Protected version tags are required when the token is
+protected.
+
+The first tagged publication initializes an empty tap repository; later tagged
+publications update the same formula and branch.
 
 ## Cross-platform testing
 - Ensure your environment has either [Docker](https://www.docker.com/products/docker-desktop/) or [Podman](https://podman.io/) installed and running

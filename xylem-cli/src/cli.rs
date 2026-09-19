@@ -9,7 +9,7 @@ use xylem_lib::execution::ExecutionLimits;
 /// ██  ██  ██████  █████  ████████  ████████  █  █  █
 /// █  ████  █████  █████        ██        ██  ████  █
 ///
-/// "Digital xylem" that transports data through workflows with structure and support
+/// Digital xylem that transports data through workflows with structure and support
 ///
 #[derive(Debug, Parser)]
 #[command(author, version, about, verbatim_doc_comment)]

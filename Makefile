@@ -16,6 +16,13 @@ audit:
 		--ignore RUSTSEC-2024-0388 \
 		--ignore RUSTSEC-2024-0436
 
+book:
+	@mdbook clean docs
+	@mdbook build docs
+
+book-write:
+	@mdbook serve --open docs
+
 build: clean
 	@mkdir -p ./bin
 	@cargo build --release --package xylem-cli --target $(DEFAULT_TARGET)
@@ -57,6 +64,15 @@ doc:
 doctest:
 	@cargo test --doc
 
+homebrew-formula:
+	@./scripts/homebrew/generate-formula.sh $(VERSION) ./Formula/xylem.rb
+
+publish-book: book
+	@git clone "https://user:${ACCESS_TOKEN}@code-int.ornl.gov/sites/xylem.git" site
+	@rm -rf ./site/html
+	@mv docs/book ./site/html
+	@cd ./site && git add html && (git diff --cached --quiet || (git commit -m "Publish Xylem Book" && git push))
+
 version: 
 	@echo $(VERSION)
 #
@@ -90,6 +106,7 @@ TARGETS = \
 TASKS = \
 	audit \
 	book \
+	book-write \
 	build \
 	changelog \
 	clean \
@@ -97,6 +114,8 @@ TASKS = \
 	coverage \
 	doc \
 	lint \
+	homebrew-formula \
+	publish-book \
 	setup \
 	test \
 	test-ci \

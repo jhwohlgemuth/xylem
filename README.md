@@ -8,10 +8,19 @@
 ```
 
 # Xylem
-> "Digital xylem" that transports data through workflows with structure and support
+> Digital xylem that transports data through workflows with structure and support
 
 ## Installation
 > Xylem is currently only tested rigorously on Linux, full Windows support is coming soon
+
+### Install with Homebrew
+
+Add the ORNL Xylem tap, then install the formula:
+
+```shell
+brew tap research-enablement/xylem https://code.ornl.gov/research-enablement/homebrew-xylem.git
+brew install xylem
+```
 
 ### Install with cargo
 > 🚧 Under Construction
@@ -49,9 +58,9 @@
   ```
 
 ## Documentation
-> **TIP** Read the code docs at https://xylem.code.ornl and/or explore the [Wiki](https://code.ornl.gov/research-enablement/xylem/-/wikis/home)
+> **TIP** Read the Xylem book at https://xylem.ornl.gov and/or explore the [Wiki](https://code.ornl.gov/research-enablement/xylem/-/wikis/home)
 
-- See [xylem.ornl.gov](https://xylem.ornl.gov) to see generated code documentation
+- See the [Xylem book](https://xylem.ornl.gov) for installation, configuration, and module guidance
 - See example configurations in the [`/examples`](./examples/) folder
 - Run the self-contained [Python with Pixi example](./examples/python-with-pixi/README.md)
 - Read the versioned [Xylem module specification](./MODULE_SPEC.md)

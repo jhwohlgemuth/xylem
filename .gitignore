@@ -1,6 +1,8 @@
 .DS_store
 /target
 /bin
+/docs/book
+/site
 notebooks/sandbox.ipynb
 .env
 .pixi/

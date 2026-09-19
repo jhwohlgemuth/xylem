@@ -6,7 +6,7 @@ difficulty: medium
 impact: high
 package: [workspace, xylem-cli]
 tags: [homebrew, release, distribution, macos, linux, packaging]
-status: planned
+status: in-progress
 ---
 
 # Goal
@@ -15,11 +15,11 @@ Let macOS and Linux users install and upgrade Xylem through an official Homebrew
 
 # Current evidence
 
-- The README offers Cargo installation and manual release downloads, but no Homebrew command or maintained formula.
-- The repository has no formula template, exporter, tap publishing job, or Homebrew validation.
-- The current release workflow is branch-driven and does not yet provide the immutable tag and checksum contract required by a dependable package export.
-- Workspace version and repository metadata already provide a single source for most generated formula fields.
-- Homebrew recommends a dedicated `homebrew-<name>` tap repository, and `brew tap-new` can initialize one with CI workflows; see [How to Create and Maintain a Tap](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap).
+- The repository now contains a deterministic source-formula template and generator under `scripts/homebrew/`, plus local `make homebrew-formula` support.
+- Version-tag pipelines test the workspace, render the formula from the immutable GitLab tag archive, and publish it to `research-enablement/homebrew-xylem`.
+- The publisher handles both the currently empty tap and subsequent updates to its configured branch.
+- The v1.0.0 archive was installed with the formula's Cargo command, its version test passed, and the rendered formula passed `brew style`.
+- External activation still requires a protected `HOMEBREW_TAP_ACCESS_TOKEN` and a new version tag; tap-side `brew test-bot` validation remains follow-up work.
 
 # Project code boundaries
 

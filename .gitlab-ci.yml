@@ -1,8 +1,10 @@
 variables:
   BINARY_NAME: xylem
   CHANGELOG: https://code.ornl.gov/research-enablement/xylem/-/blob/main/CHANGELOG.md
-  USER: CI
+  USER: Xylem CI
   EMAIL: $GITLAB_USER_EMAIL
+  HOMEBREW_TAP_REPO_URL: https://code.ornl.gov/research-enablement/homebrew-xylem.git
+  HOMEBREW_TAP_FORMULA_PATH: Formula/xylem.rb
   CI_DEBUG_SERVICES: true
   IS_VERSION_TAGGED: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
 
@@ -21,7 +23,7 @@ prepare-environment:
   inherit:
     variables: false
   rules:
-    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
         - Cargo.toml
@@ -42,6 +44,7 @@ test:
   inherit:
     variables: true
   rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
     - if: $CI_COMMIT_TAG
       when: never
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -51,6 +54,29 @@ test:
         - Cargo.toml
   script:
     - make test-ci
+
+test-docs:
+  stage: test
+  image: savannah.ornl.gov/research-enablement/acorn/rust:latest
+  tags:
+    - cpu
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - docs/**/*
+        - Makefile
+        - README.md
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - docs/**/*
+        - Makefile
+        - README.md
+  script:
+    - command -v mdbook >/dev/null || cargo install --locked mdbook@0.5.2
+    - mdbook --version
+    - make book
 
 build-release:
   stage: build
@@ -126,3 +152,62 @@ upload-binaries:
     - 'curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file bin/${BINARY_NAME}-v${PKG_VERSION} ${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${PKG_VERSION}/${BINARY_NAME}'
     - 'curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file bin/${BINARY_NAME}-v${PKG_VERSION}.exe ${PKG_REGISTRY_URL}/${DEFAULT_WINDOWS_TARGET}/v${PKG_VERSION}/${BINARY_NAME}.exe'
 
+publish-homebrew-formula:
+  stage: release
+  image: alpine@sha256:79ff19e9084a00eece421b2523fb93e22d730e2c0e525905de047e848e56d95f
+  tags:
+    - cpu
+  inherit:
+    variables: true
+  interruptible: false
+  resource_group: homebrew-tap
+  retry: 0
+  needs:
+    - job: prepare-environment
+      artifacts: true
+    - job: test
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+  before_script:
+    - apk add --no-cache bash curl git
+  script:
+    - test -n "${HOMEBREW_TAP_REPO_URL:-}" || (echo "HOMEBREW_TAP_REPO_URL is required" && exit 1)
+    - TAP_ACCESS_TOKEN="${HOMEBREW_TAP_ACCESS_TOKEN:-${ACCESS_TOKEN:-}}"
+    - test -n "${TAP_ACCESS_TOKEN}" || (echo "HOMEBREW_TAP_ACCESS_TOKEN is required" && exit 1)
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - TAP_BRANCH="${HOMEBREW_TAP_BRANCH:-main}"
+    - git clone "${HOMEBREW_TAP_REPO_URL}" tap
+    - if git -C tap show-ref --verify --quiet "refs/remotes/origin/${TAP_BRANCH}"; then git -C tap checkout -B "${TAP_BRANCH}" "origin/${TAP_BRANCH}"; else git -C tap checkout --orphan "${TAP_BRANCH}"; fi
+    - ./scripts/homebrew/generate-formula.sh "${VERSION}" "tap/${HOMEBREW_TAP_FORMULA_PATH}"
+    - cd tap
+    - if ! git status --porcelain | grep -q .; then echo "No Homebrew formula changes detected"; exit 0; fi
+    - git config user.name "${USER}"
+    - git config user.email "${EMAIL}"
+    - git add "${HOMEBREW_TAP_FORMULA_PATH}"
+    - 'git commit -m "chore(homebrew): update xylem ${CI_COMMIT_TAG}"'
+    - 'git push "https://oauth2:${TAP_ACCESS_TOKEN}@${HOMEBREW_TAP_REPO_URL#https://}" "HEAD:${TAP_BRANCH}"'
+
+publish-book:
+  stage: docs
+  image: savannah.ornl.gov/research-enablement/acorn/rust:latest
+  tags:
+    - cpu
+  inherit:
+    variables: true
+  interruptible: false
+  resource_group: documentation-site
+  retry: 0
+  rules:
+    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - docs/**/*
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+  script:
+    - command -v mdbook >/dev/null && command -v mdbook-mermaid >/dev/null && command -v mdbook-pikchr >/dev/null || cargo install --locked mdbook@0.5.2 mdbook-mermaid@0.17.0 mdbook-pikchr@0.2.0
+    - mdbook --version
+    - git config --global user.name "${USER}"
+    - git config --global user.email "${EMAIL}"
+    - make publish-book
+  allow_failure: true
