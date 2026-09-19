@@ -52,6 +52,8 @@ test:
         - ${BINARY_NAME}-cli/**/*
         - ${BINARY_NAME}-lib/**/*
         - Cargo.toml
+  before_script:
+    - rustup component add rustfmt clippy
   script:
     - make test-ci
 
