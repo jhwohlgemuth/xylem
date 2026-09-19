@@ -88,7 +88,11 @@ build-release:
   inherit:
     variables: true
   needs:
+    - job: prepare-environment
+      artifacts: true
     - job: test
+  before_script:
+    - rustup target add "${DEFAULT_TARGET}" "${DEFAULT_WINDOWS_TARGET}"
   script:
     - make build
   rules:
