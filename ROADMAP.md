@@ -25,11 +25,9 @@ the released 1.0 baseline and forward-looking 1.x/2.0 milestones.
 - [x] Publish the stable [module specification](./MODULE_SPEC.md)
 - [x] Create Pixi environments from `pixi.toml` or Pixi-enabled `pyproject.toml`
 - [x] Add a runnable [Python with Pixi example](./examples/python-with-pixi/README.md)
-- [ ] Add parameterized URL allowlists and remote reachability checks
-- [ ] Complete the `check` subcommand configuration and module validation
-- [ ] Add the `doctor` subcommand with environment diagnosis and `--fix`
-- [ ] Add progress indication for long-running workflows
-- [ ] Add `--env` for selecting a custom dotenv file
+- [x] Add parameterized URL allowlists and remote reachability checks
+- [x] Add progress indication for long-running workflows
+- [x] Add `--env` for selecting a custom dotenv file
 
 ## v1.x interoperability and portability
 

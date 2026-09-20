@@ -41,9 +41,32 @@ example, `GREETING` is available as `_XYLEM_GREETING`.
 
 ## Options
 
-Configuration options include `dry_run`, `offline`,
-`skip_verify_checksum`, and `skip_verify_requirements`. Equivalent CLI flags
-are combined with the configuration values.
+Configuration options include `dry_run`, `offline`, `allowed`,
+`skip_verify_checksum`, and `skip_verify_requirements`. Equivalent Boolean CLI
+flags are combined with the configuration values. When supplied,
+`--allowed` replaces rather than extends `allowed`.
+
+`allowed` is an optional list of exact `HOST` or `HOST:PORT` authorities:
+
+```json
+{
+  "options": {
+    "allowed": ["code.ornl.gov", "artifacts.example.org:8443"]
+  }
+}
+```
+
+Host matching is case-insensitive and does not support wildcards or domain
+suffix matching. A host without a port permits the default port for the URL's
+scheme; a non-default port must be listed explicitly. When this option is
+absent or empty, remote hosts remain unrestricted for backward compatibility.
+The allowlist is enforced before remote work and across HTTP redirects.
+
+Unless `offline` is active, Xylem checks an HTTP(S) binary or Git repository
+for reachability before downloading or cloning it. Dry runs perform this
+preflight without acquiring content. Offline dry runs report remote modules as
+skipped; an offline real run rejects them because Xylem's per-run module
+directory has no persistent remote cache.
 
 See the repository's
 [module specification](https://code.ornl.gov/research-enablement/xylem/-/blob/main/MODULE_SPEC.md)

@@ -3,7 +3,7 @@ use acorn::io::read_file;
 use acorn::util::Label;
 use acorn::{args, cmd};
 use acorn_core::util::alloc::StringConversion;
-use acorn_core::Location;
+use acorn_core::{Location, Scheme};
 use bon::Builder;
 use core::convert::TryFrom;
 use derive_more::{Display, FromStr};
@@ -422,10 +422,10 @@ impl EnvironmentValue {
 impl ModuleUri<'_> {
     pub fn from(value: &str) -> ModuleUri<'_> {
         match URI::try_from(value) {
-            | Ok(uri) => match uri.scheme() {
-                | uriparse::Scheme::HTTP | uriparse::Scheme::HTTPS | uriparse::Scheme::SSH => ModuleUri::Url(Box::new(uri)),
-                | uriparse::Scheme::File => ModuleUri::File(PathBuf::from(uri.path().to_string())),
-                | _ => ModuleUri::Unknown(value.to_string()),
+            | Ok(uri) => match (Scheme::from(uri.scheme().as_str()), uri.scheme().as_str().eq_ignore_ascii_case("ssh")) {
+                | (Scheme::HTTP | Scheme::HTTPS, _) | (Scheme::Unsupported, true) => ModuleUri::Url(Box::new(uri)),
+                | (Scheme::File, _) => ModuleUri::File(PathBuf::from(uri.path().to_string())),
+                | (Scheme::Unsupported, false) => ModuleUri::Unknown(value.to_string()),
             },
             | Err(_) => ModuleUri::Unknown(value.to_string()),
         }
@@ -450,11 +450,9 @@ impl Module {
 pub(crate) fn module_working_directory(uri: &str, root: Option<&PathBuf>) -> Option<String> {
     let location = Location::from(uri);
     match ModuleUri::from(uri) {
-        | ModuleUri::Url(value) if matches!(value.scheme(), uriparse::Scheme::HTTP | uriparse::Scheme::HTTPS | uriparse::Scheme::SSH) => {
-            Some(root.map_or_else(|| location.hash(), |path| path.join(location.hash()).to_absolute_path()))
-        }
+        | ModuleUri::Url(_) => Some(root.map_or_else(|| location.hash(), |path| path.join(location.hash()).to_absolute_path())),
         | ModuleUri::File(path) => Some(path.to_absolute_path()),
-        | ModuleUri::Url(_) | ModuleUri::Unknown(_) => None,
+        | ModuleUri::Unknown(_) => None,
     }
 }
 impl Script {
@@ -724,7 +722,13 @@ impl Script {
     pub fn maybe_git_clone(url: String, current_dir: String) -> Option<Script> {
         let location = Location::from(&url);
         let command = Command::init().name("git".to_string()).build();
-        let arguments = vec!["clone".to_string(), url, location.hash()];
+        let arguments = vec![
+            "-c".to_string(),
+            "http.followRedirects=false".to_string(),
+            "clone".to_string(),
+            url,
+            location.hash(),
+        ];
         let script = Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir);
         Some(script)
     }

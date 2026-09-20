@@ -58,8 +58,17 @@ example/
 └── lib/                # module implementation; layout is language-specific
 ```
 
-Remote Python modules are cloned into Xylem's per-run working directory before
-environment preparation. HTTP, HTTPS, and SSH Git transports are accepted.
+Remote script modules are cloned into Xylem's per-run working directory before
+execution and, for Python modules, environment preparation. HTTP, HTTPS, and
+SSH Git transports are accepted.
+
+Workflows MAY restrict remote modules with `options.allowed`, whose
+entries are exact host names or IP literals with an optional non-default port.
+Xylem checks the original URL and HTTP redirect targets against that list, then
+performs a bounded reachability check before acquisition. Git checks are
+non-interactive. If no allowlist is supplied, hosts are unrestricted for
+compatibility with existing 1.x workflows. `--allowed` replaces the
+configured list for a run.
 
 ## 3. Command template
 

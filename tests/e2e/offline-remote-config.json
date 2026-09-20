@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "description": "Offline remote-module policy probe",
+  "requirements": [],
+  "modules": [
+    {
+      "name": "Remote Probe",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "ssh://git@example.com/project.git",
+      "template": {
+        "command": "echo",
+        "arguments": ["offline"]
+      }
+    }
+  ]
+}

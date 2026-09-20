@@ -35,6 +35,7 @@ dotenvy = { version = "0.15.7", default-features = false }
 exitcode = { version = "1.1.2", default-features = false }
 owo-colors = { version = "4.2.3", default-features = false }
 rayon = { version = "1.12.0", default-features = false }
+reqwest = { version = "0.13.2", features = ["blocking", "rustls"], default-features = false }
 serde = { version = "1.0.228", features = ["derive"], default-features = false }
 serde_json = { version = "1.0.149", default-features = false }
 tracing = { version = "0.1.44", features = ["attributes"], default-features = false }
@@ -45,6 +46,7 @@ tracing-subscriber = { version = "=0.3.22", features = [
   "env-filter",
 ], default-features = false }
 uriparse = { version = "0.6.4", default-features = false }
+url = { version = "2.5.7", default-features = false }
 
 [workspace.metadata.cross.build]
 default-target = "x86_64-unknown-linux-musl"

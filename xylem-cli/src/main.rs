@@ -1,5 +1,6 @@
 use clap::Parser;
-use dotenvy::dotenv;
+use color_eyre::eyre::{eyre, Result};
+use std::path::PathBuf;
 use tracing::instrument;
 use tracing_log::AsTrace;
 use tracing_subscriber::fmt;
@@ -24,8 +25,9 @@ const DISPLAY_THREAD_NAME: bool = true;
 fn main() -> Void {
     color_eyre::install()?;
     let args = Arguments::parse();
-    match dotenv() {
-        | Ok(_) if !dotenvy::var(LOG_LEVEL).unwrap_or_default().is_empty() => {
+    let dotenv_loaded = load_dotenv(args.env.as_ref())?;
+    match dotenv_loaded {
+        | true if !dotenvy::var(LOG_LEVEL).unwrap_or_default().is_empty() => {
             // Configure tracing with a .env file
             let format = fmt::layer()
                 .with_ansi(true)
@@ -62,6 +64,7 @@ fn main() -> Void {
             input,
             dry_run,
             offline,
+            allowed,
             skip_verify_checksum,
             skip_verify_requirements,
             verbose,
@@ -73,11 +76,22 @@ fn main() -> Void {
             input,
             *dry_run,
             *offline,
+            allowed,
             *skip_verify_checksum,
             *skip_verify_requirements,
             *verbose,
             args.threads,
+            args.no_progress,
         ),
         | None => Ok(()),
+    }
+}
+
+fn load_dotenv(path: Option<&PathBuf>) -> Result<bool> {
+    match path {
+        | Some(path) => dotenvy::from_path(path)
+            .map(|_| true)
+            .map_err(|why| eyre!("Could not load dotenv file {} — {why}", path.display())),
+        | None => Ok(dotenvy::dotenv().is_ok()),
     }
 }

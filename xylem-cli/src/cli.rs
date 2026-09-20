@@ -19,6 +19,12 @@ pub struct Arguments {
     /// Maximum number of Rayon workers used by Xylem (does not limit child tools)
     #[arg(default_value_t = ExecutionLimits::default(), short = 't', long, value_name = "N", global = true)]
     pub threads: ExecutionLimits,
+    /// Load environment variables from a specific dotenv file
+    #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath, global = true)]
+    pub env: Option<std::path::PathBuf>,
+    /// Disable interactive workflow progress indicators
+    #[arg(long, global = true)]
+    pub no_progress: bool,
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -53,6 +59,9 @@ pub enum Commands {
         /// Execute workflow without connection to the internet
         #[arg(short = 'X', long, value_name = "BOOL")]
         offline: bool,
+        /// Exact remote module host(s) to allow; CLI values replace configured hosts
+        #[arg(long = "allowed", value_name = "HOST[:PORT]", value_delimiter = ',')]
+        allowed: Option<Vec<String>>,
         /// Skip calculating and verifying checksum for downloaded binary files
         #[arg(long = "skip-verify-checksum", value_name = "BOOL")]
         skip_verify_checksum: bool,
@@ -102,5 +111,29 @@ mod tests {
         assert!(help.contains("-t, --threads <N>"));
         assert!(help.contains("[default: 10]"));
         assert!(help.contains("does not limit child tools"));
+    }
+    #[test]
+    fn global_env_and_progress_flags_parse_before_or_after_run() {
+        let before = parse(&["xylem", "--env", "custom.env", "--no-progress", "run"]);
+        assert_eq!(before.env, Some(std::path::PathBuf::from("custom.env")));
+        assert!(before.no_progress);
+        let after = parse(&["xylem", "run", "--env", "custom.env", "--no-progress"]);
+        assert_eq!(after.env, Some(std::path::PathBuf::from("custom.env")));
+        assert!(after.no_progress);
+    }
+    #[test]
+    fn allowed_accepts_repeated_and_comma_delimited_values() {
+        let args = parse(&["xylem", "run", "--allowed", "one.example,two.example:8443", "--allowed", "three.example"]);
+        match args.command {
+            | Some(Commands::Run { allowed, .. }) => assert_eq!(
+                allowed,
+                Some(vec![
+                    "one.example".to_string(),
+                    "two.example:8443".to_string(),
+                    "three.example".to_string(),
+                ])
+            ),
+            | None => panic!("run command should parse"),
+        }
     }
 }

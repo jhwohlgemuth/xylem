@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "description": "Dotenv propagation probe",
+  "requirements": ["sh"],
+  "modules": [
+    {
+      "name": "Dotenv Probe",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:./tests/e2e/modules/dotenv-probe",
+      "template": {
+        "command": "sh",
+        "arguments": ["run.sh"]
+      }
+    }
+  ]
+}
