@@ -1,13 +1,13 @@
 use acorn::io::{file_checksum, make_executable, read_file};
 use acorn::util::Label;
 use acorn_core::util::alloc::StringConversion;
-use acorn_core::util::{file_extension, Checksum};
+use acorn_core::util::{file_extension, Checksum, SemanticVersion};
 use acorn_core::Scheme;
 use bon::Builder;
 use convert_case::{Case, Casing};
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::fs;
@@ -24,6 +24,16 @@ enum Extension {
     Json,
     Yaml,
     Unknown,
+}
+fn deserialize_version<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let version = Option::<String>::deserialize(deserializer)?;
+    if let Some(value) = version.as_deref() {
+        SemanticVersion::parse_exact(value).map_err(D::Error::custom)?;
+    }
+    Ok(version)
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -49,6 +59,7 @@ pub struct Config {
     /// Unique workflow identifier
     pub id: Option<String>,
     /// Configuration version in semver format
+    #[serde(default, deserialize_with = "deserialize_version")]
     pub version: Option<String>,
     #[serde(alias = "doc")]
     pub description: Option<String>,

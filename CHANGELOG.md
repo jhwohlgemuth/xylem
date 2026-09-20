@@ -1,6 +1,18 @@
 # CHANGELOG 🌱
 > Wisdom is knowledge of things that don't change, intelligence is the knowledge of things that do
 
+## [1.0.2](https://code.ornl.gov/research-enablement/xylem/compare/v1.0.0..v1.0.2) - 2026-09-19
+
+### 🚀 Features
+
+- Validate workflow configuration versions with ACORN's canonical semantic-version parser.
+- Publish `xylem-lib` and `xylem-cli` to crates.io in dependency order.
+
+### 📦 Distribution
+
+- Build the Homebrew formula from the immutable crates.io `xylem-cli` artifact.
+- Restrict release tags and formula versions to canonical `MAJOR.MINOR.PATCH` values.
+
 ## [0.0.11](https://code.ornl.gov/research-enablement/xylem/compare/v0.0.10..v0.0.11) - 2025-10-27
 
 ### 🚀 Features
@@ -363,4 +375,3 @@
 ### 🤓 Developer Experience
 
 - Add makefile - ([1fa19be](https://code.ornl.gov/research-enablement/xylem/commit/1fa19be92e53d7f5626b686821da21feff460b10))
-

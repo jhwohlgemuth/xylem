@@ -4,6 +4,27 @@ use crate::progress::{ProgressObserver, ProgressPhase, ProgressState, ProgressUp
 use std::sync::Mutex;
 
 #[test]
+fn configuration_version_must_be_semantic() {
+    for version in ["1", "1.2", "1.2.3"] {
+        let config = serde_json::json!({
+            "version": version,
+            "requirements": [],
+            "modules": []
+        });
+        assert!(serde_json::from_value::<Config>(config).is_ok(), "{version} should be valid");
+    }
+
+    for version in ["", "01.2.3", "1.02.3", "1.2.03", "v1.2.3", "1.2.3-alpha", "1.2.3.4"] {
+        let config = serde_json::json!({
+            "version": version,
+            "requirements": [],
+            "modules": []
+        });
+        assert!(serde_json::from_value::<Config>(config).is_err(), "{version} should be invalid");
+    }
+}
+
+#[test]
 fn test_get_children() {
     assert_eq!(get_children("../../does/not/exist".to_string()), Vec::<String>::new());
     match PathBuf::from("/root/dev/command").try_exists() {

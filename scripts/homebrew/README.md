@@ -11,9 +11,9 @@ CI configuration owns Homebrew validation.
 ```
 
 The version must match the workspace version in `Cargo.toml`. The generator
-downloads the immutable GitLab tag archive, calculates its SHA-256 digest, and
-renders `formula.template.rb`. For deterministic offline generation from
-explicit release metadata, use:
+downloads the immutable `xylem-cli` crate from crates.io, calculates its SHA-256
+digest, and renders `formula.template.rb`. For deterministic offline generation
+from explicit release metadata, use:
 
 ```shell
 ./scripts/homebrew/generate-formula.sh 1.0.0 ./Formula/xylem.rb <sha256>
@@ -26,15 +26,18 @@ there is no separate Homebrew test program.
 ## CI publication
 
 Release binaries are uploaded before GitLab creates the version tag. The tag
-pipeline then verifies both binary artifacts, renders the formula, and runs the
-publication commands only for `vMAJOR.MINOR.PATCH` tags. Those commands
+pipeline publishes `xylem-lib` and `xylem-cli` to crates.io in dependency order,
+verifies both binary artifacts, renders the formula from the published CLI crate,
+and runs the publication commands only for `vMAJOR.MINOR.PATCH` tags. Those commands
 initialize a newly created empty tap when needed and push
 `release/xylem-vMAJOR.MINOR.PATCH` with GitLab push options that open a merge
 request against the configured tap branch. Formula updates are never pushed
 directly to that branch.
 
-Required CI variable:
+Required CI variables:
 
+- `CARGO_REGISTRY_TOKEN`: masked, protected crates.io API token authorized to
+  publish both `xylem-lib` and `xylem-cli`.
 - `HOMEBREW_TAP_ACCESS_TOKEN`: masked, protected project access token for the
   tap with only the `write_repository` scope.
 

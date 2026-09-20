@@ -8428,7 +8428,7 @@ checksum = "aee1b19627c7c60102ab80d3a9cbe18de90bfe03bfa6c3715447681f0e8c8af6"
 
 [[package]]
 name = "xylem-cli"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "acorn-lib",
  "assert_cmd",
@@ -8455,7 +8455,7 @@ dependencies = [
 
 [[package]]
 name = "xylem-lib"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "acorn-core",
  "acorn-lib",

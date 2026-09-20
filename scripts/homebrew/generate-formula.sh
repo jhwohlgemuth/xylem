@@ -7,13 +7,13 @@ SHA256="${3:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 TEMPLATE_PATH="${SCRIPT_DIR}/formula.template.rb"
-SOURCE_URL="https://code.ornl.gov/research-enablement/xylem/-/archive/v${VERSION}/xylem-v${VERSION}.tar.gz"
+SOURCE_URL="https://static.crates.io/crates/xylem-cli/xylem-cli-${VERSION}.crate"
 
 if [[ -z "${VERSION}" ]]; then
   echo "Usage: $0 <version-without-v-prefix> [output-path] [sha256]" >&2
   exit 64
 fi
-if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ ! "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
   echo "Version must use MAJOR.MINOR.PATCH without a v prefix: ${VERSION}" >&2
   exit 64
 fi

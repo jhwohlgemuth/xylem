@@ -1,6 +1,6 @@
 # Homebrew tap for Xylem
 
-Formula updates are generated from immutable Xylem release tags. Each update is
+Formula updates are generated from immutable Xylem crates.io releases. Each update is
 submitted as a merge request and must pass the macOS and Linux Homebrew
 validation jobs before it is merged.
 

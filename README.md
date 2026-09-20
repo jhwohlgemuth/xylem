@@ -23,12 +23,17 @@ brew install xylem
 ```
 
 ### Install with cargo
-> 🚧 Under Construction
+
+Install the published command-line crate:
+
+```shell
+cargo install --locked xylem-cli
+```
 
 ### Download pre-compiled binary
 - Download newest binary from [releases page](https://code.ornl.gov/research-enablement/xylem/-/releases)
     ```shell
-    curl -LO https://code.ornl.gov/api/v4/projects/15383/packages/generic/x86_64-unknown-linux-musl/v1.0.0/xylem
+    curl -LO https://code.ornl.gov/api/v4/projects/15383/packages/generic/x86_64-unknown-linux-musl/v1.0.2/xylem
     ```
 - Make binary executable
     ```shell

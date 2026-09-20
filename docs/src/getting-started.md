@@ -10,6 +10,15 @@ brew install xylem
 xylem --version
 ```
 
+## Install with Cargo
+
+Install the published command-line crate:
+
+```shell
+cargo install --locked xylem-cli
+xylem --version
+```
+
 ## Download a Linux release
 
 Download the current Linux binary from the

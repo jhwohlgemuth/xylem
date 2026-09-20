@@ -41,6 +41,9 @@ The formula generator renders an immutable source formula from a Xylem version t
 
 Version-tag pipelines publish the generated formula to
 [`research-enablement/homebrew-xylem`](https://code.ornl.gov/research-enablement/homebrew-xylem).
+Configure `CARGO_REGISTRY_TOKEN` as a masked, protected crates.io API token
+authorized to publish `xylem-lib` and `xylem-cli`; the formula is generated only
+after both crates are available from crates.io.
 Configure `HOMEBREW_TAP_ACCESS_TOKEN` as a masked, protected CI variable with
 only `write_repository` access to that project. Optional variables are
 `HOMEBREW_TAP_BRANCH` (default `main`) and `HOMEBREW_TAP_FORMULA_PATH` (default
