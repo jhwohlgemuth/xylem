@@ -154,6 +154,8 @@ build-release:
 publish-release-linux:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
+  tags:
+    - cpu
   inherit:
     default: false
     variables: true
