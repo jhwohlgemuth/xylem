@@ -131,6 +131,7 @@ build-release:
   image: savannah.ornl.gov/research-enablement/acorn/rust:latest
   tags:
     - cpu
+    - oklahoma # AMD64 host required for the x86_64 musl and Windows builds.
   inherit:
     variables: true
   needs:
