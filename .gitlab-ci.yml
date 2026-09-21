@@ -20,7 +20,7 @@ prepare-environment:
   stage: prepare
   image: ubuntu
   tags:
-    - cpu
+    - amd64
   inherit:
     variables: false
   rules:
@@ -42,7 +42,7 @@ test:
   stage: test
   image: savannah.ornl.gov/research-enablement/acorn/rust:latest
   tags:
-    - cpu
+    - amd64
   inherit:
     variables: true
   rules:
@@ -63,7 +63,7 @@ test-docs:
   stage: test
   image: savannah.ornl.gov/research-enablement/acorn/rust:latest
   tags:
-    - cpu
+    - amd64
   rules:
     - if: $CI_COMMIT_TAG
       when: never
@@ -86,7 +86,7 @@ test-homebrew-formula:
   stage: test
   image: alpine@sha256:79ff19e9084a00eece421b2523fb93e22d730e2c0e525905de047e848e56d95f
   tags:
-    - cpu
+    - amd64
   rules:
     - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -130,8 +130,7 @@ build-release:
   stage: build
   image: savannah.ornl.gov/research-enablement/acorn/rust:latest
   tags:
-    - cpu
-    - amd64 # Native architecture required for the x86_64 musl and Windows builds.
+    - amd64
   inherit:
     variables: true
   needs:
@@ -156,7 +155,7 @@ publish-release-linux:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
   tags:
-    - cpu
+    - amd64
   inherit:
     default: false
     variables: true
@@ -187,7 +186,7 @@ upload-binaries:
   stage: release
   image: curlimages/curl:latest
   tags:
-    - cpu
+    - amd64
   inherit:
     variables: true
   needs:
@@ -210,7 +209,7 @@ publish-crates:
   stage: release
   image: savannah.ornl.gov/research-enablement/acorn/rust:latest
   tags:
-    - cpu
+    - amd64
   inherit:
     variables: true
   interruptible: false
@@ -225,7 +224,7 @@ publish-homebrew-formula:
   stage: release
   image: alpine@sha256:79ff19e9084a00eece421b2523fb93e22d730e2c0e525905de047e848e56d95f
   tags:
-    - cpu
+    - amd64
   inherit:
     variables: true
   interruptible: false
@@ -296,7 +295,7 @@ publish-book:
   stage: docs
   image: savannah.ornl.gov/research-enablement/acorn/rust:latest
   tags:
-    - cpu
+    - amd64
   inherit:
     variables: true
   interruptible: false
