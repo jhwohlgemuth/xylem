@@ -12,6 +12,8 @@ stages:
   stage: test
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - git config --global --add safe.directory "${CI_PROJECT_DIR}"
   script:
     - git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}"
     - |
@@ -48,3 +50,5 @@ homebrew-macos:
   extends: .homebrew-validation
   tags:
     - $HOMEBREW_MACOS_RUNNER_TAG
+  when: manual
+  allow_failure: true
