@@ -120,6 +120,8 @@ test-homebrew-formula:
       cmp "${test_directory}/first.rb" "${test_directory}/second.rb"
       grep -Fq "static.crates.io/crates/xylem-cli/xylem-cli-${version}.crate" "${test_directory}/first.rb"
       grep -Fq "sha256 \"${sha256}\"" "${test_directory}/first.rb"
+      grep -Fq 'depends_on "pkgconf" => :build' "${test_directory}/first.rb"
+      grep -Fq 'depends_on "openssl@3"' "${test_directory}/first.rb"
       ruby -c "${test_directory}/first.rb"
       expect_failure ./scripts/homebrew/generate-formula.sh "v${version}" "${test_directory}/invalid.rb" "${sha256}"
       expect_failure ./scripts/homebrew/generate-formula.sh "9.9.9" "${test_directory}/invalid.rb" "${sha256}"
