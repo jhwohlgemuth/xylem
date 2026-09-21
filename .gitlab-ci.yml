@@ -29,7 +29,7 @@ prepare-environment:
       changes:
         - Cargo.toml
   script:
-    - echo "PKG_VERSION=$(awk -F ' = ' '$1 ~ /version/ { gsub(/["]/, "", $2); printf("%s",$2) }' Cargo.toml)" >> variables.env
+    - echo "PKG_VERSION=$(awk -F ' = ' '$1 == "version" { gsub(/["\r]/, "", $2); print $2; exit }' Cargo.toml)" >> variables.env
     - echo "PKG_REGISTRY_URL=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic" >> variables.env
     - echo "DEFAULT_TARGET=$(awk -F ' = ' '$1 ~ /default-target/ { gsub(/["]/, "", $2); printf("%s",$2) }' Cargo.toml | tr . _)" >> variables.env
     - echo "DEFAULT_WINDOWS_TARGET=$(awk -F ' *= *' '$1=="DEFAULT_WINDOWS_TARGET"{ sub(/\r$/,"",$2); print $2; exit }' Makefile)" >> variables.env
@@ -100,11 +100,12 @@ test-homebrew-formula:
         - Makefile
         - scripts/homebrew/**/*
   before_script:
-    - apk add --no-cache bash ruby
+    - apk add --no-cache bash make ruby
   script:
     - |
       set -eu
       version="$(awk -F ' = ' '$1 == "version" { gsub(/[\"]/, "", $2); print $2; exit }' Cargo.toml)"
+      test "$(make --no-print-directory version)" = "${version}"
       sha256="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       test_directory="$(mktemp -d)"
       trap 'rm -rf "${test_directory}"' EXIT
