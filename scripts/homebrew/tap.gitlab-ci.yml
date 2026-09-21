@@ -14,6 +14,7 @@ stages:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
     - git config --global --add safe.directory "${CI_PROJECT_DIR}"
+    - brew update
   script:
     - git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}"
     - |
