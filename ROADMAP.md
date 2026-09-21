@@ -31,16 +31,15 @@ the released 1.0 baseline and forward-looking 1.x/2.0 milestones.
 
 ## v1.x interoperability and portability
 
-- [ ] Export configurations to CWL
-- [ ] Export configurations to RO-Crate
 - [ ] Publish rigorously tested macOS and Windows binaries
-- [ ] Provide portable, offline containerized dependencies
-- [ ] Generate workflow graphs (`config.json` to an image)
-- [ ] Add WebAssembly module and browser execution support
+- [ ] Export configurations to CWL
 - [ ] Provide a built-in API server for tenant modules
+- [ ] Provide portable, offline containerized dependencies
+- [ ] Add WebAssembly module and browser execution support
 - [ ] Evaluate a TIFF viewer as a separate application or optional capability
 
 ## v2.0
 
-- [ ] Visual workflow creation and editing
+- [ ] Generate workflow graphs (`config.json` to an image)
 - [ ] Support the `<%= value %>` `ScriptTemplate` format
+- [ ] Visual workflow creation and editing
