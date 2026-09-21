@@ -97,7 +97,7 @@ skip-tree = []
 unknown-registry = "warn"
 unknown-git = "warn"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = ["https://code.ornl.gov/research-enablement/acorn.git"]
+allow-git = []
 
 [sources.allow-org]
 github = []
