@@ -14,6 +14,11 @@ programs. `--env` selects a specific dotenv file and fails if that file cannot
 be loaded; existing process variables take precedence over values in the file.
 Without `--env`, discovery of a default `.env` file remains optional.
 
+A workflow may additionally set the positive `options.batch` value to cap
+active top-level inputs. The effective input concurrency is the smaller of
+`batch` and `--threads`; without `batch`, `--threads` remains the input limit.
+Neither setting constrains threads or work created inside child programs.
+
 Interactive terminals display aggregate module-preparation and workflow-
 execution progress. Progress is hidden for redirected output and CI, and can
 be disabled explicitly with `--no-progress`.

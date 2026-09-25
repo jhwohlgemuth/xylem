@@ -22,6 +22,8 @@ The workspace contains two Rust packages:
 5. Execute modules in declaration order for every input.
 
 Inputs may run concurrently. Use the global `--threads N` option to bound the
-Rayon work managed by Xylem. Child tools can still create their own threads.
+Rayon work managed by Xylem, and optional workflow `options.batch` to set a
+smaller rolling ceiling on active top-level inputs. Child tools can still
+create their own threads or process multiple items internally.
 
 For the stable module-level interface, see the [module contract](./modules.md).

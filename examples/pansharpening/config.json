@@ -11,6 +11,9 @@
         "/data/test-cases/test-case-wv03-large-high-mid",
         "/data/test-cases/test-case-wv03-large-mid-low"
     ],
+    "options": {
+        "batch": 2
+    },
     "modules": [
         {
             "name": "Module P (local)",

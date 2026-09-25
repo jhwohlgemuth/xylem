@@ -41,10 +41,28 @@ example, `GREETING` is available as `_XYLEM_GREETING`.
 
 ## Options
 
-Configuration options include `dry_run`, `offline`, `allowed`,
+Configuration options include `batch`, `dry_run`, `offline`, `allowed`,
 `skip_verify_checksum`, and `skip_verify_requirements`. Equivalent Boolean CLI
-flags are combined with the configuration values. When supplied,
-`--allowed` replaces rather than extends `allowed`.
+flags are combined with the configuration values. When supplied, `--allowed`
+replaces rather than extends `allowed`.
+
+`batch` is an optional positive integer that caps concurrently active top-level
+inputs. Its effective limit is `min(batch, --threads)`; when omitted, input
+execution retains the `--threads` limit. Admission is rolling, so another input
+may start as soon as one finishes. For example:
+
+```json
+{
+  "options": {
+    "batch": 2
+  }
+}
+```
+
+The scheduling unit is each configured input value, or each immediate child of
+a configured input directory. A module remains sequential within one input.
+Xylem cannot count or limit image pairs, threads, or other work that a child
+module processes internally.
 
 `allowed` is an optional list of exact `HOST` or `HOST:PORT` authorities:
 

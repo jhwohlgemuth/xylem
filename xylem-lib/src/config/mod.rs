@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::process::exit;
 use tracing::{debug, error, info, warn};
 
-use crate::execution::ExecutionContext;
+use crate::execution::{ExecutionContext, InputBatch};
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
 use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
@@ -97,6 +97,8 @@ pub struct Config {
 #[builder(start_fn(name = init))]
 pub struct ConfigOptions {
     pub root: Option<PathBuf>,
+    /// Maximum number of top-level workflow inputs that may run concurrently.
+    pub batch: Option<InputBatch>,
     #[serde(alias = "dry-run")]
     pub dry_run: Option<bool>,
     pub offline: Option<bool>,
@@ -761,7 +763,11 @@ impl Extension {
 ///
 fn get_children(path: String) -> Vec<String> {
     match fs::read_dir(path) {
-        | Ok(value) => value.flatten().map(|x| x.path().to_absolute_path()).collect::<Vec<_>>(),
+        | Ok(value) => {
+            let mut children = value.flatten().map(|x| x.path().to_absolute_path()).collect::<Vec<_>>();
+            children.sort();
+            children
+        }
         | Err(_) => Vec::new(),
     }
 }

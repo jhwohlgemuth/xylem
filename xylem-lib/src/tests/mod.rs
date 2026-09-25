@@ -43,13 +43,12 @@ fn test_config_get_inputs() {
     }
     match Config::read(PathBuf::from(format!("{FIXTURES}/config_with_path_input.json"))) {
         | Some(config) => {
-            let mut inputs = config
+            let inputs = config
                 .get_inputs()
                 .unwrap()
                 .iter()
                 .map(|x| PathBuf::from(x).file_stem().unwrap().to_str().unwrap().to_string())
                 .collect::<Vec<String>>();
-            inputs.sort();
             assert_eq!(inputs, to_string(vec!["one", "three", "two"]));
         }
         | None => panic!("Cannot read config in get_input test"),

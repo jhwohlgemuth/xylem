@@ -8,6 +8,9 @@
     "keywords": [],
     "input": 
         "/data/test-cases",
+    "options": {
+        "batch": 2
+    },
     "modules": [
         {
             "name": "Module A (local)",

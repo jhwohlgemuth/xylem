@@ -5,7 +5,6 @@ use core::time::Duration;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use nanoid::nanoid;
 use owo_colors::OwoColorize;
-use rayon::prelude::*;
 use std::env;
 use std::fs::create_dir_all;
 use std::io::IsTerminal;
@@ -125,9 +124,10 @@ pub fn run(
                     let allowed = cli_allowed
                         .clone()
                         .or_else(|| cfg.options.as_ref().and_then(|value| value.allowed.clone()));
-                    RemotePolicy::from_hosts(allowed.as_deref()).map(|_| {
+                    RemotePolicy::from_hosts(allowed.as_deref()).and_then(|_| {
                         let options = match &cfg.options {
                             | Some(ConfigOptions {
+                                batch,
                                 dry_run,
                                 offline,
                                 skip_verify_checksum,
@@ -135,6 +135,7 @@ pub fn run(
                                 ..
                             }) => ConfigOptions::init()
                                 .root(root.clone())
+                                .maybe_batch(*batch)
                                 .dry_run(cli_dry_run || dry_run.unwrap_or_default())
                                 .offline(cli_offline || offline.unwrap_or_default())
                                 .maybe_allowed(allowed.clone())
@@ -164,18 +165,21 @@ pub fn run(
                             .prepare_modules(&execution, Some(&progress))
                             .set_environment_variables();
                         progress.finish_preparation();
-                        execution.install(|| {
-                            inputs.par_iter().for_each(|input| {
-                                match input {
-                                    | Some(value) => info!(value, source = input_kind, "=> {} Workflow input", Label::using()),
-                                    | None => {
-                                        info!("=> {} Configuration with {}", Label::using(), Label::fmt_not_found("NO INPUTS"));
-                                    }
+                        let input_concurrency = execution.input_concurrency(options.batch);
+                        debug!(input_concurrency, "=> {} Active workflow input limit", Label::using());
+                        let result = execution.dispatch_inputs(&inputs, options.batch, |input| {
+                            match input {
+                                | Some(value) => info!(value, source = input_kind, "=> {} Workflow input", Label::using()),
+                                | None => {
+                                    info!("=> {} Configuration with {}", Label::using(), Label::fmt_not_found("NO INPUTS"));
                                 }
-                                config.clone().run_workflow_with_progress(input.clone(), &options, Some(&progress));
-                            })
+                            }
+                            config.clone().run_workflow_with_progress(input.clone(), &options, Some(&progress));
                         });
                         progress.finish_execution();
+                        result
+                            .map(|_| ())
+                            .map_err(|why| color_eyre::eyre::eyre!("Initialize Xylem input worker pool — {why}"))
                     })
                 }
                 | None => {

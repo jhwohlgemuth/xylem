@@ -2,7 +2,9 @@
 use core::fmt;
 use core::num::NonZeroUsize;
 use core::str::FromStr;
+use rayon::prelude::*;
 use rayon::{ThreadPool, ThreadPoolBuildError, ThreadPoolBuilder};
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 
 /// Default maximum number of Rayon workers used by one Xylem run.
 pub const DEFAULT_THREADS: usize = 10;
@@ -17,6 +19,13 @@ pub struct ExecutionLimits {
 /// Error returned when a thread limit is zero.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct InvalidThreadCount;
+/// Positive ceiling on concurrently active top-level workflow inputs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct InputBatch(NonZeroUsize);
+/// Error returned when an input batch limit is zero.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InvalidInputBatch;
 /// A reusable, run-local execution boundary.
 ///
 /// Keeping the pool local avoids conflicts with applications that have
@@ -45,6 +54,30 @@ impl ExecutionContext {
     /// Return the limits used to construct this context.
     pub fn limits(&self) -> ExecutionLimits {
         self.limits
+    }
+    /// Return the effective top-level input concurrency for this run.
+    pub fn input_concurrency(&self, batch: Option<InputBatch>) -> usize {
+        batch.map_or_else(|| self.limits.threads(), |batch| batch.get().min(self.limits.threads()))
+    }
+    /// Apply an operation to each input with bounded rolling admission.
+    ///
+    /// Results retain input order even when operations finish out of order.
+    pub fn dispatch_inputs<I, OUTPUT, OPERATION>(
+        &self,
+        inputs: &[I],
+        batch: Option<InputBatch>,
+        operation: OPERATION,
+    ) -> Result<Vec<OUTPUT>, ThreadPoolBuildError>
+    where
+        I: Sync,
+        OUTPUT: Send,
+        OPERATION: Fn(&I) -> OUTPUT + Send + Sync,
+    {
+        ThreadPoolBuilder::new()
+            .num_threads(self.input_concurrency(batch))
+            .thread_name(|index| format!("xylem-input-{index}"))
+            .build()
+            .map(|pool| pool.install(|| inputs.par_iter().map(operation).collect()))
     }
 }
 impl ExecutionLimits {
@@ -93,14 +126,47 @@ impl fmt::Display for InvalidThreadCount {
     }
 }
 impl core::error::Error for InvalidThreadCount {}
+impl InputBatch {
+    /// Return the configured input concurrency ceiling.
+    pub fn get(self) -> usize {
+        self.0.get()
+    }
+}
+impl TryFrom<usize> for InputBatch {
+    type Error = InvalidInputBatch;
+
+    fn try_from(batch: usize) -> Result<Self, Self::Error> {
+        NonZeroUsize::new(batch).map(Self).ok_or(InvalidInputBatch)
+    }
+}
+impl<'de> Deserialize<'de> for InputBatch {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        usize::deserialize(deserializer).and_then(|batch| Self::try_from(batch).map_err(D::Error::custom))
+    }
+}
+impl fmt::Display for InputBatch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+impl fmt::Display for InvalidInputBatch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("input batch must be greater than zero")
+    }
+}
+impl core::error::Error for InvalidInputBatch {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::sync::atomic::{AtomicUsize, Ordering};
-    use rayon::prelude::*;
+    use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use core::time::Duration;
     use std::sync::Barrier;
     use std::thread;
+    use std::time::Instant;
 
     fn measure_peak(context: &ExecutionContext, work_items: usize) -> (usize, usize) {
         let threads = context.limits().threads();
@@ -147,5 +213,58 @@ mod tests {
             assert_eq!(peak, threads);
             assert!(peak <= context.limits().threads());
         }
+    }
+    #[test]
+    fn input_dispatch_enforces_batch_and_thread_limits_without_losing_order() {
+        for (threads, batch, expected_peak) in [(10, Some(2), 2), (1, Some(2), 1), (3, None, 3)] {
+            let context = ExecutionContext::new(ExecutionLimits::try_from(threads).expect("valid thread limit")).expect("execution context");
+            let batch = batch.map(|value| InputBatch::try_from(value).expect("valid input batch"));
+            let inputs = (0..8).collect::<Vec<_>>();
+            let active = AtomicUsize::new(0);
+            let entered = AtomicUsize::new(0);
+            let peak = AtomicUsize::new(0);
+            let gate = Barrier::new(expected_peak + 1);
+            let outputs = thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    context.dispatch_inputs(&inputs, batch, |input| {
+                        let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        peak.fetch_max(current, Ordering::SeqCst);
+                        if entered.fetch_add(1, Ordering::SeqCst) < expected_peak {
+                            gate.wait();
+                        }
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        input * 2
+                    })
+                });
+                gate.wait();
+                worker.join().expect("input dispatch should complete").expect("input pool should build")
+            });
+            assert_eq!(outputs, inputs.iter().map(|input| input * 2).collect::<Vec<_>>());
+            assert_eq!(entered.load(Ordering::SeqCst), inputs.len());
+            assert_eq!(peak.load(Ordering::SeqCst), expected_peak);
+        }
+    }
+    #[test]
+    fn input_dispatch_admits_work_as_soon_as_capacity_is_available() {
+        let context = ExecutionContext::new(ExecutionLimits::try_from(4).expect("valid thread limit")).expect("execution context");
+        let batch = InputBatch::try_from(2).expect("valid input batch");
+        let third_started = AtomicBool::new(false);
+        let outputs = context
+            .dispatch_inputs(&[0, 1, 2], Some(batch), |input| {
+                match input {
+                    | 0 => {
+                        let deadline = Instant::now() + Duration::from_secs(2);
+                        while !third_started.load(Ordering::SeqCst) && Instant::now() < deadline {
+                            thread::sleep(Duration::from_millis(1));
+                        }
+                        assert!(third_started.load(Ordering::SeqCst), "third input should start before the first finishes");
+                    }
+                    | 2 => third_started.store(true, Ordering::SeqCst),
+                    | _ => (),
+                }
+                *input
+            })
+            .expect("input pool should build");
+        assert_eq!(outputs, vec![0, 1, 2]);
     }
 }

@@ -17,6 +17,11 @@
         "input": 
             "/data/test-cases"
         ```
+    - The example sets `options.batch` to 2, so Xylem admits no more than two
+      of those top-level directories at once (and may admit fewer when
+      `--threads` is lower). The scheduling unit is a listed directory or an
+      immediate child of the configured parent directory—not an image pair
+      that Module O discovers and processes internally.
 - Define the module:
     - Within the module variable, specify the `name` and `uri` to the module. The `uri` specifically informs Xylem from where to install the module environment. For example, if a user has Xylem installed and has cloned each of the modules in their `dev` directory within a Docker container, this path may look something like:
     ```json

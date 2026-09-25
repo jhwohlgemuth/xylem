@@ -1,7 +1,18 @@
 use crate::config::*;
-use crate::execution::{ExecutionContext, ExecutionLimits};
+use crate::execution::{ExecutionContext, ExecutionLimits, InputBatch};
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState, ProgressUpdate};
 use std::sync::Mutex;
+
+#[derive(Default)]
+struct RecordingProgress {
+    updates: Mutex<Vec<ProgressUpdate>>,
+}
+
+impl ProgressObserver for RecordingProgress {
+    fn update(&self, update: ProgressUpdate) {
+        self.updates.lock().expect("progress lock").push(update);
+    }
+}
 
 #[test]
 fn configuration_version_must_be_semantic() {
@@ -23,34 +34,46 @@ fn configuration_version_must_be_semantic() {
         assert!(serde_json::from_value::<Config>(config).is_err(), "{version} should be invalid");
     }
 }
-
 #[test]
 fn test_get_children() {
     assert_eq!(get_children("../../does/not/exist".to_string()), Vec::<String>::new());
-    match PathBuf::from("/root/dev/command").try_exists() {
-        | Ok(true) => {
-            let expected = vec![
-                "/root/dev/command/xylem-lib/src".to_string(),
-                "/root/dev/command/xylem-lib/Cargo.toml".to_string(),
-            ];
-            assert_eq!(get_children("../xylem-lib".to_string()), expected);
+    let children = get_children("../tests/fixtures/input".to_string())
+        .iter()
+        .map(|path| PathBuf::from(path).file_name().expect("input name").to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(children, ["one", "three", "two"]);
+}
+#[test]
+fn batch_round_trips_through_json_and_yaml() {
+    let json = serde_json::json!({
+        "requirements": [],
+        "modules": [],
+        "options": { "batch": 2 }
+    });
+    let config: Config = serde_json::from_value(json).expect("valid JSON batch");
+    assert_eq!(config.options.as_ref().and_then(|options| options.batch).map(InputBatch::get), Some(2));
+    let serialized = serde_json::to_value(&config).expect("serialize JSON configuration");
+    assert_eq!(serialized["options"]["batch"], 2);
+    let yaml = serde_yml::to_string(&config).expect("serialize YAML configuration");
+    let round_trip: Config = serde_yml::from_str(&yaml).expect("deserialize YAML batch");
+    assert_eq!(round_trip.options.and_then(|options| options.batch).map(InputBatch::get), Some(2));
+}
+#[test]
+fn batch_rejects_zero_negative_non_numeric_and_overflow_values() {
+    let overflow = (usize::MAX as u128 + 1).to_string();
+    for value in ["0".to_string(), "-1".to_string(), "\"many\"".to_string(), overflow] {
+        let json = format!(r#"{{"requirements":[],"modules":[],"options":{{"batch":{value}}}}}"#);
+        let error = serde_json::from_str::<Config>(&json)
+            .expect_err("invalid batch should be rejected")
+            .to_string();
+        assert!(!error.is_empty());
+        if value == "0" {
+            assert!(error.contains("input batch must be greater than zero"), "{error}");
         }
-        | Ok(false) => (),
-        | Err(_) => (),
-    };
-}
-
-#[derive(Default)]
-struct RecordingProgress {
-    updates: Mutex<Vec<ProgressUpdate>>,
-}
-
-impl ProgressObserver for RecordingProgress {
-    fn update(&self, update: ProgressUpdate) {
-        self.updates.lock().expect("progress lock").push(update);
     }
+    let yaml = "requirements: []\nmodules: []\noptions:\n  batch: 0\n";
+    assert!(serde_yml::from_str::<Config>(yaml).is_err());
 }
-
 #[test]
 fn preparation_and_execution_emit_progress_updates() {
     let config: Config = serde_json::from_value(serde_json::json!({

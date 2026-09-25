@@ -20,6 +20,68 @@ fn runs_fixture_modules_in_order_with_interpolated_environment() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
+fn configured_batch_caps_active_inputs_in_the_compiled_cli() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!(
+        "xylem-batch-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should follow the Unix epoch")
+            .as_nanos()
+    ));
+    let state = test_root.join("state");
+    std::fs::create_dir_all(&state).expect("create batch test state");
+    let inputs = test_root.join("imagery-inputs");
+    for name in ["one", "two", "three", "four"] {
+        std::fs::create_dir_all(inputs.join(name)).expect("create imagery input directory");
+    }
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "version": "1.0.0",
+        "requirements": ["sh"],
+        "input": inputs.to_string_lossy(),
+        "options": { "batch": 2 },
+        "modules": [{
+            "name": "Concurrency Probe",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:./tests/e2e/modules/concurrency-probe",
+            "template": {
+                "command": "sh",
+                "arguments": ["run.sh", state.to_string_lossy()]
+            }
+        }]
+    });
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize batch fixture")).expect("write batch fixture");
+    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let output = command
+        .current_dir(workspace)
+        .args(["--threads", "10", "run", "--config", config_path.to_str().expect("UTF-8 config path")])
+        .output()
+        .expect("run batched workflow");
+    let logs = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success(), "batched workflow failed:\n{logs}");
+    assert_eq!(std::fs::read_to_string(state.join("peak")).expect("peak concurrency").trim(), "2");
+    let mut completed = std::fs::read_to_string(state.join("completed"))
+        .expect("completed inputs")
+        .lines()
+        .map(|input| {
+            std::path::Path::new(input)
+                .file_name()
+                .expect("top-level input name")
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    completed.sort();
+    assert_eq!(completed, ["four", "one", "three", "two"]);
+    std::fs::remove_dir_all(test_root).expect("remove batch fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
 fn returns_failure_when_a_fixture_module_fails() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
