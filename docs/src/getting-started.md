@@ -57,5 +57,17 @@ declare them:
 xylem --threads 4 -vv run --config path/to/config.json --input first,second
 ```
 
+Keep a crash-recoverable execution journal and a final JSON summary together:
+
+```shell
+xylem run --config path/to/config.json \
+  --reporter console,json \
+  --output ./xylem-run
+```
+
+The output directory will contain `<run-id>.journal.jsonl` and
+`<run-id>.json`. The journal records every durable state transition; the JSON
+file is the deterministic final report reconstructed from it.
+
 Use `xylem --help` and `xylem run --help` for the exact options supported by
 the installed version.

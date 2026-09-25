@@ -12,6 +12,8 @@ use tracing::{error, trace};
 
 pub mod config;
 pub mod execution;
+pub mod journal;
+pub mod outcome;
 pub mod progress;
 pub mod remote;
 pub mod script;
@@ -19,16 +21,15 @@ pub mod util;
 
 use config::*;
 
-pub type Void = Result<(), Report>;
 pub type Output = Vec<Option<Details>>;
+pub type Void = Result<(), Report>;
 
 #[derive(ValueEnum, Copy, Clone, Debug, Display, PartialEq, Eq)]
 pub enum ReporterType {
     Console,
     Json,
-    Stdout,
 }
-#[derive(Clone, Debug, Deserialize, Eq, Serialize, PartialOrd, Ord)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, PartialOrd, Ord)]
 pub struct Details {
     // Results of applying check to given path
     pub condition: bool,
@@ -48,11 +49,6 @@ pub struct PyProjectToml {
 pub struct PyProjectTool {
     xylem: Option<ToolXylem>,
 }
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "kebab-case")]
-pub struct ToolXylem {
-    module_name: String,
-}
 #[derive(Clone, Debug)]
 pub struct Reporter {
     /// Reporter type name
@@ -62,10 +58,10 @@ pub struct Reporter {
     /// Options to pass to the reporter
     pub parameters: Option<Parameters>,
 }
-impl PartialEq for Details {
-    fn eq(&self, other: &Self) -> bool {
-        (self.description == other.description) && (self.condition == other.condition)
-    }
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct ToolXylem {
+    module_name: String,
 }
 impl core::ops::Deref for PyProjectToml {
     type Target = pyproject_toml::PyProjectToml;

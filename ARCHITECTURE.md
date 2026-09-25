@@ -5,10 +5,15 @@
 - `xylem-cli` (CLI Application)
   - Depends on `xylem-lib`
   - Depends on [clap](https://docs.rs/clap/latest/clap/) crate for CLI arguments
-  - Contains code for CLI [commands](./xylem-cli/src/commands/) (e.g., `run`, `check`, etc...) and [reporters](./xylem-cli/src/reporters/)
+  - Contains code for CLI [commands](./xylem-cli/src/commands/) (e.g., `run`, `check`, etc...)
 - `xylem-lib` (Rust code)
   - Utility functions
-  - Code for handling user input, ingesting configuration data, running workflows, etc...
+  - Code for handling user input, ingesting configuration data, running workflows, persisting versioned execution journals, and rendering console and JSON run summaries via `RunSummary`
+
+Execution journals are append-only JSON Lines files owned by `xylem-lib`.
+They are flushed at every input and module transition and can be recovered
+after interruption. `RunSummary` renders console and JSON summaries from that
+durable state, keeping presentation separate from execution facts.
 
 ## Diagram
 ```mermaid
@@ -19,8 +24,7 @@ graph LR
     c --> f[Rust crate]
     d --> g[Python</br>package]
     e --> h[commands]
-    e --> i[reporters]
-    f --> j[xylem-cli</br>utility functions]
+    f --> j[xylem-lib</br>utility functions]
     g --> k[Module</br>utility functions]
 ```
 

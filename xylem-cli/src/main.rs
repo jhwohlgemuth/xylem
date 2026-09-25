@@ -1,6 +1,7 @@
 use clap::Parser;
 use color_eyre::eyre::{eyre, Result};
 use std::path::PathBuf;
+use std::process::exit;
 use tracing::instrument;
 use tracing_log::AsTrace;
 use tracing_subscriber::fmt;
@@ -14,12 +15,21 @@ mod commands;
 use cli::{Arguments, Commands};
 
 // Environment variables
-const LOG_LEVEL: &str = "XYLEM_LOG_LEVEL";
 const DISPLAY_LEVEL: bool = true;
 const DISPLAY_LINE_NUMBER: bool = false;
 const DISPLAY_TARGET: bool = false;
 const DISPLAY_THREAD_ID: bool = false;
 const DISPLAY_THREAD_NAME: bool = true;
+const LOG_LEVEL: &str = "XYLEM_LOG_LEVEL";
+
+fn load_dotenv(path: Option<&PathBuf>) -> Result<bool> {
+    match path {
+        | Some(path) => dotenvy::from_path(path)
+            .map(|_| true)
+            .map_err(|why| eyre!("Could not load dotenv file {} — {why}", path.display())),
+        | None => Ok(dotenvy::dotenv().is_ok()),
+    }
+}
 
 #[instrument]
 fn main() -> Void {
@@ -69,7 +79,7 @@ fn main() -> Void {
             skip_verify_requirements,
             verbose,
             ..
-        }) => commands::run::run(
+        }) => match commands::run::run(
             config,
             reporter,
             output,
@@ -82,16 +92,13 @@ fn main() -> Void {
             *verbose,
             args.threads,
             args.no_progress,
-        ),
+        ) {
+            | Ok(()) => Ok(()),
+            | Err(failure) => {
+                eprintln!("Error: {failure}");
+                exit(failure.exit_code());
+            }
+        },
         | None => Ok(()),
-    }
-}
-
-fn load_dotenv(path: Option<&PathBuf>) -> Result<bool> {
-    match path {
-        | Some(path) => dotenvy::from_path(path)
-            .map(|_| true)
-            .map_err(|why| eyre!("Could not load dotenv file {} — {why}", path.display())),
-        | None => Ok(dotenvy::dotenv().is_ok()),
     }
 }

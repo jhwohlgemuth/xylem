@@ -5,27 +5,10 @@ use core::str::FromStr;
 use rayon::prelude::*;
 use rayon::{ThreadPool, ThreadPoolBuildError, ThreadPoolBuilder};
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
+use std::sync::{Mutex, PoisonError};
 
 /// Default maximum number of Rayon workers used by one Xylem run.
 pub const DEFAULT_THREADS: usize = 10;
-/// Limits applied to Xylem-owned work during a run.
-///
-/// This limit controls Rayon workers used by Xylem. It does not constrain
-/// threads created by child commands or third-party runtimes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ExecutionLimits {
-    threads: NonZeroUsize,
-}
-/// Error returned when a thread limit is zero.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InvalidThreadCount;
-/// Positive ceiling on concurrently active top-level workflow inputs.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(transparent)]
-pub struct InputBatch(NonZeroUsize);
-/// Error returned when an input batch limit is zero.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InvalidInputBatch;
 /// A reusable, run-local execution boundary.
 ///
 /// Keeping the pool local avoids conflicts with applications that have
@@ -34,6 +17,24 @@ pub struct ExecutionContext {
     limits: ExecutionLimits,
     pool: ThreadPool,
 }
+/// Limits applied to Xylem-owned work during a run.
+///
+/// This limit controls Rayon workers used by Xylem. It does not constrain
+/// threads created by child commands or third-party runtimes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExecutionLimits {
+    threads: NonZeroUsize,
+}
+/// Positive ceiling on concurrently active top-level workflow inputs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct InputBatch(NonZeroUsize);
+/// Error returned when an input batch limit is zero.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InvalidInputBatch;
+/// Error returned when a thread limit is zero.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InvalidThreadCount;
 impl ExecutionContext {
     /// Build a run-local worker pool using the supplied limits.
     pub fn new(limits: ExecutionLimits) -> Result<Self, ThreadPoolBuildError> {
@@ -79,11 +80,61 @@ impl ExecutionContext {
             .build()
             .map(|pool| pool.install(|| inputs.par_iter().map(operation).collect()))
     }
-}
-impl ExecutionLimits {
-    /// Return the maximum number of Xylem Rayon workers.
-    pub fn threads(self) -> usize {
-        self.threads.get()
+    /// Apply an operation with bounded rolling admission and stop after the first failed output.
+    ///
+    /// Work admitted before the failure is allowed to settle.
+    /// Results retain input order, and entries that were never admitted remain `None`.
+    pub fn dispatch_inputs_fail_fast<I, OUTPUT, OPERATION, FAILED>(
+        &self,
+        inputs: &[I],
+        batch: Option<InputBatch>,
+        operation: OPERATION,
+        failed: FAILED,
+    ) -> Result<Vec<Option<OUTPUT>>, ThreadPoolBuildError>
+    where
+        I: Sync,
+        OUTPUT: Send,
+        OPERATION: Fn(usize, &I) -> OUTPUT + Send + Sync,
+        FAILED: Fn(&OUTPUT) -> bool + Send + Sync,
+    {
+        struct Admission {
+            next: usize,
+            stopped: bool,
+        }
+        let workers = self.input_concurrency(batch).min(inputs.len().max(1));
+        ThreadPoolBuilder::new()
+            .num_threads(workers)
+            .thread_name(|index| format!("xylem-input-{index}"))
+            .build()
+            .map(|pool| {
+                let admission = Mutex::new(Admission { next: 0, stopped: false });
+                let outputs = (0..inputs.len()).map(|_| Mutex::new(None)).collect::<Vec<_>>();
+                pool.scope(|scope| {
+                    for _ in 0..workers {
+                        scope.spawn(|_| loop {
+                            let index = {
+                                let mut admission = admission.lock().unwrap_or_else(PoisonError::into_inner);
+                                if admission.stopped || admission.next >= inputs.len() {
+                                    break;
+                                }
+                                let index = admission.next;
+                                admission.next += 1;
+                                index
+                            };
+                            let output = operation(index, &inputs[index]);
+                            let should_stop = failed(&output);
+                            *outputs[index].lock().unwrap_or_else(PoisonError::into_inner) = Some(output);
+                            if should_stop {
+                                admission.lock().unwrap_or_else(PoisonError::into_inner).stopped = true;
+                            }
+                        });
+                    }
+                });
+                outputs
+                    .into_iter()
+                    .map(|output| output.into_inner().unwrap_or_else(PoisonError::into_inner))
+                    .collect()
+            })
     }
 }
 impl Default for ExecutionLimits {
@@ -93,11 +144,15 @@ impl Default for ExecutionLimits {
         }
     }
 }
-impl TryFrom<usize> for ExecutionLimits {
-    type Error = InvalidThreadCount;
-
-    fn try_from(threads: usize) -> Result<Self, Self::Error> {
-        NonZeroUsize::new(threads).map(|threads| Self { threads }).ok_or(InvalidThreadCount)
+impl ExecutionLimits {
+    /// Return the maximum number of Xylem Rayon workers.
+    pub fn threads(self) -> usize {
+        self.threads.get()
+    }
+}
+impl fmt::Display for ExecutionLimits {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.threads.fmt(formatter)
     }
 }
 impl From<NonZeroUsize> for ExecutionLimits {
@@ -115,17 +170,18 @@ impl FromStr for ExecutionLimits {
             .and_then(|threads| Self::try_from(threads).map_err(|why| why.to_string()))
     }
 }
-impl fmt::Display for ExecutionLimits {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.threads.fmt(formatter)
+impl TryFrom<usize> for ExecutionLimits {
+    type Error = InvalidThreadCount;
+
+    fn try_from(threads: usize) -> Result<Self, Self::Error> {
+        NonZeroUsize::new(threads).map(|threads| Self { threads }).ok_or(InvalidThreadCount)
     }
 }
-impl fmt::Display for InvalidThreadCount {
+impl fmt::Display for InputBatch {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("thread count must be greater than zero")
+        self.0.fmt(formatter)
     }
 }
-impl core::error::Error for InvalidThreadCount {}
 impl InputBatch {
     /// Return the configured input concurrency ceiling.
     pub fn get(self) -> usize {
@@ -147,17 +203,18 @@ impl<'de> Deserialize<'de> for InputBatch {
         usize::deserialize(deserializer).and_then(|batch| Self::try_from(batch).map_err(D::Error::custom))
     }
 }
-impl fmt::Display for InputBatch {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
-    }
-}
+impl core::error::Error for InvalidInputBatch {}
 impl fmt::Display for InvalidInputBatch {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("input batch must be greater than zero")
     }
 }
-impl core::error::Error for InvalidInputBatch {}
+impl core::error::Error for InvalidThreadCount {}
+impl fmt::Display for InvalidThreadCount {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("thread count must be greater than zero")
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -197,22 +254,52 @@ mod tests {
     }
 
     #[test]
-    fn rejects_zero_threads() {
-        assert_eq!(ExecutionLimits::try_from(0), Err(InvalidThreadCount));
-        assert_eq!("0".parse::<ExecutionLimits>(), Err(InvalidThreadCount.to_string()));
+    fn fail_fast_dispatch_leaves_unadmitted_inputs_empty() {
+        let context = ExecutionContext::new(ExecutionLimits::try_from(4).expect("valid thread limit")).expect("execution context");
+        let batch = InputBatch::try_from(2).expect("valid input batch");
+        let both_started = Barrier::new(2);
+        let outputs = context
+            .dispatch_inputs_fail_fast(
+                &[0, 1, 2, 3, 4],
+                Some(batch),
+                |_, input| {
+                    if *input < 2 {
+                        both_started.wait();
+                    }
+                    if *input == 1 {
+                        thread::sleep(Duration::from_millis(50));
+                    }
+                    (*input, *input == 0)
+                },
+                |(_, failed)| *failed,
+            )
+            .expect("input pool should build");
+        assert_eq!(outputs[0], Some((0, true)));
+        assert_eq!(outputs[1], Some((1, false)));
+        assert!(outputs[2..].iter().all(Option::is_none));
     }
     #[test]
-    fn local_pool_enforces_limits_after_global_pool_initialization() {
-        let _ = ThreadPoolBuilder::new().num_threads(2).build_global();
-        for threads in [1, 3] {
-            let limits = ExecutionLimits::try_from(threads).expect("positive limits should be valid");
-            let context = ExecutionContext::new(limits).expect("a local pool should be constructed");
-            let work_items = threads * 4;
-            let (peak, completed) = measure_peak(&context, work_items);
-            assert_eq!(completed, work_items);
-            assert_eq!(peak, threads);
-            assert!(peak <= context.limits().threads());
-        }
+    fn input_dispatch_admits_work_as_soon_as_capacity_is_available() {
+        let context = ExecutionContext::new(ExecutionLimits::try_from(4).expect("valid thread limit")).expect("execution context");
+        let batch = InputBatch::try_from(2).expect("valid input batch");
+        let third_started = AtomicBool::new(false);
+        let outputs = context
+            .dispatch_inputs(&[0, 1, 2], Some(batch), |input| {
+                match input {
+                    | 0 => {
+                        let deadline = Instant::now() + Duration::from_secs(2);
+                        while !third_started.load(Ordering::SeqCst) && Instant::now() < deadline {
+                            thread::sleep(Duration::from_millis(1));
+                        }
+                        assert!(third_started.load(Ordering::SeqCst), "third input should start before the first finishes");
+                    }
+                    | 2 => third_started.store(true, Ordering::SeqCst),
+                    | _ => (),
+                }
+                *input
+            })
+            .expect("input pool should build");
+        assert_eq!(outputs, vec![0, 1, 2]);
     }
     #[test]
     fn input_dispatch_enforces_batch_and_thread_limits_without_losing_order() {
@@ -245,26 +332,21 @@ mod tests {
         }
     }
     #[test]
-    fn input_dispatch_admits_work_as_soon_as_capacity_is_available() {
-        let context = ExecutionContext::new(ExecutionLimits::try_from(4).expect("valid thread limit")).expect("execution context");
-        let batch = InputBatch::try_from(2).expect("valid input batch");
-        let third_started = AtomicBool::new(false);
-        let outputs = context
-            .dispatch_inputs(&[0, 1, 2], Some(batch), |input| {
-                match input {
-                    | 0 => {
-                        let deadline = Instant::now() + Duration::from_secs(2);
-                        while !third_started.load(Ordering::SeqCst) && Instant::now() < deadline {
-                            thread::sleep(Duration::from_millis(1));
-                        }
-                        assert!(third_started.load(Ordering::SeqCst), "third input should start before the first finishes");
-                    }
-                    | 2 => third_started.store(true, Ordering::SeqCst),
-                    | _ => (),
-                }
-                *input
-            })
-            .expect("input pool should build");
-        assert_eq!(outputs, vec![0, 1, 2]);
+    fn local_pool_enforces_limits_after_global_pool_initialization() {
+        let _ = ThreadPoolBuilder::new().num_threads(2).build_global();
+        for threads in [1, 3] {
+            let limits = ExecutionLimits::try_from(threads).expect("positive limits should be valid");
+            let context = ExecutionContext::new(limits).expect("a local pool should be constructed");
+            let work_items = threads * 4;
+            let (peak, completed) = measure_peak(&context, work_items);
+            assert_eq!(completed, work_items);
+            assert_eq!(peak, threads);
+            assert!(peak <= context.limits().threads());
+        }
+    }
+    #[test]
+    fn rejects_zero_threads() {
+        assert_eq!(ExecutionLimits::try_from(0), Err(InvalidThreadCount));
+        assert_eq!("0".parse::<ExecutionLimits>(), Err(InvalidThreadCount.to_string()));
     }
 }

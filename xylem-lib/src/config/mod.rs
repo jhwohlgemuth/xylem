@@ -1,39 +1,40 @@
 use acorn::io::{file_checksum, make_executable, read_file};
 use acorn::util::Label;
 use acorn_core::util::alloc::StringConversion;
-use acorn_core::util::{file_extension, Checksum, SemanticVersion};
+use acorn_core::util::{Checksum, MimeType, SemanticVersion};
 use acorn_core::Scheme;
 use bon::Builder;
 use convert_case::{Case, Casing};
+use core::fmt;
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 use tracing::{debug, error, info, warn};
 
 use crate::execution::{ExecutionContext, InputBatch};
+use crate::journal::{ExecutionState, RunJournal};
+use crate::outcome::{ModuleOutcome, WorkflowOutcome};
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
 use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
 
-enum Extension {
-    Json,
-    Yaml,
-    Unknown,
-}
-fn deserialize_version<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let version = Option::<String>::deserialize(deserializer)?;
-    if let Some(value) = version.as_deref() {
-        SemanticVersion::parse_exact(value).map_err(D::Error::custom)?;
-    }
-    Ok(version)
+/// Failure to select or deserialize a workflow configuration file.
+#[derive(Debug)]
+pub enum ConfigReadError {
+    /// The path does not use a supported configuration extension.
+    UnsupportedExtension(PathBuf),
+    /// The selected serializer rejected the configuration content.
+    Invalid {
+        /// Configuration path that failed to deserialize.
+        path: PathBuf,
+        /// Serializer error detail.
+        message: String,
+    },
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -201,58 +202,54 @@ impl Config {
     /// - Git clone script projects and setup virtual environments
     /// - Validate local and downloaded remote modules are ready for execution
     ///
-    pub fn prepare_modules(self, execution: &ExecutionContext, observer: Option<&dyn ProgressObserver>) -> Config {
-        execution.install(|| self.prepare_modules_in_pool(observer))
-    }
-    fn prepare_modules_in_pool(self, observer: Option<&dyn ProgressObserver>) -> Config {
-        let options = match self.clone().options {
-            | Some(value) => value,
-            | None => {
-                warn!("=> {} Configuration options", Label::not_found());
-                ConfigOptions::init().build()
-            }
-        };
-        let policy = RemotePolicy::from_hosts(options.allowed.as_deref()).unwrap_or_else(|why| {
-            error!(error = why.to_string(), "=> {} Remote module allowlist", Label::invalid());
-            exit(exitcode::USAGE);
-        });
-        self.modules.par_iter().for_each(|module| {
-            ProgressPhase::Preparation.emit(observer, ProgressState::Started, &module.name, None);
-            match &module.module_type {
-                | ModuleType::Binary { uri, checksum } => module.prepare_binary(uri, checksum.as_deref(), &options, &policy),
-                | ModuleType::Script { programming_language, uri } => match programming_language {
-                    | Some(ModuleLanguage::Generic) | None => module.prepare_script(uri, false, &options, &policy),
-                    | Some(ModuleLanguage::Python) => module.prepare_script(uri, true, &options, &policy),
-                    | Some(language) => {
-                        error!(
-                            module = module.name,
-                            language = language.to_string(),
-                            "=> {} Script language",
-                            Label::invalid()
-                        );
-                        exit(exitcode::USAGE);
-                    }
-                },
-                | ModuleType::Configuration { .. } => {
-                    error!(module = module.name, "=> {} Configuration modules are reserved", Label::invalid());
-                    exit(exitcode::USAGE);
+    /// Prepare workflow modules and return failures to the orchestration boundary.
+    pub fn prepare_modules(self, execution: &ExecutionContext, observer: Option<&dyn ProgressObserver>) -> Result<Config, String> {
+        execution.install(|| {
+            let options = match self.clone().options {
+                | Some(value) => value,
+                | None => {
+                    warn!("=> {} Configuration options", Label::not_found());
+                    ConfigOptions::init().build()
                 }
-            }
-            ProgressPhase::Preparation.emit(observer, ProgressState::Finished, &module.name, None);
-        });
-        self
+            };
+            RemotePolicy::from_hosts(options.allowed.as_deref())
+                .map_err(|why| why.to_string())
+                .and_then(|policy| {
+                    self.modules
+                        .par_iter()
+                        .map(|module| {
+                            ProgressPhase::Preparation.emit(observer, ProgressState::Started, &module.name, None);
+                            let result = match &module.module_type {
+                                | ModuleType::Binary { uri, checksum } => module.prepare_binary(uri, checksum.as_deref(), &options, &policy),
+                                | ModuleType::Script { programming_language, uri } => match programming_language {
+                                    | Some(ModuleLanguage::Generic) | None => module.prepare_script(uri, false, &options, &policy),
+                                    | Some(ModuleLanguage::Python) => module.prepare_script(uri, true, &options, &policy),
+                                    | Some(language) => Err(format!("module {} uses unsupported script language {language}", module.name)),
+                                },
+                                | ModuleType::Configuration { .. } => Err(format!("module {} uses reserved configuration module type", module.name)),
+                            };
+                            match result {
+                                | Ok(()) => ProgressPhase::Preparation.emit(observer, ProgressState::Finished, &module.name, None),
+                                | Err(_) => ProgressPhase::Preparation.emit(observer, ProgressState::Failed, &module.name, None),
+                            }
+                            result
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                        .map(|_| self)
+                })
+        })
     }
     pub fn read(path: PathBuf) -> Option<Config> {
-        let content = match Extension::from_string(file_extension(path.to_string_lossy().to_string()).unwrap_or_default()) {
-            | Extension::Json => match Config::read_json(path.clone()) {
+        let content = match MimeType::from(path.to_string_lossy().as_ref()) {
+            | MimeType::Json => match Config::read_json(path.clone()) {
                 | Ok(value) => Some(value),
                 | Err(_) => None,
             },
-            | Extension::Yaml => match Config::read_yaml(path.clone()) {
+            | MimeType::Yaml => match Config::read_yaml(path.clone()) {
                 | Ok(value) => Some(value),
                 | Err(_) => None,
             },
-            | Extension::Unknown => unimplemented!("Unknown configuration file extension"),
+            | _ => unimplemented!("Unknown configuration file extension"),
         };
         if let Some(content) = content {
             Some(content)
@@ -307,107 +304,168 @@ impl Config {
     ///
     /// Modules are run in the order they are defined in the configuration
     ///
-    pub fn run_workflow(self, input: Option<String>, options: &ConfigOptions) {
-        self.run_workflow_with_progress(input, options, None);
+    pub fn run_workflow(self, input: Option<String>, options: &ConfigOptions) -> WorkflowOutcome {
+        self.run_workflow_with_progress(input, options, None)
     }
     /// Run workflow modules while emitting progress updates.
-    pub fn run_workflow_with_progress(self, input: Option<String>, options: &ConfigOptions, observer: Option<&dyn ProgressObserver>) {
+    pub fn run_workflow_with_progress(
+        self,
+        input: Option<String>,
+        options: &ConfigOptions,
+        observer: Option<&dyn ProgressObserver>,
+    ) -> WorkflowOutcome {
+        self.run_workflow_recorded(input, options, observer, None, 0)
+    }
+    /// Run workflow modules while emitting progress updates and durable module transitions.
+    pub fn run_workflow_recorded(
+        self,
+        input: Option<String>,
+        options: &ConfigOptions,
+        observer: Option<&dyn ProgressObserver>,
+        journal: Option<&RunJournal>,
+        input_index: usize,
+    ) -> WorkflowOutcome {
         EnvironmentValue::print_all();
-        self.modules.iter().for_each(|module| {
-            ProgressPhase::Execution.emit(observer, ProgressState::Started, &module.name, input.as_deref());
-            match &module.module_type {
-                | ModuleType::Binary { .. } => {
-                    let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
-                    let working_dir = match options.root.clone() {
-                        | Some(value) => value.to_absolute_path(),
-                        | None => {
-                            error!(module = module.name, "=> {} Root directory", Label::not_found());
-                            exit(exitcode::UNAVAILABLE);
-                        }
-                    };
-                    let loaded = Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())));
-                    let script = loaded
-                        .ensure_relative()
-                        .expand_arguments_from(envs.clone())
-                        .with_current_dir(working_dir)
-                        .with_envs(envs);
-                    if options.dry_run.unwrap_or_default() {
-                        info!(
-                            module = module.name,
-                            script = script.to_string(),
-                            cwd = script.current_dir,
-                            "=> {}",
-                            Label::dry_run()
-                        );
-                    } else {
-                        script.run();
+        let execution = self.modules.iter().enumerate().try_fold(
+            Vec::new(),
+            |mut outcomes, (module_index, module)| -> Result<Vec<ModuleOutcome>, (Vec<ModuleOutcome>, String)> {
+                ProgressPhase::Execution.emit(observer, ProgressState::Started, &module.name, input.as_deref());
+                let result = match journal {
+                    | Some(journal) => journal
+                        .transition_module(input_index, module_index, ExecutionState::Running, None)
+                        .map_err(|why| why.to_string()),
+                    | None => Ok(()),
+                }
+                .and_then(|()| match &module.module_type {
+                    | ModuleType::Binary { .. } => {
+                        let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
+                        options
+                            .root
+                            .clone()
+                            .ok_or_else(|| "root directory is not configured".to_string())
+                            .and_then(|root| {
+                                let working_dir = root.to_absolute_path();
+                                let loaded = Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())));
+                                let script = loaded
+                                    .ensure_relative()
+                                    .expand_arguments_from(envs.clone())
+                                    .with_current_dir(working_dir)
+                                    .with_envs(envs);
+                                match options.dry_run.unwrap_or_default() {
+                                    | true => {
+                                        info!(
+                                            module = module.name,
+                                            script = script.to_string(),
+                                            cwd = script.current_dir,
+                                            "=> {}",
+                                            Label::dry_run()
+                                        );
+                                        Ok(())
+                                    }
+                                    | false => script.run_checked().map(|_| ()),
+                                }
+                            })
+                    }
+                    | ModuleType::Script { programming_language, uri } => {
+                        let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
+                        options
+                            .root
+                            .clone()
+                            .ok_or_else(|| "root directory is not configured".to_string())
+                            .and_then(|root_path| {
+                                let root = Some(root_path);
+                                module_working_directory(uri, root.as_ref())
+                                    .ok_or_else(|| format!("module URI is invalid: {uri}"))
+                                    .and_then(|working_dir| {
+                                        let loaded = Script::from_module(module.clone(), root);
+                                        let script = loaded
+                                            .expand_arguments_from(envs.clone())
+                                            .with_current_dir(working_dir.clone())
+                                            .with_envs(envs);
+                                        let configured = match programming_language {
+                                            | Some(ModuleLanguage::Python) => {
+                                                let virtual_environment = module.resolve_virtual_environment(&working_dir);
+                                                Ok(script.with_virtual_environment(virtual_environment))
+                                            }
+                                            | Some(ModuleLanguage::Generic) | None => Ok(script),
+                                            | Some(language) => Err(format!("unsupported script language: {language}")),
+                                        };
+                                        configured.and_then(|script| match options.dry_run.unwrap_or_default() {
+                                            | true => {
+                                                info!(
+                                                    module = module.name,
+                                                    script = script.to_string(),
+                                                    cwd = script.current_dir,
+                                                    "=> {}",
+                                                    Label::dry_run()
+                                                );
+                                                Ok(())
+                                            }
+                                            | false => script.run_checked().map(|_| ()),
+                                        })
+                                    })
+                            })
+                    }
+                    | ModuleType::Configuration { .. } => Err("configuration modules are not executable".to_string()),
+                })
+                .map(|()| match options.dry_run.unwrap_or_default() {
+                    | true => ExecutionState::Skipped,
+                    | false => ExecutionState::Succeeded,
+                })
+                .and_then(|terminal| match journal {
+                    | Some(journal) => journal
+                        .transition_module(input_index, module_index, terminal, None)
+                        .map(|()| terminal)
+                        .map_err(|why| why.to_string()),
+                    | None => Ok(terminal),
+                });
+                match result {
+                    | Ok(terminal) => {
+                        let progress_state = ProgressState::from(terminal);
+                        ProgressPhase::Execution.emit(observer, progress_state, &module.name, input.as_deref());
+                        outcomes.push(ModuleOutcome {
+                            index: module_index,
+                            name: module.name.clone(),
+                            state: terminal,
+                            error: None,
+                        });
+                        Ok(outcomes)
+                    }
+                    | Err(why) => {
+                        let error = match journal {
+                            | Some(journal) => match journal.transition_module(input_index, module_index, ExecutionState::Failed, Some(&why)) {
+                                | Ok(()) => why,
+                                | Err(journal_error) => format!("{why}; additionally, record failed module state: {journal_error}"),
+                            },
+                            | None => why,
+                        };
+                        ProgressPhase::Execution.emit(observer, ProgressState::Failed, &module.name, input.as_deref());
+                        outcomes.push(ModuleOutcome {
+                            index: module_index,
+                            name: module.name.clone(),
+                            state: ExecutionState::Failed,
+                            error: Some(error.clone()),
+                        });
+                        Err((outcomes, error))
                     }
                 }
-                | ModuleType::Script { programming_language, uri } => match programming_language {
-                    | Some(ModuleLanguage::Generic) | None => {
-                        let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
-                        let root = match options.root.clone() {
-                            | Some(value) => Some(value),
-                            | None => {
-                                error!(module = module.name, "=> {} Root directory", Label::not_found());
-                                exit(exitcode::UNAVAILABLE);
-                            }
-                        };
-                        let working_dir = module_working_directory(uri, root.as_ref()).unwrap_or_else(|| {
-                            error!(module = module.name, uri, "=> {} Module URI", Label::invalid());
-                            exit(exitcode::USAGE);
-                        });
-                        let loaded = Script::from_module(module.clone(), root);
-                        let script = loaded.expand_arguments_from(envs.clone()).with_current_dir(working_dir).with_envs(envs);
-                        if options.dry_run.unwrap_or_default() {
-                            info!(
-                                module = module.name,
-                                script = script.to_string(),
-                                cwd = script.current_dir,
-                                "=> {}",
-                                Label::dry_run()
-                            );
-                        } else {
-                            script.run();
-                        }
-                    }
-                    | Some(ModuleLanguage::Python) => {
-                        let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
-                        let root = match options.root.clone() {
-                            | Some(value) => Some(value),
-                            | None => {
-                                error!(module = module.name, "=> {} Root directory", Label::not_found());
-                                exit(exitcode::UNAVAILABLE);
-                            }
-                        };
-                        let working_dir = module_working_directory(uri, root.as_ref()).unwrap_or_else(|| {
-                            error!(module = module.name, uri, "=> {} Module URI", Label::invalid());
-                            exit(exitcode::USAGE);
-                        });
-                        let virtual_environment = module.resolve_virtual_environment(&working_dir);
-                        let script = Script::from_module(module.clone(), root)
-                            .expand_arguments_from(envs.clone())
-                            .with_current_dir(working_dir)
-                            .with_virtual_environment(virtual_environment)
-                            .with_envs(envs);
-                        if options.dry_run.unwrap_or_default() {
-                            info!(
-                                module = module.name,
-                                script = script.to_string(),
-                                cwd = script.current_dir,
-                                "=> {}",
-                                Label::dry_run()
-                            );
-                        } else {
-                            script.run();
-                        }
-                    }
-                    | _ => unimplemented!("Only Generic and Python script modules are currently supported"),
-                },
-                | _ => unimplemented!("Only binary and script modules are currently supported"),
+            },
+        );
+        match execution {
+            | Ok(outcomes) => {
+                let state = match options.dry_run.unwrap_or_default() {
+                    | true => ExecutionState::Skipped,
+                    | false => ExecutionState::Succeeded,
+                };
+                WorkflowOutcome::init().maybe_input(input).state(state).modules(outcomes).build()
             }
-            ProgressPhase::Execution.emit(observer, ProgressState::Finished, &module.name, input.as_deref());
-        });
+            | Err((outcomes, error)) => WorkflowOutcome::init()
+                .maybe_input(input)
+                .state(ExecutionState::Failed)
+                .modules(outcomes)
+                .error(error)
+                .build(),
+        }
     }
     /// Set environment variables from Xylem configuration "variables" attribute
     pub fn set_environment_variables(self) -> Config {
@@ -419,21 +477,21 @@ impl Config {
     ///
     /// Uses process similar to Linux `which` to determine if a given command is available on the host system.
     ///
-    pub fn verify_requirements(self) -> Config {
-        if let Some(options) = &self.options {
-            if !options.skip_verify_requirements.unwrap_or_default() {
-                self.requirements.iter().for_each(|name| {
-                    let command = Command::init().name(name.clone()).build();
-                    if !command.test() {
-                        error!(name, "=> {} Requirement not met", Label::not_found());
-                        exit(exitcode::UNAVAILABLE);
-                    }
-                });
-            } else {
+    pub fn verify_requirements(self) -> Result<Config, String> {
+        match &self.options {
+            | Some(options) if options.skip_verify_requirements.unwrap_or_default() => {
                 warn!("Skipping requirements verification");
+                Ok(self)
             }
+            | Some(_) => match self.requirements.iter().find(|name| {
+                let command = Command::init().name((*name).clone()).build();
+                !command.test()
+            }) {
+                | Some(name) => Err(format!("required command was not found: {name}")),
+                | None => Ok(self),
+            },
+            | None => Ok(self),
         }
-        self
     }
     /// Verify hardware resources (ex. GPU) are available for the workflow on host system
     ///
@@ -447,57 +505,88 @@ impl Config {
         self
     }
 }
+impl TryFrom<&Path> for Config {
+    type Error = ConfigReadError;
 
+    fn try_from(path: &Path) -> Result<Self, Self::Error> {
+        match MimeType::from(path.to_string_lossy().as_ref()) {
+            | MimeType::Json => Self::read_json(path.to_path_buf()).map_err(|why| ConfigReadError::Invalid {
+                path: path.to_path_buf(),
+                message: why.to_string(),
+            }),
+            | MimeType::Yaml => Self::read_yaml(path.to_path_buf()).map_err(|why| ConfigReadError::Invalid {
+                path: path.to_path_buf(),
+                message: why.to_string(),
+            }),
+            | _ => Err(ConfigReadError::UnsupportedExtension(path.to_path_buf())),
+        }
+    }
+}
+impl TryFrom<PathBuf> for Config {
+    type Error = ConfigReadError;
+
+    fn try_from(path: PathBuf) -> Result<Self, Self::Error> {
+        Self::try_from(path.as_path())
+    }
+}
+impl core::error::Error for ConfigReadError {}
+impl fmt::Display for ConfigReadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            | Self::UnsupportedExtension(path) => {
+                write!(formatter, "configuration {} must use a .json, .yaml, or .yml extension", path.display())
+            }
+            | Self::Invalid { path, message } => write!(formatter, "read configuration {}: {message}", path.display()),
+        }
+    }
+}
 impl Module {
-    fn prepare_binary(&self, uri: &str, checksum: Option<&str>, options: &ConfigOptions, policy: &RemotePolicy) {
+    fn prepare_binary(&self, uri: &str, checksum: Option<&str>, options: &ConfigOptions, policy: &RemotePolicy) -> Result<(), String> {
         match ModuleUri::from(uri) {
             | ModuleUri::Url(value) if matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS) => {
                 let url = value.to_string();
                 policy
                     .ensure_allowed(&url)
-                    .unwrap_or_else(|why| self.remote_failure(&url, why.to_string()));
-                match self.skip_or_reject_offline(&url, options) {
-                    | true => (),
-                    | false => {
-                        policy.probe_http(&url).unwrap_or_else(|why| self.remote_failure(&url, why.to_string()));
-                        debug!(module = self.name, url = redact_url(&url), "=> {} Remote binary", Label::found());
-                        match options.dry_run.unwrap_or_default() {
-                            | true => info!(
-                                module = self.name,
-                                url = redact_url(&url),
-                                "=> {} Download remote binary",
-                                Label::dry_run()
-                            ),
-                            | false => {
-                                let root = options.root.as_deref().unwrap_or_else(|| {
-                                    error!(module = self.name, "=> {} Root directory", Label::not_found());
-                                    exit(exitcode::UNAVAILABLE);
-                                });
-                                let output = policy
-                                    .download(&url, root)
-                                    .unwrap_or_else(|why| self.remote_failure(&url, why.to_string()));
-                                self.verify_downloaded_binary(&url, checksum, output, options);
-                            }
-                        }
-                    }
-                }
+                    .map_err(|why| self.remote_error(&url, &why.to_string()))
+                    .and_then(|_| self.skip_or_reject_offline(&url, options))
+                    .and_then(|skip| match skip {
+                        | true => Ok(()),
+                        | false => policy
+                            .probe_http(&url)
+                            .map_err(|why| self.remote_error(&url, &why.to_string()))
+                            .and_then(|()| {
+                                debug!(module = self.name, url = redact_url(&url), "=> {} Remote binary", Label::found());
+                                match options.dry_run.unwrap_or_default() {
+                                    | true => {
+                                        info!(
+                                            module = self.name,
+                                            url = redact_url(&url),
+                                            "=> {} Download remote binary",
+                                            Label::dry_run()
+                                        );
+                                        Ok(())
+                                    }
+                                    | false => options
+                                        .root
+                                        .as_deref()
+                                        .ok_or_else(|| format!("module {} has no run root directory", self.name))
+                                        .and_then(|root| policy.download(&url, root).map_err(|why| self.remote_error(&url, &why.to_string())))
+                                        .and_then(|output| self.verify_downloaded_binary(&url, checksum, output, options)),
+                                }
+                            }),
+                    })
             }
-            | ModuleUri::Url(_) => {
-                error!(
-                    module = self.name,
-                    uri = redact_url(uri),
-                    "=> {} Remote binary URI scheme",
-                    Label::invalid()
-                );
-                exit(exitcode::USAGE);
-            }
+            | ModuleUri::Url(_) => Err(format!("module {} uses unsupported remote binary URI {}", self.name, redact_url(uri))),
             | ModuleUri::File(path) => match path.try_exists() {
-                | Ok(true) if options.dry_run.unwrap_or_default() => info!(
-                    module = self.name,
-                    path = path.display().to_string(),
-                    "=> {} Validate local binary",
-                    Label::dry_run()
-                ),
+                | Ok(true) if options.dry_run.unwrap_or_default() => {
+                    info!(
+                        module = self.name,
+                        path = path.display().to_string(),
+                        "=> {} Validate local binary",
+                        Label::dry_run()
+                    );
+                    Ok(())
+                }
                 | Ok(true) => {
                     debug!(
                         module = self.name,
@@ -506,47 +595,39 @@ impl Module {
                         Label::found()
                     );
                     match make_executable(path.clone()) {
-                        | true => info!(
-                            module = self.name,
-                            path = path.display().to_string(),
-                            "=> {} Binary is executable",
-                            Label::pass()
-                        ),
-                        | false => {
-                            error!(
+                        | true => {
+                            info!(
                                 module = self.name,
                                 path = path.display().to_string(),
-                                "=> {} Binary is not executable",
-                                Label::fail()
+                                "=> {} Binary is executable",
+                                Label::pass()
                             );
-                            exit(exitcode::USAGE);
+                            Ok(())
                         }
+                        | false => Err(format!("module {} binary is not executable: {}", self.name, path.display())),
                     }
                 }
-                | Ok(false) | Err(_) => {
-                    error!(
-                        module = self.name,
-                        path = path.display().to_string(),
-                        "=> {} Local binary",
-                        Label::not_found()
-                    );
-                    exit(exitcode::UNAVAILABLE);
-                }
+                | Ok(false) => Err(format!("module {} local binary was not found: {}", self.name, path.display())),
+                | Err(why) => Err(format!(
+                    "module {} local binary cannot be inspected at {}: {why}",
+                    self.name,
+                    path.display()
+                )),
             },
-            | ModuleUri::Unknown(_) => {
-                error!(module = self.name, uri, "=> {} Binary module URI", Label::invalid());
-                exit(exitcode::USAGE);
-            }
+            | ModuleUri::Unknown(_) => Err(format!("module {} has invalid binary URI: {uri}", self.name)),
         }
     }
-    fn verify_downloaded_binary(&self, url: &str, checksum: Option<&str>, output: PathBuf, options: &ConfigOptions) {
-        match options.skip_verify_checksum.unwrap_or_default() {
-            | true => warn!(
-                module = self.name,
-                url = redact_url(url),
-                "=> {} Skipping checksum verification",
-                Label::pass()
-            ),
+    fn verify_downloaded_binary(&self, url: &str, checksum: Option<&str>, output: PathBuf, options: &ConfigOptions) -> Result<(), String> {
+        let verification = match options.skip_verify_checksum.unwrap_or_default() {
+            | true => {
+                warn!(
+                    module = self.name,
+                    url = redact_url(url),
+                    "=> {} Skipping checksum verification",
+                    Label::pass()
+                );
+                Ok(())
+            }
             | false => {
                 let calculated = file_checksum(output.clone(), None);
                 let expected = checksum.map(Checksum::from);
@@ -561,60 +642,38 @@ impl Module {
                             "=> {} Checksum verified",
                             Label::pass()
                         );
+                        Ok(())
                     }
-                    | (Some(value), _, Some(calculated)) => {
-                        error!(
-                            module = self.name,
-                            url = redact_url(url),
-                            checksum = value,
-                            algorithm = %calculated.algorithm,
-                            calculated = calculated.checksum_value,
-                            "=> {} Remote binary checksum does not match",
-                            Label::fail()
-                        );
-                        exit(exitcode::USAGE);
-                    }
-                    | (Some(value), _, None) => {
-                        error!(
-                            module = self.name,
-                            url = redact_url(url),
-                            checksum = value,
-                            "=> {} Could not calculate remote binary checksum",
-                            Label::fail()
-                        );
-                        exit(exitcode::USAGE);
-                    }
-                    | (None, _, _) => {
-                        error!(
-                            module = self.name,
-                            url = redact_url(url),
-                            "=> {} Remote binary checksum is required",
-                            Label::fail()
-                        );
-                        exit(exitcode::UNAVAILABLE);
-                    }
+                    | (Some(value), _, Some(calculated)) => Err(format!(
+                        "module {} checksum {value} does not match {}:{} for {}",
+                        self.name,
+                        calculated.algorithm,
+                        calculated.checksum_value,
+                        redact_url(url)
+                    )),
+                    | (Some(value), _, None) => Err(format!(
+                        "module {} could not calculate checksum {value} for {}",
+                        self.name,
+                        redact_url(url)
+                    )),
+                    | (None, _, _) => Err(format!("module {} requires a checksum for {}", self.name, redact_url(url))),
                 }
             }
-        }
-        match make_executable(output) {
-            | true => info!(
-                module = self.name,
-                url = redact_url(url),
-                "=> {} Downloaded binary is executable",
-                Label::pass()
-            ),
-            | false => {
-                error!(
+        };
+        verification.and_then(|()| match make_executable(output) {
+            | true => {
+                info!(
                     module = self.name,
                     url = redact_url(url),
-                    "=> {} Downloaded binary is not executable",
-                    Label::fail()
+                    "=> {} Downloaded binary is executable",
+                    Label::pass()
                 );
-                exit(exitcode::USAGE);
+                Ok(())
             }
-        }
+            | false => Err(format!("module {} downloaded binary is not executable: {}", self.name, redact_url(url))),
+        })
     }
-    fn prepare_script(&self, uri: &str, python: bool, options: &ConfigOptions, policy: &RemotePolicy) {
+    fn prepare_script(&self, uri: &str, python: bool, options: &ConfigOptions, policy: &RemotePolicy) -> Result<(), String> {
         match ModuleUri::from(uri) {
             | ModuleUri::Url(value)
                 if matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS)
@@ -623,99 +682,96 @@ impl Module {
                 let url = value.to_string();
                 policy
                     .ensure_allowed(&url)
-                    .unwrap_or_else(|why| self.remote_failure(&url, why.to_string()));
-                match self.skip_or_reject_offline(&url, options) {
-                    | true => (),
-                    | false => {
-                        policy.probe_git(&url).unwrap_or_else(|why| self.remote_failure(&url, why.to_string()));
-                        debug!(
-                            module = self.name,
-                            url = redact_url(&url),
-                            "=> {} Remote script repository",
-                            Label::found()
-                        );
-                        let root = options.root.as_ref().unwrap_or_else(|| {
-                            error!(module = self.name, "=> {} Root directory", Label::not_found());
-                            exit(exitcode::UNAVAILABLE);
-                        });
-                        let current_dir = root.to_absolute_path();
-                        let module_root = module_working_directory(uri, Some(root)).unwrap_or_else(|| {
-                            error!(module = self.name, uri = redact_url(uri), "=> {} Module URI", Label::invalid());
-                            exit(exitcode::USAGE);
-                        });
-                        if let Some(script) = Script::maybe_git_clone(uri.to_string(), current_dir) {
-                            match options.dry_run.unwrap_or_default() {
-                                | true => info!(
+                    .map_err(|why| self.remote_error(&url, &why.to_string()))
+                    .and_then(|_| self.skip_or_reject_offline(&url, options))
+                    .and_then(|skip| match skip {
+                        | true => Ok(()),
+                        | false => policy
+                            .probe_git(&url)
+                            .map_err(|why| self.remote_error(&url, &why.to_string()))
+                            .and_then(|()| {
+                                debug!(
                                     module = self.name,
-                                    script = script.to_string(),
-                                    cwd = script.current_dir,
-                                    "=> {}",
-                                    Label::dry_run()
-                                ),
-                                | false => {
-                                    script.run();
-                                }
-                            }
-                        }
-                        if python {
-                            self.prepare_python_environment(module_root, options);
-                        }
-                    }
-                }
+                                    url = redact_url(&url),
+                                    "=> {} Remote script repository",
+                                    Label::found()
+                                );
+                                options
+                                    .root
+                                    .as_ref()
+                                    .ok_or_else(|| format!("module {} has no run root directory", self.name))
+                                    .and_then(|root| {
+                                        let current_dir = root.to_absolute_path();
+                                        module_working_directory(uri, Some(root))
+                                            .ok_or_else(|| format!("module {} has invalid URI: {}", self.name, redact_url(uri)))
+                                            .map(|module_root| (current_dir, module_root))
+                                    })
+                                    .and_then(|(current_dir, module_root)| {
+                                        match Script::maybe_git_clone(uri.to_string(), current_dir) {
+                                            | Some(script) if options.dry_run.unwrap_or_default() => {
+                                                info!(
+                                                    module = self.name,
+                                                    script = script.to_string(),
+                                                    cwd = script.current_dir,
+                                                    "=> {}",
+                                                    Label::dry_run()
+                                                );
+                                                Ok(())
+                                            }
+                                            | Some(script) => script.run_checked().map(|_| ()),
+                                            | None => Ok(()),
+                                        }
+                                        .and_then(|()| match python {
+                                            | true => self.prepare_python_environment(module_root, options),
+                                            | false => Ok(()),
+                                        })
+                                    })
+                            }),
+                    })
             }
-            | ModuleUri::Url(_) => {
-                error!(
-                    module = self.name,
-                    uri = redact_url(uri),
-                    "=> {} Remote script URI scheme",
-                    Label::invalid()
-                );
-                exit(exitcode::USAGE);
-            }
+            | ModuleUri::Url(_) => Err(format!("module {} uses unsupported remote script URI {}", self.name, redact_url(uri))),
             | ModuleUri::File(path) => match path.try_exists() {
                 | Ok(true) => {
                     let path = path.to_absolute_path();
                     debug!(module = self.name, path, "=> {} Local script repository", Label::found());
-                    if python {
-                        self.prepare_python_environment(path, options);
+                    match python {
+                        | true => self.prepare_python_environment(path, options),
+                        | false => Ok(()),
                     }
                 }
-                | Ok(false) | Err(_) => {
-                    error!(
-                        module = self.name,
-                        path = path.display().to_string(),
-                        "=> {} Local script module",
-                        Label::not_found()
-                    );
-                    exit(exitcode::UNAVAILABLE);
-                }
+                | Ok(false) => Err(format!("module {} local script was not found: {}", self.name, path.display())),
+                | Err(why) => Err(format!(
+                    "module {} local script cannot be inspected at {}: {why}",
+                    self.name,
+                    path.display()
+                )),
             },
-            | ModuleUri::Unknown(_) => {
-                error!(module = self.name, uri, "=> {} Script module URI", Label::invalid());
-                exit(exitcode::USAGE);
-            }
+            | ModuleUri::Unknown(_) => Err(format!("module {} has invalid script URI: {uri}", self.name)),
         }
     }
-    fn prepare_python_environment(&self, module_root: String, options: &ConfigOptions) {
+    fn prepare_python_environment(&self, module_root: String, options: &ConfigOptions) -> Result<(), String> {
         let environment = self.resolve_virtual_environment(&module_root);
         if let Some(script) = Script::maybe_create_virtual_environment(module_root, environment) {
             match options.dry_run.unwrap_or_default() {
-                | true => info!(
-                    module = self.name,
-                    script = script.to_string(),
-                    cwd = script.current_dir,
-                    "=> {}",
-                    Label::dry_run()
-                ),
-                | false => {
-                    script.run();
+                | true => {
+                    info!(
+                        module = self.name,
+                        script = script.to_string(),
+                        cwd = script.current_dir,
+                        "=> {}",
+                        Label::dry_run()
+                    );
+                    Ok(())
                 }
+                | false => script.run_checked().map(|_| ()),
             }
+        } else {
+            Ok(())
         }
     }
-    fn skip_or_reject_offline(&self, url: &str, options: &ConfigOptions) -> bool {
+    fn skip_or_reject_offline(&self, url: &str, options: &ConfigOptions) -> Result<bool, String> {
         match (options.offline.unwrap_or_default(), options.dry_run.unwrap_or_default()) {
-            | (false, _) => false,
+            | (false, _) => Ok(false),
             | (true, true) => {
                 info!(
                     module = self.name,
@@ -723,39 +779,28 @@ impl Module {
                     "=> {} Remote module skipped in offline dry run",
                     Label::dry_run()
                 );
-                true
+                Ok(true)
             }
-            | (true, false) => {
-                error!(
-                    module = self.name,
-                    url = redact_url(url),
-                    "=> {} Remote module is unavailable in offline mode",
-                    Label::fail()
-                );
-                exit(exitcode::UNAVAILABLE);
-            }
+            | (true, false) => Err(format!(
+                "module {} remote source is unavailable in offline mode: {}",
+                self.name,
+                redact_url(url)
+            )),
         }
     }
-    fn remote_failure(&self, url: &str, why: String) -> ! {
-        error!(
-            module = self.name,
-            url = redact_url(url),
-            error = why,
-            "=> {} Remote module preflight",
-            Label::fail()
-        );
-        exit(exitcode::UNAVAILABLE);
+    fn remote_error(&self, url: &str, why: &str) -> String {
+        format!("module {} remote source {} failed: {why}", self.name, redact_url(url))
     }
 }
-
-impl Extension {
-    pub fn from_string(value: String) -> Extension {
-        match value.as_str() {
-            | "json" => Extension::Json,
-            | "yaml" => Extension::Yaml,
-            | _ => Extension::Unknown,
-        }
+fn deserialize_version<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let version = Option::<String>::deserialize(deserializer)?;
+    if let Some(value) = version.as_deref() {
+        SemanticVersion::parse_exact(value).map_err(D::Error::custom)?;
     }
+    Ok(version)
 }
 /// Get list of directory children
 ///
@@ -771,5 +816,6 @@ fn get_children(path: String) -> Vec<String> {
         | Err(_) => Vec::new(),
     }
 }
+
 #[cfg(test)]
 mod tests;
