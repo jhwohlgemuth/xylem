@@ -23,15 +23,20 @@ maintained YAML parser-+
                  +----------+-----------+
                             v
               environment/concurrency
-                            |
-                            v
-             secure module acquisition
-                            |
-                            v
-                   run reporters
+                    |               |
+                    v               v
+       fixed input concurrency   secure module acquisition
+                    |
+                    v
+          durable execution journal ------> run reporters
+                    |
+          +---------+---------+
+          |                   |
+          v                   v
+ resumable execution   memory-aware scheduling
 ```
 
-The configuration plan may start parser-independent validation design while the YAML migration is underway. The secure acquisition plan waits for typed errors, validated locations, and the new ACORN download/checksum APIs so that it does not build another temporary boundary.
+The fixed-concurrency feature is an immediate contained slice that may land against the current run-local pool before the deeper environment refactor, provided the refactor preserves its public `options.batch` contract. The configuration plan may start parser-independent validation design while the YAML migration is underway. Secure acquisition waits for typed errors, validated locations, and the new ACORN download/checksum APIs so that it does not build another temporary boundary. Resume also consumes configuration validation even though the compact diagram emphasizes its journal dependency. Memory-aware production scheduling is gated on its measurement spike.
 
 ## Quality and delivery path
 
@@ -53,9 +58,13 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 - [Maintained YAML parser](migrations/maintained-yaml-parser.md) precedes final configuration validation so JSON and YAML share one semantic error model.
 - [Typed errors and workflow outcomes](refactors/typed-error-and-outcome-boundary.md) precedes process, configuration, acquisition, and reporter work; none of those plans may encode failure as logging plus `Vec::new()` or `process::exit`.
 - [Process execution](refactors/process-execution-contract.md) precedes [environment and concurrency](refactors/workflow-environment-and-concurrency.md): per-invocation environment and cancellation attach to a structured child-process result, while scheduling builds on the existing typed thread budget.
+- [Fixed input concurrency](features/fixed-input-concurrency.md) defines the public `options.batch` contract and a rolling active-input ceiling. It may land immediately, and environment/concurrency work must consume rather than replace it.
+- [Durable execution journal](features/durable-execution-journal.md) consumes typed outcomes, lossless process results, and deterministic orchestration. It precedes resume and supplies durable state to reporters.
+- [Resumable execution](features/resumable-execution.md) consumes validated completion declarations, the durable journal, and deterministic scheduling; it never infers completion from tracing logs.
+- [Memory-aware scheduling](features/memory-aware-scheduling.md) builds on the fixed scheduler boundary and journal telemetry. Only its measurement spike may proceed before an estimator is accepted.
 - [Configuration validation and dry-run](refactors/configuration-validation-and-dry-run.md) precedes secure acquisition and reporters because both consume a validated, side-effect-free execution plan.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) consumes the error, process, configuration, and ACORN migration contracts.
-- [Run reporters](features/run-reporters.md) consumes structured workflow outcomes and the dry-run plan; it does not parse logs to infer success.
+- [Run reporters](features/run-reporters.md) consumes structured workflow outcomes, the durable journal, and the dry-run plan; it does not parse logs to infer success.
 - [Dependency and security gates](refactors/dependency-surface-and-security-gates.md) follows both dependency migrations so its accepted graph is not immediately invalidated.
 - [Hermetic tests](testing/hermetic-workflow-tests.md) provides the regression gate required by the CI plan and validates every correctness plan as its contracts land.
 - [CI and release pipeline](refactors/ci-release-pipeline.md) consumes the hermetic suite and dependency gates.
@@ -67,9 +76,10 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 | Shared boundary | Plans that overlap | Coordination rule |
 |---|---|---|
 | `Cargo.toml`, crate manifests, `Cargo.lock` | ACORN, ACORN command sync, YAML, dependency gates, process parsing, testing tools | One manifest owner at a time. Land upstream ACORN work before pinning its commit, then regenerate and audit the final lockfile once. |
-| `xylem-lib/src/config/mod.rs` | Errors, validation, environments, acquisition, reporters | Typed errors own signature conversion first; validation owns parse/plan separation; environment work preserves the existing Rayon execution limit; later plans modify only their extracted modules. |
+| `xylem-lib/src/config/mod.rs` | Errors, validation, environments, acquisition, fixed batching, resume, memory scheduling, reporters | Typed errors own signature conversion first; validation owns parse/plan separation; fixed batching owns its public option; resume and memory work extend only validated extracted configuration types. |
 | `xylem-lib/src/script/mod.rs` | Errors, process execution, environments, acquisition, ACORN command sync | Process execution owns `Script` and child-result contracts; the ACORN sync changes only the execution adapter after the upstream commit is fixed. |
-| `xylem-cli/src/{main,cli}.rs` and `commands/run/mod.rs` | Errors, environment/concurrency, reporters, tests | One CLI integration owner. Unit/fixture work may proceed without changing command arguments or top-level dispatch. |
+| `xylem-lib/src/execution.rs` and input scheduling in `commands/run/mod.rs` | Environment/concurrency, fixed batching, journal integration, resume, memory scheduling | Fixed batching establishes the scheduler seam; later plans consume it serially and do not introduce competing admission loops. |
+| `xylem-cli/src/{main,cli}.rs` and `commands/run/mod.rs` | Errors, environment/concurrency, fixed batching, journal, resume, memory scheduling, reporters, tests | One CLI integration owner. Unit/fixture work may proceed without changing command arguments or top-level dispatch. |
 | `Makefile` and `.gitlab-ci.yml` | Dependency gates, tests, CI/release, Homebrew export | Dependency-gate commands land before CI wires them into required jobs; Homebrew publication follows the immutable release contract. |
 | `README.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `CONTRIBUTING.md`, `examples/` | Every user-visible plan | Documentation may inventory drift early, but final edits wait for accepted names and behavior. |
 
@@ -77,8 +87,8 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 
 | Package | Boundary | Plans |
 |---|---|---|
-| `xylem-lib` | Configuration, planning, process execution, acquisition, workflow outcomes | ACORN, ACORN command sync, YAML, errors, process, environment, validation, acquisition |
-| `xylem-cli` | Argument precedence, presentation, exit status, temporary workspace lifetime | Errors, environment, reporters, tests |
+| `xylem-lib` | Configuration, planning, process execution, acquisition, workflow outcomes, scheduling, journal state | ACORN, ACORN command sync, YAML, errors, process, environment, validation, acquisition, fixed batching, journal, resume, memory scheduling |
+| `xylem-cli` | Argument precedence, orchestration, presentation, exit status, temporary workspace lifetime | Errors, environment, fixed batching, journal, resume, memory scheduling, reporters, tests |
 | `workspace` | Dependency graph, CI, releases, package exports, docs, examples | Dependency gates, CI/release, Homebrew export, documentation, hermetic tests |
 
 ## Handoff checklist

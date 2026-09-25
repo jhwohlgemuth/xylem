@@ -30,7 +30,7 @@ Complete the public `--reporter` and `--output` contract so users and automation
 
 # Dependencies and ordering
 
-Consumes [typed workflow outcomes](../refactors/typed-error-and-outcome-boundary.md), [process results](../refactors/process-execution-contract.md), [environment/concurrency aggregation](../refactors/workflow-environment-and-concurrency.md), and validated dry-run plans.
+Consumes [typed workflow outcomes](../refactors/typed-error-and-outcome-boundary.md), [process results](../refactors/process-execution-contract.md), [environment/concurrency aggregation](../refactors/workflow-environment-and-concurrency.md), the [durable execution journal](durable-execution-journal.md), and validated dry-run plans. The journal owns persistent transitions; reporters own presentation and final export.
 
 # Recommendation
 
@@ -62,4 +62,5 @@ Consumes [typed workflow outcomes](../refactors/typed-error-and-outcome-boundary
 
 - [Typed errors and outcomes](../refactors/typed-error-and-outcome-boundary.md)
 - [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
+- [Durable execution journal](durable-execution-journal.md)
 - [Documentation and examples](../refactors/documentation-and-examples.md)

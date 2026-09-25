@@ -32,7 +32,7 @@ Give each workflow input an immutable execution context containing its variables
 
 # Dependencies and ordering
 
-Follows [typed outcomes](typed-error-and-outcome-boundary.md) and the [process execution contract](process-execution-contract.md). It extends the existing single Rayon budget with scheduling, failure, and cancellation semantics rather than redefining `-t`. Its aggregate results feed [run reporters](../features/run-reporters.md).
+Follows [typed outcomes](typed-error-and-outcome-boundary.md) and the [process execution contract](process-execution-contract.md). It extends the existing single Rayon budget with scheduling, failure, and cancellation semantics rather than redefining `-t`. If [fixed input concurrency](../features/fixed-input-concurrency.md) lands first, this refactor preserves `options.batch` and moves its admission helper behind the immutable context rather than introducing a competing limit. Its aggregate results feed the [durable execution journal](../features/durable-execution-journal.md) and [run reporters](../features/run-reporters.md).
 
 # Recommendation
 
@@ -81,4 +81,7 @@ Use an RAII temporary workspace. Remove it after success by default, retain it o
 
 - [Process execution contract](process-execution-contract.md)
 - [Configuration validation and dry-run](configuration-validation-and-dry-run.md)
+- [Fixed input concurrency](../features/fixed-input-concurrency.md)
+- [Durable execution journal](../features/durable-execution-journal.md)
+- [Memory-aware scheduling](../features/memory-aware-scheduling.md)
 - [Structured run reporters](../features/run-reporters.md)

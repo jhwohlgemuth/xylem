@@ -17,6 +17,8 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Next execution phase
 
+The immediate user-facing slice is [fixed input concurrency](features/fixed-input-concurrency.md). It may land against the current run-local pool while the deeper execution foundations proceed; later orchestration work must preserve its public `options.batch` contract.
+
 Stabilize the dependency and failure foundations before adding workflow behavior:
 
 1. [Upgrade and narrow ACORN dependencies](migrations/acorn-0-2-upgrade.md)
@@ -25,6 +27,8 @@ Stabilize the dependency and failure foundations before adding workflow behavior
 4. [Introduce typed errors and workflow outcomes](refactors/typed-error-and-outcome-boundary.md)
 5. [Make process execution lossless and deadlock-free](refactors/process-execution-contract.md)
 6. [Isolate workflow environments and define concurrency](refactors/workflow-environment-and-concurrency.md)
+
+After those foundations, persist a [durable execution journal](features/durable-execution-journal.md), complete [structured run reporters](features/run-reporters.md), and add [resumable execution](features/resumable-execution.md). [Memory-aware scheduling](features/memory-aware-scheduling.md) remains gated on a successful measurement spike.
 
 The [hermetic workflow test suite](testing/hermetic-workflow-tests.md) may establish fixtures and host-independent helpers alongside the first three items, but assertions that depend on the new error or execution contracts land after those contracts.
 
