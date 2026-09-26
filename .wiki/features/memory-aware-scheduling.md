@@ -29,7 +29,7 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 
 # Dependencies and ordering
 
-This implementation is tracked by [work item #13](https://code.ornl.gov/research-enablement/xylem/-/work_items/13). Measurement may begin independently, but production scheduling depends on [fixed input concurrency](fixed-input-concurrency.md) and deterministic orchestration. Observed-versus-estimated telemetry consumes the [durable execution journal](durable-execution-journal.md). Do not add runtime dependencies or public configuration until the spike produces an accepted estimator and error bound.
+This implementation is tracked by [work item #13](https://code.ornl.gov/research-enablement/xylem/-/work_items/13). Measurement may begin independently, but production scheduling depends on [fixed input concurrency](fixed-input-concurrency.md) and deterministic orchestration. Observed-versus-estimated telemetry uses the existing durable execution journal. Do not add runtime dependencies or public configuration until the spike produces an accepted estimator and error bound.
 
 # Recommendation
 
@@ -77,6 +77,5 @@ Record estimator identity, estimated bytes, configured budget, safety reserve, a
 # Related plans
 
 - [Fixed input concurrency](fixed-input-concurrency.md)
-- [Durable execution journal](durable-execution-journal.md)
 - [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
 - [Hermetic workflow tests](../testing/hermetic-workflow-tests.md)

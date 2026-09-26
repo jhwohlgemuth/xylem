@@ -29,7 +29,7 @@ Let users rerun a full input directory while Xylem identifies work whose expecte
 
 # Dependencies and ordering
 
-This implementation is tracked by [work item #12](https://code.ornl.gov/research-enablement/xylem/-/work_items/12). It consumes the [durable execution journal](durable-execution-journal.md), [configuration validation](../refactors/configuration-validation-and-dry-run.md), and deterministic scheduling from [workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md). The [fixed input concurrency](fixed-input-concurrency.md) contract remains in force for work that is not skipped.
+This implementation is tracked by [work item #12](https://code.ornl.gov/research-enablement/xylem/-/work_items/12). It consumes the existing durable execution journal, [configuration validation](../refactors/configuration-validation-and-dry-run.md), and deterministic scheduling from [workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md). The [fixed input concurrency](fixed-input-concurrency.md) contract remains in force for work that is not skipped.
 
 # Recommendation
 
@@ -79,7 +79,6 @@ Document that the resume unit equals the Xylem input unit. To resume individual 
 
 # Related plans
 
-- [Durable execution journal](durable-execution-journal.md)
 - [Configuration validation and dry-run](../refactors/configuration-validation-and-dry-run.md)
 - [Fixed input concurrency](fixed-input-concurrency.md)
 - [Structured run reporters](run-reporters.md)

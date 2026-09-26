@@ -79,7 +79,6 @@ When `batch` is present, effective input concurrency is `min(batch, threads)`. W
 # Related plans
 
 - [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
-- [Durable execution journal](durable-execution-journal.md)
 - [Memory-aware adaptive scheduling](memory-aware-scheduling.md)
 - [Hermetic workflow tests](../testing/hermetic-workflow-tests.md)
 

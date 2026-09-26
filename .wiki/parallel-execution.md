@@ -14,7 +14,7 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 | Configuration lock | `xylem-lib/src/config/mod.rs` and its future extracted modules | Error signatures land first; validation owns extraction; fixed batching owns `options.batch`; resume and memory plans add only validated extracted types after that contract stabilizes. |
 | Process lock | `xylem-lib/src/script/mod.rs` and process fixtures | The process contract lands before environment or lifecycle integration; ACORN command sync changes its adapter only during final handoff. |
 | Scheduler lock | `xylem-lib/src/execution.rs`, input admission in `xylem-cli/src/commands/run/mod.rs` | Fixed batching establishes one scheduler boundary; environment, resume, and memory work consume it serially rather than adding parallel admission loops. |
-| Run-state lock | `xylem-lib/src/progress.rs`, future journal/outcome modules, reporter adapters | Typed outcomes land first, the journal owns durable transitions, and reporters/resume consume those states without redefining them. |
+| Run-state lock | `xylem-lib/src/progress.rs`, journal/outcome modules, reporter adapters | The journal owns durable transitions; reporters and resume consume those states without redefining them. |
 | CLI lock | `xylem-cli/src/{main,cli}.rs`, `xylem-cli/src/commands/run/mod.rs` | One owner for argument registration, pool/scheduler setup, journal lifecycle, exit mapping, and generated help. |
 | Delivery lock | `Makefile`, `.gitlab-ci.yml`, release exporters | Security commands land before CI/release wiring; package export consumes the immutable release contract. |
 | Documentation lock | top-level Markdown and `examples/` | Final updates occur after behavior and command names are stable. |
@@ -43,18 +43,16 @@ This lane owns configuration extraction and validated execution plans.
 1. [Typed errors and outcomes](refactors/typed-error-and-outcome-boundary.md)
 2. [Process execution contract](refactors/process-execution-contract.md)
 3. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), after the process contract lands
-4. [Durable execution journal](features/durable-execution-journal.md)
-5. [Resumable execution](features/resumable-execution.md), after journal and configuration validation
-6. [Memory-aware scheduling](features/memory-aware-scheduling.md), after its spike and the fixed scheduler contract
+4. [Resumable execution](features/resumable-execution.md), after configuration validation
+5. [Memory-aware scheduling](features/memory-aware-scheduling.md), after its spike and the fixed scheduler contract
 
 [Fixed input concurrency](features/fixed-input-concurrency.md) is an immediate bounded slice that may land before steps 1-3 against the current run-local pool. If it does, later runtime work preserves its `options.batch` contract and scheduler tests. Configurable thread support remains an existing baseline. Advanced orchestration preserves both limits and consumes the process result contract.
 
 ### Lane D: CLI and verification
 
 1. [Hermetic workflow tests](testing/hermetic-workflow-tests.md), fixture/helper slice only
-2. Journal recovery and interruption fixtures after the typed outcome contract
-3. [Run reporters](features/run-reporters.md), after durable journal integration
-4. Final error-path and compiled-binary test slice
+2. [Run reporters](features/run-reporters.md), using the durable journal
+3. Final error-path and compiled-binary test slice
 
 Tests that assert new outcomes wait for the owning contract. Fixture cleanup and fake-command helpers can start without the CLI lock.
 
