@@ -2,7 +2,7 @@ use crate::script::{
     add_dot_slash, get_conda_environment_list, get_conda_environment_name, Command, Script, ScriptTemplate, VirtualEnvironment,
     VirtualEnvironmentManager,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const FIXTURES: &str = "../tests/fixtures";
 
@@ -44,7 +44,7 @@ fn test_create_pixi_environment() {
         .expect("Pixi manifest should produce an install command");
 
     assert_eq!(script.to_string(), "pixi install --environment default");
-    assert!(script.current_dir.ends_with("tests/fixtures/pixi-module"));
+    assert!(Path::new(&script.current_dir).ends_with("tests/fixtures/pixi-module"));
 }
 #[test]
 fn test_resolve_pixi_environment() {

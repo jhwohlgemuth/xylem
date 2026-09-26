@@ -40,8 +40,7 @@ serde_json = { version = "1.0.149", default-features = false }
 strum = { version = "0.28.0", features = ["derive"], default-features = false }
 tracing = { version = "0.1.44", features = ["attributes"], default-features = false }
 tracing-log = { version = "0.2.0", default-features = false }
-# Pinned to ensure colored ANSI output
-tracing-subscriber = { version = "=0.3.22", features = [
+tracing-subscriber = { version = "0.3.23", features = [
   "ansi",
   "env-filter",
 ], default-features = false }

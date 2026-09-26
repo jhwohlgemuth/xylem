@@ -1,4 +1,4 @@
-use crate::remote::{probe_git_with_command, redact_url, RemotePolicy};
+use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
 use crate::*;
 use acorn_core::{Location, Scheme};
@@ -14,6 +14,9 @@ use std::thread;
 
 const FIXTURES: &str = "../tests/fixtures";
 
+// `core::io` is still unstable (rust-lang/rust#154046), so this lint's
+// `core::io::ErrorKind` suggestion does not compile.
+#[allow(clippy::std_instead_of_core)]
 fn bind_local_server() -> Option<TcpListener> {
     match TcpListener::bind("127.0.0.1:0") {
         | Ok(listener) => Some(listener),
@@ -242,6 +245,7 @@ fn test_remote_allowlist_matches_exact_normalized_authorities() {
 #[cfg(unix)]
 #[test]
 fn test_remote_git_probe_reports_failure_and_timeout() {
+    use crate::remote::probe_git_with_command;
     use std::os::unix::fs::PermissionsExt;
     let root = std::env::temp_dir().join(format!("xylem-remote-test-{}", std::process::id()));
     std::fs::create_dir_all(&root).expect("create test directory");

@@ -1,4 +1,4 @@
-use std::fs::{create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write};
+use std::fs::{create_dir_all, read, read_dir, remove_dir_all, remove_file, write};
 
 #[cfg(not(target_os = "windows"))]
 #[test]

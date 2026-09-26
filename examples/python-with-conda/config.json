@@ -2,6 +2,11 @@
     "version": "0.0.1",
     "description": "Run Python (with conda) module example",
     "requirements": [],
+    "variables": {
+        "GREETING": "Hello",
+        "AUDIENCE": "from Xylem",
+        "MESSAGE": "{{ GREETING }} {{ AUDIENCE }}"
+    },
     "modules": [
         {
             "name": "Conda Example",
@@ -16,7 +21,11 @@
                 "command": "python",
                 "arguments": [
                     "-m",
-                    "lib.run"
+                    "lib.run",
+                    "--message",
+                    "{{ MESSAGE }}",
+                    "--modules",
+                    "{{ MODULE_LIST }}"
                 ]
             }
         }
