@@ -22,19 +22,10 @@ const DISPLAY_LINE_NUMBER: bool = false;
 const DISPLAY_TARGET: bool = false;
 const DISPLAY_THREAD_ID: bool = false;
 const DISPLAY_THREAD_NAME: bool = true;
-const LOG_LEVEL: &str = "XYLEM_LOG_LEVEL";
 /// Show module output at TRACE while pinning verbose configuration dumps to INFO,
 /// so examples read as a workflow narrative instead of a debug dump.
 const EXAMPLE_LOG: &str = "trace,xylem_lib::config=info,xylem_cli::commands::run=info";
-
-fn load_dotenv(path: Option<&PathBuf>) -> Result<bool> {
-    match path {
-        | Some(path) => dotenvy::from_path(path)
-            .map(|_| true)
-            .map_err(|why| eyre!("Could not load dotenv file {} — {why}", path.display())),
-        | None => Ok(dotenvy::dotenv().is_ok()),
-    }
-}
+const LOG_LEVEL: &str = "XYLEM_LOG_LEVEL";
 /// Install the global tracing subscriber, preferring `XYLEM_LOG_LEVEL` from a dotenv file over `verbose`.
 ///
 /// `filter` is an optional [EnvFilter] directive. When set it takes precedence
@@ -85,6 +76,14 @@ pub fn init_tracing(env: Option<&PathBuf>, verbose: &Verbosity, filter: Option<&
     }
     Ok(())
 }
+fn load_dotenv(path: Option<&PathBuf>) -> Result<bool> {
+    match path {
+        | Some(path) => dotenvy::from_path(path)
+            .map(|_| true)
+            .map_err(|why| eyre!("Could not load dotenv file {} — {why}", path.display())),
+        | None => Ok(dotenvy::dotenv().is_ok()),
+    }
+}
 /// Run the workflow configuration at a path relative to the workspace root.
 ///
 /// Relative module URIs resolve against the process working directory, so this
@@ -107,6 +106,8 @@ pub fn run_example(config: &str) -> Void {
         &[ReporterType::Console],
         &None,
         &None,
+        &None,
+        false,
         false,
         false,
         &None,

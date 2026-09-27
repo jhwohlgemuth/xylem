@@ -2,8 +2,9 @@
 
 ## Planned
 
-- [Land typed execution foundations and add resumable execution](resumable-execution.md) - Prioritized. Replaces the YAML parser, introduces typed errors, validates configuration into a side-effect-free plan, then declares expected module outputs and skips completed work during resume runs.
+- [Finish typed execution foundations and resumable execution](resumable-execution.md) - Prioritized. Complete typed-error hardening, remaining resume edge cases, and release reconciliation; validated planning and completion behavior have landed.
 - [Memory-aware adaptive scheduling](memory-aware-scheduling.md) - Validate a peak-memory estimator and admit inputs within a configured memory budget and batch ceiling.
+- [Shell-script workflow input](shell-script-workflow-input.md) - Add bounded, typed input discovery while preserving deterministic planning and CLI precedence.
 
 ## Landed, pending document reconciliation
 

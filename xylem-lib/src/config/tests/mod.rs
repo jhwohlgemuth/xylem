@@ -1,16 +1,15 @@
 use crate::config::*;
 use crate::execution::{ExecutionContext, ExecutionLimits, InputBatch};
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState, ProgressUpdate};
+use acorn_schema::validation::Validate;
 use std::fs::{remove_file, write};
 use std::sync::Mutex;
 
 const FIXTURES: &str = "../tests/fixtures";
-
 #[derive(Default)]
 struct RecordingProgress {
     updates: Mutex<Vec<ProgressUpdate>>,
 }
-
 impl ProgressObserver for RecordingProgress {
     fn update(&self, update: ProgressUpdate) {
         self.updates.lock().expect("progress lock").push(update);
@@ -18,7 +17,7 @@ impl ProgressObserver for RecordingProgress {
 }
 
 #[test]
-fn allowed_round_trips_in_configuration_options() {
+fn test_allowed_round_trips_in_configuration_options() {
     let config: Config = serde_json::from_value(serde_json::json!({
         "requirements": [],
         "modules": [],
@@ -38,7 +37,7 @@ fn allowed_round_trips_in_configuration_options() {
     );
 }
 #[test]
-fn batch_rejects_zero_negative_non_numeric_and_overflow_values() {
+fn test_batch_rejects_zero_negative_non_numeric_and_overflow_values() {
     let overflow = (usize::MAX as u128 + 1).to_string();
     for value in ["0".to_string(), "-1".to_string(), "\"many\"".to_string(), overflow] {
         let json = format!(r#"{{"requirements":[],"modules":[],"options":{{"batch":{value}}}}}"#);
@@ -54,7 +53,7 @@ fn batch_rejects_zero_negative_non_numeric_and_overflow_values() {
     assert!(parse_yaml_configuration(yaml).is_err());
 }
 #[test]
-fn batch_round_trips_through_json_and_yaml() {
+fn test_batch_round_trips_through_json_and_yaml() {
     let json = serde_json::json!({
         "requirements": [],
         "modules": [],
@@ -69,7 +68,60 @@ fn batch_round_trips_through_json_and_yaml() {
     assert_eq!(round_trip.options.and_then(|options| options.batch).map(InputBatch::get), Some(2));
 }
 #[test]
-fn configuration_errors_preserve_format_path_and_source() {
+fn test_completion_declarations_round_trip_through_json_and_yaml() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "output": "/tmp/artifacts",
+        "requirements": [],
+        "modules": [{
+            "completion": {
+                "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/probe.json",
+                "outputs": ["{{ OUTPUT_DIRECTORY }}/*.txt"]
+            },
+            "name": "probe",
+            "programmingLanguage": "generic",
+            "template": { "arguments": [], "command": "true" },
+            "type": "script",
+            "uri": "file:./probe"
+        }]
+    }))
+    .expect("completion configuration");
+    let json = serde_json::to_value(&config).expect("serialize JSON");
+    let yaml = serde_norway::to_string(&config).expect("serialize YAML");
+    let yaml: Config = parse_yaml_configuration(&yaml).expect("deserialize YAML");
+    assert_eq!(json, serde_json::to_value(yaml).expect("normalize YAML"));
+}
+#[test]
+fn test_completion_planning_reports_invalid_glob_unresolved_variable_and_outside_root() {
+    for (output, expected) in [
+        ("{{ OUTPUT_DIRECTORY }}/[", "invalid glob"),
+        ("{{ OUTPUT_DIRECTORY }}/{{ MISSING }}/*.txt", "unresolved variable"),
+        ("/tmp/outside/*.txt", "outside every declared output root"),
+    ] {
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "output": "/tmp/xylem-validation-root",
+            "requirements": [],
+            "modules": [{
+                "completion": {
+                    "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/probe.json",
+                    "outputs": [output]
+                },
+                "name": "probe",
+                "programmingLanguage": "generic",
+                "template": { "arguments": [], "command": "true" },
+                "type": "script",
+                "uri": "file:./probe"
+            }]
+        }))
+        .expect("completion configuration");
+        let error = config
+            .validate_for_inputs(&[Some("input".to_string())])
+            .expect_err("completion declaration should fail planning");
+        assert!(error.to_string().contains(expected), "{error}");
+        assert!(error.to_string().contains("inputs[0].modules[0].completion"), "{error}");
+    }
+}
+#[test]
+fn test_configuration_errors_preserve_format_path_and_source() {
     let missing = std::env::temp_dir().join(format!("xylem-missing-config-{}.json", std::process::id()));
     let missing_error = Config::read_json(missing.clone()).expect_err("missing configuration should fail");
     match &missing_error {
@@ -97,7 +149,7 @@ fn configuration_errors_preserve_format_path_and_source() {
     remove_file(empty).expect("remove empty YAML configuration");
 }
 #[test]
-fn configuration_try_from_uses_mime_type_for_yml_files() {
+fn test_configuration_try_from_uses_mime_type_for_yml_files() {
     let path = std::env::temp_dir().join(format!("xylem-config-mime-{}.yml", std::process::id()));
     write(&path, "requirements: []\nmodules: []\n").expect("write YAML configuration");
     let config = Config::try_from(path.as_path()).expect("read YAML configuration by MIME type");
@@ -105,7 +157,7 @@ fn configuration_try_from_uses_mime_type_for_yml_files() {
     remove_file(path).expect("remove YAML configuration");
 }
 #[test]
-fn configuration_version_must_be_semantic() {
+fn test_configuration_version_must_be_semantic() {
     for version in ["1", "1.2", "1.2.3"] {
         let config = serde_json::json!({
             "version": version,
@@ -125,7 +177,36 @@ fn configuration_version_must_be_semantic() {
     }
 }
 #[test]
-fn json_and_yaml_fixtures_deserialize_equally() {
+fn test_every_example_configuration_passes_semantic_validation() {
+    let examples = std::fs::read_dir("../examples").expect("read examples directory");
+    let mut configurations = examples
+        .map(|entry| entry.expect("example entry").path().join("config.json"))
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+    configurations.extend(
+        std::fs::read_dir("../tests")
+            .expect("read tests directory")
+            .map(|entry| entry.expect("test entry").path().join("config.json"))
+            .filter(|path| path.is_file()),
+    );
+    configurations.sort();
+    assert!(!configurations.is_empty());
+    configurations.into_iter().for_each(|path| {
+        let config = Config::try_from(path.as_path()).unwrap_or_else(|error| panic!("parse {}: {error}", path.display()));
+        config.validate().unwrap_or_else(|error| panic!("validate {}: {error}", path.display()));
+    });
+}
+#[test]
+fn test_get_children() {
+    assert_eq!(get_children("../../does/not/exist".to_string()), Vec::<String>::new());
+    let children = get_children("../tests/fixtures/input".to_string())
+        .iter()
+        .map(|path| PathBuf::from(path).file_name().expect("input name").to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(children, ["one", "three", "two"]);
+}
+#[test]
+fn test_json_and_yaml_fixtures_deserialize_equally() {
     let json = Config::read_json(PathBuf::from(format!("{FIXTURES}/config-equivalent.json"))).expect("read equivalent JSON fixture");
     let yaml = Config::read_yaml(PathBuf::from(format!("{FIXTURES}/config-equivalent.yaml"))).expect("read equivalent YAML fixture");
     let json_value = serde_json::to_value(json).expect("normalize JSON fixture");
@@ -138,7 +219,7 @@ fn json_and_yaml_fixtures_deserialize_equally() {
     assert_eq!(yaml_value["variables"]["QUOTED"], "true");
 }
 #[test]
-fn json_and_yaml_reject_unknown_fields() {
+fn test_json_and_yaml_reject_unknown_fields() {
     for (json, yaml) in [
         (
             r#"{"requirements":[],"modules":[],"unexpected":true}"#,
@@ -162,7 +243,7 @@ fn json_and_yaml_reject_unknown_fields() {
     }
 }
 #[test]
-fn preparation_and_execution_emit_progress_updates() {
+fn test_preparation_and_execution_emit_progress_updates() {
     let config: Config = serde_json::from_value(serde_json::json!({
         "requirements": [],
         "modules": [{
@@ -193,16 +274,65 @@ fn preparation_and_execution_emit_progress_updates() {
     assert_eq!(updates[3].state, ProgressState::Skipped);
 }
 #[test]
-fn test_get_children() {
-    assert_eq!(get_children("../../does/not/exist".to_string()), Vec::<String>::new());
-    let children = get_children("../tests/fixtures/input".to_string())
-        .iter()
-        .map(|path| PathBuf::from(path).file_name().expect("input name").to_string_lossy().to_string())
-        .collect::<Vec<_>>();
-    assert_eq!(children, ["one", "three", "two"]);
+fn test_semantic_validation_collects_path_qualified_errors() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [""],
+        "resources": ["gpu"],
+        "modules": [
+            {
+                "name": "duplicate",
+                "programmingLanguage": "generic",
+                "type": "script",
+                "uri": "invalid",
+                "template": { "arguments": [], "command": "" }
+            },
+            {
+                "completion": { "marker": "*.json", "outputs": [] },
+                "name": "duplicate",
+                "programmingLanguage": "generic",
+                "type": "script",
+                "uri": "file:./probe"
+            }
+        ]
+    }))
+    .expect("configuration should deserialize before semantic validation");
+    let error = config.validate().expect_err("configuration should be invalid");
+    let paths = error.iter().map(|issue| issue.path.as_str()).collect::<Vec<_>>();
+    assert_eq!(
+        paths,
+        [
+            "resources",
+            "requirements[0]",
+            "modules[0].uri",
+            "modules[0].template.command",
+            "modules[1].name",
+            "modules[1].completion.marker",
+            "modules[1].completion.outputs",
+            "modules[1].completion",
+        ]
+    );
+    assert!(error
+        .to_string()
+        .contains("modules[0].template.command: template command must not be empty"));
 }
 #[test]
-fn yaml_rejects_ambiguous_and_resource_exhausting_input() {
+fn test_type_specific_module_fields_are_rejected_in_json_and_yaml() {
+    for (json, yaml) in [
+        (
+            r#"{"requirements":[],"modules":[{"name":"probe","type":"script","uri":"file:./probe","checksum":"sha256:00"}]}"#,
+            "requirements: []\nmodules:\n  - name: probe\n    type: script\n    uri: file:./probe\n    checksum: sha256:00\n",
+        ),
+        (
+            r#"{"requirements":[],"modules":[{"name":"probe","type":"binary","uri":"file:./probe","programmingLanguage":"generic"}]}"#,
+            "requirements: []\nmodules:\n  - name: probe\n    type: binary\n    uri: file:./probe\n    programmingLanguage: generic\n",
+        ),
+    ] {
+        assert!(parse_json_configuration(json).is_err());
+        assert!(parse_yaml_configuration(yaml).is_err());
+    }
+}
+#[test]
+fn test_yaml_rejects_ambiguous_and_resource_exhausting_input() {
     for yaml in [
         "requirements: []\nrequirements: []\nmodules: []\n",
         "requirements: []\nmodules: []\n---\nrequirements: []\nmodules: []\n",
@@ -221,7 +351,7 @@ fn yaml_rejects_ambiguous_and_resource_exhausting_input() {
     assert!(error.to_string().contains("repetition limit exceeded"), "{error}");
 }
 #[test]
-fn yaml_supports_merge_sequence_precedence() {
+fn test_yaml_supports_merge_sequence_precedence() {
     let yaml = "requirements: []\nmodules:\n  - <<:\n      - &first {name: First, type: script, uri: 'file:./first'}\n      - &second {name: Second, type: script, uri: 'file:./second'}\n";
     let config = parse_yaml_configuration(yaml).expect("merge sequence should deserialize");
     assert_eq!(config.modules[0].name, "First");

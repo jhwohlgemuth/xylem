@@ -1,14 +1,17 @@
+use crate::completion::Completion;
+use crate::error::ProcessError;
 use crate::util::constants::{RE_HANDLEBARS, RE_TEMPLATE_SPACES};
-use acorn::io::read_file;
 use acorn::util::Label;
-use acorn::{args, cmd};
+use acorn_cmd::{args, cmd};
 use acorn_core::util::alloc::StringConversion;
 use acorn_core::{Location, Scheme};
+use acorn_host::fs::read_text;
 use bon::Builder;
 use core::convert::TryFrom;
 use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
 use owo_colors::OwoColorize;
+use serde::de::Error as _;
 use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
@@ -16,14 +19,13 @@ use std::collections::HashMap;
 use std::env::{set_var, vars};
 use std::ffi::OsStr;
 use std::path::PathBuf;
-use std::process;
+use strum::EnumIs;
 use tracing::{debug, error, info, trace, warn};
 use uriparse::URI;
 use valuable_derive::Valuable;
 use which::which;
 
 pub type CommandResult = Result<(), Box<dyn StdError + 'static>>;
-
 #[derive(Clone, Debug, Display, Serialize, Deserialize, Valuable)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainerRuntime {
@@ -68,7 +70,7 @@ pub enum Instruction {
     /// ```
     ExecFormat(Vec<String>),
 }
-#[derive(Clone, Debug, Serialize, Deserialize, Display, Valuable)]
+#[derive(Clone, Debug, Serialize, Deserialize, Display, EnumIs, Valuable)]
 #[serde(rename_all = "lowercase")]
 pub enum ModuleLanguage {
     Binary,
@@ -240,6 +242,7 @@ pub struct Module {
     pub before_script: Option<Instruction>,
     pub after_script: Option<Instruction>,
     pub template: Option<TemplateAttribute>,
+    pub completion: Option<Completion>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -247,6 +250,7 @@ struct RawModule {
     after_script: Option<Instruction>,
     before_script: Option<Instruction>,
     checksum: Option<String>,
+    completion: Option<Completion>,
     description: Option<String>,
     name: String,
     #[serde(alias = "programmingLanguage")]
@@ -469,11 +473,12 @@ impl<'de> Deserialize<'de> for Module {
     where
         D: serde::Deserializer<'de>,
     {
-        RawModule::deserialize(deserializer).map(
+        RawModule::deserialize(deserializer).and_then(
             |RawModule {
                  after_script,
                  before_script,
                  checksum,
+                 completion,
                  description,
                  name,
                  programming_language,
@@ -482,29 +487,39 @@ impl<'de> Deserialize<'de> for Module {
                  uri,
                  variables,
              }| {
-                let module_type = match module_type {
-                    | RawModuleType::Binary => ModuleType::Binary { checksum, uri },
-                    | RawModuleType::Configuration => ModuleType::Configuration { uri },
-                    | RawModuleType::Script => ModuleType::Script { programming_language, uri },
-                };
-                Self {
-                    name,
-                    module_type,
-                    description,
-                    variables,
-                    before_script,
-                    after_script,
-                    template,
+                match (module_type, checksum, programming_language) {
+                    | (RawModuleType::Binary, checksum, None) => Ok(ModuleType::Binary { checksum, uri }),
+                    | (RawModuleType::Binary, _, Some(_)) => Err(D::Error::custom("binary modules do not accept programmingLanguage")),
+                    | (RawModuleType::Configuration, None, None) => Ok(ModuleType::Configuration { uri }),
+                    | (RawModuleType::Configuration, Some(_), _) => Err(D::Error::custom("configuration modules do not accept checksum")),
+                    | (RawModuleType::Configuration, _, Some(_)) => Err(D::Error::custom("configuration modules do not accept programmingLanguage")),
+                    | (RawModuleType::Script, None, programming_language) => Ok(ModuleType::Script { programming_language, uri }),
+                    | (RawModuleType::Script, Some(_), _) => Err(D::Error::custom("script modules do not accept checksum")),
                 }
+                .map(|module_type| Self {
+                    after_script,
+                    before_script,
+                    completion,
+                    description,
+                    module_type,
+                    name,
+                    template,
+                    variables,
+                })
             },
         )
+    }
+}
+impl ModuleLanguage {
+    pub const fn is_supported(&self) -> bool {
+        self.is_generic() || self.is_python()
     }
 }
 impl ModuleUri<'_> {
     pub fn from(value: &str) -> ModuleUri<'_> {
         match URI::try_from(value) {
             | Ok(uri) => match (Scheme::from(uri.scheme().as_str()), uri.scheme().as_str().eq_ignore_ascii_case("ssh")) {
-                | (Scheme::HTTP | Scheme::HTTPS, _) | (Scheme::Unsupported, true) => ModuleUri::Url(Box::new(uri)),
+                | (Scheme::HTTP | Scheme::HTTPS | Scheme::SSH, _) | (Scheme::Unsupported, true) => ModuleUri::Url(Box::new(uri)),
                 | (Scheme::File, _) => ModuleUri::File(PathBuf::from(uri.path().to_string())),
                 | (Scheme::Unsupported, false) => ModuleUri::Unknown(value.to_string()),
             },
@@ -603,51 +618,53 @@ impl Script {
     ///   - use default script if "template.json" does not exist
     ///
     /// ```
-    pub fn from_module(module: Module, root: Option<PathBuf>) -> Script {
+    pub fn from_module(module: Module, root: Option<PathBuf>) -> Result<Script, String> {
         const DEFAULT_FILENAME: &str = "template.json";
-        let module_uri = match &module.module_type {
-            | ModuleType::Binary { uri, .. } | ModuleType::Script { uri, .. } => uri,
-            | ModuleType::Configuration { .. } => unimplemented!("Configuration module type"),
-        };
-        let working_dir = module_working_directory(module_uri, root.as_ref()).unwrap_or_else(|| Location::from(module_uri).hash());
-        let default_template_path = PathBuf::from(&working_dir).join(DEFAULT_FILENAME);
-        match &module.template {
-            | Some(attribute) => match attribute {
-                | TemplateAttribute::Path(value) => match PathBuf::from(&working_dir).join(value).try_exists() {
-                    | Ok(true) => {
-                        let path = PathBuf::from(&working_dir).join(value);
-                        debug!(module = module.name, path = path.to_str().unwrap(), "=> {} Template file", Label::using());
-                        Script::from_path(path)
+        match &module.module_type {
+            | ModuleType::Binary { uri, .. } | ModuleType::Script { uri, .. } => Ok(uri),
+            | ModuleType::Configuration { .. } => Err("configuration modules are not executable".to_string()),
+        }
+        .map(|module_uri| {
+            let working_dir = module_working_directory(module_uri, root.as_ref()).unwrap_or_else(|| Location::from(module_uri).hash());
+            let default_template_path = PathBuf::from(&working_dir).join(DEFAULT_FILENAME);
+            match &module.template {
+                | Some(attribute) => match attribute {
+                    | TemplateAttribute::Path(value) => match PathBuf::from(&working_dir).join(value).try_exists() {
+                        | Ok(true) => {
+                            let path = PathBuf::from(&working_dir).join(value);
+                            debug!(module = module.name, path = path.to_str().unwrap(), "=> {} Template file", Label::using());
+                            Script::from_path(path)
+                        }
+                        | _ => {
+                            let path = PathBuf::from(&working_dir).join(value).into_os_string().into_string().unwrap();
+                            warn!(module = module.name, "=> {} {}", Label::not_found(), path);
+                            warn!(module = module.name, "=> {} Default template file path", Label::using());
+                            Script::from_path(default_template_path)
+                        }
+                    },
+                    | TemplateAttribute::Template(value) => {
+                        debug!(module = module.name, "=> {} Template attribute", Label::using());
+                        Script::from_template(value.clone())
                     }
-                    | _ => {
-                        let path = PathBuf::from(&working_dir).join(value).into_os_string().into_string().unwrap();
-                        warn!(module = module.name, "=> {} {}", Label::not_found(), path);
+                },
+                | None => match default_template_path.try_exists() {
+                    | Ok(true) => {
                         warn!(module = module.name, "=> {} Default template file path", Label::using());
                         Script::from_path(default_template_path)
                     }
+                    | _ => {
+                        warn!(
+                            module = module.name,
+                            "=> {} {}",
+                            Label::not_found(),
+                            default_template_path.into_os_string().into_string().unwrap()
+                        );
+                        warn!(module = module.name, "=> {} Default Python script", Label::using());
+                        Script::python_default()
+                    }
                 },
-                | TemplateAttribute::Template(value) => {
-                    debug!(module = module.name, "=> {} Template attribute", Label::using());
-                    Script::from_template(value.clone())
-                }
-            },
-            | None => match default_template_path.try_exists() {
-                | Ok(true) => {
-                    warn!(module = module.name, "=> {} Default template file path", Label::using());
-                    Script::from_path(default_template_path)
-                }
-                | _ => {
-                    warn!(
-                        module = module.name,
-                        "=> {} {}",
-                        Label::not_found(),
-                        default_template_path.into_os_string().into_string().unwrap()
-                    );
-                    warn!(module = module.name, "=> {} Default Python script", Label::using());
-                    Script::python_default()
-                }
-            },
-        }
+            }
+        })
     }
     /// Create a script from a template JSON file in [ScriptTemplate] format.
     ///
@@ -803,18 +820,12 @@ impl Script {
     }
     /// Execute a script and return its combined standard output and standard error.
     ///
-    /// A failed child process stops the workflow with the software-error exit code.
-    pub fn run(&self) -> Vec<String> {
-        match self.run_checked() {
-            | Ok(output) => output,
-            | Err(error) => {
-                error!(error, script = self.to_string(), "=> {} Workflow stopped", Label::fail());
-                process::exit(exitcode::SOFTWARE);
-            }
-        }
+    /// Execute a script and return failures to the caller.
+    pub fn run(&self) -> Result<Vec<String>, ProcessError> {
+        self.run_checked()
     }
     /// Execute a script and preserve command failures for the caller.
-    pub fn run_checked(&self) -> Result<Vec<String>, String> {
+    pub fn run_checked(&self) -> Result<Vec<String>, ProcessError> {
         let command = &self.get_command();
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
@@ -835,7 +846,10 @@ impl Script {
                     | false => {
                         let details = stderr.join("\n");
                         error!(script = self.to_string(), status = %result.status, details, "=> {}", Label::fail());
-                        Err(format!("script exited with status {}", result.status))
+                        Err(ProcessError::Unsuccessful {
+                            script: self.to_string(),
+                            status: result.status.to_string(),
+                        })
                     }
                 }
             }
@@ -846,7 +860,10 @@ impl Script {
                     "=> {} Failed to run child process",
                     Label::fail()
                 );
-                Err(error.to_string())
+                Err(ProcessError::Spawn {
+                    script: self.to_string(),
+                    source: error.to_string(),
+                })
             }
         }
     }
@@ -910,7 +927,7 @@ impl Script {
 }
 impl ScriptTemplate {
     pub fn from_path(path: PathBuf) -> ScriptTemplate {
-        let content = match read_file(path.clone()) {
+        let content = match read_text(path.clone()) {
             | Ok(value) => value,
             | Err(_) => {
                 error!("Failed to read file: {:?}", path);
@@ -1102,7 +1119,7 @@ fn find_pixi_manifest(path: PathBuf) -> Option<PathBuf> {
         | true => Some(pixi_toml),
         | false => {
             let pyproject = path.join("pyproject.toml");
-            read_file(pyproject.clone())
+            read_text(pyproject.clone())
                 .ok()
                 .and_then(|content| content.parse::<toml::Table>().ok())
                 .and_then(|manifest| {
@@ -1123,6 +1140,7 @@ pub fn get_conda_environment_list() -> Vec<String> {
     if command.test() {
         script
             .run()
+            .unwrap_or_default()
             .join("\n")
             .replace(['#', '*'], "")
             .split('\n')
@@ -1161,7 +1179,7 @@ pub fn get_conda_environment_list() -> Vec<String> {
 /// ```
 pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
     match path.try_exists() {
-        | Ok(true) => match read_file(path) {
+        | Ok(true) => match read_text(path) {
             | Ok(content) => content.lines().next().and_then(|line| line.strip_prefix("name: ")).map(str::to_string),
             | _ => None,
         },

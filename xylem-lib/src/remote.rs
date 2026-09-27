@@ -1,5 +1,5 @@
 //! Remote-module allowlist, reachability, and download support
-use acorn::{args, cmd};
+use acorn_cmd::{args, cmd};
 use acorn_core::Scheme;
 use color_eyre::eyre::{eyre, Report, Result};
 use core::fmt::Display;
@@ -25,6 +25,35 @@ struct AllowedAuthority {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RemotePolicy {
     authorities: Vec<AllowedAuthority>,
+}
+impl TryFrom<&str> for AllowedAuthority {
+    type Error = Report;
+
+    fn try_from(value: &str) -> Result<Self> {
+        let candidate = value.trim();
+        let invalid = candidate.is_empty()
+            || candidate.starts_with(':')
+            || candidate.ends_with(':')
+            || candidate.contains("://")
+            || candidate.contains('/')
+            || candidate.contains('@')
+            || candidate.contains('?')
+            || candidate.contains('#')
+            || candidate.contains('*');
+        match invalid {
+            | true => Err(eyre!("Invalid allowed host {value:?}; expected HOST or HOST:PORT")),
+            | false => Url::parse(&format!("http://{candidate}/"))
+                .map_err(|why| eyre!("Invalid allowed host {value:?} — {why}"))
+                .and_then(|parsed| {
+                    parsed
+                        .host_str()
+                        .map(normalize_host)
+                        .filter(|host| !host.is_empty())
+                        .map(|host| Self { host, port: parsed.port() })
+                        .ok_or_else(|| eyre!("Invalid allowed host {value:?}"))
+                }),
+        }
+    }
 }
 impl RemotePolicy {
     /// Construct a policy from `HOST` or `HOST:PORT` entries.
@@ -96,14 +125,18 @@ impl RemotePolicy {
                     })
                     .and_then(|response| require_success(response, value))
             }),
-            | Scheme::File | Scheme::Unsupported => Err(eyre!("HTTP reachability checks require an HTTP(S) URL: {}", redact_url(value))),
+            | Scheme::File | Scheme::SSH | Scheme::Unsupported => {
+                Err(eyre!("HTTP reachability checks require an HTTP(S) URL: {}", redact_url(value)))
+            }
         })
     }
     /// Check that a Git remote can be queried non-interactively.
     pub fn probe_git(&self, value: &str) -> Result<()> {
         self.ensure_allowed(value)
             .and_then(|url| match (Scheme::from(url.scheme()), url.scheme().eq_ignore_ascii_case("ssh")) {
-                | (Scheme::HTTP | Scheme::HTTPS, _) | (Scheme::Unsupported, true) => probe_git_with_command(Path::new("git"), value, REMOTE_TIMEOUT),
+                | (Scheme::HTTP | Scheme::HTTPS | Scheme::SSH, _) | (Scheme::Unsupported, true) => {
+                    probe_git_with_command(Path::new("git"), value, REMOTE_TIMEOUT)
+                }
                 | (Scheme::File, _) | (Scheme::Unsupported, false) => {
                     Err(eyre!("Git reachability checks require an HTTP(S) or SSH URL: {}", redact_url(value)))
                 }
@@ -146,52 +179,12 @@ impl RemotePolicy {
                             })
                     })
             }
-            | Scheme::File | Scheme::Unsupported => Err(eyre!("Remote binary downloads require an HTTP(S) URL: {}", redact_url(value))),
+            | Scheme::File | Scheme::SSH | Scheme::Unsupported => Err(eyre!("Remote binary downloads require an HTTP(S) URL: {}", redact_url(value))),
         })
     }
 }
 fn normalize_host(value: &str) -> String {
     value.trim_end_matches('.').to_ascii_lowercase()
-}
-impl TryFrom<&str> for AllowedAuthority {
-    type Error = Report;
-
-    fn try_from(value: &str) -> Result<Self> {
-        let candidate = value.trim();
-        let invalid = candidate.is_empty()
-            || candidate.starts_with(':')
-            || candidate.ends_with(':')
-            || candidate.contains("://")
-            || candidate.contains('/')
-            || candidate.contains('@')
-            || candidate.contains('?')
-            || candidate.contains('#')
-            || candidate.contains('*');
-        match invalid {
-            | true => Err(eyre!("Invalid allowed host {value:?}; expected HOST or HOST:PORT")),
-            | false => Url::parse(&format!("http://{candidate}/"))
-                .map_err(|why| eyre!("Invalid allowed host {value:?} — {why}"))
-                .and_then(|parsed| {
-                    parsed
-                        .host_str()
-                        .map(normalize_host)
-                        .filter(|host| !host.is_empty())
-                        .map(|host| Self { host, port: parsed.port() })
-                        .ok_or_else(|| eyre!("Invalid allowed host {value:?}"))
-                }),
-        }
-    }
-}
-fn require_success(response: Response, value: &str) -> Result<()> {
-    if response.status().is_success() {
-        Ok(())
-    } else {
-        Err(eyre!(
-            "Remote module is not reachable at {} — HTTP {}",
-            redact_url(value),
-            response.status()
-        ))
-    }
 }
 pub(crate) fn probe_git_with_command(command: &Path, value: &str, timeout: Duration) -> Result<()> {
     let arguments = args!["-c", "http.followRedirects=false", "ls-remote", value];
@@ -224,12 +217,23 @@ pub fn redact_url(value: &str) -> String {
         | Err(_) => "[INVALID URL]".to_string(),
     }
 }
-fn url_is_sensitive(url: &Url) -> bool {
-    !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some()
-}
 fn request_failure(action: &str, value: &str, why: impl Display) -> Report {
     match Url::parse(value).is_ok_and(|url| url_is_sensitive(&url)) {
         | true => eyre!("{action} [REDACTED URL]"),
         | false => eyre!("{action} {} — {why}", redact_url(value)),
     }
+}
+fn require_success(response: Response, value: &str) -> Result<()> {
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(eyre!(
+            "Remote module is not reachable at {} — HTTP {}",
+            redact_url(value),
+            response.status()
+        ))
+    }
+}
+fn url_is_sensitive(url: &Url) -> bool {
+    !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some()
 }

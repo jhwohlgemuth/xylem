@@ -7,7 +7,7 @@
             "name": "Inception",
             "type": "binary",
             "uri": "https://code.ornl.gov/api/v4/projects/15383/packages/generic/x86_64-unknown-linux-musl/v0.0.11/xylem",
-            "checksum": "31abbb18f09a9b1ef80bb7b75e60668eb1ef393ab46e399fffa4782a5e7cf5e4",
+            "checksum": "sha256:31abbb18f09a9b1ef80bb7b75e60668eb1ef393ab46e399fffa4782a5e7cf5e4",
             "template": {
                 "command": "xylem",
                 "arguments": [

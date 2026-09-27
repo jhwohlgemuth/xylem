@@ -24,14 +24,17 @@ unsafe_code = "forbid"
 broken-intra-doc-links = "forbid"
 
 [workspace.dependencies]
-acorn-core = { version = "0.2.0", features = ["alloc"], default-features = false }
-acorn-lib = { version = "0.2.0", features = ["analysis"], default-features = false }
-acorn-schema = { version = "0.2.0", default-features = false }
+acorn-cmd = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "dde4d6bf851bf0b8d4ab3fd902d357e5d18d9645", default-features = false }
+acorn-core = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "dde4d6bf851bf0b8d4ab3fd902d357e5d18d9645", features = ["alloc"], default-features = false }
+acorn-host = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "dde4d6bf851bf0b8d4ab3fd902d357e5d18d9645", features = ["fs"], default-features = false }
+acorn-lib = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "dde4d6bf851bf0b8d4ab3fd902d357e5d18d9645", features = ["analysis"], default-features = false }
+acorn-schema = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "dde4d6bf851bf0b8d4ab3fd902d357e5d18d9645", default-features = false }
 clap-verbosity-flag = { version = "3.0.4", features = ["log"], default-features = false }
 color-eyre = { version = "0.6.5", default-features = false }
 convert_case = { version = "0.11.0", default-features = false }
 dotenvy = { version = "0.15.7", default-features = false }
 exitcode = { version = "1.1.2", default-features = false }
+glob = { version = "0.3.1", default-features = false }
 owo-colors = { version = "4.2.3", default-features = false }
 rayon = { version = "1.12.0", default-features = false }
 reqwest = { version = "0.13.2", features = ["blocking", "rustls"], default-features = false }

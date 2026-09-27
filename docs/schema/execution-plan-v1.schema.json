@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xylem.ornl.gov/schema/execution-plan-v1.schema.json",
+  "title": "Xylem execution plan version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["configuration", "modules", "resume", "schema_version"],
+  "properties": {
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "output", "path", "version"],
+      "properties": {
+        "id": { "type": ["string", "null"] },
+        "output": { "type": ["string", "null"] },
+        "path": { "type": "string" },
+        "version": { "type": ["string", "null"] }
+      }
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "acquisition",
+          "command",
+          "completion",
+          "decision",
+          "input_index",
+          "input",
+          "module_index",
+          "module",
+          "observed_completion",
+          "variables"
+        ],
+        "properties": {
+          "acquisition": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "source"],
+            "properties": {
+              "action": { "enum": ["clone", "download", "reject", "use_local"] },
+              "source": { "type": "string" }
+            }
+          },
+          "command": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["arguments", "program", "template_source", "working_directory"],
+            "properties": {
+              "arguments": { "type": "array", "items": { "type": "string" } },
+              "program": { "type": ["string", "null"] },
+              "template_source": { "type": ["string", "null"] },
+              "working_directory": { "type": ["string", "null"] }
+            }
+          },
+          "completion": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["marker", "outputs"],
+                "properties": {
+                  "marker": { "type": "string" },
+                  "outputs": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+                }
+              }
+            ]
+          },
+          "input_index": { "type": "integer", "minimum": 0 },
+          "input": { "type": ["string", "null"] },
+          "module_index": { "type": "integer", "minimum": 0 },
+          "module": { "type": "string" },
+          "decision": { "enum": ["would_run", "would_skip_existing"] },
+          "observed_completion": { "type": "boolean" },
+          "variables": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    },
+    "resume": { "type": "boolean" },
+    "schema_version": { "const": 1 }
+  }
+}

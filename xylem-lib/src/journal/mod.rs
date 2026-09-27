@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use strum::EnumIs;
 
 /// Current on-disk journal schema version.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 1;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 2;
 /// Maximum number of UTF-8 bytes retained for one journal error detail.
 pub const MAX_ERROR_BYTES: usize = 4096;
 trait Summary {
@@ -47,6 +47,8 @@ pub enum ExecutionState {
     Failed,
     /// Work was intentionally not executed, such as during a dry run.
     Skipped,
+    /// Work was not executed because declared outputs were already complete.
+    SkippedExisting,
 }
 /// Final state written by a normally completed run.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -228,6 +230,12 @@ pub struct RunSummary {
     /// Ordered input summaries.
     pub inputs: Vec<InputSummary>,
 }
+impl ExecutionState {
+    /// Whether this state represents completed work.
+    pub fn is_complete(self) -> bool {
+        self.is_succeeded() || self.is_skipped() || self.is_skipped_existing()
+    }
+}
 impl Summary for InputSummary {
     fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<u64>, &mut u64) {
         (&mut self.state, &mut self.error, &mut self.started_at_ms, &mut self.updated_at_ms)
@@ -379,18 +387,14 @@ impl RunJournal {
                 self.sink.lock().map_err(|_| JournalError::Poisoned).and_then(|mut sink| {
                     let current = sink.input_states[input_index];
                     validate_transition(current, state, "input")
-                        .and_then(|()| {
-                            match state.is_succeeded()
-                                && sink.module_states[input_index]
-                                    .iter()
-                                    .any(|state| !(state.is_succeeded() || state.is_skipped()))
-                            {
+                        .and_then(
+                            |()| match state.is_succeeded() && sink.module_states[input_index].iter().any(|state| !state.is_complete()) {
                                 | true => Err(JournalError::Invalid(format!(
                                     "input {input_index} cannot succeed while a module is unfinished or failed"
                                 ))),
                                 | false => Ok(()),
-                            }
-                        })
+                            },
+                        )
                         .and_then(|()| {
                             sink.append_locked(
                                 &self.run_id,
@@ -442,7 +446,7 @@ impl RunJournal {
         self.sink.lock().map_err(|_| JournalError::Poisoned).and_then(|mut sink| {
             match (
                 sink.finalized,
-                status == FinalStatus::Succeeded && sink.input_states.iter().any(|state| !(state.is_succeeded() || state.is_skipped())),
+                status == FinalStatus::Succeeded && sink.input_states.iter().any(|state| !state.is_complete()),
             ) {
                 | (true, _) => Err(JournalError::Invalid("run is already finalized".to_string())),
                 | (false, true) => Err(JournalError::Invalid(
@@ -592,12 +596,14 @@ impl RunSummary {
         let mut succeeded = 0usize;
         let mut failed = 0usize;
         let mut skipped = 0usize;
+        let mut skipped_existing = 0usize;
         let mut unfinished = 0usize;
         for input in &self.inputs {
             match input.state {
                 | ExecutionState::Succeeded => succeeded += 1,
                 | ExecutionState::Failed => failed += 1,
                 | ExecutionState::Skipped => skipped += 1,
+                | ExecutionState::SkippedExisting => skipped_existing += 1,
                 | ExecutionState::NotStarted | ExecutionState::Pending | ExecutionState::Running => unfinished += 1,
             }
         }
@@ -607,7 +613,7 @@ impl RunSummary {
             .and_then(|()| {
                 writeln!(
                     output,
-                    "Inputs: {succeeded} succeeded, {failed} failed, {skipped} skipped, {unfinished} unfinished"
+                    "Inputs: {succeeded} succeeded, {failed} failed, {skipped} skipped, {skipped_existing} skipped existing, {unfinished} unfinished"
                 )
             })
             .and_then(|()| {
@@ -801,12 +807,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
             .and_then(|metadata| {
                 let invalid_success = matches!(finalization, Some((FinalStatus::Succeeded, _, _)))
                     && inputs.values().any(|input| {
-                        !(input.state.is_succeeded() || input.state.is_skipped())
-                            || (input.state.is_succeeded()
-                                && input
-                                    .modules
-                                    .iter()
-                                    .any(|module| !(module.state.is_succeeded() || module.state.is_skipped())))
+                        !input.state.is_complete() || (input.state.is_succeeded() && input.modules.iter().any(|module| !module.state.is_complete()))
                     });
                 match invalid_success {
                     | true => Err(JournalError::Invalid(
@@ -858,10 +859,10 @@ fn timestamp_ms() -> u64 {
 }
 fn validate_transition(current: ExecutionState, next: ExecutionState, kind: &str) -> Result<(), JournalError> {
     let valid = match current {
-        | ExecutionState::NotStarted => next.is_pending() || next.is_running() || next.is_failed() || next.is_skipped(),
-        | ExecutionState::Pending => next.is_running() || next.is_failed() || next.is_skipped(),
-        | ExecutionState::Running => next.is_succeeded() || next.is_failed() || next.is_skipped(),
-        | ExecutionState::Succeeded | ExecutionState::Failed | ExecutionState::Skipped => false,
+        | ExecutionState::NotStarted => next.is_pending() || next.is_running() || next.is_failed() || next.is_skipped() || next.is_skipped_existing(),
+        | ExecutionState::Pending => next.is_running() || next.is_failed() || next.is_skipped() || next.is_skipped_existing(),
+        | ExecutionState::Running => next.is_succeeded() || next.is_failed() || next.is_skipped() || next.is_skipped_existing(),
+        | ExecutionState::Succeeded | ExecutionState::Failed | ExecutionState::Skipped | ExecutionState::SkippedExisting => false,
     };
     match valid {
         | true => Ok(()),

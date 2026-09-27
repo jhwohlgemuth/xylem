@@ -9,35 +9,22 @@ This map records implementation dependencies found while auditing Xylem 1.0.0 on
 ## Correctness and execution path
 
 ```text
-ACORN 0.2 upgrade ----> ACORN command environment sync
-          |                         |
-          +------------+------------+
-                       |
-maintained YAML parser-+
-                       v
-       typed errors and workflow outcomes
-                 |                      |
-                 v                      v
-        lossless process       configuration validation
-                 |                      |
-                 +----------+-----------+
-                            v
-              environment/concurrency
-                    |               |
-                    v               v
-       fixed input concurrency   secure module acquisition
-                    |
-          +---------+---------+
-          |                   |
-          v                   v
- resumable execution   memory-aware scheduling
-
-typed errors and workflow outcomes ------> run reporters
+ACORN 0.2 upgrade -------------------------> secure module acquisition
+                                                    ^
+                                                    |
+typed errors and workflow outcomes --> lossless process
+          |                                  |
+          |                                  v
+          |                         environment/concurrency
+          |                                  |
+          +--> resumable close-out           +--> memory-aware scheduling
+          |
+          +--> run reporters
 ```
 
-Landed at `005aa73` and removed from the graph: the durable execution journal, the ACORN command environment sync, fixed input concurrency, and most of run reporters. The ACORN 0.2 version migration remains only as feature narrowing, so its node is still open.
+Landed and removed from the graph: the durable execution journal, the maintained YAML parser, configuration validation and side-effect-free planning, completion declarations and markers, the ACORN command environment sync, fixed input concurrency, and most of run reporters. The ACORN 0.2 version migration remains only as feature narrowing, so its node is still open.
 
-The fixed-concurrency contract has landed and defines the public `options.batch` ceiling that later orchestration work must consume rather than replace. The configuration plan is now executed as Phase 3 of resumable execution, which owns the YAML, typed-error, and configuration-validation chain as ordered phases, so those plans are no longer scheduled against each other. Secure acquisition still waits for the error, acquisition-location, and ACORN APIs that chain produces. Memory-aware production scheduling remains gated on a successful measurement spike.
+The fixed-concurrency and validated-planning contracts have landed. Secure acquisition still waits for the remaining typed-error, acquisition-location, and ACORN APIs. Memory-aware production scheduling remains gated on a successful measurement spike.
 
 ## Quality and delivery path
 
@@ -56,13 +43,13 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 
 - [ACORN 0.2 upgrade](migrations/acorn-0-2-upgrade.md) precedes acquisition changes because `download_binary` is asynchronous, checksum values are typed, portable location types moved to `acorn-core`, and SSH is no longer an ACORN `Scheme` variant.
 - The ACORN command environment sync has landed and removed Xylem's environment-bearing command fallback: `Script::run_checked` calls `cmd!` with a child-only `env:` override and no `std::process::Command` path remains.
-- [Maintained YAML parser](migrations/maintained-yaml-parser.md) precedes final configuration validation so JSON and YAML share one semantic error model.
+- [Maintained YAML parser](migrations/maintained-yaml-parser.md) and [configuration validation](refactors/configuration-validation-and-dry-run.md) are completed records consumed by later work.
 - [Typed errors and workflow outcomes](refactors/typed-error-and-outcome-boundary.md) precedes process, configuration, acquisition, and reporter work; none of those plans may encode failure as logging plus `Vec::new()` or `process::exit`.
 - [Process execution](refactors/process-execution-contract.md) precedes [environment and concurrency](refactors/workflow-environment-and-concurrency.md): per-invocation environment and cancellation attach to a structured child-process result, while scheduling builds on the existing typed thread budget.
 - The landed `options.batch` contract defines the rolling active-input ceiling that environment and concurrency work must consume rather than replace.
-- [Resumable execution](features/resumable-execution.md) is the prioritized owner and executes the YAML, typed-error, and configuration-validation plans as its own Phases 1 through 3 before adding completion declarations and skip decisions; it never infers completion from tracing logs.
+- [Resumable execution](features/resumable-execution.md) is the prioritized owner for remaining typed-error hardening, resume edge cases, and release reconciliation; completion is never inferred from tracing logs.
 - [Memory-aware scheduling](features/memory-aware-scheduling.md) builds on the fixed scheduler boundary and journal telemetry. Only its measurement spike may proceed before an estimator is accepted.
-- [Configuration validation and dry-run](refactors/configuration-validation-and-dry-run.md) precedes secure acquisition and reporters because both consume a validated, side-effect-free execution plan.
+- The landed [configuration validation and planning](refactors/configuration-validation-and-dry-run.md) contract precedes secure acquisition and reporters.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) consumes the error, process, configuration, and ACORN migration contracts.
 - [Run reporters](features/run-reporters.md) consumes structured workflow outcomes, the existing durable journal, and the dry-run plan; it does not parse logs to infer success.
 - [Dependency and security gates](refactors/dependency-surface-and-security-gates.md) follows both dependency migrations so its accepted graph is not immediately invalidated.

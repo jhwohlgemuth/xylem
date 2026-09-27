@@ -26,6 +26,8 @@ pub enum ProgressState {
     Failed,
     /// Work on the item was intentionally skipped.
     Skipped,
+    /// Work on the item was skipped because declared outputs already exist.
+    SkippedExisting,
 }
 /// A progress update for one module operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -59,6 +61,7 @@ impl From<ExecutionState> for ProgressState {
             | ExecutionState::Succeeded => Self::Finished,
             | ExecutionState::Failed => Self::Failed,
             | ExecutionState::Skipped => Self::Skipped,
+            | ExecutionState::SkippedExisting => Self::SkippedExisting,
         }
     }
 }
@@ -68,12 +71,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn execution_states_convert_to_progress_states() {
+    fn test_execution_states_convert_to_progress_states() {
         assert_eq!(ProgressState::from(ExecutionState::NotStarted), ProgressState::Started);
         assert_eq!(ProgressState::from(ExecutionState::Pending), ProgressState::Started);
         assert_eq!(ProgressState::from(ExecutionState::Running), ProgressState::Started);
         assert_eq!(ProgressState::from(ExecutionState::Succeeded), ProgressState::Finished);
         assert_eq!(ProgressState::from(ExecutionState::Failed), ProgressState::Failed);
         assert_eq!(ProgressState::from(ExecutionState::Skipped), ProgressState::Skipped);
+        assert_eq!(ProgressState::from(ExecutionState::SkippedExisting), ProgressState::SkippedExisting);
     }
 }

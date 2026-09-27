@@ -101,3 +101,12 @@ For more thorough discussions on variables and overall structure, along with a l
     
     > Module P -> Module O
     - Atmospheric correction is **always** the first processing step if it is included, and imagery **must** be pansharpened before it is orthorectified.
+
+## Resuming
+
+Run with `xylem run --resume` to skip a stage whose declared output pattern and
+completion marker are both current. Resume operates on each top-level input
+directory; it does not resume individual image pairs managed internally by a
+module.
+The top-level `output` value supplies the shared `OUTPUT_DIRECTORY`; use
+`--artifact-output` to override that artifact root for one run.

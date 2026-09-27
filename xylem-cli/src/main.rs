@@ -13,12 +13,14 @@ fn main() -> Void {
     init_tracing(args.env.as_ref(), &args.verbose, None, true)?;
     match &args.command {
         | Some(Commands::Run {
+            artifact_output,
             config,
             reporter,
-            output,
+            report_output,
             input,
             dry_run,
             offline,
+            resume,
             allowed,
             skip_verify_checksum,
             skip_verify_requirements,
@@ -27,10 +29,12 @@ fn main() -> Void {
         }) => match commands::run::run(
             config,
             reporter,
-            output,
+            report_output,
+            artifact_output,
             input,
             *dry_run,
             *offline,
+            *resume,
             allowed,
             *skip_verify_checksum,
             *skip_verify_requirements,

@@ -8,6 +8,7 @@
     "keywords": [],
     "input": 
         "/data/test-cases",
+    "output": "/data/output",
     "options": {
         "batch": 2
     },
@@ -17,8 +18,11 @@
             "type": "script",
             "programmingLanguage": "python",
             "uri": "file:///path/to/module-a",
+            "completion": {
+                "marker": "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/.xylem/module-a.json",
+                "outputs": ["{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/*_MODA.tif"]
+            },
             "variables": {
-                "OUTPUT_DIRECTORY": "/data/output",
                 "METHOD": "boa_reflectance",
                 "PROFILE": "urban"
             },
@@ -47,11 +51,13 @@
             "type": "script",
             "programmingLanguage": "python",
             "uri": "file:///path/to/module-p",
+            "completion": {
+                "marker": "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/.xylem/module-p.json",
+                "outputs": ["{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/*_MODA_MODP.tif"]
+            },
             "variables": {
-                "SOURCE_DIRECTORY": "/data/output",
-                "OUTPUT_DIRECTORY": "/data/output",
-                "METHOD": "nn_diffuse",
-                "MODULE_LIST": "MODA, MODP, MODO"
+                "SOURCE_DIRECTORY": "{{ OUTPUT_DIRECTORY }}",
+                "METHOD": "nn_diffuse"
             },
             "template": {
                 "command": "python",
@@ -78,9 +84,12 @@
             "type": "script",
             "programmingLanguage": "python",
             "uri": "file:///path/to/module-o",
+            "completion": {
+                "marker": "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/.xylem/module-o.json",
+                "outputs": ["{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/*_MODA_MODP_MODO.tif"]
+            },
             "variables": {
-                "SOURCE_DIRECTORY": "/data/output",
-                "OUTPUT_DIRECTORY": "/data/output"
+                "SOURCE_DIRECTORY": "{{ OUTPUT_DIRECTORY }}"
             },
             "template": {
                 "command": "python",

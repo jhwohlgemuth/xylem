@@ -1,8 +1,12 @@
-use acorn::io::{file_checksum, make_executable};
+extern crate alloc;
+
 use acorn::util::Label;
+use acorn::With;
 use acorn_core::util::alloc::StringConversion;
 use acorn_core::util::{Checksum, MimeType, SemanticVersion};
 use acorn_core::Scheme;
+use acorn_host::fs::{file_checksum, make_executable};
+use alloc::collections::BTreeSet;
 use bon::Builder;
 use convert_case::{Case, Casing};
 use core::fmt;
@@ -13,15 +17,17 @@ use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::fs::{self, read_to_string};
 use std::path::{Path, PathBuf};
-use std::process::exit;
 use tracing::{debug, error, info, warn};
 
+use crate::completion::{CompletionDecision, CompletionPlan};
 use crate::execution::{ExecutionContext, InputBatch};
 use crate::journal::{ExecutionState, RunJournal};
 use crate::outcome::{ModuleOutcome, WorkflowOutcome};
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
 use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
+
+mod validation;
 
 /// Supported workflow configuration serialization formats.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -115,7 +121,7 @@ pub struct Config {
     pub output: Option<String>,
     pub options: Option<ConfigOptions>,
 }
-#[derive(Builder, Clone, Debug, Deserialize, Serialize)]
+#[derive(Builder, Clone, Debug, Deserialize, Serialize, With)]
 #[builder(start_fn(name = init))]
 #[serde(deny_unknown_fields)]
 pub struct ConfigOptions {
@@ -125,6 +131,8 @@ pub struct ConfigOptions {
     #[serde(alias = "dry-run")]
     pub dry_run: Option<bool>,
     pub offline: Option<bool>,
+    /// Skip modules whose declared outputs and marker are current.
+    pub resume: Option<bool>,
     #[serde(alias = "skip-checksum", alias = "skip-verify-checksum")]
     pub skip_verify_checksum: Option<bool>,
     #[serde(alias = "skip-requirements", alias = "skip-verify-requirements")]
@@ -160,6 +168,11 @@ pub struct Rule {
 impl Config {
     pub fn get_environment_variables(self, module: Option<Module>, input: Option<String>) -> HashMap<String, String> {
         let mut variables = self.variables.clone().unwrap_or_default();
+        if !variables.contains_key("OUTPUT_DIRECTORY") {
+            if let Some(output) = &self.output {
+                variables.insert("OUTPUT_DIRECTORY".to_string(), Value::String(output.clone()));
+            }
+        }
         if let Some(module) = module {
             variables.extend(module.variables.unwrap_or_default());
         }
@@ -204,8 +217,8 @@ impl Config {
                 }
                 | InputAttribute::List(value) => Some(value),
                 | InputAttribute::ShellScript(_script) => {
-                    // TODO: Execute shell script and return Vec<String> of files (or folders)
-                    unimplemented!("Shell script workflow input");
+                    error!("=> {} Shell script workflow input is not supported", Label::invalid());
+                    None
                 }
             },
             | None => None,
@@ -228,6 +241,16 @@ impl Config {
     ///
     /// Prepare workflow modules and return failures to the orchestration boundary.
     pub fn prepare_modules(self, execution: &ExecutionContext, observer: Option<&dyn ProgressObserver>) -> Result<Config, String> {
+        let modules = (0..self.modules.len()).collect::<BTreeSet<_>>();
+        self.prepare_modules_selected(execution, &modules, observer)
+    }
+    /// Prepare only modules required by at least one planned input.
+    pub fn prepare_modules_selected(
+        self,
+        execution: &ExecutionContext,
+        selected: &BTreeSet<usize>,
+        observer: Option<&dyn ProgressObserver>,
+    ) -> Result<Config, String> {
         execution.install(|| {
             let options = match self.clone().options {
                 | Some(value) => value,
@@ -241,7 +264,9 @@ impl Config {
                 .and_then(|policy| {
                     self.modules
                         .par_iter()
-                        .map(|module| {
+                        .enumerate()
+                        .filter(|(index, _)| selected.contains(index))
+                        .map(|(_, module)| {
                             ProgressPhase::Preparation.emit(observer, ProgressState::Started, &module.name, None);
                             let result = match &module.module_type {
                                 | ModuleType::Binary { uri, checksum } => module.prepare_binary(uri, checksum.as_deref(), &options, &policy),
@@ -263,24 +288,38 @@ impl Config {
                 })
         })
     }
-    pub fn read(path: PathBuf) -> Option<Config> {
-        let content = match MimeType::from(path.to_string_lossy().as_ref()) {
-            | MimeType::Json => match Config::read_json(path.clone()) {
-                | Ok(value) => Some(value),
-                | Err(_) => None,
-            },
-            | MimeType::Yaml => match Config::read_yaml(path.clone()) {
-                | Ok(value) => Some(value),
-                | Err(_) => None,
-            },
-            | _ => unimplemented!("Unknown configuration file extension"),
-        };
-        if let Some(content) = content {
-            Some(content)
-        } else {
-            error!(path = path.to_str().unwrap(), "=> {} Cannot import configuration", Label::fail());
-            exit(exitcode::UNAVAILABLE);
-        }
+    /// Return modules that must execute for at least one input.
+    pub fn required_module_indices(&self, inputs: &[Option<String>], resume: bool) -> Result<BTreeSet<usize>, String> {
+        inputs
+            .iter()
+            .try_fold((BTreeSet::new(), BTreeSet::new()), |state, input| {
+                self.modules
+                    .iter()
+                    .enumerate()
+                    .try_fold(state, |(mut selected, mut markers), (index, module)| {
+                        let variables = self.clone().get_environment_variables(Some(module.clone()), input.clone());
+                        CompletionPlan::inspect(module, &variables, resume, self.output.as_deref())
+                            .map_err(|why| why.to_string())
+                            .and_then(|completion| {
+                                completion
+                                    .as_ref()
+                                    .map_or(Ok(()), |plan| match markers.insert(plan.marker.clone()) {
+                                        | true => Ok(()),
+                                        | false => Err(format!("completion marker collision at {}", plan.marker.display())),
+                                    })
+                                    .map(|()| {
+                                        if !matches!(completion.map(|plan| plan.decision), Some(CompletionDecision::SkipExisting)) {
+                                            selected.insert(index);
+                                        }
+                                        (selected, markers)
+                                    })
+                            })
+                    })
+            })
+            .map(|(selected, _)| selected)
+    }
+    pub fn read(path: PathBuf) -> Result<Config, ConfigReadError> {
+        Self::try_from(path)
     }
     /// Import Xylem configuration JSON file
     ///
@@ -351,96 +390,114 @@ impl Config {
         let execution = self.modules.iter().enumerate().try_fold(
             Vec::new(),
             |mut outcomes, (module_index, module)| -> Result<Vec<ModuleOutcome>, (Vec<ModuleOutcome>, String)> {
-                ProgressPhase::Execution.emit(observer, ProgressState::Started, &module.name, input.as_deref());
-                let result = match journal {
-                    | Some(journal) => journal
-                        .transition_module(input_index, module_index, ExecutionState::Running, None)
-                        .map_err(|why| why.to_string()),
-                    | None => Ok(()),
-                }
-                .and_then(|()| match &module.module_type {
-                    | ModuleType::Binary { .. } => {
-                        let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
-                        options
-                            .root
-                            .clone()
-                            .ok_or_else(|| "root directory is not configured".to_string())
-                            .and_then(|root| {
-                                let working_dir = root.to_absolute_path();
-                                let loaded = Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())));
-                                let script = loaded
-                                    .ensure_relative()
-                                    .expand_arguments_from(envs.clone())
-                                    .with_current_dir(working_dir)
-                                    .with_envs(envs);
-                                match options.dry_run.unwrap_or_default() {
-                                    | true => {
-                                        info!(
-                                            module = module.name,
-                                            script = script.to_string(),
-                                            cwd = script.current_dir,
-                                            "=> {}",
-                                            Label::dry_run()
-                                        );
-                                        Ok(())
-                                    }
-                                    | false => script.run_checked().map(|_| ()),
+                let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
+                let result = CompletionPlan::inspect(module, &envs, options.resume.unwrap_or_default(), self.output.as_deref())
+                    .map_err(|why| why.to_string())
+                    .and_then(|completion| {
+                        let skip_existing = matches!(completion.as_ref().map(|plan| plan.decision), Some(CompletionDecision::SkipExisting))
+                            && !options.dry_run.unwrap_or_default();
+                        match skip_existing {
+                            | true => match journal {
+                                | Some(journal) => journal
+                                    .transition_module(input_index, module_index, ExecutionState::SkippedExisting, None)
+                                    .map(|()| ExecutionState::SkippedExisting)
+                                    .map_err(|why| why.to_string()),
+                                | None => Ok(ExecutionState::SkippedExisting),
+                            },
+                            | false => {
+                                ProgressPhase::Execution.emit(observer, ProgressState::Started, &module.name, input.as_deref());
+                                match journal {
+                                    | Some(journal) => journal
+                                        .transition_module(input_index, module_index, ExecutionState::Running, None)
+                                        .map_err(|why| why.to_string()),
+                                    | None => Ok(()),
                                 }
-                            })
-                    }
-                    | ModuleType::Script { programming_language, uri } => {
-                        let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
-                        options
-                            .root
-                            .clone()
-                            .ok_or_else(|| "root directory is not configured".to_string())
-                            .and_then(|root_path| {
-                                let root = Some(root_path);
-                                module_working_directory(uri, root.as_ref())
-                                    .ok_or_else(|| format!("module URI is invalid: {uri}"))
-                                    .and_then(|working_dir| {
-                                        let loaded = Script::from_module(module.clone(), root);
-                                        let script = loaded
-                                            .expand_arguments_from(envs.clone())
-                                            .with_current_dir(working_dir.clone())
-                                            .with_envs(envs);
-                                        let configured = match programming_language {
-                                            | Some(ModuleLanguage::Python) => {
-                                                let virtual_environment = module.resolve_virtual_environment(&working_dir);
-                                                Ok(script.with_virtual_environment(virtual_environment))
-                                            }
-                                            | Some(ModuleLanguage::Generic) | None => Ok(script),
-                                            | Some(language) => Err(format!("unsupported script language: {language}")),
-                                        };
-                                        configured.and_then(|script| match options.dry_run.unwrap_or_default() {
-                                            | true => {
-                                                info!(
-                                                    module = module.name,
-                                                    script = script.to_string(),
-                                                    cwd = script.current_dir,
-                                                    "=> {}",
-                                                    Label::dry_run()
-                                                );
-                                                Ok(())
-                                            }
-                                            | false => script.run_checked().map(|_| ()),
-                                        })
-                                    })
-                            })
-                    }
-                    | ModuleType::Configuration { .. } => Err("configuration modules are not executable".to_string()),
-                })
-                .map(|()| match options.dry_run.unwrap_or_default() {
-                    | true => ExecutionState::Skipped,
-                    | false => ExecutionState::Succeeded,
-                })
-                .and_then(|terminal| match journal {
-                    | Some(journal) => journal
-                        .transition_module(input_index, module_index, terminal, None)
-                        .map(|()| terminal)
-                        .map_err(|why| why.to_string()),
-                    | None => Ok(terminal),
-                });
+                                .and_then(|()| match &module.module_type {
+                                    | ModuleType::Binary { .. } => options
+                                        .root
+                                        .clone()
+                                        .ok_or_else(|| "root directory is not configured".to_string())
+                                        .and_then(|root| {
+                                            let working_dir = root.to_absolute_path();
+                                            Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone()))).and_then(|loaded| {
+                                                let script = loaded
+                                                    .ensure_relative()
+                                                    .expand_arguments_from(envs.clone())
+                                                    .with_current_dir(working_dir)
+                                                    .with_envs(envs);
+                                                match options.dry_run.unwrap_or_default() {
+                                                    | true => {
+                                                        info!(
+                                                            module = module.name,
+                                                            script = script.to_string(),
+                                                            cwd = script.current_dir,
+                                                            "=> {}",
+                                                            Label::dry_run()
+                                                        );
+                                                        Ok(())
+                                                    }
+                                                    | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
+                                                }
+                                            })
+                                        }),
+                                    | ModuleType::Script { programming_language, uri } => options
+                                        .root
+                                        .clone()
+                                        .ok_or_else(|| "root directory is not configured".to_string())
+                                        .and_then(|root_path| {
+                                            let root = Some(root_path);
+                                            module_working_directory(uri, root.as_ref())
+                                                .ok_or_else(|| format!("module URI is invalid: {uri}"))
+                                                .and_then(|working_dir| {
+                                                    Script::from_module(module.clone(), root).and_then(|loaded| {
+                                                        let script = loaded
+                                                            .expand_arguments_from(envs.clone())
+                                                            .with_current_dir(working_dir.clone())
+                                                            .with_envs(envs);
+                                                        let configured = match programming_language {
+                                                            | Some(ModuleLanguage::Python) => {
+                                                                let virtual_environment = module.resolve_virtual_environment(&working_dir);
+                                                                Ok(script.with_virtual_environment(virtual_environment))
+                                                            }
+                                                            | Some(ModuleLanguage::Generic) | None => Ok(script),
+                                                            | Some(language) => Err(format!("unsupported script language: {language}")),
+                                                        };
+                                                        configured.and_then(|script| match options.dry_run.unwrap_or_default() {
+                                                            | true => {
+                                                                info!(
+                                                                    module = module.name,
+                                                                    script = script.to_string(),
+                                                                    cwd = script.current_dir,
+                                                                    "=> {}",
+                                                                    Label::dry_run()
+                                                                );
+                                                                Ok(())
+                                                            }
+                                                            | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
+                                                        })
+                                                    })
+                                                })
+                                        }),
+                                    | ModuleType::Configuration { .. } => Err("configuration modules are not executable".to_string()),
+                                })
+                                .and_then(|()| match (options.dry_run.unwrap_or_default(), completion.as_ref()) {
+                                    | (false, Some(plan)) => plan.write().map_err(|why| why.to_string()),
+                                    | _ => Ok(()),
+                                })
+                                .map(|()| match options.dry_run.unwrap_or_default() {
+                                    | true => ExecutionState::Skipped,
+                                    | false => ExecutionState::Succeeded,
+                                })
+                                .and_then(|terminal| match journal {
+                                    | Some(journal) => journal
+                                        .transition_module(input_index, module_index, terminal, None)
+                                        .map(|()| terminal)
+                                        .map_err(|why| why.to_string()),
+                                    | None => Ok(terminal),
+                                })
+                            }
+                        }
+                    });
                 match result {
                     | Ok(terminal) => {
                         let progress_state = ProgressState::from(terminal);
@@ -475,9 +532,12 @@ impl Config {
         );
         match execution {
             | Ok(outcomes) => {
-                let state = match options.dry_run.unwrap_or_default() {
-                    | true => ExecutionState::Skipped,
-                    | false => ExecutionState::Succeeded,
+                let dry_run = options.dry_run.unwrap_or_default();
+                let all_skipped_existing = outcomes.iter().all(|outcome| outcome.state.is_skipped_existing());
+                let state = match (dry_run, all_skipped_existing) {
+                    | (true, _) => ExecutionState::Skipped,
+                    | (false, true) => ExecutionState::SkippedExisting,
+                    | (false, false) => ExecutionState::Succeeded,
                 };
                 WorkflowOutcome::init().maybe_input(input).state(state).modules(outcomes).build()
             }
@@ -637,7 +697,7 @@ impl Module {
                         Label::found()
                     );
                     match make_executable(path.clone()) {
-                        | true => {
+                        | Ok(()) => {
                             info!(
                                 module = self.name,
                                 path = path.display().to_string(),
@@ -646,7 +706,7 @@ impl Module {
                             );
                             Ok(())
                         }
-                        | false => Err(format!("module {} binary is not executable: {}", self.name, path.display())),
+                        | Err(why) => Err(format!("module {} binary is not executable at {}: {why}", self.name, path.display())),
                     }
                 }
                 | Ok(false) => Err(format!("module {} local binary was not found: {}", self.name, path.display())),
@@ -674,7 +734,7 @@ impl Module {
                 let calculated = file_checksum(output.clone(), None);
                 let expected = checksum.map(Checksum::from);
                 match (checksum, expected.as_ref(), calculated.as_ref()) {
-                    | (Some(_), Some(expected), Some(calculated))
+                    | (Some(_), Some(expected), Ok(calculated))
                         if expected.algorithm == calculated.algorithm && expected.checksum_value == calculated.checksum_value =>
                     {
                         info!(
@@ -686,15 +746,15 @@ impl Module {
                         );
                         Ok(())
                     }
-                    | (Some(value), _, Some(calculated)) => Err(format!(
+                    | (Some(value), _, Ok(calculated)) => Err(format!(
                         "module {} checksum {value} does not match {}:{} for {}",
                         self.name,
                         calculated.algorithm,
                         calculated.checksum_value,
                         redact_url(url)
                     )),
-                    | (Some(value), _, None) => Err(format!(
-                        "module {} could not calculate checksum {value} for {}",
+                    | (Some(value), _, Err(why)) => Err(format!(
+                        "module {} could not calculate checksum {value} for {}: {why}",
                         self.name,
                         redact_url(url)
                     )),
@@ -703,7 +763,7 @@ impl Module {
             }
         };
         verification.and_then(|()| match make_executable(output) {
-            | true => {
+            | Ok(()) => {
                 info!(
                     module = self.name,
                     url = redact_url(url),
@@ -712,7 +772,11 @@ impl Module {
                 );
                 Ok(())
             }
-            | false => Err(format!("module {} downloaded binary is not executable: {}", self.name, redact_url(url))),
+            | Err(why) => Err(format!(
+                "module {} downloaded binary is not executable for {}: {why}",
+                self.name,
+                redact_url(url)
+            )),
         })
     }
     fn prepare_script(&self, uri: &str, python: bool, options: &ConfigOptions, policy: &RemotePolicy) -> Result<(), String> {
@@ -760,7 +824,7 @@ impl Module {
                                                 );
                                                 Ok(())
                                             }
-                                            | Some(script) => script.run_checked().map(|_| ()),
+                                            | Some(script) => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
                                             | None => Ok(()),
                                         }
                                         .and_then(|()| match python {
@@ -805,7 +869,7 @@ impl Module {
                     );
                     Ok(())
                 }
-                | false => script.run_checked().map(|_| ()),
+                | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
             }
         } else {
             Ok(())

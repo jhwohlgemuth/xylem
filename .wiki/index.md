@@ -17,11 +17,11 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Next execution phase
 
-The prioritized work item is [land typed execution foundations and add resumable execution](features/resumable-execution.md). It is the only item to schedule, and it owns its whole prerequisite chain as ordered phases: the maintained YAML parser, typed errors and workflow outcomes, configuration validation and dry-run, and then resumable execution itself. Work it top to bottom and do not schedule its phases from anywhere else.
+The prioritized work item is [finish typed execution foundations and resumable execution](features/resumable-execution.md). Parsing, validated planning, completion declarations, markers, run-state vocabulary, and the CLI surface have landed. Only the typed-error hardening, remaining resume edge cases, and release reconciliation listed there are schedulable.
 
-It holds the manifest, configuration, process, run-state, and CLI locks for its duration. The one outside claim is the dependency lane's remaining ACORN feature narrowing, which shares the manifest lock with Phase 1 but does not block it.
+It holds the process and CLI locks while typed-error hardening lands. Resume edge-case tests may use host-independent fixtures without reopening the completed configuration contract.
 
-Memory-aware scheduling remains gated on a successful measurement spike. The [hermetic workflow test suite](testing/hermetic-workflow-tests.md) may continue establishing host-independent fixtures alongside it, but assertions that depend on the error, validation, or completion contracts land after those phases.
+Memory-aware scheduling remains gated on a successful measurement spike. The [hermetic workflow test suite](testing/hermetic-workflow-tests.md) may continue establishing host-independent fixtures alongside it.
 
 Two plans in this wiki are complete and were removed, with their contracts preserved as prose in the documents that referenced them: the durable execution journal, and fixed input concurrency. The ACORN command environment sync was also removed. Three more describe work that has partly landed and now carry a rechecked `Current evidence` section: structured run reporters, the ACORN 0.2 upgrade, and the hermetic test suite's host-specific fixes.
 

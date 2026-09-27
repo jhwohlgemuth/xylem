@@ -21,7 +21,7 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 
 ## Work lanes
 
-The prioritized item is [resumable execution](features/resumable-execution.md), which runs as one owner across Lanes A, B, C, and D. It executes the maintained YAML parser, typed errors, and configuration validation as its own Phases 1 through 3, so those plans are folded into it rather than run as separate lane items. While it is in progress it holds the manifest, configuration, process, run-state, and CLI locks, and no other lane may claim them.
+The prioritized [resumable execution](features/resumable-execution.md) item now contains only typed-error hardening, resume edge-case coverage, and release reconciliation. Validated planning and completion contracts have landed and are no longer lane work.
 
 The lanes below describe what remains after it, and what may run alongside it.
 
@@ -30,13 +30,13 @@ The lanes below describe what remains after it, and what may run alongside it.
 1. [ACORN 0.2 upgrade](migrations/acorn-0-2-upgrade.md), feature narrowing only; the 0.2 version migration and the command-environment sync have landed
 2. [Dependency and security gates](refactors/dependency-surface-and-security-gates.md)
 
-The remaining ACORN work shares the manifest lock with resumable execution Phase 1 and is serialized against it.
+The remaining ACORN work owns the manifest lock independently of the completed parser and completion phases.
 
 ### Lane B: configuration and acquisition
 
-1. [Secure module acquisition](refactors/secure-module-acquisition.md), after the driver plan's Phase 3 validation contract lands
+1. [Secure module acquisition](refactors/secure-module-acquisition.md), consuming the landed validation contract
 
-Configuration extraction and validated execution plans are owned by the driver plan's Phase 3.
+Configuration extraction and validated execution plans are landed contracts.
 
 ### Lane C: execution runtime
 

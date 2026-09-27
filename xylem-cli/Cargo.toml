@@ -19,10 +19,10 @@ path = "src/main.rs"
 xylem-lib = { version = "1.0.2", path = "../xylem-lib" }
 clap = { version = "4.4.2", features = ["derive", "unstable-doc"] }
 console = { version = "0.15.7", default-features = false, features = ["ansi-parsing"] }
-glob = "0.3.1"
 indicatif = "0.17.6"
 nanoid = "0.4.0"
 acorn-lib = { workspace = true }
+acorn-schema = { workspace = true }
 clap-verbosity-flag = { workspace = true }
 color-eyre = { workspace = true }
 dotenvy = { workspace = true }

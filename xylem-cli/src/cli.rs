@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
+use std::path::PathBuf;
 use xylem_lib::execution::ExecutionLimits;
 use xylem_lib::ReporterType;
 
@@ -19,14 +20,17 @@ pub enum Commands {
     #[clap(verbatim_doc_comment)]
     Run {
         /// Path to configuration file
-        #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
-        config: Option<std::path::PathBuf>,
+        #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
+        config: Option<PathBuf>,
         /// Reporter(s) used for the final durable summary
         #[arg(short, long, value_enum, value_delimiter = ',', num_args = 1.., default_value = "console")]
         reporter: Vec<ReporterType>,
+        /// Workflow artifact root; overrides configuration output
+        #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        artifact_output: Option<PathBuf>,
         /// Directory for the durable journal and file-based reports
-        #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
-        output: Option<std::path::PathBuf>,
+        #[arg(short = 'o', long = "report-output", visible_alias = "output", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
+        report_output: Option<PathBuf>,
         /// Value(s) to use as INPUT variable in workflow
         #[arg(short, long, value_name = "LIST", value_delimiter = ',')]
         input: Option<Vec<String>>,
@@ -36,6 +40,9 @@ pub enum Commands {
         /// Execute workflow without connection to the internet
         #[arg(short = 'X', long, value_name = "BOOL")]
         offline: bool,
+        /// Skip modules whose declared outputs and completion marker are current
+        #[arg(long, value_name = "BOOL")]
+        resume: bool,
         /// Exact remote module host(s) to allow; CLI values replace configured hosts
         #[arg(long = "allowed", value_name = "HOST[:PORT]", value_delimiter = ',')]
         allowed: Option<Vec<String>>,
@@ -69,7 +76,7 @@ pub struct Arguments {
     pub threads: ExecutionLimits,
     /// Load environment variables from a specific dotenv file
     #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath, global = true)]
-    pub env: Option<std::path::PathBuf>,
+    pub env: Option<PathBuf>,
     /// Disable interactive workflow progress indicators
     #[arg(long, global = true)]
     pub no_progress: bool,
@@ -87,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn allowed_accepts_repeated_and_comma_delimited_values() {
+    fn test_allowed_accepts_repeated_and_comma_delimited_values() {
         let args = parse(&["xylem", "run", "--allowed", "one.example,two.example:8443", "--allowed", "three.example"]);
         match args.command {
             | Some(Commands::Run { allowed, .. }) => assert_eq!(
@@ -102,23 +109,44 @@ mod tests {
         }
     }
     #[test]
-    fn global_env_and_progress_flags_parse_before_or_after_run() {
+    fn test_artifact_and_report_outputs_are_distinct() {
+        let args = parse(&["xylem", "run", "--artifact-output", "artifacts", "--report-output", "reports"]);
+        match args.command {
+            | Some(Commands::Run {
+                artifact_output,
+                report_output,
+                ..
+            }) => {
+                assert_eq!(artifact_output, Some(PathBuf::from("artifacts")));
+                assert_eq!(report_output, Some(PathBuf::from("reports")));
+            }
+            | None => panic!("run command should parse"),
+        }
+        match parse(&["xylem", "run", "--output", "reports"]).command {
+            | Some(Commands::Run { report_output, .. }) => {
+                assert_eq!(report_output, Some(PathBuf::from("reports")));
+            }
+            | None => panic!("run command should parse"),
+        }
+    }
+    #[test]
+    fn test_global_env_and_progress_flags_parse_before_or_after_run() {
         let before = parse(&["xylem", "--env", "custom.env", "--no-progress", "run"]);
-        assert_eq!(before.env, Some(std::path::PathBuf::from("custom.env")));
+        assert_eq!(before.env, Some(PathBuf::from("custom.env")));
         assert!(before.no_progress);
         let after = parse(&["xylem", "run", "--env", "custom.env", "--no-progress"]);
-        assert_eq!(after.env, Some(std::path::PathBuf::from("custom.env")));
+        assert_eq!(after.env, Some(PathBuf::from("custom.env")));
         assert!(after.no_progress);
     }
     #[test]
-    fn help_documents_thread_contract() {
+    fn test_help_documents_thread_contract() {
         let help = Arguments::command().render_long_help().to_string();
         assert!(help.contains("-t, --threads <N>"));
         assert!(help.contains("[default: 10]"));
         assert!(help.contains("does not limit child tools"));
     }
     #[test]
-    fn reporters_are_typed_repeatable_and_default_to_console() {
+    fn test_reporters_are_typed_repeatable_and_default_to_console() {
         match parse(&["xylem", "run"]).command {
             | Some(Commands::Run { reporter, .. }) => assert_eq!(reporter, vec![ReporterType::Console]),
             | None => panic!("run command should parse"),
@@ -130,16 +158,27 @@ mod tests {
         assert!(Arguments::try_parse_from(["xylem", "run", "--reporter", "unknown"]).is_err());
     }
     #[test]
-    fn threads_accept_short_and_long_flags() {
+    fn test_resume_is_explicit() {
+        match parse(&["xylem", "run", "--resume"]).command {
+            | Some(Commands::Run { resume, .. }) => assert!(resume),
+            | None => panic!("run command should parse"),
+        }
+        match parse(&["xylem", "run"]).command {
+            | Some(Commands::Run { resume, .. }) => assert!(!resume),
+            | None => panic!("run command should parse"),
+        }
+    }
+    #[test]
+    fn test_threads_accept_short_and_long_flags() {
         assert_eq!(parse(&["xylem", "-t", "1", "run"]).threads.threads(), 1);
         assert_eq!(parse(&["xylem", "run", "--threads", "24"]).threads.threads(), 24);
     }
     #[test]
-    fn threads_default_to_ten() {
+    fn test_threads_default_to_ten() {
         assert_eq!(parse(&["xylem"]).threads.threads(), 10);
     }
     #[test]
-    fn threads_reject_zero_non_numeric_and_missing_values() {
+    fn test_threads_reject_zero_non_numeric_and_missing_values() {
         for arguments in [
             &["xylem", "--threads", "0"][..],
             &["xylem", "--threads", "many"][..],

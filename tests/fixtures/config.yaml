@@ -4,10 +4,6 @@ requirements:
   - python
   - conda
 keywords: []
-check:
-  files: ["**/*.py"]
-  rules:
-    - name: is_valid_python_module
 variables:
   INPUT_DIRECTORY: /path/to/input
   OUTPUT_DIRECTORY: /path/to/output
@@ -18,7 +14,7 @@ modules:
   - name: Local Binary Module
     type: binary
     uri: file:///path/to/wasm/module
-    checksum: debe0f22e2b4e8dffd88d4bbe8b15cca98c5950b1b857d1747f211465fba972e
+    checksum: sha256:debe0f22e2b4e8dffd88d4bbe8b15cca98c5950b1b857d1747f211465fba972e
   - name: Local Python Script Module
     type: script
     programmingLanguage: python

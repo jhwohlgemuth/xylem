@@ -1,7 +1,7 @@
 //! Xylem Library
 //! > Digital xylem that transports data through workflows with structure and support
-use acorn::io::read_file;
 use acorn::util::Label;
+use acorn_host::fs::read_text;
 use clap::ValueEnum;
 use color_eyre::eyre::{Report, Result};
 use derive_more::Display;
@@ -10,10 +10,13 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tracing::{error, trace};
 
+pub mod completion;
 pub mod config;
+pub mod error;
 pub mod execution;
 pub mod journal;
 pub mod outcome;
+pub mod plan;
 pub mod progress;
 pub mod remote;
 pub mod script;
@@ -23,7 +26,6 @@ use config::*;
 
 pub type Output = Vec<Option<Details>>;
 pub type Void = Result<(), Report>;
-
 #[derive(ValueEnum, Copy, Clone, Debug, Display, PartialEq, Eq)]
 pub enum ReporterType {
     Console,
@@ -72,7 +74,7 @@ impl core::ops::Deref for PyProjectToml {
 }
 impl PyProjectToml {
     pub fn read(path: PathBuf) -> Result<Self, toml::de::Error> {
-        let content = match read_file(path.clone()) {
+        let content = match read_text(path.clone()) {
             | Ok(value) if !value.is_empty() => value,
             | Ok(_) | Err(_) => {
                 error!(path = path.to_str().unwrap(), "=> {} PyProject.toml content is not valid", Label::fail());

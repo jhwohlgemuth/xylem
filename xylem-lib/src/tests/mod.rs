@@ -1,3 +1,6 @@
+mod completion;
+mod plan;
+
 use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
 use crate::*;
@@ -13,7 +16,6 @@ use std::sync::mpsc;
 use std::thread;
 
 const FIXTURES: &str = "../tests/fixtures";
-
 // `core::io` is still unstable (rust-lang/rust#154046), so this lint's
 // `core::io::ErrorKind` suggestion does not compile.
 #[allow(clippy::std_instead_of_core)]
@@ -92,13 +94,13 @@ fn test_config_environment_variables_without_input() {
 #[test]
 fn test_config_get_inputs() {
     match Config::read(PathBuf::from(format!("{FIXTURES}/config.json"))) {
-        | Some(config) => {
+        | Ok(config) => {
             assert_eq!(config.get_inputs(), Some(to_string(vec!["input_01", "input_02", "input_03"])));
         }
-        | None => panic!("Cannot read config in get_input test"),
+        | Err(error) => panic!("Cannot read config in get_input test: {error}"),
     }
     match Config::read(PathBuf::from(format!("{FIXTURES}/config_with_path_input.json"))) {
-        | Some(config) => {
+        | Ok(config) => {
             let inputs = config
                 .get_inputs()
                 .unwrap()
@@ -107,31 +109,31 @@ fn test_config_get_inputs() {
                 .collect::<Vec<String>>();
             assert_eq!(inputs, to_string(vec!["one", "three", "two"]));
         }
-        | None => panic!("Cannot read config in get_input test"),
+        | Err(error) => panic!("Cannot read config in get_input test: {error}"),
     }
 }
 #[test]
 fn test_config_get_module_list() {
     let path = format!("{FIXTURES}/config.json");
     match Config::read(PathBuf::from(path)) {
-        | Some(config) => {
+        | Ok(config) => {
             let expected = "local_binary_module,local_python_script_module,remote_python_script_module";
             assert_eq!(config.get_module_list(), expected);
         }
-        | None => panic!("Cannot read config in tests"),
+        | Err(error) => panic!("Cannot read config in tests: {error}"),
     }
 }
 #[test]
 fn test_config_read() {
     let path = format!("{FIXTURES}/config.json");
     // Load variables into configuration (JSON or YAML)
-    let config = Config::read(PathBuf::from(path));
-    assert_eq!(config.clone().unwrap().variables.clone().unwrap().get("ANSWER").unwrap(), 42);
-    assert_eq!(config.unwrap().modules.len(), 3);
+    let config = Config::read(PathBuf::from(path)).expect("read JSON configuration");
+    assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
+    assert_eq!(config.modules.len(), 3);
     let path = format!("{FIXTURES}/config.yaml");
-    let config = Config::read(PathBuf::from(path));
-    assert_eq!(config.clone().unwrap().variables.clone().unwrap().get("ANSWER").unwrap(), 42);
-    assert_eq!(config.unwrap().modules.len(), 3);
+    let config = Config::read(PathBuf::from(path)).expect("read YAML configuration");
+    assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
+    assert_eq!(config.modules.len(), 3);
 }
 #[test]
 fn test_config_read_json() {
@@ -194,6 +196,7 @@ fn test_details() {
 #[test]
 fn test_module() {
     let module = Module {
+        completion: None,
         name: "module-a".to_string(),
         module_type: ModuleType::Configuration { uri: "uri".to_string() },
         description: None,
@@ -551,7 +554,7 @@ fn test_script_run() {
         let command = Command::init().name("echo".to_string()).build();
         let arguments = to_string(vec!["hello", "world"]);
         let script = Script::init().command(command).arguments(arguments).build();
-        let output = script.run();
+        let output = script.run().expect("echo should run");
         assert_eq!(&output, &vec!["hello world".to_string()]);
         let working_dir = std::env::temp_dir()
             .canonicalize()
@@ -559,11 +562,11 @@ fn test_script_run() {
         let expected_working_dir = working_dir.display().to_string();
         let command = Command::init().name("pwd".to_string()).build();
         let script = Script::init().command(command).build();
-        let output = script.with_current_dir(expected_working_dir.clone()).run();
+        let output = script.with_current_dir(expected_working_dir.clone()).run().expect("pwd should run");
         assert_eq!(&output, &vec![expected_working_dir]);
         let path = PathBuf::from(format!("{FIXTURES}/template_run.json"));
         let script = Script::from_path(path);
-        assert_eq!(script.run(), vec!["hello world".to_string()]);
+        assert_eq!(script.run().expect("template should run"), vec!["hello world".to_string()]);
     }
 }
 #[test]

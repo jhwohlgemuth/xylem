@@ -22,8 +22,7 @@
             "uri": "file:///path/to/module-p",
             "variables": {
                 "OUTPUT_DIRECTORY": "/data/output",
-                "METHOD": "nn_diffuse",
-                "MODULE_LIST": "MODP"
+                "METHOD": "nn_diffuse"
             },
             "template": {
                 "command": "python",

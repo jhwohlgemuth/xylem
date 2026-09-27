@@ -1,7 +1,7 @@
 use std::fs::{create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write};
 
 #[test]
-fn configuration_read_failures_use_distinct_exit_codes() {
+fn test_configuration_read_failures_use_distinct_exit_codes() {
     let test_root = std::env::temp_dir().join(format!("xylem-config-errors-{}", std::process::id()));
     create_dir_all(&test_root).expect("create configuration error directory");
     let invalid = test_root.join("invalid.yaml");
@@ -27,7 +27,7 @@ fn configuration_read_failures_use_distinct_exit_codes() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
-fn configured_batch_caps_active_inputs_in_the_compiled_cli() {
+fn test_configured_batch_caps_active_inputs_in_the_compiled_cli() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("CLI crate should be inside the workspace");
@@ -89,46 +89,41 @@ fn configured_batch_caps_active_inputs_in_the_compiled_cli() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
-fn dry_run_report_uses_skipped_states_without_claiming_execution() {
+fn test_dry_run_renders_a_plan_without_writing_files() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("CLI crate should be inside the workspace");
-    let output_directory = std::env::temp_dir().join(format!("xylem-durable-dry-run-{}", std::process::id()));
-    create_dir_all(&output_directory).expect("create dry-run output directory");
+    let output_directory = std::env::temp_dir().join(format!("xylem-write-free-dry-run-{}", std::process::id()));
+    let _ = remove_dir_all(&output_directory);
     let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
-    command
+    let output = command
         .current_dir(workspace)
         .args([
             "run",
             "--config",
             "tests/e2e/config.json",
+            "--artifact-output",
+            output_directory.to_str().expect("UTF-8 artifact output"),
             "--dry-run",
             "--reporter",
             "json",
-            "--output",
-            output_directory.to_str().expect("UTF-8 output path"),
         ])
-        .assert()
-        .success();
-    let report_path = read_dir(&output_directory)
-        .expect("read dry-run output directory")
-        .map(|entry| entry.expect("directory entry").path())
-        .find(|path| path.extension().is_some_and(|extension| extension == "json"))
-        .expect("dry-run JSON report");
-    let report: xylem_lib::journal::RunSummary =
-        serde_json::from_slice(&read(report_path).expect("read dry-run report")).expect("valid dry-run report");
-    assert!(report.dry_run);
-    assert_eq!(report.status, xylem_lib::journal::RunStatus::Succeeded);
-    assert_eq!(report.inputs[0].state, xylem_lib::journal::ExecutionState::Skipped);
-    assert!(report.inputs[0]
-        .modules
-        .iter()
-        .all(|module| module.state == xylem_lib::journal::ExecutionState::Skipped));
-    remove_dir_all(output_directory).expect("remove dry-run output directory");
+        .output()
+        .expect("run dry-run plan");
+    assert!(output.status.success(), "dry run failed: {}", String::from_utf8_lossy(&output.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid dry-run plan");
+    assert_eq!(plan["schema_version"], 1);
+    assert_eq!(plan["configuration"]["output"], output_directory.display().to_string());
+    assert_eq!(plan["modules"][0]["decision"], "would_run");
+    assert_eq!(
+        plan["modules"][0]["variables"]["_XYLEM_OUTPUT_DIRECTORY"],
+        output_directory.display().to_string()
+    );
+    assert!(!output_directory.exists());
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
-fn fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
+fn test_fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("CLI crate should be inside the workspace");
@@ -180,7 +175,7 @@ fn fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
-fn json_stdout_is_not_corrupted_by_diagnostics() {
+fn test_json_stdout_is_not_corrupted_by_diagnostics() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("CLI crate should be inside the workspace");
@@ -205,7 +200,7 @@ fn json_stdout_is_not_corrupted_by_diagnostics() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
-fn loads_an_explicit_dotenv_without_overriding_process_values() {
+fn test_loads_an_explicit_dotenv_without_overriding_process_values() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("CLI crate should be inside the workspace");
@@ -251,7 +246,7 @@ fn loads_an_explicit_dotenv_without_overriding_process_values() {
     let _ = remove_file(env_path);
 }
 #[test]
-fn offline_dry_run_skips_reachability_but_still_enforces_allowlist() {
+fn test_offline_dry_run_skips_reachability_but_still_enforces_allowlist() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("CLI crate should be inside the workspace");
@@ -273,7 +268,7 @@ fn offline_dry_run_skips_reachability_but_still_enforces_allowlist() {
         .code(exitcode::UNAVAILABLE);
 }
 #[test]
-fn preparation_failure_is_finalized_and_reported() {
+fn test_preparation_failure_is_finalized_and_reported() {
     let test_root = std::env::temp_dir().join(format!("xylem-durable-preparation-{}", std::process::id()));
     let output_directory = test_root.join("reports");
     create_dir_all(&output_directory).expect("create preparation failure directory");
@@ -315,7 +310,7 @@ fn preparation_failure_is_finalized_and_reported() {
     remove_dir_all(test_root).expect("remove preparation failure directory");
 }
 #[test]
-fn rejects_a_malformed_explicit_dotenv_file() {
+fn test_rejects_a_malformed_explicit_dotenv_file() {
     let env_path = std::env::temp_dir().join(format!("xylem-malformed-dotenv-{}.env", std::process::id()));
     write(&env_path, "=broken\n").expect("write malformed dotenv fixture");
     let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
@@ -328,7 +323,7 @@ fn rejects_a_malformed_explicit_dotenv_file() {
     let _ = remove_file(env_path);
 }
 #[test]
-fn rejects_a_missing_explicit_dotenv_file() {
+fn test_rejects_a_missing_explicit_dotenv_file() {
     let missing = std::env::temp_dir().join(format!("xylem-missing-dotenv-{}.env", std::process::id()));
     let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
     let output = command
@@ -340,7 +335,71 @@ fn rejects_a_missing_explicit_dotenv_file() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
-fn returns_failure_when_a_fixture_module_fails() {
+fn test_resume_skips_a_complete_module_without_spawning_it() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!("xylem-resume-{}", std::process::id()));
+    let artifacts = test_root.join("artifacts");
+    let module = test_root.join("module");
+    let reports = test_root.join("reports");
+    create_dir_all(&module).expect("create module directory");
+    create_dir_all(&reports).expect("create report directory");
+    let counter = test_root.join("counter");
+    let command = format!(
+        "printf 'run\\n' >> {}; mkdir -p {}; printf 'complete\\n' > {}/result.txt",
+        counter.display(),
+        artifacts.display(),
+        artifacts.display()
+    );
+    let config = serde_json::json!({
+        "modules": [{
+            "completion": {
+                "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/probe.json",
+                "outputs": ["{{ OUTPUT_DIRECTORY }}/*.txt"]
+            },
+            "name": "Resume Probe",
+            "programmingLanguage": "generic",
+            "template": { "arguments": ["-c", command], "command": "sh" },
+            "type": "script",
+            "uri": format!("file:{}", module.display()),
+            "variables": { "OUTPUT_DIRECTORY": artifacts.display().to_string() }
+        }],
+        "requirements": ["sh"],
+        "version": "1.0.0"
+    });
+    let config_path = test_root.join("config.json");
+    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize resume fixture")).expect("write resume fixture");
+    for arguments in [vec![], vec!["--resume"]] {
+        let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+        command
+            .current_dir(workspace)
+            .args([
+                "run",
+                "--config",
+                config_path.to_str().expect("UTF-8 config"),
+                "--output",
+                reports.to_str().expect("UTF-8 reports"),
+            ])
+            .args(arguments)
+            .assert()
+            .success();
+    }
+    assert_eq!(read_to_string(&counter).expect("read invocation counter").lines().count(), 1);
+    let reports = read_dir(&reports)
+        .expect("read reports")
+        .map(|entry| entry.expect("report entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "jsonl"))
+        .collect::<Vec<_>>();
+    assert_eq!(reports.len(), 2);
+    assert!(reports.iter().any(|path| {
+        xylem_lib::journal::RunJournal::read(path).is_ok_and(|summary| summary.inputs[0].state == xylem_lib::journal::ExecutionState::SkippedExisting)
+    }));
+    remove_dir_all(test_root).expect("remove resume fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_returns_failure_when_a_fixture_module_fails() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("CLI crate should be inside the workspace");
@@ -354,7 +413,7 @@ fn returns_failure_when_a_fixture_module_fails() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
-fn runs_fixture_modules_in_order_with_interpolated_environment() {
+fn test_runs_fixture_modules_in_order_with_interpolated_environment() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("CLI crate should be inside the workspace");
@@ -374,7 +433,7 @@ fn runs_fixture_modules_in_order_with_interpolated_environment() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
-fn writes_versioned_journal_and_json_report_from_the_same_summary() {
+fn test_writes_versioned_journal_and_json_report_from_the_same_summary() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("CLI crate should be inside the workspace");

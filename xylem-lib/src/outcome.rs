@@ -37,6 +37,6 @@ impl WorkflowOutcome {
     }
     /// Whether all required work for this input succeeded or was intentionally skipped.
     pub fn is_success(&self) -> bool {
-        self.state.is_succeeded() || self.state.is_skipped()
+        self.state.is_complete()
     }
 }

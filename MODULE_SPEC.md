@@ -42,7 +42,8 @@ The fields have these meanings:
 | `description` | No | Human-readable purpose. |
 | `variables` | No | Module-scoped scalar variables. These override workflow variables. |
 | `template` | No | An inline template or a path relative to the module directory. |
-| `checksum` | Remote binary modules | SHA-256 digest, optionally prefixed with `sha256:`. |
+| `completion` | No | Explicit marker and output declarations used by resumable execution. |
+| `checksum` | Remote binary modules | Lowercase SHA-256 digest prefixed with `sha256:`. |
 
 ## 2. Module URI and directory
 
@@ -61,6 +62,35 @@ example/
 Remote script modules are cloned into Xylem's per-run working directory before
 execution and, for Python modules, environment preparation. HTTP, HTTPS, and
 SSH Git transports are accepted.
+
+## Completion and resume
+
+A module may declare the files that establish completion and an optional marker:
+
+```yaml
+completion:
+  marker: "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/.xylem/module.json"
+  outputs:
+    - "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/*.tif"
+```
+
+When `marker` is omitted, Xylem places it in a `.xylem` directory beneath the
+literal directory prefix of the first output pattern and names it after the
+module in snake case. For example, the output pattern above defaults to
+`{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/.xylem/<module_name>.json`.
+
+Every output pattern must match at least one non-empty regular file, and the
+marker identity must match the module, resolved template, variables, input, and
+completion declaration. The marker and outputs must remain below `output` or
+the module's effective `OUTPUT_DIRECTORY`. Xylem writes the marker only after a
+successful module execution. Resume is opt-in through `options.resume` or
+`--resume`; ordinary runs always execute the module.
+
+The workflow `output` field is the default artifact root and supplies
+`OUTPUT_DIRECTORY` unless a workflow or module variable overrides it. The CLI
+`--artifact-output` value replaces `output` for one run. Report and journal
+placement is separate and uses `--report-output` (`--output` remains its legacy
+alias).
 
 Workflows MAY restrict remote modules with `options.allowed`, whose
 entries are exact host names or IP literals with an optional non-default port.
@@ -92,8 +122,9 @@ Variable names MUST use upper snake case. Values MAY be strings, numbers, or
 booleans. Xylem constructs the environment in this order:
 
 1. workflow `variables`;
-2. module `variables`, overriding equal workflow keys;
-3. reserved Xylem values, overriding user-defined equal keys.
+2. workflow `output` as the default `OUTPUT_DIRECTORY` when that variable is absent;
+3. module `variables`, overriding equal workflow keys and the output default;
+4. reserved Xylem values, overriding user-defined equal keys.
 
 String values may reference other values with `{{ VARIABLE_NAME }}`. Resolution
 is recursive, so a module override also affects workflow values that reference
