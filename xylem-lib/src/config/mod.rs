@@ -1,4 +1,4 @@
-use acorn::io::{file_checksum, make_executable, read_file};
+use acorn::io::{file_checksum, make_executable};
 use acorn::util::Label;
 use acorn_core::util::alloc::StringConversion;
 use acorn_core::util::{Checksum, MimeType, SemanticVersion};
@@ -11,7 +11,7 @@ use rayon::prelude::*;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, read_to_string};
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use tracing::{debug, error, info, warn};
@@ -23,18 +23,37 @@ use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
 use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
 
+/// Supported workflow configuration serialization formats.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigFormat {
+    /// JavaScript Object Notation.
+    Json,
+    /// YAML Ain't Markup Language.
+    Yaml,
+}
 /// Failure to select or deserialize a workflow configuration file.
 #[derive(Debug)]
 pub enum ConfigReadError {
-    /// The path does not use a supported configuration extension.
-    UnsupportedExtension(PathBuf),
-    /// The selected serializer rejected the configuration content.
+    /// The selected configuration could not be deserialized.
     Invalid {
+        /// Configuration format selected from the path.
+        format: ConfigFormat,
         /// Configuration path that failed to deserialize.
         path: PathBuf,
-        /// Serializer error detail.
-        message: String,
+        /// Parser or semantic deserialization failure.
+        source: Box<dyn core::error::Error + Send + Sync>,
     },
+    /// The selected configuration could not be read.
+    Read {
+        /// Configuration format selected from the path.
+        format: ConfigFormat,
+        /// Configuration path that could not be read.
+        path: PathBuf,
+        /// Filesystem failure.
+        source: std::io::Error,
+    },
+    /// The path does not use a supported configuration extension.
+    UnsupportedExtension(PathBuf),
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -44,6 +63,7 @@ pub enum InputAttribute {
     ShellScript(ScriptTemplate),
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Check {
     /// Glob string(s) describing files and folders to be checked
     pub files: Vec<String>,
@@ -56,6 +76,7 @@ pub struct Check {
 }
 #[derive(Clone, Builder, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// Unique workflow identifier
     pub id: Option<String>,
@@ -96,6 +117,7 @@ pub struct Config {
 }
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
+#[serde(deny_unknown_fields)]
 pub struct ConfigOptions {
     pub root: Option<PathBuf>,
     /// Maximum number of top-level workflow inputs that may run concurrently.
@@ -111,6 +133,7 @@ pub struct ConfigOptions {
     pub allowed: Option<Vec<String>>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Parameters {
     /// Path to save the results, when required
     pub output_path: Option<PathBuf>,
@@ -125,6 +148,7 @@ pub struct Parameters {
 }
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
+#[serde(deny_unknown_fields)]
 pub struct Rule {
     /// Name of the rule (displayed by the progress bar)
     #[builder(default)]
@@ -263,16 +287,15 @@ impl Config {
     /// See the [Xylem configuration syntax wiki page](https://code.ornl.gov/groups/research-enablement/xylem/-/wikis/Xylem-Standards/Configuration-Syntax)
     /// for more information configuration files
     ///
-    pub fn read_json(path: PathBuf) -> serde_json::Result<Config> {
-        let content = match read_file(path.clone()) {
-            | Ok(value) if !value.is_empty() => value,
-            | Ok(_) | Err(_) => {
-                error!(path = path.to_str().unwrap(), "=> {} Configuration content is not valid", Label::fail());
-                "{}".to_owned()
-            }
-        };
-        let data: serde_json::Result<Config> = serde_json::from_str(&content);
-        let label = match data {
+    pub fn read_json(path: PathBuf) -> Result<Config, ConfigReadError> {
+        let data = read_configuration_content(&path, ConfigFormat::Json).and_then(|content| {
+            parse_json_configuration(&content).map_err(|source| ConfigReadError::Invalid {
+                format: ConfigFormat::Json,
+                path: path.clone(),
+                source: Box::new(source),
+            })
+        });
+        let label = match &data {
             | Ok(_) => Label::using(),
             | Err(_) => Label::invalid(),
         };
@@ -284,16 +307,15 @@ impl Config {
     /// See the [Xylem configuration syntax wiki page](https://code.ornl.gov/groups/research-enablement/xylem/-/wikis/Xylem-Standards/Configuration-Syntax)
     /// for more information configuration files
     ///
-    pub fn read_yaml(path: PathBuf) -> serde_yml::Result<Config> {
-        let content = match read_file(path.clone()) {
-            | Ok(value) => value,
-            | Err(_) => {
-                error!(path = path.to_str().unwrap(), "=> {} Configuration content is not valid", Label::fail());
-                "".to_owned()
-            }
-        };
-        let data: serde_yml::Result<Config> = serde_yml::from_str(&content);
-        let label = match data {
+    pub fn read_yaml(path: PathBuf) -> Result<Config, ConfigReadError> {
+        let data = read_configuration_content(&path, ConfigFormat::Yaml).and_then(|content| {
+            parse_yaml_configuration(&content).map_err(|source| ConfigReadError::Invalid {
+                format: ConfigFormat::Yaml,
+                path: path.clone(),
+                source: Box::new(source),
+            })
+        });
+        let label = match &data {
             | Ok(_) => Label::output(),
             | Err(_) => Label::fail(),
         };
@@ -510,14 +532,8 @@ impl TryFrom<&Path> for Config {
 
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
         match MimeType::from(path.to_string_lossy().as_ref()) {
-            | MimeType::Json => Self::read_json(path.to_path_buf()).map_err(|why| ConfigReadError::Invalid {
-                path: path.to_path_buf(),
-                message: why.to_string(),
-            }),
-            | MimeType::Yaml => Self::read_yaml(path.to_path_buf()).map_err(|why| ConfigReadError::Invalid {
-                path: path.to_path_buf(),
-                message: why.to_string(),
-            }),
+            | MimeType::Json => Self::read_json(path.to_path_buf()),
+            | MimeType::Yaml => Self::read_yaml(path.to_path_buf()),
             | _ => Err(ConfigReadError::UnsupportedExtension(path.to_path_buf())),
         }
     }
@@ -529,14 +545,40 @@ impl TryFrom<PathBuf> for Config {
         Self::try_from(path.as_path())
     }
 }
-impl core::error::Error for ConfigReadError {}
+impl fmt::Display for ConfigFormat {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        MimeType::from(*self).fmt(formatter)
+    }
+}
+impl core::error::Error for ConfigReadError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            | Self::Invalid { source, .. } => Some(source.as_ref()),
+            | Self::Read { source, .. } => Some(source),
+            | Self::UnsupportedExtension(_) => None,
+        }
+    }
+}
 impl fmt::Display for ConfigReadError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            | Self::Invalid { format, path, source } => {
+                write!(formatter, "parse {format} configuration {}: {source}", path.display())
+            }
+            | Self::Read { format, path, source } => {
+                write!(formatter, "read {format} configuration {}: {source}", path.display())
+            }
             | Self::UnsupportedExtension(path) => {
                 write!(formatter, "configuration {} must use a .json, .yaml, or .yml extension", path.display())
             }
-            | Self::Invalid { path, message } => write!(formatter, "read configuration {}: {message}", path.display()),
+        }
+    }
+}
+impl From<ConfigFormat> for MimeType {
+    fn from(format: ConfigFormat) -> Self {
+        match format {
+            | ConfigFormat::Json => Self::Json,
+            | ConfigFormat::Yaml => Self::Yaml,
         }
     }
 }
@@ -815,6 +857,30 @@ fn get_children(path: String) -> Vec<String> {
         }
         | Err(_) => Vec::new(),
     }
+}
+fn parse_json_configuration(content: &str) -> serde_json::Result<Config> {
+    serde_json::from_str::<Value>(content).and_then(serde_json::from_value)
+}
+fn parse_yaml_configuration(content: &str) -> serde_norway::Result<Config> {
+    serde_norway::from_str::<serde_norway::Value>(content)
+        .and_then(|mut value| value.apply_merge().map(|()| value))
+        .and_then(serde_norway::from_value)
+}
+fn read_configuration_content(path: &Path, format: ConfigFormat) -> Result<String, ConfigReadError> {
+    read_to_string(path)
+        .map_err(|source| ConfigReadError::Read {
+            format,
+            path: path.to_path_buf(),
+            source,
+        })
+        .and_then(|content| match content.trim().is_empty() {
+            | true => Err(ConfigReadError::Invalid {
+                format,
+                path: path.to_path_buf(),
+                source: Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, "configuration is empty")),
+            }),
+            | false => Ok(content),
+        })
 }
 
 #[cfg(test)]

@@ -8,11 +8,13 @@ use xylem_lib::ReporterType;
 pub enum Commands {
     /// Run workflow using configuration file
     ///
+    /// ```text
     ///     Run with INFO logging level, loads config.json from current directory
     ///     $> xylem run -vv
     ///
     ///     Perform dry run using configuration file at /path/to/config.json
     ///     $> xylem run --config /path/to/config --dry-run
+    /// ```
     ///
     #[clap(verbatim_doc_comment)]
     Run {

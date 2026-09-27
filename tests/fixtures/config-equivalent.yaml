@@ -1,0 +1,25 @@
+version: 1.2.3
+description: Equivalent configuration
+requirements: []
+variables:
+  SHARED: &shared shared
+  ALIASED: *shared
+  BOOLEAN: true
+  "NULL": null
+  NUMBER: 42
+  QUOTED: "true"
+modules:
+  - &base
+    name: Base
+    type: script
+    programmingLanguage: generic
+    uri: file:./base
+    variables:
+      MODE: base
+  - <<: *base
+    name: Merged
+    variables:
+      MODE: override
+options:
+  batch: 2
+  offline: false

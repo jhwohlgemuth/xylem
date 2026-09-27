@@ -22,8 +22,7 @@ Turn a JSON or YAML document into a validated workflow plan before performing an
 - Public Serde enums accept `InputAttribute::ShellScript`, `ModuleType::Configuration`, seven module languages, lifecycle scripts, checks, resources, output, and option fields, but execution implements only part of that surface.
 - Accepted shell input, configuration modules, unsupported languages, schemes, and extensions reach `unimplemented!` rather than validation errors.
 - `verify_resources` is a no-op, while `check`, `before_script`, `after_script`, and several output/reporting fields are silently unused.
-- Deserialization does not deny unknown fields or validate non-empty module names, unique names, semantic versions, required checksums, template/manager compatibility, or variable names.
-- JSON and YAML readers replace I/O failure with synthetic empty content and then parse it, obscuring the original cause.
+- Phase 1 made unknown fields strict and preserved JSON/YAML I/O and parser sources; semantic validation still does not cover non-empty module names, unique names, required checksums, template/manager compatibility, or variable names.
 - `--config` and reporter `--output` use `DirPath` hints even though the former is a file and the latter may be a file destination.
 - CLI inputs are consulted only when configuration-derived inputs are absent, so override precedence is implicit.
 - A dry run still creates a temporary root and local binary preparation can call `make_executable`; it is therefore not generally side-effect free.
@@ -55,7 +54,7 @@ Dry-run stops after stage 3 and serializes the plan. It may inspect explicitly a
 ## Schema policy
 
 - Add defaults only where omission is semantically valid; distinguish an absent list from an accidentally missing required field.
-- Deny unknown fields for stable configuration objects, with a versioned escape/migration policy if forward compatibility is required.
+- Preserve strict unknown-field handling for stable configuration objects, with a versioned escape/migration policy if forward compatibility is required.
 - Validate configuration version, unique/non-empty module names, URI/location kinds, checksums, manager/runtime support, template command/arguments, variable types and reserved names, and input/output path relationships.
 - For declared but unimplemented capabilities, either schedule a separate implementation plan or reject them with a named capability error. Do not silently ignore them.
 - Define CLI-over-config precedence for every option. CLI `--input` should be either an explicit override or an explicit append mode, not a fallback hidden in control flow.

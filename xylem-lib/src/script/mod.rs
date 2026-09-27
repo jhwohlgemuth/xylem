@@ -137,6 +137,15 @@ pub enum ModuleUri<'a> {
     Url(Box<URI<'a>>),
     Unknown(String),
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum RawModuleType {
+    #[serde(alias = "bin")]
+    Binary,
+    #[serde(alias = "config")]
+    Configuration,
+    Script,
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum TemplateAttribute {
@@ -208,6 +217,7 @@ pub struct Command {
 #[derive(Builder, Clone, Debug, Deserialize, Display, Serialize)]
 #[display("{}", "{runtime}:{image}")]
 #[builder(start_fn(name = init))]
+#[serde(deny_unknown_fields)]
 pub struct ContainerEnvironment {
     /// Name of container
     pub name: String,
@@ -219,7 +229,7 @@ pub struct ContainerEnvironment {
     /// Name of image container was built from
     pub image: Option<String>,
 }
-#[derive(Clone, Debug, Deserialize, Display, Serialize)]
+#[derive(Clone, Debug, Display, Serialize)]
 #[display("{name}")]
 pub struct Module {
     pub name: String,
@@ -230,6 +240,22 @@ pub struct Module {
     pub before_script: Option<Instruction>,
     pub after_script: Option<Instruction>,
     pub template: Option<TemplateAttribute>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawModule {
+    after_script: Option<Instruction>,
+    before_script: Option<Instruction>,
+    checksum: Option<String>,
+    description: Option<String>,
+    name: String,
+    #[serde(alias = "programmingLanguage")]
+    programming_language: Option<ModuleLanguage>,
+    template: Option<TemplateAttribute>,
+    #[serde(rename = "type")]
+    module_type: RawModuleType,
+    uri: String,
+    variables: Option<Map<String, Value>>,
 }
 /// Script struct
 ///
@@ -259,6 +285,7 @@ pub struct Script {
     pub envs: Option<HashMap<String, String>>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ScriptTemplate {
     pub command: String,
     pub container: Option<ContainerEnvironment>,
@@ -267,6 +294,7 @@ pub struct ScriptTemplate {
     pub arguments: Instruction,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct StringTemplate {
     pub value: String,
     pub template_type: TemplateType,
@@ -274,6 +302,7 @@ pub struct StringTemplate {
 #[derive(Builder, Clone, Debug, Deserialize, Display, PartialEq, Serialize)]
 #[display("{name}")]
 #[builder(start_fn(name = init))]
+#[serde(deny_unknown_fields)]
 pub struct VirtualEnvironment {
     pub name: String,
     pub path: Option<String>,
@@ -419,18 +448,6 @@ impl EnvironmentValue {
         values.into_iter().for_each(|(key, value)| set_var(key, value));
     }
 }
-impl ModuleUri<'_> {
-    pub fn from(value: &str) -> ModuleUri<'_> {
-        match URI::try_from(value) {
-            | Ok(uri) => match (Scheme::from(uri.scheme().as_str()), uri.scheme().as_str().eq_ignore_ascii_case("ssh")) {
-                | (Scheme::HTTP | Scheme::HTTPS, _) | (Scheme::Unsupported, true) => ModuleUri::Url(Box::new(uri)),
-                | (Scheme::File, _) => ModuleUri::File(PathBuf::from(uri.path().to_string())),
-                | (Scheme::Unsupported, false) => ModuleUri::Unknown(value.to_string()),
-            },
-            | Err(_) => ModuleUri::Unknown(value.to_string()),
-        }
-    }
-}
 impl Module {
     /// Resolve the module's explicitly configured or auto-detected virtual environment.
     pub fn resolve_virtual_environment(&self, working_dir: &str) -> Option<VirtualEnvironment> {
@@ -447,12 +464,52 @@ impl Module {
         }
     }
 }
-pub(crate) fn module_working_directory(uri: &str, root: Option<&PathBuf>) -> Option<String> {
-    let location = Location::from(uri);
-    match ModuleUri::from(uri) {
-        | ModuleUri::Url(_) => Some(root.map_or_else(|| location.hash(), |path| path.join(location.hash()).to_absolute_path())),
-        | ModuleUri::File(path) => Some(path.to_absolute_path()),
-        | ModuleUri::Unknown(_) => None,
+impl<'de> Deserialize<'de> for Module {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        RawModule::deserialize(deserializer).map(
+            |RawModule {
+                 after_script,
+                 before_script,
+                 checksum,
+                 description,
+                 name,
+                 programming_language,
+                 template,
+                 module_type,
+                 uri,
+                 variables,
+             }| {
+                let module_type = match module_type {
+                    | RawModuleType::Binary => ModuleType::Binary { checksum, uri },
+                    | RawModuleType::Configuration => ModuleType::Configuration { uri },
+                    | RawModuleType::Script => ModuleType::Script { programming_language, uri },
+                };
+                Self {
+                    name,
+                    module_type,
+                    description,
+                    variables,
+                    before_script,
+                    after_script,
+                    template,
+                }
+            },
+        )
+    }
+}
+impl ModuleUri<'_> {
+    pub fn from(value: &str) -> ModuleUri<'_> {
+        match URI::try_from(value) {
+            | Ok(uri) => match (Scheme::from(uri.scheme().as_str()), uri.scheme().as_str().eq_ignore_ascii_case("ssh")) {
+                | (Scheme::HTTP | Scheme::HTTPS, _) | (Scheme::Unsupported, true) => ModuleUri::Url(Box::new(uri)),
+                | (Scheme::File, _) => ModuleUri::File(PathBuf::from(uri.path().to_string())),
+                | (Scheme::Unsupported, false) => ModuleUri::Unknown(value.to_string()),
+            },
+            | Err(_) => ModuleUri::Unknown(value.to_string()),
+        }
     }
 }
 impl Script {
@@ -851,76 +908,6 @@ impl Script {
         self
     }
 }
-fn create_conda_environment_script(current_dir: String) -> Option<Script> {
-    let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
-    match manifest_path.try_exists() {
-        | Ok(true) => {
-            info!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::found());
-            match get_conda_environment_name(manifest_path) {
-                | Some(name) if get_conda_environment_list().contains(&name) => {
-                    info!(name, "=> {} Virtual environment", Label::found());
-                    None
-                }
-                | Some(_) => {
-                    let mamba = Command::init().name("mamba".to_string()).build();
-                    let name = (if mamba.test() { "mamba" } else { "conda" }).to_string();
-                    let arguments = vec!["env", "create", "-f", "environment.yml"].into_iter().map(String::from).collect();
-                    let command = Command::init().name(name).build();
-                    Some(Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir))
-                }
-                | None => None,
-            }
-        }
-        | Ok(false) => {
-            debug!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::not_found());
-            None
-        }
-        | Err(_) => {
-            error!(
-                path = manifest_path.to_str().unwrap(),
-                "=> {} Error while trying to test existence",
-                Label::fail()
-            );
-            None
-        }
-    }
-}
-fn create_pixi_environment_script(current_dir: String, environment: VirtualEnvironment) -> Option<Script> {
-    match find_pixi_manifest(PathBuf::from(&current_dir)) {
-        | Some(manifest_path) => {
-            info!(path = manifest_path.to_str().unwrap(), "=> {} Pixi manifest file", Label::found());
-            let command = Command::init().name("pixi".to_string()).build();
-            let arguments = vec!["install", "--environment", &environment.name]
-                .into_iter()
-                .map(String::from)
-                .collect();
-            Some(Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir))
-        }
-        | None => {
-            debug!(path = current_dir, "=> {} Pixi manifest file", Label::not_found());
-            None
-        }
-    }
-}
-fn find_pixi_manifest(path: PathBuf) -> Option<PathBuf> {
-    let pixi_toml = path.join("pixi.toml");
-    match pixi_toml.is_file() {
-        | true => Some(pixi_toml),
-        | false => {
-            let pyproject = path.join("pyproject.toml");
-            read_file(pyproject.clone())
-                .ok()
-                .and_then(|content| content.parse::<toml::Table>().ok())
-                .and_then(|manifest| {
-                    manifest
-                        .get("tool")
-                        .and_then(toml::Value::as_table)
-                        .and_then(|tool| tool.get("pixi"))
-                        .map(|_| pyproject)
-                })
-        }
-    }
-}
 impl ScriptTemplate {
     pub fn from_path(path: PathBuf) -> ScriptTemplate {
         let content = match read_file(path.clone()) {
@@ -1058,6 +1045,76 @@ fn add_dot_slash(path: PathBuf) -> PathBuf {
         PathBuf::from(format!("./{}", path.display()))
     }
 }
+fn create_conda_environment_script(current_dir: String) -> Option<Script> {
+    let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
+    match manifest_path.try_exists() {
+        | Ok(true) => {
+            info!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::found());
+            match get_conda_environment_name(manifest_path) {
+                | Some(name) if get_conda_environment_list().contains(&name) => {
+                    info!(name, "=> {} Virtual environment", Label::found());
+                    None
+                }
+                | Some(_) => {
+                    let mamba = Command::init().name("mamba".to_string()).build();
+                    let name = (if mamba.test() { "mamba" } else { "conda" }).to_string();
+                    let arguments = vec!["env", "create", "-f", "environment.yml"].into_iter().map(String::from).collect();
+                    let command = Command::init().name(name).build();
+                    Some(Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir))
+                }
+                | None => None,
+            }
+        }
+        | Ok(false) => {
+            debug!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::not_found());
+            None
+        }
+        | Err(_) => {
+            error!(
+                path = manifest_path.to_str().unwrap(),
+                "=> {} Error while trying to test existence",
+                Label::fail()
+            );
+            None
+        }
+    }
+}
+fn create_pixi_environment_script(current_dir: String, environment: VirtualEnvironment) -> Option<Script> {
+    match find_pixi_manifest(PathBuf::from(&current_dir)) {
+        | Some(manifest_path) => {
+            info!(path = manifest_path.to_str().unwrap(), "=> {} Pixi manifest file", Label::found());
+            let command = Command::init().name("pixi".to_string()).build();
+            let arguments = vec!["install", "--environment", &environment.name]
+                .into_iter()
+                .map(String::from)
+                .collect();
+            Some(Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir))
+        }
+        | None => {
+            debug!(path = current_dir, "=> {} Pixi manifest file", Label::not_found());
+            None
+        }
+    }
+}
+fn find_pixi_manifest(path: PathBuf) -> Option<PathBuf> {
+    let pixi_toml = path.join("pixi.toml");
+    match pixi_toml.is_file() {
+        | true => Some(pixi_toml),
+        | false => {
+            let pyproject = path.join("pyproject.toml");
+            read_file(pyproject.clone())
+                .ok()
+                .and_then(|content| content.parse::<toml::Table>().ok())
+                .and_then(|manifest| {
+                    manifest
+                        .get("tool")
+                        .and_then(toml::Value::as_table)
+                        .and_then(|tool| tool.get("pixi"))
+                        .map(|_| pyproject)
+                })
+        }
+    }
+}
 /// Get list of Conda virtual environments
 pub fn get_conda_environment_list() -> Vec<String> {
     let command = Command::init().name("conda".to_string()).build();
@@ -1109,6 +1166,14 @@ pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
             | _ => None,
         },
         | _ => None,
+    }
+}
+pub(crate) fn module_working_directory(uri: &str, root: Option<&PathBuf>) -> Option<String> {
+    let location = Location::from(uri);
+    match ModuleUri::from(uri) {
+        | ModuleUri::Url(_) => Some(root.map_or_else(|| location.hash(), |path| path.join(location.hash()).to_absolute_path())),
+        | ModuleUri::File(path) => Some(path.to_absolute_path()),
+        | ModuleUri::Unknown(_) => None,
     }
 }
 

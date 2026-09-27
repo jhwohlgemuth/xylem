@@ -22,7 +22,7 @@ Rechecked against `005aa73`.
 - `assert_cmd` is declared in both crates, but only `xylem-cli/tests/workflow.rs` uses it. The `xylem-lib` dev-dependency is unused.
 - The plan's claim that `sha2` and `tokio` are declared in `xylem-lib` is no longer true; neither appears in that manifest. `bytes` and `reqwest` are declared and both are used by `remote.rs`.
 - The lockfile still carries duplicate generations of `console` (0.15 and 0.16), `convert_case` (0.10 and 0.11), `indicatif` (0.17 and 0.18), and `reqwest` (0.12 and 0.13). Xylem declares the older generation of each.
-- `deny.toml` still permanently ignores six advisories, including the two `libyml` and `serde_yml` unsound reports, and the `Makefile` adds more `cargo audit` ignores. The prioritized plan's Phase 1 removes the two YAML entries.
+- Phase 1 removed `serde_yml`, `libyml`, and their two unsoundness exceptions. The remaining permanent advisory ignores and extra `cargo audit` exceptions still need the policy defined here.
 - `make audit` runs `cargo udeps`, `cargo deny check`, and `cargo audit`, but `.gitlab-ci.yml` still does not invoke it, so the gate is advisory only.
 - Package-count, build-time, and advisory baselines are still unrecorded.
 

@@ -6,7 +6,7 @@ difficulty: medium
 impact: critical
 package: [xylem-lib, workspace]
 tags: [migration, yaml, serde, security, configuration]
-status: planned
+status: complete
 ---
 
 # Execution
@@ -19,11 +19,11 @@ Preserve supported Xylem YAML configuration semantics while removing the unmaint
 
 # Current evidence
 
-- `xylem-lib` directly depends on `serde_yml = 0.0.12`, and `Config::read_yaml` exposes its error type in a public signature.
-- `deny.toml` ignores RUSTSEC-2025-0067 and RUSTSEC-2025-0068 for `libyml` and `serde_yml`; `Makefile` repeats those exceptions for `cargo audit`.
-- The current audit classifies both crates as unsound with no patched version.
-- The adjacent ACORN workspace already uses `serde_norway`, providing a nearby compatibility reference and an opportunity to converge parsers.
-- JSON and YAML paths currently differ in empty-file handling and labels, and both discard file-read context before the top-level process exits.
+- `xylem-lib` now uses `serde_norway = 0.9.42`, matching ACORN's resolved parser.
+- `Config::read_json` and `Config::read_yaml` return `ConfigReadError` with format, path, and source-chain context.
+- JSON and YAML share empty-file and strict unknown-field policy; YAML supports aliases and merge keys before typed deserialization.
+- `serde_yml`, `libyml`, and their RUSTSEC-2025-0067/RUSTSEC-2025-0068 exceptions are absent.
+- Unrelated transitive advisories remain owned by the dependency-security phase and do not change this migration's YAML-specific result.
 
 # Project code boundaries
 
@@ -37,18 +37,18 @@ Coordinate manifest integration with the [ACORN upgrade](acorn-0-2-upgrade.md). 
 
 # Recommendation
 
-1. Evaluate `serde_norway` first because ACORN already uses it, but accept it only after Xylem fixture parity and advisory checks pass.
-2. Stop exposing a third-party parser error as Xylem's public API. Return the owned configuration error introduced by [typed errors and outcomes](../refactors/typed-error-and-outcome-boundary.md), including path, format, and source-chain context.
-3. Define and test supported YAML behavior: aliases, merge keys, quoted scalars, nulls, booleans, numeric variables, duplicate keys, and multi-document input. Reject ambiguous or unsupported constructs explicitly.
-4. Apply identical missing-file, empty-file, unknown-field, and semantic-validation policy to JSON and YAML after deserialization.
-5. Remove advisory exceptions rather than renaming them or replacing them with an indefinite blanket ignore.
+1. Keep `serde_norway` aligned with ACORN and retain fixture parity and advisory coverage.
+2. Keep third-party parser types behind `ConfigReadError`, including path, format, and source-chain context.
+3. Preserve the documented alias, merge-key, scalar, duplicate-key, single-document, and resource-limit behavior.
+4. Keep missing-file, empty-file, unknown-field, and semantic deserialization policy aligned across JSON and YAML.
+5. Do not restore the retired advisory exceptions or replace them with a blanket ignore.
 
 # Validation
 
 - Parse every checked-in YAML fixture with the old and candidate parser in a temporary comparison test and review intentional differences.
 - Add paired JSON/YAML tests that deserialize to equal `Config` values for the supported subset.
 - Add malformed, duplicate-key, multi-document, alias, and resource-limit tests.
-- Run `cargo audit --no-fetch --json` and `cargo deny check`; verify the two retired crates and their ignores are absent.
+- Run `cargo audit --no-fetch --json` and `cargo deny check`; verify the two retired crates and their ignores are absent. Track unrelated audit findings in the dependency-security phase.
 - Run the full workspace tests and documentation tests.
 
 # Acceptance criteria

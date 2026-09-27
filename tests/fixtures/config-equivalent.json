@@ -1,0 +1,37 @@
+{
+  "version": "1.2.3",
+  "description": "Equivalent configuration",
+  "requirements": [],
+  "variables": {
+    "ALIASED": "shared",
+    "BOOLEAN": true,
+    "NULL": null,
+    "NUMBER": 42,
+    "QUOTED": "true",
+    "SHARED": "shared"
+  },
+  "modules": [
+    {
+      "name": "Base",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:./base",
+      "variables": {
+        "MODE": "base"
+      }
+    },
+    {
+      "name": "Merged",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:./base",
+      "variables": {
+        "MODE": "override"
+      }
+    }
+  ],
+  "options": {
+    "batch": 2,
+    "offline": false
+  }
+}

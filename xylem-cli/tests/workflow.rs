@@ -1,5 +1,30 @@
-use std::fs::{create_dir_all, read, read_dir, remove_dir_all, remove_file, write};
+use std::fs::{create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write};
 
+#[test]
+fn configuration_read_failures_use_distinct_exit_codes() {
+    let test_root = std::env::temp_dir().join(format!("xylem-config-errors-{}", std::process::id()));
+    create_dir_all(&test_root).expect("create configuration error directory");
+    let invalid = test_root.join("invalid.yaml");
+    let missing = test_root.join("missing.yaml");
+    write(&invalid, "requirements: [\n").expect("write invalid YAML configuration");
+
+    let mut invalid_command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    invalid_command
+        .args(["run", "--config", invalid.to_str().expect("UTF-8 invalid path")])
+        .assert()
+        .failure()
+        .code(exitcode::DATAERR);
+
+    let mut missing_command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    missing_command
+        .args(["run", "--config", missing.to_str().expect("UTF-8 missing path")])
+        .assert()
+        .failure()
+        .code(exitcode::UNAVAILABLE);
+
+    remove_file(invalid).expect("remove invalid YAML configuration");
+    remove_dir_all(test_root).expect("remove configuration error directory");
+}
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn configured_batch_caps_active_inputs_in_the_compiled_cli() {

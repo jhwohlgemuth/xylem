@@ -43,11 +43,11 @@ Not landed, and relevant to this plan:
 
 # Current evidence
 
-- `xylem-lib` parses YAML with `serde_yml` 0.0.12, `deny.toml` carries permanent `RUSTSEC-2025-0067` and `RUSTSEC-2025-0068` exceptions for `libyml` and `serde_yml`, and the `Makefile` repeats them.
+- Phase 1 replaced `serde_yml`/`libyml` with `serde_norway` and removed the RUSTSEC-2025-0067/RUSTSEC-2025-0068 exceptions.
 - `xylem-lib` still reaches `std::process::exit` from `config/mod.rs:258` and `script/mod.rs:755`, and `unimplemented!` for a serialized shell input, configuration modules, unknown extensions, and unknown schemes.
 - `Script::run` returns `Vec<String>`, so a spawn failure, a non-zero exit, and a successful silent child are indistinguishable.
-- `Config::read_json` and `Config::read_yaml` replace an unreadable file with empty content and then parse it, discarding the I/O cause.
-- Deserialization accepts shell input, configuration modules, seven module languages, `check`, `before_script`, `after_script`, and `output` without validating any of them, and it does not deny unknown fields.
+- `Config::read_json` and `Config::read_yaml` preserve path, format, and source-chain context through the owned configuration error.
+- Deserialization rejects unknown fields, but still accepts shell input, configuration modules, seven module languages, `check`, `before_script`, `after_script`, and `output` without validating whether execution implements them.
 - A dry run still creates a temporary root, and local binary preparation can call `make_executable`, so it is not side-effect free.
 - `ExecutionState` has one terminal skip value, so a dry-run skip and a completion skip are indistinguishable in the journal and in the console report.
 - `Config.output` documents an artifact path but is not used by execution, and modules receive `OUTPUT_DIRECTORY` as an ordinary user variable that Xylem knows nothing about.
@@ -117,7 +117,7 @@ Absorbs [configuration validation and dry-run](../refactors/configuration-valida
 
 Split the current `Config` into four stages. Parse the named file and deserialize its format with path and source context. Validate schema-independent invariants and classify every declared capability as supported or rejected. Plan path resolution, input order, variable precedence, acquisition actions, and command arguments without touching the host. Execute the accepted plan and return structured outcomes.
 
-Deny unknown fields on stable configuration objects. Validate the configuration version, unique and non-empty module names, URI and location kinds, required checksums, manager and runtime support, template command and arguments, variable types and reserved names, and input and output path relationships. A declared but unimplemented capability becomes a named rejection, never a silent no-op, which is what finally retires the `unimplemented!` branches Phase 2 removed the panics from. Define CLI-over-configuration precedence for every option and make `--input` an explicit override rather than a fallback hidden in control flow. Sort path-derived inputs and make duplicate handling explicit.
+Preserve Phase 1's unknown-field policy. Validate the configuration version, unique and non-empty module names, URI and location kinds, required checksums, manager and runtime support, template command and arguments, variable types and reserved names, and input and output path relationships. A declared but unimplemented capability becomes a named rejection, never a silent no-op, which is what finally retires the `unimplemented!` branches Phase 2 removed the panics from. Define CLI-over-configuration precedence for every option and make `--input` an explicit override rather than a fallback hidden in control flow. Sort path-derived inputs and make duplicate handling explicit.
 
 Dry run stops after planning and serializes the plan. It creates no temporary directory, performs no `chmod`, clones nothing, and spawns no module. Where it must read the host, the output labels the read as an observation.
 

@@ -30,6 +30,19 @@ zero or more inputs, shared variables, ordered modules, and execution options.
 Relative `file:` module paths resolve from the directory where Xylem is
 launched. Modules execute in array order for each active input.
 
+## YAML behavior
+
+YAML configuration files may use anchors, aliases, and merge keys. Explicit
+mapping fields take precedence over merged fields; for a merge sequence, the
+first mapping takes precedence over later mappings. Quoting a scalar prevents
+YAML from interpreting values such as `null`, `true`, or numbers as other
+types.
+
+Xylem accepts exactly one YAML document per file. It rejects duplicate keys,
+unknown configuration fields, malformed merges, unresolved aliases, and input
+that exceeds the parser's recursion or alias-expansion limits. JSON uses the
+same required-field, unknown-field, and semantic validation policy.
+
 ## Variables
 
 Workflow variables are available to every module. Module variables override

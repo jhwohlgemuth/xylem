@@ -163,6 +163,7 @@ pub fn run(
                         let exit_code = match &why {
                             | ConfigReadError::UnsupportedExtension(_) => exitcode::USAGE,
                             | ConfigReadError::Invalid { .. } => exitcode::DATAERR,
+                            | ConfigReadError::Read { .. } => exitcode::UNAVAILABLE,
                         };
                         RunFailure::new(exit_code, why.to_string())
                     });

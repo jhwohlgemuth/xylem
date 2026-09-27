@@ -4,6 +4,8 @@ use crate::progress::{ProgressObserver, ProgressPhase, ProgressState, ProgressUp
 use std::fs::{remove_file, write};
 use std::sync::Mutex;
 
+const FIXTURES: &str = "../tests/fixtures";
+
 #[derive(Default)]
 struct RecordingProgress {
     updates: Mutex<Vec<ProgressUpdate>>,
@@ -49,7 +51,7 @@ fn batch_rejects_zero_negative_non_numeric_and_overflow_values() {
         }
     }
     let yaml = "requirements: []\nmodules: []\noptions:\n  batch: 0\n";
-    assert!(serde_yml::from_str::<Config>(yaml).is_err());
+    assert!(parse_yaml_configuration(yaml).is_err());
 }
 #[test]
 fn batch_round_trips_through_json_and_yaml() {
@@ -62,9 +64,37 @@ fn batch_round_trips_through_json_and_yaml() {
     assert_eq!(config.options.as_ref().and_then(|options| options.batch).map(InputBatch::get), Some(2));
     let serialized = serde_json::to_value(&config).expect("serialize JSON configuration");
     assert_eq!(serialized["options"]["batch"], 2);
-    let yaml = serde_yml::to_string(&config).expect("serialize YAML configuration");
-    let round_trip: Config = serde_yml::from_str(&yaml).expect("deserialize YAML batch");
+    let yaml = serde_norway::to_string(&config).expect("serialize YAML configuration");
+    let round_trip = parse_yaml_configuration(&yaml).expect("deserialize YAML batch");
     assert_eq!(round_trip.options.and_then(|options| options.batch).map(InputBatch::get), Some(2));
+}
+#[test]
+fn configuration_errors_preserve_format_path_and_source() {
+    let missing = std::env::temp_dir().join(format!("xylem-missing-config-{}.json", std::process::id()));
+    let missing_error = Config::read_json(missing.clone()).expect_err("missing configuration should fail");
+    match &missing_error {
+        | ConfigReadError::Read { format, path, .. } => {
+            assert_eq!(*format, ConfigFormat::Json);
+            assert_eq!(path, &missing);
+        }
+        | error => panic!("expected read error, found {error}"),
+    }
+    assert!(core::error::Error::source(&missing_error).is_some());
+    assert!(missing_error.to_string().contains("read application/json configuration"));
+
+    let empty = std::env::temp_dir().join(format!("xylem-empty-config-{}.yaml", std::process::id()));
+    write(&empty, " \n").expect("write empty YAML configuration");
+    let empty_error = Config::read_yaml(empty.clone()).expect_err("empty configuration should fail");
+    match &empty_error {
+        | ConfigReadError::Invalid { format, path, .. } => {
+            assert_eq!(*format, ConfigFormat::Yaml);
+            assert_eq!(path, &empty);
+        }
+        | error => panic!("expected invalid error, found {error}"),
+    }
+    assert!(core::error::Error::source(&empty_error).is_some());
+    assert!(empty_error.to_string().contains("parse application/yaml configuration"));
+    remove_file(empty).expect("remove empty YAML configuration");
 }
 #[test]
 fn configuration_try_from_uses_mime_type_for_yml_files() {
@@ -92,6 +122,43 @@ fn configuration_version_must_be_semantic() {
             "modules": []
         });
         assert!(serde_json::from_value::<Config>(config).is_err(), "{version} should be invalid");
+    }
+}
+#[test]
+fn json_and_yaml_fixtures_deserialize_equally() {
+    let json = Config::read_json(PathBuf::from(format!("{FIXTURES}/config-equivalent.json"))).expect("read equivalent JSON fixture");
+    let yaml = Config::read_yaml(PathBuf::from(format!("{FIXTURES}/config-equivalent.yaml"))).expect("read equivalent YAML fixture");
+    let json_value = serde_json::to_value(json).expect("normalize JSON fixture");
+    let yaml_value = serde_json::to_value(yaml).expect("normalize YAML fixture");
+    assert_eq!(json_value, yaml_value);
+    assert_eq!(yaml_value["variables"]["ALIASED"], "shared");
+    assert_eq!(yaml_value["variables"]["BOOLEAN"], true);
+    assert!(yaml_value["variables"]["NULL"].is_null());
+    assert_eq!(yaml_value["variables"]["NUMBER"], 42);
+    assert_eq!(yaml_value["variables"]["QUOTED"], "true");
+}
+#[test]
+fn json_and_yaml_reject_unknown_fields() {
+    for (json, yaml) in [
+        (
+            r#"{"requirements":[],"modules":[],"unexpected":true}"#,
+            "requirements: []\nmodules: []\nunexpected: true\n",
+        ),
+        (
+            r#"{"requirements":[],"modules":[],"options":{"unexpected":true}}"#,
+            "requirements: []\nmodules: []\noptions:\n  unexpected: true\n",
+        ),
+        (
+            r#"{"requirements":[],"modules":[{"name":"probe","type":"script","uri":"file:./probe","unexpected":true}]}"#,
+            "requirements: []\nmodules:\n  - name: probe\n    type: script\n    uri: file:./probe\n    unexpected: true\n",
+        ),
+        (
+            r#"{"requirements":[],"modules":[{"name":"probe","type":"script","uri":"file:./probe","template":{"command":"sh","arguments":[],"unexpected":true}}]}"#,
+            "requirements: []\nmodules:\n  - name: probe\n    type: script\n    uri: file:./probe\n    template:\n      command: sh\n      arguments: []\n      unexpected: true\n",
+        ),
+    ] {
+        assert!(parse_json_configuration(json).is_err(), "JSON should reject {json}");
+        assert!(parse_yaml_configuration(yaml).is_err(), "YAML should reject {yaml}");
     }
 }
 #[test]
@@ -133,4 +200,33 @@ fn test_get_children() {
         .map(|path| PathBuf::from(path).file_name().expect("input name").to_string_lossy().to_string())
         .collect::<Vec<_>>();
     assert_eq!(children, ["one", "three", "two"]);
+}
+#[test]
+fn yaml_rejects_ambiguous_and_resource_exhausting_input() {
+    for yaml in [
+        "requirements: []\nrequirements: []\nmodules: []\n",
+        "requirements: []\nmodules: []\n---\nrequirements: []\nmodules: []\n",
+        "requirements: []\nmodules:\n  - <<: invalid\n    name: probe\n    type: script\n    uri: file:./probe\n",
+    ] {
+        assert!(parse_yaml_configuration(yaml).is_err(), "YAML should reject {yaml}");
+    }
+    let nested = format!(
+        "requirements: []\nmodules: []\nvariables:\n  DEEP: {}value{}\n",
+        "[".repeat(129),
+        "]".repeat(129)
+    );
+    assert!(parse_yaml_configuration(&nested).is_err());
+    let repeated = "requirements: []\nmodules: []\nvariables:\n  A: &A [x, x, x, x, x, x, x, x, x, x]\n  B: &B [*A, *A, *A, *A, *A, *A, *A, *A, *A, *A]\n  C: &C [*B, *B, *B, *B, *B, *B, *B, *B, *B, *B]\n  D: &D [*C, *C, *C, *C, *C, *C, *C, *C, *C, *C]\n  E: [*D, *D, *D, *D, *D, *D, *D, *D, *D, *D]\n";
+    let error = parse_yaml_configuration(repeated).expect_err("excessive alias expansion should fail");
+    assert!(error.to_string().contains("repetition limit exceeded"), "{error}");
+}
+#[test]
+fn yaml_supports_merge_sequence_precedence() {
+    let yaml = "requirements: []\nmodules:\n  - <<:\n      - &first {name: First, type: script, uri: 'file:./first'}\n      - &second {name: Second, type: script, uri: 'file:./second'}\n";
+    let config = parse_yaml_configuration(yaml).expect("merge sequence should deserialize");
+    assert_eq!(config.modules[0].name, "First");
+    match &config.modules[0].module_type {
+        | ModuleType::Script { uri, .. } => assert_eq!(uri, "file:./first"),
+        | module_type => panic!("expected script module, found {module_type:?}"),
+    }
 }
