@@ -11,6 +11,7 @@ use core::fmt;
 use serde::Serialize;
 use std::fs::read_dir;
 use std::path::PathBuf;
+use tracing::debug;
 
 /// Failure to validate or render an execution plan.
 #[derive(Debug)]
@@ -219,6 +220,13 @@ impl Module {
         module_index: usize,
         resume: bool,
     ) -> Result<PlannedModule, PlanError> {
+        if resume && self.completion.is_none() {
+            debug!(
+                module = self.name,
+                input = input.as_deref().unwrap_or("<no input>"),
+                "Resume plan will run module because no completion declaration is configured"
+            );
+        }
         let variables = config
             .clone()
             .get_environment_variables(Some(self.clone()), input.clone())

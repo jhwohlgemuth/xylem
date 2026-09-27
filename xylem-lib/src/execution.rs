@@ -140,7 +140,7 @@ impl ExecutionContext {
 impl Default for ExecutionLimits {
     fn default() -> Self {
         Self {
-            threads: NonZeroUsize::new(DEFAULT_THREADS).expect("the default thread count is non-zero"),
+            threads: NonZeroUsize::new(DEFAULT_THREADS).unwrap_or(NonZeroUsize::MIN),
         }
     }
 }

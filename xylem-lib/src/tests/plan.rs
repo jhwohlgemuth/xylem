@@ -2,6 +2,11 @@ use crate::config::{Config, InputAttribute};
 use crate::plan::ExecutionPlan;
 use std::fs::{create_dir_all, remove_dir_all, write};
 
+#[cfg(target_os = "linux")]
+use std::ffi::OsString;
+#[cfg(target_os = "linux")]
+use std::os::unix::ffi::OsStringExt;
+
 fn config(output: &str) -> Config {
     serde_json::from_value(serde_json::json!({
         "input": ["configured", "configured"],
@@ -74,4 +79,16 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
         [output.join("input-a").join("*.txt").display().to_string()]
     );
     assert!(!output.exists());
+}
+#[cfg(target_os = "linux")]
+#[test]
+fn test_non_unicode_directory_input_is_rejected_with_context() {
+    let root = std::env::temp_dir().join(format!("xylem-plan-non-unicode-{}", std::process::id()));
+    create_dir_all(&root).expect("create input root");
+    write(root.join(OsString::from_vec(vec![b'i', b'n', 0x80])), "input").expect("write non-Unicode input");
+    let mut config = config("/tmp/xylem-plan-output");
+    config.input = Some(InputAttribute::Path(root.display().to_string()));
+    let error = config.resolve_inputs(None).expect_err("non-Unicode input must be rejected");
+    assert!(error.to_string().contains("input directory entry is not valid UTF-8"));
+    remove_dir_all(root).expect("remove input root");
 }

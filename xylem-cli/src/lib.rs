@@ -11,7 +11,6 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 use xylem_lib::execution::ExecutionLimits;
 use xylem_lib::ReporterType;
-use xylem_lib::Void;
 
 pub mod cli;
 pub mod commands;
@@ -26,6 +25,8 @@ const DISPLAY_THREAD_NAME: bool = true;
 /// so examples read as a workflow narrative instead of a debug dump.
 const EXAMPLE_LOG: &str = "trace,xylem_lib::config=info,xylem_cli::commands::run=info";
 const LOG_LEVEL: &str = "XYLEM_LOG_LEVEL";
+/// Result returned by CLI entry points.
+pub type Void = color_eyre::Result<()>;
 /// Install the global tracing subscriber, preferring `XYLEM_LOG_LEVEL` from a dotenv file over `verbose`.
 ///
 /// `filter` is an optional [EnvFilter] directive. When set it takes precedence

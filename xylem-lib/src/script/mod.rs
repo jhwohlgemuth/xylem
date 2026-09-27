@@ -1,5 +1,5 @@
 use crate::completion::Completion;
-use crate::error::ProcessError;
+use crate::error::{ModuleLoadError, ProcessError, TemplateError};
 use crate::util::constants::{RE_HANDLEBARS, RE_TEMPLATE_SPACES};
 use acorn::util::Label;
 use acorn_cmd::{args, cmd};
@@ -12,12 +12,12 @@ use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
 use owo_colors::OwoColorize;
 use serde::de::Error as _;
-use serde::ser::StdError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
 use std::collections::HashMap;
 use std::env::{set_var, vars};
 use std::ffi::OsStr;
+use std::fs::read_to_string;
 use std::path::PathBuf;
 use strum::EnumIs;
 use tracing::{debug, error, info, trace, warn};
@@ -25,7 +25,6 @@ use uriparse::URI;
 use valuable_derive::Valuable;
 use which::which;
 
-pub type CommandResult = Result<(), Box<dyn StdError + 'static>>;
 #[derive(Clone, Debug, Display, Serialize, Deserialize, Valuable)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainerRuntime {
@@ -328,7 +327,7 @@ impl Command {
     pub fn test(self) -> bool {
         match which(&self.name) {
             | Ok(value) => {
-                let path = value.to_str().unwrap();
+                let path = value.display().to_string();
                 match value.clone().try_exists() {
                     | Ok(true) => {
                         debug!(path, "=> {} Command test", Label::found());
@@ -454,16 +453,16 @@ impl EnvironmentValue {
 }
 impl Module {
     /// Resolve the module's explicitly configured or auto-detected virtual environment.
-    pub fn resolve_virtual_environment(&self, working_dir: &str) -> Option<VirtualEnvironment> {
+    pub fn resolve_virtual_environment(&self, working_dir: &str) -> Result<Option<VirtualEnvironment>, TemplateError> {
         match &self.template {
             | Some(TemplateAttribute::Path(value)) => {
                 let template_path = PathBuf::from(working_dir).join(value);
-                template_path
-                    .is_file()
-                    .then(|| ScriptTemplate::from_path(template_path).virtual_environment)
-                    .flatten()
+                match template_path.is_file() {
+                    | true => ScriptTemplate::from_path(template_path).map(|template| template.virtual_environment),
+                    | false => Ok(None),
+                }
             }
-            | Some(TemplateAttribute::Template(value)) => value.virtual_environment.clone(),
+            | Some(TemplateAttribute::Template(value)) => Ok(value.virtual_environment.clone()),
             | None => ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(working_dir)),
         }
     }
@@ -530,7 +529,7 @@ impl ModuleUri<'_> {
 impl Script {
     pub fn ensure_relative(mut self) -> Script {
         let path = PathBuf::from(self.command.name);
-        self.command.name = add_dot_slash(path).to_str().unwrap().to_string();
+        self.command.name = add_dot_slash(path).to_string_lossy().into_owned();
         self
     }
     /// Expand environment variables in the script arguments from environment
@@ -618,52 +617,72 @@ impl Script {
     ///   - use default script if "template.json" does not exist
     ///
     /// ```
-    pub fn from_module(module: Module, root: Option<PathBuf>) -> Result<Script, String> {
+    pub fn from_module(module: Module, root: Option<PathBuf>) -> Result<Script, ModuleLoadError> {
         const DEFAULT_FILENAME: &str = "template.json";
-        match &module.module_type {
+        let module_uri = match &module.module_type {
             | ModuleType::Binary { uri, .. } | ModuleType::Script { uri, .. } => Ok(uri),
-            | ModuleType::Configuration { .. } => Err("configuration modules are not executable".to_string()),
-        }
-        .map(|module_uri| {
-            let working_dir = module_working_directory(module_uri, root.as_ref()).unwrap_or_else(|| Location::from(module_uri).hash());
-            let default_template_path = PathBuf::from(&working_dir).join(DEFAULT_FILENAME);
-            match &module.template {
-                | Some(attribute) => match attribute {
-                    | TemplateAttribute::Path(value) => match PathBuf::from(&working_dir).join(value).try_exists() {
-                        | Ok(true) => {
-                            let path = PathBuf::from(&working_dir).join(value);
-                            debug!(module = module.name, path = path.to_str().unwrap(), "=> {} Template file", Label::using());
-                            Script::from_path(path)
-                        }
-                        | _ => {
-                            let path = PathBuf::from(&working_dir).join(value).into_os_string().into_string().unwrap();
-                            warn!(module = module.name, "=> {} {}", Label::not_found(), path);
-                            warn!(module = module.name, "=> {} Default template file path", Label::using());
-                            Script::from_path(default_template_path)
-                        }
-                    },
-                    | TemplateAttribute::Template(value) => {
-                        debug!(module = module.name, "=> {} Template attribute", Label::using());
-                        Script::from_template(value.clone())
+            | ModuleType::Configuration { .. } => Err(ModuleLoadError::InvalidType { module: module.name.clone() }),
+        };
+        module_uri.and_then(|module_uri| {
+            module_working_directory(module_uri, root.as_ref())
+                .ok_or_else(|| ModuleLoadError::InvalidUri {
+                    module: module.name.clone(),
+                    uri: module_uri.clone(),
+                })
+                .and_then(|working_dir| {
+                    let default_template_path = PathBuf::from(&working_dir).join(DEFAULT_FILENAME);
+                    match &module.template {
+                        | Some(attribute) => match attribute {
+                            | TemplateAttribute::Path(value) => match PathBuf::from(&working_dir).join(value).try_exists() {
+                                | Ok(true) => {
+                                    let path = PathBuf::from(&working_dir).join(value);
+                                    debug!(module = module.name, path = %path.display(), "=> {} Template file", Label::using());
+                                    Script::from_path(path).map_err(|source| ModuleLoadError::Template {
+                                        module: module.name.clone(),
+                                        source,
+                                    })
+                                }
+                                | Ok(false) => {
+                                    let path = PathBuf::from(&working_dir).join(value);
+                                    warn!(module = module.name, "=> {} {}", Label::not_found(), path.display());
+                                    warn!(module = module.name, "=> {} Default template file path", Label::using());
+                                    Script::from_path(default_template_path).map_err(|source| ModuleLoadError::Template {
+                                        module: module.name.clone(),
+                                        source,
+                                    })
+                                }
+                                | Err(source) => Err(ModuleLoadError::Inspect {
+                                    module: module.name.clone(),
+                                    path: PathBuf::from(&working_dir).join(value),
+                                    source,
+                                }),
+                            },
+                            | TemplateAttribute::Template(value) => {
+                                debug!(module = module.name, "=> {} Template attribute", Label::using());
+                                Ok(Script::from_template(value.clone()))
+                            }
+                        },
+                        | None => match default_template_path.try_exists() {
+                            | Ok(true) => {
+                                warn!(module = module.name, "=> {} Default template file path", Label::using());
+                                Script::from_path(default_template_path).map_err(|source| ModuleLoadError::Template {
+                                    module: module.name.clone(),
+                                    source,
+                                })
+                            }
+                            | Ok(false) => {
+                                warn!(module = module.name, "=> {} {}", Label::not_found(), default_template_path.display());
+                                warn!(module = module.name, "=> {} Default Python script", Label::using());
+                                Ok(Script::python_default())
+                            }
+                            | Err(source) => Err(ModuleLoadError::Inspect {
+                                module: module.name.clone(),
+                                path: default_template_path,
+                                source,
+                            }),
+                        },
                     }
-                },
-                | None => match default_template_path.try_exists() {
-                    | Ok(true) => {
-                        warn!(module = module.name, "=> {} Default template file path", Label::using());
-                        Script::from_path(default_template_path)
-                    }
-                    | _ => {
-                        warn!(
-                            module = module.name,
-                            "=> {} {}",
-                            Label::not_found(),
-                            default_template_path.into_os_string().into_string().unwrap()
-                        );
-                        warn!(module = module.name, "=> {} Default Python script", Label::using());
-                        Script::python_default()
-                    }
-                },
-            }
+                })
         })
     }
     /// Create a script from a template JSON file in [ScriptTemplate] format.
@@ -674,12 +693,11 @@ impl Script {
     /// use std::path::PathBuf;
     ///
     /// let path = PathBuf::from("../tests/fixtures/template.json");
-    /// let script = Script::from_path(path);
+    /// let script = Script::from_path(path).expect("valid template");
     /// assert_eq!(script.command.name, "python");
     /// ```
-    pub fn from_path(path: PathBuf) -> Script {
-        let template = ScriptTemplate::from_path(path);
-        Script::from_template(template)
+    pub fn from_path(path: PathBuf) -> Result<Script, TemplateError> {
+        ScriptTemplate::from_path(path).map(Script::from_template)
     }
     /// Create a script from a ScriptTemplate struct.
     ///
@@ -775,23 +793,27 @@ impl Script {
         }
     }
     /// Create a virtual environment from an associated Conda or Pixi manifest.
-    pub fn maybe_create_virtual_environment(parent: String, environment: Option<VirtualEnvironment>) -> Option<Script> {
+    pub fn maybe_create_virtual_environment(parent: String, environment: Option<VirtualEnvironment>) -> Result<Option<Script>, TemplateError> {
         let current_dir = PathBuf::from(parent).to_absolute_path();
-        let environment = environment.or_else(|| ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(&current_dir)));
-        match environment {
-            | Some(value) if value.manager == VirtualEnvironmentManager::Pixi => create_pixi_environment_script(current_dir, value),
-            | Some(value) if value.manager == VirtualEnvironmentManager::Conda => create_conda_environment_script(current_dir),
-            | Some(value) => {
-                let manager = value.manager;
-                debug!(
-                    manager = manager.to_string(),
-                    "=> {} Unsupported environment creation manager",
-                    Label::not_found()
-                );
-                None
-            }
-            | None => None,
-        }
+        environment
+            .map_or_else(
+                || ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(&current_dir)),
+                |environment| Ok(Some(environment)),
+            )
+            .map(|environment| match environment {
+                | Some(value) if value.manager == VirtualEnvironmentManager::Pixi => create_pixi_environment_script(current_dir, value),
+                | Some(value) if value.manager == VirtualEnvironmentManager::Conda => create_conda_environment_script(current_dir),
+                | Some(value) => {
+                    let manager = value.manager;
+                    debug!(
+                        manager = manager.to_string(),
+                        "=> {} Unsupported environment creation manager",
+                        Label::not_found()
+                    );
+                    None
+                }
+                | None => None,
+            })
     }
     pub fn maybe_git_clone(url: String, current_dir: String) -> Option<Script> {
         let location = Location::from(&url);
@@ -830,7 +852,7 @@ impl Script {
         let arguments = self.get_arguments();
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
-        warn!(cwd = current_dir.to_str().unwrap(), script = self.to_string(), "=> {}", Label::run());
+        warn!(cwd = %current_dir.display(), script = self.to_string(), "=> {}", Label::run());
         match cmd!(command, args![..arguments]; dir: current_dir, env: envs) {
             | Ok(result) => {
                 let stdout = String::from_utf8_lossy(&result.stdout).lines().map(String::from).collect::<Vec<_>>();
@@ -848,7 +870,9 @@ impl Script {
                         error!(script = self.to_string(), status = %result.status, details, "=> {}", Label::fail());
                         Err(ProcessError::Unsuccessful {
                             script: self.to_string(),
+                            working_directory: current_dir,
                             status: result.status.to_string(),
+                            stderr: details,
                         })
                     }
                 }
@@ -862,7 +886,8 @@ impl Script {
                 );
                 Err(ProcessError::Spawn {
                     script: self.to_string(),
-                    source: error.to_string(),
+                    working_directory: current_dir,
+                    source: error,
                 })
             }
         }
@@ -926,29 +951,23 @@ impl Script {
     }
 }
 impl ScriptTemplate {
-    pub fn from_path(path: PathBuf) -> ScriptTemplate {
-        let content = match read_text(path.clone()) {
-            | Ok(value) => value,
-            | Err(_) => {
-                error!("Failed to read file: {:?}", path);
-                "".to_owned()
-            }
-        };
-        let json: serde_json::Result<ScriptTemplate> = serde_json::from_str(&content);
-        json.expect("=> [ERROR] Failed to parse script template").clone()
+    pub fn from_path(path: PathBuf) -> Result<ScriptTemplate, TemplateError> {
+        read_to_string(&path)
+            .map_err(|source| TemplateError::Read { path: path.clone(), source })
+            .and_then(|content| serde_json::from_str(&content).map_err(|source| TemplateError::Parse { path, source }))
     }
-    pub fn resolve_python_virtual_environment(path: PathBuf) -> Option<VirtualEnvironment> {
+    pub fn resolve_python_virtual_environment(path: PathBuf) -> Result<Option<VirtualEnvironment>, TemplateError> {
         let default_template_path = path.join("template.json");
         let conda_manifest_path = PathBuf::from(&path).join("environment.yml");
-        let configured = default_template_path
-            .is_file()
-            .then(|| ScriptTemplate::from_path(default_template_path).virtual_environment)
-            .flatten();
-        match configured {
+        let configured = match default_template_path.is_file() {
+            | true => ScriptTemplate::from_path(default_template_path).map(|template| template.virtual_environment),
+            | false => Ok(None),
+        };
+        configured.map(|configured| match configured {
             | Some(environment) => Some(environment),
             | None => match find_pixi_manifest(path) {
                 | Some(manifest_path) => {
-                    debug!(path = manifest_path.to_str().unwrap(), "=> {} Pixi manifest file", Label::using());
+                    debug!(path = %manifest_path.display(), "=> {} Pixi manifest file", Label::using());
                     Some(
                         VirtualEnvironment::init()
                             .name("default".to_string())
@@ -957,11 +976,11 @@ impl ScriptTemplate {
                     )
                 }
                 | None => get_conda_environment_name(conda_manifest_path.clone()).map(|value| {
-                    debug!(path = conda_manifest_path.to_str().unwrap(), "=> {} Conda manifest file", Label::using());
+                    debug!(path = %conda_manifest_path.display(), "=> {} Conda manifest file", Label::using());
                     VirtualEnvironment::init().name(value).manager(VirtualEnvironmentManager::Conda).build()
                 }),
             },
-        }
+        })
     }
 }
 impl StringTemplate {
@@ -1066,7 +1085,7 @@ fn create_conda_environment_script(current_dir: String) -> Option<Script> {
     let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
     match manifest_path.try_exists() {
         | Ok(true) => {
-            info!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::found());
+            info!(path = %manifest_path.display(), "=> {} Manifest file", Label::found());
             match get_conda_environment_name(manifest_path) {
                 | Some(name) if get_conda_environment_list().contains(&name) => {
                     info!(name, "=> {} Virtual environment", Label::found());
@@ -1083,12 +1102,12 @@ fn create_conda_environment_script(current_dir: String) -> Option<Script> {
             }
         }
         | Ok(false) => {
-            debug!(path = manifest_path.to_str().unwrap(), "=> {} Manifest file", Label::not_found());
+            debug!(path = %manifest_path.display(), "=> {} Manifest file", Label::not_found());
             None
         }
         | Err(_) => {
             error!(
-                path = manifest_path.to_str().unwrap(),
+                path = %manifest_path.display(),
                 "=> {} Error while trying to test existence",
                 Label::fail()
             );
@@ -1099,7 +1118,7 @@ fn create_conda_environment_script(current_dir: String) -> Option<Script> {
 fn create_pixi_environment_script(current_dir: String, environment: VirtualEnvironment) -> Option<Script> {
     match find_pixi_manifest(PathBuf::from(&current_dir)) {
         | Some(manifest_path) => {
-            info!(path = manifest_path.to_str().unwrap(), "=> {} Pixi manifest file", Label::found());
+            info!(path = %manifest_path.display(), "=> {} Pixi manifest file", Label::found());
             let command = Command::init().name("pixi".to_string()).build();
             let arguments = vec!["install", "--environment", &environment.name]
                 .into_iter()

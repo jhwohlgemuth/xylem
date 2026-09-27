@@ -8665,7 +8665,6 @@ dependencies = [
  "bon",
  "bytes",
  "clap",
- "color-eyre",
  "convert_case 0.11.0",
  "derive_more",
  "dotenvy",

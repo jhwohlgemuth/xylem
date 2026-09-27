@@ -1,20 +1,18 @@
 ---
 type: Plan
 title: "Finish typed execution foundations and resumable execution"
-description: "Complete the remaining typed-error hardening, resume edge-case coverage, and release documentation."
+description: "Completed typed-error hardening, resume edge-case coverage, and release documentation."
 difficulty: high
 impact: high
 package: [xylem-lib, xylem-cli]
 tags: [feature, resume, output, completion, fingerprint, idempotency, foundation]
-status: in-progress
-priority: next
+status: complete
 ---
 
-# Goal
+# Outcome
 
-Finish the remaining hardening around the validated execution plan and explicit
-resume behavior. Completed phases have been removed from this plan so it lists
-only work that still needs an owner.
+Completed the typed execution foundation and explicit resume behavior. This is
+a historical implementation record, not a schedulable work item.
 
 # Landed contracts
 
@@ -37,46 +35,24 @@ only work that still needs an owner.
 - A completed module is excluded from preparation and is not spawned during an
   explicit resume run.
 
-# Remaining work
-
-## Phase 2: Finish typed errors and workflow outcomes
-
-Consolidate `ConfigReadError`, `JournalError`, completion, planning,
-acquisition, process, and workflow failures under capability-owned library
-error types with source chains and relevant path or module context. Remove
-remaining production panic, `unwrap`, and `expect` paths where failure is
-possible. Keep process exit mapping and terminal presentation at the CLI
-boundary.
-
-Add lint enforcement that denies library `process::exit` and production panic
-shortcuts while allowing test assertions. Cover every classification's display
-text, source chain, and context fields, plus compiled-binary cases for invalid
-configuration, missing requirements, invalid module location, spawn failure,
-non-zero exit, and partial multi-input failure.
-
-## Phase 7: Close resume edge cases
-
-Add the multi-module integration fixture in which an early module is complete
-and a later module is incomplete, proving only the early module is skipped.
-Add deterministic duplicated-input and non-Unicode directory-entry coverage,
-and log the planned reason when a module has no completion declaration.
-
-## Phase 9: Reconcile release documentation
-
-Document the final error taxonomy after Phase 2 lands. Reconcile the feature
-index, plan network, parallel execution order, and absorbed-plan statuses so
-none describe already completed phases as schedulable work. Exercise the
-representative imagery workflow at its actual top-level input granularity.
-
-# Remaining validation
+# Close-out evidence
 
 - `cargo nextest run --workspace --all-targets`
 - `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo audit` and `cargo deny check`
-- Compiled-CLI proof for the early-complete/later-incomplete resume case
-- Repository diff audit confirming no completed phase remains actionable
+- `cargo deny check` completes with the repository's existing warning set.
+- `cargo audit` was executed and reports transitive `quick-xml`, `quinn-proto`,
+  and `rsa` advisories. Those dependency updates remain owned by the dependency
+  surface/security-gates plan and ACORN feature-narrowing work.
+- Compiled-CLI coverage proves invalid configuration and location handling,
+  missing requirements, spawn and non-zero failures, deterministic partial
+  multi-input failure, and the early-complete/later-incomplete resume case.
+- Unit coverage verifies error display text, source chains, contextual fields,
+  duplicate elimination, and Linux non-Unicode directory-entry rejection.
+- Production library builds deny process exit, panic, `unwrap`, and `expect`.
+- A representative imagery dry run plans each provided test-case directory as
+  one top-level resume and batching unit.
 
-# Remaining acceptance criteria
+# Landed acceptance criteria
 
 - Every fallible reusable API returns an owned contextual error and no
   deserializable public configuration can reach a panic or process exit.

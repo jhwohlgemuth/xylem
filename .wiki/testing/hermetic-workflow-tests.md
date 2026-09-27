@@ -11,7 +11,10 @@ status: planned
 
 # Execution
 
-The prioritized item is [resumable execution](../features/resumable-execution.md), which holds the configuration, process, run-state, and CLI locks. Only host-independent fixture and helper work may proceed alongside it, and only in files that plan does not touch. Assertions that depend on the error, validation, or completion contracts land after the phase that introduces them.
+The [resumable execution](../features/resumable-execution.md), typed-error,
+validation, and completion contracts are complete, including their compiled
+CLI close-out cases. Remaining hermetic fixture work coordinates with the open
+process and environment plans only when it touches those runtime contracts.
 
 # Goal
 

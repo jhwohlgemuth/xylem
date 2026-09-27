@@ -110,3 +110,10 @@ directory; it does not resume individual image pairs managed internally by a
 module.
 The top-level `output` value supplies the shared `OUTPUT_DIRECTORY`; use
 `--artifact-output` to override that artifact root for one run.
+
+The configuration's scheduling contract makes each immediate child of
+`/data/test-cases` one ordered top-level input. A write-free dry run with two
+representative test-case directories verified that both inputs retain all three
+modules in declaration order.
+`options.batch: 2` therefore limits active test-case directories, not image
+pairs or threads created inside Modules A, P, or O.

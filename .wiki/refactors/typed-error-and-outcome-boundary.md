@@ -6,12 +6,13 @@ difficulty: high
 impact: critical
 package: [xylem-lib, xylem-cli]
 tags: [refactor, errors, outcomes, exit-status, reliability]
-status: planned
+status: complete
 ---
 
-# Execution
+# Outcome
 
-This plan is executed as Phase 2 of [resumable execution](../features/resumable-execution.md), which owns the whole prerequisite chain. Do not schedule it separately. Its `status` flips when that phase lands.
+Completed as Phase 2 of [resumable execution](../features/resumable-execution.md).
+This document is a historical implementation record and is not schedulable.
 
 # Goal
 

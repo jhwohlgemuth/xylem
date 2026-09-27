@@ -17,13 +17,20 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Next execution phase
 
-The prioritized work item is [finish typed execution foundations and resumable execution](features/resumable-execution.md). Parsing, validated planning, completion declarations, markers, run-state vocabulary, and the CLI surface have landed. Only the typed-error hardening, remaining resume edge cases, and release reconciliation listed there are schedulable.
-
-It holds the process and CLI locks while typed-error hardening lands. Resume edge-case tests may use host-independent fixtures without reopening the completed configuration contract.
+[Typed execution and resumable execution](features/resumable-execution.md) is
+complete. The next dependency-ready runtime item is
+[lossless process execution](refactors/process-execution-contract.md), followed
+by workflow environment and concurrency. Secure acquisition may proceed in its
+separate configuration/acquisition lane.
 
 Memory-aware scheduling remains gated on a successful measurement spike. The [hermetic workflow test suite](testing/hermetic-workflow-tests.md) may continue establishing host-independent fixtures alongside it.
 
-Two plans in this wiki are complete and were removed, with their contracts preserved as prose in the documents that referenced them: the durable execution journal, and fixed input concurrency. The ACORN command environment sync was also removed. Three more describe work that has partly landed and now carry a rechecked `Current evidence` section: structured run reporters, the ACORN 0.2 upgrade, and the hermetic test suite's host-specific fixes.
+Two completed plans were removed, with their contracts preserved as prose in
+the documents that referenced them: the durable execution journal and fixed
+input concurrency. The ACORN command environment sync was also removed.
+Typed execution, resumable execution, validated planning, the YAML migration,
+and structured run reporters remain as completed records. The ACORN 0.2
+upgrade and hermetic test suite still carry rechecked current-evidence sections.
 
 ## Adding a plan
 

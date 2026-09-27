@@ -6,16 +6,14 @@ difficulty: medium
 impact: high
 package: [xylem-lib, xylem-cli]
 tags: [feature, reporter, json, cli, output, summary]
-status: planned
+status: complete
 ---
 
-# Execution
+# Outcome
 
-Most of this plan landed at baseline `005aa73`. The `Current evidence` below is the pre-implementation state and is kept only to show what the plan set out to fix. Reconcile and close this plan once the remaining item below is done. It is not part of the prioritized [resumable execution](resumable-execution.md) chain.
-
-Remaining work, verified against the source at `005aa73`:
-
-- The unused function-pointer reporter scaffolding is still exported. `Reporter` in `xylem-lib/src/lib.rs` holds a `run: fn(Output, Option<Parameters>) -> Void` field, and neither it nor its `Output`, `Void`, or `Details` types is referenced by any production path. `Details` survives only inside `xylem-lib/src/tests/mod.rs`. Delete that cluster, or give it a purpose, as this plan's `Delete` boundary already allowed.
+Completed. Console and JSON reporters render the recovered versioned summary,
+and the unused function-pointer reporter, `Output`, and `Details` scaffolding
+has been removed. This document is a historical implementation record.
 
 # Goal
 

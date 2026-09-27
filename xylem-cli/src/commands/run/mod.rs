@@ -98,7 +98,7 @@ impl WorkflowProgress {
             | false => {
                 let multi = MultiProgress::new();
                 let style = ProgressStyle::with_template("{spinner:.cyan} {msg:28} [{bar:32.cyan/blue}] {pos}/{len}")
-                    .expect("the progress template is static and valid")
+                    .unwrap_or_else(|_| ProgressStyle::default_bar())
                     .progress_chars("=>-");
                 let preparation = multi.add(ProgressBar::new(preparation_total));
                 preparation.set_style(style.clone());
@@ -291,8 +291,11 @@ pub fn run(
                                             .map_err(|why| RunFailure::new(exitcode::USAGE, format!("invalid remote module allowlist — {why}")));
                                         match policy {
                                             | Ok(_) => {
-                                                let options =
-                                                    cfg.options.clone().unwrap_or_else(|| ConfigOptions::init().build()).with_root(Some(root));
+                                                let options = cfg
+                                                    .options
+                                                    .clone()
+                                                    .unwrap_or_else(|| ConfigOptions::init().build())
+                                                    .with_root(Some(root.clone()));
                                                 debug!("=> {} Run configuration options = {}", Label::using(), format!("{options:#?}").dimmed());
                                                 let required_modules = Ok(plan
                                                     .modules
@@ -300,8 +303,7 @@ pub fn run(
                                                     .filter(|module| module.decision == "would_run")
                                                     .map(|module| module.module_index)
                                                     .collect::<BTreeSet<_>>());
-                                                let journal_directory =
-                                                    report_output.as_ref().or(options.root.as_ref()).expect("run root is configured");
+                                                let journal_directory = report_output.as_ref().unwrap_or(&root);
                                                 let modules = required_modules.and_then(|required_modules| {
                                                     create_dir_all(journal_directory).map(|()| required_modules).map_err(|why| {
                                                         RunFailure::new(
@@ -346,23 +348,21 @@ pub fn run(
                                                                 let prepared = cfg
                                                                     .with_options(options)
                                                                     .verify_requirements()
+                                                                    .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
                                                                     .map(Config::verify_resources)
                                                                     .and_then(|config| {
-                                                                        config.prepare_modules_selected(
-                                                                            &execution,
-                                                                            &required_modules,
-                                                                            Some(&progress),
-                                                                        )
+                                                                        config
+                                                                            .prepare_modules_selected(&execution, &required_modules, Some(&progress))
+                                                                            .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
                                                                     })
-                                                                    .map(Config::set_environment_variables)
-                                                                    .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why));
+                                                                    .map(Config::set_environment_variables);
                                                                 progress.finish_preparation(prepared.is_ok());
                                                                 let dispatched = match prepared {
                                                                     | Ok(prepared) => {
                                                                         let options = prepared
                                                                             .options
-                                                                            .as_ref()
-                                                                            .expect("prepared configuration has run options");
+                                                                            .clone()
+                                                                            .unwrap_or_else(|| ConfigOptions::init().root(root.clone()).build());
                                                                         let concurrency = execution.input_concurrency(options.batch);
                                                                         debug!(concurrency, "=> {} Active workflow input limit", Label::using());
                                                                         let operation = |index, input: &Option<String>| {
@@ -396,7 +396,7 @@ pub fn run(
                                                                                 | Ok(()) => {
                                                                                     let mut outcome = prepared.clone().run_workflow_recorded(
                                                                                         input.clone(),
-                                                                                        options,
+                                                                                        &options,
                                                                                         Some(&progress),
                                                                                         Some(&journal),
                                                                                         index,

@@ -27,7 +27,6 @@ acorn-core = { workspace = true }
 acorn-host = { workspace = true }
 acorn-lib = { workspace = true }
 acorn-schema = { workspace = true }
-color-eyre = { workspace = true }
 convert_case = { workspace = true }
 dotenvy = { workspace = true }
 exitcode = { workspace = true }

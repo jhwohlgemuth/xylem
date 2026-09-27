@@ -1,14 +1,13 @@
+#![cfg_attr(not(test), deny(clippy::exit, clippy::expect_used, clippy::panic, clippy::unwrap_used))]
 //! Xylem Library
 //! > Digital xylem that transports data through workflows with structure and support
-use acorn::util::Label;
-use acorn_host::fs::read_text;
 use clap::ValueEnum;
-use color_eyre::eyre::{Report, Result};
 use derive_more::Display;
-use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
+use std::fs::read_to_string;
 use std::path::PathBuf;
-use tracing::{error, trace};
+
+use crate::error::PyProjectError;
 
 pub mod completion;
 pub mod config;
@@ -22,23 +21,12 @@ pub mod remote;
 pub mod script;
 pub mod util;
 
-use config::*;
+pub use config::*;
 
-pub type Output = Vec<Option<Details>>;
-pub type Void = Result<(), Report>;
 #[derive(ValueEnum, Copy, Clone, Debug, Display, PartialEq, Eq)]
 pub enum ReporterType {
     Console,
     Json,
-}
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, PartialOrd, Ord)]
-pub struct Details {
-    // Results of applying check to given path
-    pub condition: bool,
-    // Description of what was checked (typically a file/folder path)
-    pub description: Option<String>,
-    // Explanation of why the check failed (null when condition is true)
-    pub error: Option<String>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PyProjectToml {
@@ -50,15 +38,6 @@ pub struct PyProjectToml {
 #[serde(rename_all = "kebab-case")]
 pub struct PyProjectTool {
     xylem: Option<ToolXylem>,
-}
-#[derive(Clone, Debug)]
-pub struct Reporter {
-    /// Reporter type name
-    pub name: ReporterType,
-    /// Function to run the reporter
-    pub run: fn(Output, Option<Parameters>) -> Void,
-    /// Options to pass to the reporter
-    pub parameters: Option<Parameters>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
@@ -73,21 +52,13 @@ impl core::ops::Deref for PyProjectToml {
     }
 }
 impl PyProjectToml {
-    pub fn read(path: PathBuf) -> Result<Self, toml::de::Error> {
-        let content = match read_text(path.clone()) {
-            | Ok(value) if !value.is_empty() => value,
-            | Ok(_) | Err(_) => {
-                error!(path = path.to_str().unwrap(), "=> {} PyProject.toml content is not valid", Label::fail());
-                "{}".to_owned()
-            }
-        };
-        let data: Result<PyProjectToml, toml::de::Error> = toml::from_str(&content);
-        let label = match data {
-            | Ok(_) => Label::output(),
-            | Err(_) => Label::invalid(),
-        };
-        trace!("=> {} PyProject.toml = {:#?}", label, data.dimmed());
-        data
+    pub fn read(path: PathBuf) -> Result<Self, PyProjectError> {
+        read_to_string(&path)
+            .map_err(|source| PyProjectError::Read { path: path.clone(), source })
+            .and_then(|content| match content.trim().is_empty() {
+                | true => Err(PyProjectError::Empty { path }),
+                | false => toml::from_str(&content).map_err(|source| PyProjectError::Parse { path, source }),
+            })
     }
     pub fn get_module_name(self) -> Option<String> {
         match self.tool {

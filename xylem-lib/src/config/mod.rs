@@ -15,14 +15,17 @@ use rayon::prelude::*;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-use std::fs::{self, read_to_string};
+use std::fs::read_to_string;
+use std::io;
 use std::path::{Path, PathBuf};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::completion::{CompletionDecision, CompletionPlan};
+use crate::error::{AcquisitionError, RequirementError};
 use crate::execution::{ExecutionContext, InputBatch};
 use crate::journal::{ExecutionState, RunJournal};
 use crate::outcome::{ModuleOutcome, WorkflowOutcome};
+use crate::plan::PlanError;
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
 use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
@@ -194,35 +197,14 @@ impl Config {
     ///
     /// See [InputAttribute](crate::InputAttribute) for more details
     ///
-    pub fn get_inputs(self) -> Option<Vec<String>> {
-        match self.input {
-            | Some(value) => match value {
-                | InputAttribute::Path(value) => {
-                    let path = PathBuf::from(value);
-                    match path.try_exists() {
-                        | Ok(true) => {
-                            if path.is_dir() {
-                                let children = get_children(path.to_absolute_path());
-                                Some(children)
-                            } else {
-                                error!(path = path.to_str().unwrap(), "=> {} Input directory", Label::not_found());
-                                None
-                            }
-                        }
-                        | _ => {
-                            error!(path = path.to_str().unwrap(), "=> {} Input directory", Label::not_found());
-                            None
-                        }
-                    }
-                }
-                | InputAttribute::List(value) => Some(value),
-                | InputAttribute::ShellScript(_script) => {
-                    error!("=> {} Shell script workflow input is not supported", Label::invalid());
-                    None
-                }
-            },
-            | None => None,
-        }
+    pub fn get_inputs(self) -> Result<Option<Vec<String>>, PlanError> {
+        self.resolve_inputs(None).map(|inputs| {
+            let values = inputs.into_iter().flatten().collect::<Vec<_>>();
+            match values.is_empty() {
+                | true => None,
+                | false => Some(values),
+            }
+        })
     }
     pub fn get_module_list(self) -> String {
         let names = self
@@ -240,7 +222,7 @@ impl Config {
     /// - Validate local and downloaded remote modules are ready for execution
     ///
     /// Prepare workflow modules and return failures to the orchestration boundary.
-    pub fn prepare_modules(self, execution: &ExecutionContext, observer: Option<&dyn ProgressObserver>) -> Result<Config, String> {
+    pub fn prepare_modules(self, execution: &ExecutionContext, observer: Option<&dyn ProgressObserver>) -> Result<Config, AcquisitionError> {
         let modules = (0..self.modules.len()).collect::<BTreeSet<_>>();
         self.prepare_modules_selected(execution, &modules, observer)
     }
@@ -250,7 +232,7 @@ impl Config {
         execution: &ExecutionContext,
         selected: &BTreeSet<usize>,
         observer: Option<&dyn ProgressObserver>,
-    ) -> Result<Config, String> {
+    ) -> Result<Config, AcquisitionError> {
         execution.install(|| {
             let options = match self.clone().options {
                 | Some(value) => value,
@@ -260,7 +242,9 @@ impl Config {
                 }
             };
             RemotePolicy::from_hosts(options.allowed.as_deref())
-                .map_err(|why| why.to_string())
+                .map_err(|why| AcquisitionError::Policy {
+                    source: io::Error::other(why),
+                })
                 .and_then(|policy| {
                     self.modules
                         .par_iter()
@@ -281,7 +265,10 @@ impl Config {
                                 | Ok(()) => ProgressPhase::Preparation.emit(observer, ProgressState::Finished, &module.name, None),
                                 | Err(_) => ProgressPhase::Preparation.emit(observer, ProgressState::Failed, &module.name, None),
                             }
-                            result
+                            result.map_err(|why| AcquisitionError::Module {
+                                module: module.name.clone(),
+                                source: io::Error::other(why),
+                            })
                         })
                         .collect::<Result<Vec<_>, _>>()
                         .map(|_| self)
@@ -289,7 +276,7 @@ impl Config {
         })
     }
     /// Return modules that must execute for at least one input.
-    pub fn required_module_indices(&self, inputs: &[Option<String>], resume: bool) -> Result<BTreeSet<usize>, String> {
+    pub fn required_module_indices(&self, inputs: &[Option<String>], resume: bool) -> Result<BTreeSet<usize>, PlanError> {
         inputs
             .iter()
             .try_fold((BTreeSet::new(), BTreeSet::new()), |state, input| {
@@ -299,13 +286,13 @@ impl Config {
                     .try_fold(state, |(mut selected, mut markers), (index, module)| {
                         let variables = self.clone().get_environment_variables(Some(module.clone()), input.clone());
                         CompletionPlan::inspect(module, &variables, resume, self.output.as_deref())
-                            .map_err(|why| why.to_string())
+                            .map_err(PlanError::from)
                             .and_then(|completion| {
                                 completion
                                     .as_ref()
                                     .map_or(Ok(()), |plan| match markers.insert(plan.marker.clone()) {
                                         | true => Ok(()),
-                                        | false => Err(format!("completion marker collision at {}", plan.marker.display())),
+                                        | false => Err(PlanError::Input(format!("completion marker collision at {}", plan.marker.display()))),
                                     })
                                     .map(|()| {
                                         if !matches!(completion.map(|plan| plan.decision), Some(CompletionDecision::SkipExisting)) {
@@ -419,26 +406,28 @@ impl Config {
                                         .ok_or_else(|| "root directory is not configured".to_string())
                                         .and_then(|root| {
                                             let working_dir = root.to_absolute_path();
-                                            Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone()))).and_then(|loaded| {
-                                                let script = loaded
-                                                    .ensure_relative()
-                                                    .expand_arguments_from(envs.clone())
-                                                    .with_current_dir(working_dir)
-                                                    .with_envs(envs);
-                                                match options.dry_run.unwrap_or_default() {
-                                                    | true => {
-                                                        info!(
-                                                            module = module.name,
-                                                            script = script.to_string(),
-                                                            cwd = script.current_dir,
-                                                            "=> {}",
-                                                            Label::dry_run()
-                                                        );
-                                                        Ok(())
+                                            Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())))
+                                                .map_err(|why| why.to_string())
+                                                .and_then(|loaded| {
+                                                    let script = loaded
+                                                        .ensure_relative()
+                                                        .expand_arguments_from(envs.clone())
+                                                        .with_current_dir(working_dir)
+                                                        .with_envs(envs);
+                                                    match options.dry_run.unwrap_or_default() {
+                                                        | true => {
+                                                            info!(
+                                                                module = module.name,
+                                                                script = script.to_string(),
+                                                                cwd = script.current_dir,
+                                                                "=> {}",
+                                                                Label::dry_run()
+                                                            );
+                                                            Ok(())
+                                                        }
+                                                        | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
                                                     }
-                                                    | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
-                                                }
-                                            })
+                                                })
                                         }),
                                     | ModuleType::Script { programming_language, uri } => options
                                         .root
@@ -449,33 +438,35 @@ impl Config {
                                             module_working_directory(uri, root.as_ref())
                                                 .ok_or_else(|| format!("module URI is invalid: {uri}"))
                                                 .and_then(|working_dir| {
-                                                    Script::from_module(module.clone(), root).and_then(|loaded| {
-                                                        let script = loaded
-                                                            .expand_arguments_from(envs.clone())
-                                                            .with_current_dir(working_dir.clone())
-                                                            .with_envs(envs);
-                                                        let configured = match programming_language {
-                                                            | Some(ModuleLanguage::Python) => {
-                                                                let virtual_environment = module.resolve_virtual_environment(&working_dir);
-                                                                Ok(script.with_virtual_environment(virtual_environment))
-                                                            }
-                                                            | Some(ModuleLanguage::Generic) | None => Ok(script),
-                                                            | Some(language) => Err(format!("unsupported script language: {language}")),
-                                                        };
-                                                        configured.and_then(|script| match options.dry_run.unwrap_or_default() {
-                                                            | true => {
-                                                                info!(
-                                                                    module = module.name,
-                                                                    script = script.to_string(),
-                                                                    cwd = script.current_dir,
-                                                                    "=> {}",
-                                                                    Label::dry_run()
-                                                                );
-                                                                Ok(())
-                                                            }
-                                                            | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
+                                                    Script::from_module(module.clone(), root)
+                                                        .map_err(|why| why.to_string())
+                                                        .and_then(|loaded| {
+                                                            let script = loaded
+                                                                .expand_arguments_from(envs.clone())
+                                                                .with_current_dir(working_dir.clone())
+                                                                .with_envs(envs);
+                                                            let configured = match programming_language {
+                                                                | Some(ModuleLanguage::Python) => module
+                                                                    .resolve_virtual_environment(&working_dir)
+                                                                    .map(|virtual_environment| script.with_virtual_environment(virtual_environment))
+                                                                    .map_err(|why| why.to_string()),
+                                                                | Some(ModuleLanguage::Generic) | None => Ok(script),
+                                                                | Some(language) => Err(format!("unsupported script language: {language}")),
+                                                            };
+                                                            configured.and_then(|script| match options.dry_run.unwrap_or_default() {
+                                                                | true => {
+                                                                    info!(
+                                                                        module = module.name,
+                                                                        script = script.to_string(),
+                                                                        cwd = script.current_dir,
+                                                                        "=> {}",
+                                                                        Label::dry_run()
+                                                                    );
+                                                                    Ok(())
+                                                                }
+                                                                | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
+                                                            })
                                                         })
-                                                    })
                                                 })
                                         }),
                                     | ModuleType::Configuration { .. } => Err("configuration modules are not executable".to_string()),
@@ -559,7 +550,7 @@ impl Config {
     ///
     /// Uses process similar to Linux `which` to determine if a given command is available on the host system.
     ///
-    pub fn verify_requirements(self) -> Result<Config, String> {
+    pub fn verify_requirements(self) -> Result<Config, RequirementError> {
         match &self.options {
             | Some(options) if options.skip_verify_requirements.unwrap_or_default() => {
                 warn!("Skipping requirements verification");
@@ -569,7 +560,7 @@ impl Config {
                 let command = Command::init().name((*name).clone()).build();
                 !command.test()
             }) {
-                | Some(name) => Err(format!("required command was not found: {name}")),
+                | Some(name) => Err(RequirementError { command: name.clone() }),
                 | None => Ok(self),
             },
             | None => Ok(self),
@@ -856,24 +847,25 @@ impl Module {
         }
     }
     fn prepare_python_environment(&self, module_root: String, options: &ConfigOptions) -> Result<(), String> {
-        let environment = self.resolve_virtual_environment(&module_root);
-        if let Some(script) = Script::maybe_create_virtual_environment(module_root, environment) {
-            match options.dry_run.unwrap_or_default() {
-                | true => {
-                    info!(
-                        module = self.name,
-                        script = script.to_string(),
-                        cwd = script.current_dir,
-                        "=> {}",
-                        Label::dry_run()
-                    );
-                    Ok(())
-                }
-                | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
-            }
-        } else {
-            Ok(())
-        }
+        self.resolve_virtual_environment(&module_root)
+            .map_err(|why| why.to_string())
+            .and_then(|environment| Script::maybe_create_virtual_environment(module_root, environment).map_err(|why| why.to_string()))
+            .and_then(|script| match script {
+                | Some(script) => match options.dry_run.unwrap_or_default() {
+                    | true => {
+                        info!(
+                            module = self.name,
+                            script = script.to_string(),
+                            cwd = script.current_dir,
+                            "=> {}",
+                            Label::dry_run()
+                        );
+                        Ok(())
+                    }
+                    | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
+                },
+                | None => Ok(()),
+            })
     }
     fn skip_or_reject_offline(&self, url: &str, options: &ConfigOptions) -> Result<bool, String> {
         match (options.offline.unwrap_or_default(), options.dry_run.unwrap_or_default()) {
@@ -907,20 +899,6 @@ where
         SemanticVersion::parse_exact(value).map_err(D::Error::custom)?;
     }
     Ok(version)
-}
-/// Get list of directory children
-///
-/// Only first level children are returned
-///
-fn get_children(path: String) -> Vec<String> {
-    match fs::read_dir(path) {
-        | Ok(value) => {
-            let mut children = value.flatten().map(|x| x.path().to_absolute_path()).collect::<Vec<_>>();
-            children.sort();
-            children
-        }
-        | Err(_) => Vec::new(),
-    }
 }
 fn parse_json_configuration(content: &str) -> serde_json::Result<Config> {
     serde_json::from_str::<Value>(content).and_then(serde_json::from_value)

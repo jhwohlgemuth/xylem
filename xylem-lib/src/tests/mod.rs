@@ -1,6 +1,3 @@
-mod completion;
-mod plan;
-
 use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
 use crate::*;
@@ -14,6 +11,10 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
+
+mod completion;
+mod error;
+mod plan;
 
 const FIXTURES: &str = "../tests/fixtures";
 // `core::io` is still unstable (rust-lang/rust#154046), so this lint's
@@ -95,7 +96,10 @@ fn test_config_environment_variables_without_input() {
 fn test_config_get_inputs() {
     match Config::read(PathBuf::from(format!("{FIXTURES}/config.json"))) {
         | Ok(config) => {
-            assert_eq!(config.get_inputs(), Some(to_string(vec!["input_01", "input_02", "input_03"])));
+            assert_eq!(
+                config.get_inputs().expect("resolve list inputs"),
+                Some(to_string(vec!["input_01", "input_02", "input_03"]))
+            );
         }
         | Err(error) => panic!("Cannot read config in get_input test: {error}"),
     }
@@ -103,7 +107,8 @@ fn test_config_get_inputs() {
         | Ok(config) => {
             let inputs = config
                 .get_inputs()
-                .unwrap()
+                .expect("resolve directory inputs")
+                .expect("configured inputs")
                 .iter()
                 .map(|x| PathBuf::from(x).file_stem().unwrap().to_str().unwrap().to_string())
                 .collect::<Vec<String>>();
@@ -150,48 +155,6 @@ fn test_config_read_yaml() {
     let config = Config::read_yaml(PathBuf::from(path)).expect("=> [ERROR] Cannot import config in tests");
     assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
     assert_eq!(config.modules.len(), 3);
-}
-#[test]
-fn test_details() {
-    let good_foo = Details {
-        condition: true,
-        description: Some("foo".to_string()),
-        error: None,
-    };
-    let good_bar = Details {
-        condition: true,
-        description: Some("bar".to_string()),
-        error: None,
-    };
-    let bad_foo = Details {
-        condition: false,
-        description: Some("foo".to_string()),
-        error: Some("foo error".to_string()),
-    };
-    let bad_foo_too = Details {
-        condition: false,
-        description: Some("foo".to_string()),
-        error: Some("foo error".to_string()),
-    };
-    let bad_foo_other_error = Details {
-        condition: false,
-        description: Some("foo".to_string()),
-        error: Some("different error".to_string()),
-    };
-    assert_ne!(bad_foo, bad_foo_other_error);
-    let bad_bar = Details {
-        condition: false,
-        description: Some("bar".to_string()),
-        error: Some("bar error".to_string()),
-    };
-    let bad_baz = Details {
-        condition: false,
-        description: Some("baz".to_string()),
-        error: Some("baz error".to_string()),
-    };
-    let mut results = vec![good_foo, good_bar, bad_foo, bad_foo_too, bad_bar, bad_baz];
-    results.dedup();
-    assert_eq!(results.len(), 5);
 }
 #[test]
 fn test_module() {
@@ -465,25 +428,25 @@ fn test_script_expand_arguments_from() {
 fn test_script_from_template() {
     // "shell" format arguments
     let path = PathBuf::from(format!("{FIXTURES}/template.json"));
-    let script = Script::from_path(path);
+    let script = Script::from_path(path).expect("read shell template");
     let expected_value: Vec<String> = to_string(vec!["-m", "lib", "--input", "{{INPUT_DIRECTORY}}", "--output", "{{OUTPUT_DIRECTORY}}"]);
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
     // "exec" format arguments
     let path = PathBuf::from(format!("{FIXTURES}/template_exec.json"));
-    let script = Script::from_path(path);
+    let script = Script::from_path(path).expect("read exec template");
     let expected = "conda run --name base --no-capture-output python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}";
     assert_eq!(format!("{script}"), expected);
     assert_eq!(script.command.name, "python");
     assert_eq!(script.arguments, expected_value);
     // Pixi virtual environment manager
     let path = PathBuf::from(format!("{FIXTURES}/template_pixi.json"));
-    let script = Script::from_path(path);
+    let script = Script::from_path(path).expect("read Pixi template");
     let expected = "pixi run --environment cuda python -m lib --input {{INPUT_DIRECTORY}} --output {{OUTPUT_DIRECTORY}}";
     assert_eq!(format!("{script}"), expected);
     // Docker + Pixi
     let path = PathBuf::from(format!("{FIXTURES}/template_docker_pixi.json"));
-    let script = Script::from_path(path);
+    let script = Script::from_path(path).expect("read Docker Pixi template");
     let expected = "docker exec CONTAINER pixi run --environment ENVIRONMENT python -m lib --method {{METHOD}} --profile {{PROFILE}}";
     assert_eq!(format!("{script}"), expected);
 }
@@ -565,7 +528,7 @@ fn test_script_run() {
         let output = script.with_current_dir(expected_working_dir.clone()).run().expect("pwd should run");
         assert_eq!(&output, &vec![expected_working_dir]);
         let path = PathBuf::from(format!("{FIXTURES}/template_run.json"));
-        let script = Script::from_path(path);
+        let script = Script::from_path(path).expect("read runnable template");
         assert_eq!(script.run().expect("template should run"), vec!["hello world".to_string()]);
     }
 }

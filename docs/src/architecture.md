@@ -46,6 +46,15 @@ deterministic summary while tolerating only a truncated final record. The CLI
 owns reporter presentation and exit-code selection; reporters read the
 recovered summary and never rewrite journal history.
 
+Reusable failures are capability-owned. `ConfigReadError` covers selection and
+deserialization, `PlanError` covers deterministic input and validation work,
+and acquisition, requirement, template, module-loading, process, completion,
+and journal operations each expose their own contextual error type. Paths,
+module names, working directories, and underlying sources are retained where
+they exist. Structured workflow outcomes convert those errors to durable text
+only when crossing into the journal/report schema. The CLI alone maps the
+classification to a process exit code and renders the terminal diagnostic.
+
 Resume decisions are made before module preparation from explicit completion
 declarations. The runtime requires both non-empty declared outputs and an exact
 canonical marker identity, and records skips as `skipped_existing` in journal

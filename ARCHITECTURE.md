@@ -15,6 +15,13 @@ They are flushed at every input and module transition and can be recovered
 after interruption. `RunSummary` renders console and JSON summaries from that
 durable state, keeping presentation separate from execution facts.
 
+Reusable library operations return capability-owned errors with source chains
+and path, module, or working-directory context. Configuration, planning,
+acquisition, requirements, templates, module loading, child processes,
+completion, and journals remain distinct classifications. Workflow outcomes
+store their durable error text, while `xylem-cli` exclusively owns exit-code
+selection and terminal presentation.
+
 ## Diagram
 ```mermaid
 graph LR

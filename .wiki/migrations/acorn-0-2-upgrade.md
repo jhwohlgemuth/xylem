@@ -13,7 +13,9 @@ status: planned
 
 Partially landed at baseline `005aa73`: the workspace is on `acorn-core`, `acorn-lib`, and `acorn-schema` 0.2.0 with `Location` and `Scheme` imported from the owning portable crate, so the version migration and its compatibility checkpoints are done. The feature narrowing is not: `acorn-lib` still enables `analysis` and the lockfile still resolves the analyzer stack, including Polars.
 
-The remaining work stays in the dependency lane and is not part of the prioritized [resumable execution](../features/resumable-execution.md) chain, but it shares the manifest lock with that plan's Phase 1.
+The remaining work stays in the dependency lane. The completed
+[resumable execution](../features/resumable-execution.md) work no longer holds
+the manifest lock.
 
 # Goal
 

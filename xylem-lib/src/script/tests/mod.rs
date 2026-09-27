@@ -14,6 +14,20 @@ fn test_add_dot_slash() {
     assert_eq!(add_dot_slash(PathBuf::from("foo/bar.json")), PathBuf::from("./foo/bar.json"));
 }
 #[test]
+fn test_create_pixi_environment() {
+    let path = PathBuf::from(format!("{FIXTURES}/pixi-module"));
+    let environment = VirtualEnvironment::init()
+        .name("default".to_string())
+        .manager(VirtualEnvironmentManager::Pixi)
+        .build();
+    let script = Script::maybe_create_virtual_environment(path.to_string_lossy().to_string(), Some(environment))
+        .expect("inspect Pixi environment")
+        .expect("Pixi manifest should produce an install command");
+
+    assert_eq!(script.to_string(), "pixi install --environment default");
+    assert!(Path::new(&script.current_dir).ends_with("tests/fixtures/pixi-module"));
+}
+#[test]
 fn test_get_conda_environment_list() {
     let list = get_conda_environment_list();
     let conda = Command::init().name("conda".to_string()).build();
@@ -34,22 +48,11 @@ fn test_get_conda_environment_name() {
     assert_eq!(get_conda_environment_name(manifest_path), None);
 }
 #[test]
-fn test_create_pixi_environment() {
-    let path = PathBuf::from(format!("{FIXTURES}/pixi-module"));
-    let environment = VirtualEnvironment::init()
-        .name("default".to_string())
-        .manager(VirtualEnvironmentManager::Pixi)
-        .build();
-    let script = Script::maybe_create_virtual_environment(path.to_string_lossy().to_string(), Some(environment))
-        .expect("Pixi manifest should produce an install command");
-
-    assert_eq!(script.to_string(), "pixi install --environment default");
-    assert!(Path::new(&script.current_dir).ends_with("tests/fixtures/pixi-module"));
-}
-#[test]
 fn test_resolve_pixi_environment() {
     let path = PathBuf::from(format!("{FIXTURES}/pixi-module"));
-    let environment = ScriptTemplate::resolve_python_virtual_environment(path).expect("Pixi should be detected from pixi.toml");
+    let environment = ScriptTemplate::resolve_python_virtual_environment(path)
+        .expect("inspect Pixi environment")
+        .expect("Pixi should be detected from pixi.toml");
 
     assert_eq!(environment.name, "default");
     assert_eq!(environment.manager, VirtualEnvironmentManager::Pixi);
@@ -57,7 +60,9 @@ fn test_resolve_pixi_environment() {
 #[test]
 fn test_resolve_pixi_environment_from_pyproject() {
     let path = PathBuf::from(format!("{FIXTURES}/pixi-pyproject-module"));
-    let environment = ScriptTemplate::resolve_python_virtual_environment(path).expect("Pixi should be detected from pyproject.toml");
+    let environment = ScriptTemplate::resolve_python_virtual_environment(path)
+        .expect("inspect Pixi environment")
+        .expect("Pixi should be detected from pyproject.toml");
 
     assert_eq!(environment.name, "default");
     assert_eq!(environment.manager, VirtualEnvironmentManager::Pixi);

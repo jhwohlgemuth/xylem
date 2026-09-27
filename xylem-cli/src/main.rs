@@ -1,10 +1,9 @@
 use clap::Parser;
 use std::process::exit;
 use tracing::instrument;
-use xylem_lib::Void;
 
 use xylem_cli::cli::{Arguments, Commands};
-use xylem_cli::{commands, init_tracing};
+use xylem_cli::{commands, init_tracing, Void};
 
 #[instrument]
 fn main() -> Void {

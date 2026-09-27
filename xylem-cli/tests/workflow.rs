@@ -267,6 +267,63 @@ fn test_offline_dry_run_skips_reachability_but_still_enforces_allowlist() {
         .failure()
         .code(exitcode::UNAVAILABLE);
 }
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_partial_multi_input_failure_preserves_completed_and_unstarted_inputs() {
+    let test_root = std::env::temp_dir().join(format!("xylem-partial-input-failure-{}", std::process::id()));
+    let module = test_root.join("module");
+    let reports = test_root.join("reports");
+    create_dir_all(&module).expect("create partial failure module");
+    create_dir_all(&reports).expect("create partial failure reports");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "input": ["one", "two", "three"],
+        "modules": [{
+            "name": "Selective Failure",
+            "programmingLanguage": "generic",
+            "template": {
+                "arguments": ["-c", "if [ \"$_XYLEM_INPUT\" = two ]; then exit 7; fi"],
+                "command": "sh"
+            },
+            "type": "script",
+            "uri": format!("file:{}", module.display())
+        }],
+        "options": { "batch": 1 },
+        "requirements": ["sh"]
+    });
+    write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("serialize partial failure config"),
+    )
+    .expect("write partial failure config");
+    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    command
+        .args([
+            "run",
+            "--config",
+            config_path.to_str().expect("UTF-8 config path"),
+            "--output",
+            reports.to_str().expect("UTF-8 reports path"),
+        ])
+        .assert()
+        .failure()
+        .code(exitcode::SOFTWARE);
+    let journal = read_dir(&reports)
+        .expect("read partial failure reports")
+        .map(|entry| entry.expect("report entry").path())
+        .find(|path| path.extension().is_some_and(|extension| extension == "jsonl"))
+        .expect("partial failure journal");
+    let summary = xylem_lib::journal::RunJournal::read(journal).expect("read partial failure journal");
+    assert_eq!(
+        summary.inputs.iter().map(|input| input.state).collect::<Vec<_>>(),
+        [
+            xylem_lib::journal::ExecutionState::Succeeded,
+            xylem_lib::journal::ExecutionState::Failed,
+            xylem_lib::journal::ExecutionState::NotStarted
+        ]
+    );
+    remove_dir_all(test_root).expect("remove partial failure directory");
+}
 #[test]
 fn test_preparation_failure_is_finalized_and_reported() {
     let test_root = std::env::temp_dir().join(format!("xylem-durable-preparation-{}", std::process::id()));
@@ -332,6 +389,54 @@ fn test_rejects_a_missing_explicit_dotenv_file() {
         .expect("run with missing dotenv");
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("Could not load dotenv file"));
+}
+#[test]
+fn test_rejects_an_invalid_module_location_with_context() {
+    let test_root = std::env::temp_dir().join(format!("xylem-invalid-location-{}", std::process::id()));
+    create_dir_all(&test_root).expect("create invalid location directory");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "modules": [{
+            "name": "Invalid Location",
+            "programmingLanguage": "generic",
+            "type": "script",
+            "uri": "not a module URI"
+        }],
+        "requirements": []
+    });
+    write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("serialize invalid location config"),
+    )
+    .expect("write invalid location config");
+    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let output = command
+        .args(["run", "--config", config_path.to_str().expect("UTF-8 config path")])
+        .output()
+        .expect("run invalid location workflow");
+    assert_eq!(output.status.code(), Some(exitcode::DATAERR));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("modules[0].uri"), "{stderr}");
+    remove_dir_all(test_root).expect("remove invalid location directory");
+}
+#[test]
+fn test_resume_logs_when_a_module_has_no_completion_declaration() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let output = command
+        .current_dir(workspace)
+        .args(["-vvvv", "run", "--config", "tests/e2e/config.json", "--dry-run", "--resume"])
+        .output()
+        .expect("render resume plan");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let logs = format!("{}{}", String::from_utf8_lossy(&output.stdout), stderr);
+    assert!(
+        logs.contains("Resume plan will run module because no completion declaration is configured"),
+        "{logs}"
+    );
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
@@ -399,6 +504,105 @@ fn test_resume_skips_a_complete_module_without_spawning_it() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
+fn test_resume_skips_early_complete_module_and_runs_later_incomplete_module() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!("xylem-resume-partial-{}", std::process::id()));
+    let artifacts = test_root.join("artifacts");
+    let first_counter = test_root.join("first-counter");
+    let first_module = test_root.join("first-module");
+    let reports = test_root.join("reports");
+    let second_counter = test_root.join("second-counter");
+    let second_module = test_root.join("second-module");
+    create_dir_all(&first_module).expect("create first module directory");
+    create_dir_all(&reports).expect("create report directory");
+    create_dir_all(&second_module).expect("create second module directory");
+    let first_command = format!(
+        "printf 'run\\n' >> {}; mkdir -p {}; printf 'first\\n' > {}/first.txt",
+        first_counter.display(),
+        artifacts.display(),
+        artifacts.display()
+    );
+    let second_command = format!(
+        "printf 'run\\n' >> {}; mkdir -p {}; printf 'second\\n' > {}/second.txt",
+        second_counter.display(),
+        artifacts.display(),
+        artifacts.display()
+    );
+    let module = |name: &str, uri: &std::path::Path, marker: &str, output: &str, command: String| {
+        serde_json::json!({
+            "completion": {
+                "marker": format!("{{{{ OUTPUT_DIRECTORY }}}}/.xylem/{marker}.json"),
+                "outputs": [format!("{{{{ OUTPUT_DIRECTORY }}}}/{output}.txt")]
+            },
+            "name": name,
+            "programmingLanguage": "generic",
+            "template": { "arguments": ["-c", command], "command": "sh" },
+            "type": "script",
+            "uri": format!("file:{}", uri.display()),
+            "variables": { "OUTPUT_DIRECTORY": artifacts.display().to_string() }
+        })
+    };
+    let config = serde_json::json!({
+        "modules": [
+            module("First Resume Probe", &first_module, "first", "first", first_command),
+            module("Second Resume Probe", &second_module, "second", "second", second_command)
+        ],
+        "requirements": ["sh"],
+        "version": "1.0.0"
+    });
+    let config_path = test_root.join("config.json");
+    write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("serialize partial resume fixture"),
+    )
+    .expect("write partial resume fixture");
+    let run = |resume: bool| {
+        let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+        command
+            .current_dir(workspace)
+            .args([
+                "run",
+                "--config",
+                config_path.to_str().expect("UTF-8 config"),
+                "--output",
+                reports.to_str().expect("UTF-8 reports"),
+            ])
+            .args(resume.then_some("--resume"))
+            .assert()
+            .success();
+    };
+    run(false);
+    remove_file(artifacts.join("second.txt")).expect("remove later output");
+    remove_dir_all(&first_module).expect("remove completed module source");
+    run(true);
+    assert_eq!(read_to_string(first_counter).expect("read first counter").lines().count(), 1);
+    assert_eq!(read_to_string(second_counter).expect("read second counter").lines().count(), 2);
+    let resumed = read_dir(&reports)
+        .expect("read reports")
+        .map(|entry| entry.expect("report entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "jsonl"))
+        .filter_map(|path| xylem_lib::journal::RunJournal::read(path).ok())
+        .find(|summary| {
+            summary.inputs[0]
+                .modules
+                .first()
+                .is_some_and(|module| module.state == xylem_lib::journal::ExecutionState::SkippedExisting)
+        })
+        .expect("resumed summary");
+    assert_eq!(resumed.inputs[0].state, xylem_lib::journal::ExecutionState::Succeeded);
+    assert_eq!(
+        resumed.inputs[0].modules.iter().map(|module| module.state).collect::<Vec<_>>(),
+        [
+            xylem_lib::journal::ExecutionState::SkippedExisting,
+            xylem_lib::journal::ExecutionState::Succeeded
+        ]
+    );
+    remove_dir_all(test_root).expect("remove partial resume fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
 fn test_returns_failure_when_a_fixture_module_fails() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -430,6 +634,34 @@ fn test_runs_fixture_modules_in_order_with_interpolated_environment() {
         let second = logs.find("XYLEM_E2E_TWO_OK").expect("second fixture module should succeed");
         assert!(first < second, "fixture modules ran out of order with {threads} threads:\n{logs}");
     }
+}
+#[test]
+fn test_spawn_failure_reports_command_and_working_directory() {
+    let test_root = std::env::temp_dir().join(format!("xylem-spawn-failure-{}", std::process::id()));
+    let module = test_root.join("module");
+    create_dir_all(&module).expect("create spawn failure module");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "modules": [{
+            "name": "Spawn Failure",
+            "programmingLanguage": "generic",
+            "template": { "arguments": [], "command": "xylem-command-that-cannot-exist" },
+            "type": "script",
+            "uri": format!("file:{}", module.display())
+        }],
+        "requirements": []
+    });
+    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize spawn failure config")).expect("write spawn failure config");
+    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let output = command
+        .args(["run", "--config", config_path.to_str().expect("UTF-8 config path")])
+        .output()
+        .expect("run spawn failure workflow");
+    assert_eq!(output.status.code(), Some(exitcode::SOFTWARE));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("xylem-command-that-cannot-exist"), "{stderr}");
+    assert!(stderr.contains(&module.display().to_string()), "{stderr}");
+    remove_dir_all(test_root).expect("remove spawn failure directory");
 }
 #[cfg(not(target_os = "windows"))]
 #[test]

@@ -10,20 +10,20 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 
 | Lock | Files | Owner rule |
 |---|---|---|
-| Manifest lock | `Cargo.toml`, `Cargo.lock`, `xylem-*/Cargo.toml`, `deny.toml` | One migration or dependency-gate owner at a time; ACORN command sync may claim it only after the upstream commit is fixed. |
-| Configuration lock | `xylem-lib/src/config/mod.rs` and its future extracted modules | Error signatures land first; validation owns extraction; fixed batching owns `options.batch`; resume and memory plans add only validated extracted types after that contract stabilizes. |
-| Process lock | `xylem-lib/src/script/mod.rs` and process fixtures | The process contract lands before environment or lifecycle integration; ACORN command sync changes its adapter only during final handoff. |
-| Scheduler lock | `xylem-lib/src/execution.rs`, input admission in `xylem-cli/src/commands/run/mod.rs` | Fixed batching establishes one scheduler boundary; environment, resume, and memory work consume it serially rather than adding parallel admission loops. |
-| Run-state lock | `xylem-lib/src/progress.rs`, journal/outcome modules, reporter adapters | The journal owns durable transitions; reporters and resume consume those states without redefining them. |
-| CLI lock | `xylem-cli/src/{main,cli}.rs`, `xylem-cli/src/commands/run/mod.rs` | One owner for argument registration, pool/scheduler setup, journal lifecycle, exit mapping, and generated help. |
+| Manifest lock | `Cargo.toml`, `Cargo.lock`, `xylem-*/Cargo.toml`, `deny.toml` | One remaining migration or dependency-gate owner at a time. |
+| Configuration lock | `xylem-lib/src/config/mod.rs` and its future extracted modules | Preserve the landed typed-error, validation, `options.batch`, and resume contracts while acquisition or memory work extends them. |
+| Process lock | `xylem-lib/src/script/mod.rs` and process fixtures | Build the process contract on the landed contextual errors before environment or lifecycle integration. |
+| Scheduler lock | `xylem-lib/src/execution.rs`, input admission in `xylem-cli/src/commands/run/mod.rs` | Preserve the landed fixed-batching and resume boundary; environment and memory work consume it serially rather than adding parallel admission loops. |
+| Run-state lock | `xylem-lib/src/progress.rs`, journal/outcome modules, reporter adapters | Preserve the landed journal, reporter, and resume vocabulary without redefining durable states. |
+| CLI lock | `xylem-cli/src/{main,cli}.rs`, `xylem-cli/src/commands/run/mod.rs` | One owner for argument registration, pool/scheduler setup, journal lifecycle, CLI-owned exit mapping, and generated help. |
 | Delivery lock | `Makefile`, `.gitlab-ci.yml`, release exporters | Security commands land before CI/release wiring; package export consumes the immutable release contract. |
 | Documentation lock | top-level Markdown and `examples/` | Final updates occur after behavior and command names are stable. |
 
 ## Work lanes
 
-The prioritized [resumable execution](features/resumable-execution.md) item now contains only typed-error hardening, resume edge-case coverage, and release reconciliation. Validated planning and completion contracts have landed and are no longer lane work.
-
-The lanes below describe what remains after it, and what may run alongside it.
+The typed-error, validated-planning, reporter, and
+[resumable execution](features/resumable-execution.md) contracts have landed.
+The lanes below contain only remaining work.
 
 ### Lane A: dependency migrations
 
@@ -49,10 +49,10 @@ The landed `options.batch` rolling input ceiling is the baseline these steps mus
 ### Lane D: CLI and verification
 
 1. [Hermetic workflow tests](testing/hermetic-workflow-tests.md), fixture/helper slice only
-2. [Run reporters](features/run-reporters.md), reconciliation against the landed implementation before any remaining work
-3. Final error-path and compiled-binary test slice
 
-Tests that assert new outcomes wait for the owning contract. Fixture cleanup and fake-command helpers can start without the CLI lock.
+Typed error-path and resume close-out coverage has landed. Remaining fixture
+cleanup and fake-command helpers can proceed without the CLI lock until they
+need a new runtime contract.
 
 ### Lane E: delivery and communication
 
@@ -68,7 +68,6 @@ The following slices have disjoint primary write sets:
 | Slice | Primary ownership | Restriction |
 |---|---|---|
 | ACORN compatibility inventory | temporary diagnostics and `migrations/acorn-0-2-upgrade.md` notes | Do not edit manifests until holding the manifest lock. |
-| Error taxonomy | new `xylem-lib/src/error.rs` and focused tests | Do not change existing public signatures until the configuration/process owners are ready. |
 | Hermetic helper preparation | new test-support module and new fixtures | Do not edit CLI roots or rewrite assertions owned by later contracts. |
 | CI rule validation | isolated CI lint inputs and plan notes | Do not edit `Makefile` or `.gitlab-ci.yml` until dependency-gate commands are accepted. |
 

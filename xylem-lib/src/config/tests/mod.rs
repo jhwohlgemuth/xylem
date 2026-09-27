@@ -197,15 +197,6 @@ fn test_every_example_configuration_passes_semantic_validation() {
     });
 }
 #[test]
-fn test_get_children() {
-    assert_eq!(get_children("../../does/not/exist".to_string()), Vec::<String>::new());
-    let children = get_children("../tests/fixtures/input".to_string())
-        .iter()
-        .map(|path| PathBuf::from(path).file_name().expect("input name").to_string_lossy().to_string())
-        .collect::<Vec<_>>();
-    assert_eq!(children, ["one", "three", "two"]);
-}
-#[test]
 fn test_json_and_yaml_fixtures_deserialize_equally() {
     let json = Config::read_json(PathBuf::from(format!("{FIXTURES}/config-equivalent.json"))).expect("read equivalent JSON fixture");
     let yaml = Config::read_yaml(PathBuf::from(format!("{FIXTURES}/config-equivalent.yaml"))).expect("read equivalent YAML fixture");

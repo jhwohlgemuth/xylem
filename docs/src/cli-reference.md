@@ -63,6 +63,13 @@ finalizes the journal as failed, stops admitting new inputs, leaves work that
 was never admitted as `not_started`, and returns a non-zero status after the
 selected reporters run.
 
+Exit codes are selected at the CLI boundary. Unsupported command usage maps to
+usage errors, malformed or semantically invalid configurations to data errors,
+missing requirements and acquisition failures to unavailable-service errors,
+child module failures to software errors, and journal/report persistence
+failures to I/O or creation errors. Diagnostics retain the relevant
+configuration path, module name, command, and working directory.
+
 Dry-run is write-free. It renders a deterministic execution-plan document to
 the console or JSON standard output without creating a workspace, journal,
 report, marker, or artifact. Consequently, `--report-output` is rejected with
