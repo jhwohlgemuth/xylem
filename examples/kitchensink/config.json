@@ -1,0 +1,123 @@
+{
+    "version": "1.0.0",
+    "id": "kitchensink",
+    "description": "Exercise Mamba, Pixi, Docker, generic script, binary, inputs, variables, completion, and resume",
+    "requirements": ["docker", "mamba", "pixi"],
+    "input": ["alpha", "bravo"],
+    "output": "./examples/kitchensink/output",
+    "variables": {
+        "GREETING": "Hello",
+        "MESSAGE": "{{ GREETING }} from Xylem"
+    },
+    "modules": [
+        {
+            "name": "Mamba Module",
+            "type": "script",
+            "programmingLanguage": "python",
+            "uri": "file:./examples/kitchensink/mamba",
+            "variables": {
+                "MESSAGE": "{{ GREETING }} from the kitchensink"
+            },
+            "template": {
+                "environment": {
+                    "name": "xylem-kitchensink-mamba",
+                    "manager": "mamba"
+                },
+                "command": "python",
+                "arguments": [
+                    "-m",
+                    "lib.run",
+                    "--input",
+                    "{{ INPUT }}",
+                    "--message",
+                    "{{ MESSAGE }}",
+                    "--output",
+                    "../output/{{ PARENT_DIRECTORY }}/mamba.txt"
+                ]
+            },
+            "completion": {
+                "outputs": [
+                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/mamba.txt"
+                ]
+            }
+        },
+        {
+            "name": "Pixi Module",
+            "type": "script",
+            "language": "python",
+            "uri": "file:./examples/kitchensink/pixi",
+            "template": {
+                "environment": {
+                    "name": "default",
+                    "manager": "pixi"
+                },
+                "command": "python",
+                "arguments": [
+                    "-m",
+                    "lib.run",
+                    "--input",
+                    "../output/{{ PARENT_DIRECTORY }}/mamba.txt",
+                    "--output",
+                    "../output/{{ PARENT_DIRECTORY }}/pixi.txt"
+                ]
+            },
+            "completion": {
+                "outputs": [
+                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/pixi.txt"
+                ]
+            }
+        },
+        {
+            "name": "Script Module",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:./examples/kitchensink/script",
+            "template": "template.json",
+            "completion": {
+                "outputs": [
+                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/script.txt"
+                ]
+            }
+        },
+        {
+            "name": "Binary Module",
+            "type": "binary",
+            "uri": "file:./examples/kitchensink/binary/finalize",
+            "template": {
+                "command": "finalize",
+                "arguments": [
+                    "../output/{{ PARENT_DIRECTORY }}/script.txt",
+                    "../output/{{ PARENT_DIRECTORY }}/final.txt"
+                ]
+            },
+            "completion": {
+                "outputs": [
+                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/final.txt"
+                ]
+            }
+        },
+        {
+            "name": "Docker Module",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:./examples/kitchensink/docker",
+            "template": {
+                "container": {
+                    "name": "xylem-kitchensink",
+                    "runtime": "docker"
+                },
+                "command": "sh",
+                "arguments": [
+                    "/workspace/xylem/examples/kitchensink/docker/run.sh",
+                    "/workspace/xylem/examples/kitchensink/output/{{ PARENT_DIRECTORY }}/final.txt",
+                    "/workspace/xylem/examples/kitchensink/output/{{ PARENT_DIRECTORY }}/docker.txt"
+                ]
+            },
+            "completion": {
+                "outputs": [
+                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/docker.txt"
+                ]
+            }
+        }
+    ]
+}

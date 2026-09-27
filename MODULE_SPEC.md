@@ -38,7 +38,7 @@ The fields have these meanings:
 | `name` | Yes | Human-readable module name. Xylem converts it to snake case in `MODULE_LIST`. |
 | `type` | Yes | `script` or `binary`. `configuration` is reserved and is not executable in version 1.0. |
 | `uri` | Yes | A local `file:` URI or a supported remote Git/HTTP URI. |
-| `programmingLanguage` | No | `python` or `generic` in version 1.0. Omission selects generic behavior; the JSON alias `programming_language` is also accepted. |
+| `programmingLanguage` | No | `python` or `generic` in version 1.0. Omission selects generic behavior; the JSON aliases `language` and `programming_language` are also accepted. |
 | `description` | No | Human-readable purpose. |
 | `variables` | No | Module-scoped scalar variables. These override workflow variables. |
 | `template` | No | An inline template or a path relative to the module directory. |
@@ -176,8 +176,14 @@ and uses the `default` environment.
 ### Conda
 
 A Conda module MUST contain `environment.yml` with its environment `name` on the
-first line. Xylem reuses an existing named environment or creates it with Mamba
-when available and Conda otherwise. Execution uses `conda run --name <name>`.
+first line. With `"manager": "conda"`, Xylem creates, discovers, and executes
+the named environment with `conda env` and `conda run --name <name>`.
+
+### Mamba
+
+A Mamba module uses the same `environment.yml` contract as Conda. With
+`"manager": "mamba"`, Xylem creates, discovers, and executes the named
+environment with `mamba env` and `mamba run --name <name>`.
 
 ## 6. Binary modules
 

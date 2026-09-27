@@ -1,7 +1,7 @@
 {
     "version": "0.0.1",
     "description": "Run Python (with conda) module example",
-    "requirements": [],
+    "requirements": ["conda"],
     "variables": {
         "GREETING": "Hello",
         "AUDIENCE": "from Xylem",

@@ -400,34 +400,44 @@ impl Config {
                                     | None => Ok(()),
                                 }
                                 .and_then(|()| match &module.module_type {
-                                    | ModuleType::Binary { .. } => options
+                                    | ModuleType::Binary { uri, .. } => options
                                         .root
                                         .clone()
                                         .ok_or_else(|| "root directory is not configured".to_string())
                                         .and_then(|root| {
-                                            let working_dir = root.to_absolute_path();
-                                            Script::from_module(module.clone(), Some(PathBuf::from(working_dir.clone())))
-                                                .map_err(|why| why.to_string())
-                                                .and_then(|loaded| {
-                                                    let script = loaded
-                                                        .ensure_relative()
-                                                        .expand_arguments_from(envs.clone())
-                                                        .with_current_dir(working_dir)
-                                                        .with_envs(envs);
-                                                    match options.dry_run.unwrap_or_default() {
-                                                        | true => {
-                                                            info!(
-                                                                module = module.name,
-                                                                script = script.to_string(),
-                                                                cwd = script.current_dir,
-                                                                "=> {}",
-                                                                Label::dry_run()
-                                                            );
-                                                            Ok(())
+                                            let root = root.to_absolute_path();
+                                            let working_dir = match ModuleUri::from(uri) {
+                                                | ModuleUri::File(path) => path
+                                                    .parent()
+                                                    .map(|path| path.to_absolute_path())
+                                                    .ok_or_else(|| format!("binary module URI has no parent directory: {uri}")),
+                                                | ModuleUri::Url(_) => Ok(root.clone()),
+                                                | ModuleUri::Unknown(_) => Err(format!("module URI is invalid: {uri}")),
+                                            };
+                                            working_dir.and_then(|working_dir| {
+                                                Script::from_module(module.clone(), Some(PathBuf::from(root)))
+                                                    .map_err(|why| why.to_string())
+                                                    .and_then(|loaded| {
+                                                        let script = loaded
+                                                            .ensure_relative()
+                                                            .expand_arguments_from(envs.clone())
+                                                            .with_current_dir(working_dir)
+                                                            .with_envs(envs);
+                                                        match options.dry_run.unwrap_or_default() {
+                                                            | true => {
+                                                                info!(
+                                                                    module = module.name,
+                                                                    script = script.to_string(),
+                                                                    cwd = script.current_dir,
+                                                                    "=> {}",
+                                                                    Label::dry_run()
+                                                                );
+                                                                Ok(())
+                                                            }
+                                                            | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
                                                         }
-                                                        | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
-                                                    }
-                                                })
+                                                    })
+                                            })
                                         }),
                                     | ModuleType::Script { programming_language, uri } => options
                                         .root

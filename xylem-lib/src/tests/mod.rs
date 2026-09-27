@@ -171,6 +171,23 @@ fn test_module() {
     assert_eq!(module.to_string(), "module-a");
 }
 #[test]
+fn test_module_language_alias() {
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "Python Module",
+        "type": "script",
+        "language": "python",
+        "uri": "file:./module"
+    }))
+    .expect("language alias should deserialize");
+    assert!(matches!(
+        module.module_type,
+        ModuleType::Script {
+            programming_language: Some(ModuleLanguage::Python),
+            ..
+        }
+    ));
+}
+#[test]
 fn test_read_pyproject_toml() {
     let path = format!("{FIXTURES}/pyproject.toml");
     match PyProjectToml::read(PathBuf::from(path)) {
@@ -469,7 +486,13 @@ fn test_script_get_arguments() {
         "docker exec CONTAINER echo hello world"
     );
     assert_eq!(
-        format!("{}", script.with_container(container).with_virtual_environment(Some(virtual_environment))),
+        format!(
+            "{}",
+            script
+                .clone()
+                .with_container(container)
+                .with_virtual_environment(Some(virtual_environment))
+        ),
         "docker exec CONTAINER conda run --name base --no-capture-output echo hello world"
     );
     // Docker runtime (default)
@@ -487,8 +510,22 @@ fn test_script_get_arguments() {
         "apptainer exec CONTAINER echo hello world"
     );
     assert_eq!(
-        format!("{}", script.with_container(container).with_virtual_environment(Some(virtual_environment))),
+        format!(
+            "{}",
+            script
+                .clone()
+                .with_container(container)
+                .with_virtual_environment(Some(virtual_environment))
+        ),
         "apptainer exec CONTAINER conda run --name base --no-capture-output echo hello world"
+    );
+    let mamba_environment = VirtualEnvironment::init()
+        .name("base".to_string())
+        .manager(VirtualEnvironmentManager::Mamba)
+        .build();
+    assert_eq!(
+        format!("{}", script.with_virtual_environment(Some(mamba_environment))),
+        "mamba run --name base echo hello world"
     );
 }
 #[test]

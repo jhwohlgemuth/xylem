@@ -2,7 +2,7 @@ use crate::completion::Completion;
 use crate::error::{ModuleLoadError, ProcessError, TemplateError};
 use crate::util::constants::{RE_HANDLEBARS, RE_TEMPLATE_SPACES};
 use acorn::util::Label;
-use acorn_cmd::{args, cmd};
+use acorn_cmd::{args, CommandSpec};
 use acorn_core::util::alloc::StringConversion;
 use acorn_core::{Location, Scheme};
 use acorn_host::fs::read_text;
@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::env::{set_var, vars};
 use std::ffi::OsStr;
 use std::fs::read_to_string;
-use std::path::PathBuf;
+use std::path::{is_separator, PathBuf};
 use strum::EnumIs;
 use tracing::{debug, error, info, trace, warn};
 use uriparse::URI;
@@ -92,7 +92,7 @@ pub enum ModuleType {
     Configuration { uri: String },
     /// Provides support for executing scripts
     Script {
-        #[serde(alias = "programmingLanguage")]
+        #[serde(alias = "language", alias = "programmingLanguage")]
         programming_language: Option<ModuleLanguage>,
         uri: String,
     },
@@ -175,6 +175,10 @@ pub enum VirtualEnvironmentManager {
     #[display("conda")]
     #[serde(alias = "conda")]
     Conda,
+    /// [Mamba package manager](https://mamba.readthedocs.io/)
+    #[display("mamba")]
+    #[serde(alias = "mamba")]
+    Mamba,
     /// Simple Python version management (https://github.com/pyenv/pyenv)
     #[display("pyenv")]
     #[serde(alias = "pyenv")]
@@ -252,7 +256,7 @@ struct RawModule {
     completion: Option<Completion>,
     description: Option<String>,
     name: String,
-    #[serde(alias = "programmingLanguage")]
+    #[serde(alias = "language", alias = "programmingLanguage")]
     programming_language: Option<ModuleLanguage>,
     template: Option<TemplateAttribute>,
     #[serde(rename = "type")]
@@ -747,25 +751,18 @@ impl Script {
         let self_arguments = match &self.command.virtual_environment {
             | Some(VirtualEnvironment { name, manager, .. }) => {
                 let mut arguments = match manager {
-                    | VirtualEnvironmentManager::Conda => vec![
-                        "run".to_string(),
-                        "--name".to_string(),
-                        name.to_string(),
-                        "--no-capture-output".to_string(),
-                        self.command.name.clone(),
-                    ],
-                    | VirtualEnvironmentManager::Pixi => vec![
-                        "run".to_string(),
-                        "--environment".to_string(),
-                        name.to_string(),
-                        self.command.name.clone(),
-                    ],
-                    | VirtualEnvironmentManager::Poetry => vec!["run".to_string(), self.command.name.clone()],
+                    | VirtualEnvironmentManager::Conda => args!["run", "--name", name, "--no-capture-output", self.command.name.clone()],
+                    | VirtualEnvironmentManager::Mamba => args!["run", "--name", name, self.command.name.clone()],
+                    | VirtualEnvironmentManager::Pixi => args!["run", "--environment", name, self.command.name.clone()],
+                    | VirtualEnvironmentManager::Poetry => args!["run", self.command.name.clone()],
                     | _ => {
                         error!(name = manager.to_string(), "=> {} Virtual environment manager", Label::not_found());
                         vec![]
                     }
-                };
+                }
+                .into_iter()
+                .map(|argument| argument.to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
                 arguments.extend(self.arguments.clone());
                 arguments
             }
@@ -803,6 +800,7 @@ impl Script {
             .map(|environment| match environment {
                 | Some(value) if value.manager == VirtualEnvironmentManager::Pixi => create_pixi_environment_script(current_dir, value),
                 | Some(value) if value.manager == VirtualEnvironmentManager::Conda => create_conda_environment_script(current_dir),
+                | Some(value) if value.manager == VirtualEnvironmentManager::Mamba => create_mamba_environment_script(current_dir),
                 | Some(value) => {
                     let manager = value.manager;
                     debug!(
@@ -853,7 +851,11 @@ impl Script {
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
         warn!(cwd = %current_dir.display(), script = self.to_string(), "=> {}", Label::run());
-        match cmd!(command, args![..arguments]; dir: current_dir, env: envs) {
+        let specification = envs.into_iter().fold(
+            CommandSpec::new(command).args(arguments).current_dir(&current_dir),
+            |specification, (key, value)| specification.env(key, value),
+        );
+        match specification.output() {
             | Ok(result) => {
                 let stdout = String::from_utf8_lossy(&result.stdout).lines().map(String::from).collect::<Vec<_>>();
                 let stderr = String::from_utf8_lossy(&result.stderr).lines().map(String::from).collect::<Vec<_>>();
@@ -1082,20 +1084,24 @@ fn add_dot_slash(path: PathBuf) -> PathBuf {
     }
 }
 fn create_conda_environment_script(current_dir: String) -> Option<Script> {
+    create_environment_script(current_dir, "conda", get_conda_environment_list())
+}
+fn create_mamba_environment_script(current_dir: String) -> Option<Script> {
+    create_environment_script(current_dir, "mamba", get_mamba_environment_list())
+}
+fn create_environment_script(current_dir: String, manager: &str, environments: Vec<String>) -> Option<Script> {
     let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
     match manifest_path.try_exists() {
         | Ok(true) => {
             info!(path = %manifest_path.display(), "=> {} Manifest file", Label::found());
             match get_conda_environment_name(manifest_path) {
-                | Some(name) if get_conda_environment_list().contains(&name) => {
+                | Some(name) if environments.contains(&name) => {
                     info!(name, "=> {} Virtual environment", Label::found());
                     None
                 }
                 | Some(_) => {
-                    let mamba = Command::init().name("mamba".to_string()).build();
-                    let name = (if mamba.test() { "mamba" } else { "conda" }).to_string();
                     let arguments = vec!["env", "create", "-f", "environment.yml"].into_iter().map(String::from).collect();
-                    let command = Command::init().name(name).build();
+                    let command = Command::init().name(manager.to_string()).build();
                     Some(Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir))
                 }
                 | None => None,
@@ -1151,9 +1157,16 @@ fn find_pixi_manifest(path: PathBuf) -> Option<PathBuf> {
         }
     }
 }
-/// Get list of Conda virtual environments
+/// Get list of Conda virtual environments through Conda.
 pub fn get_conda_environment_list() -> Vec<String> {
-    let command = Command::init().name("conda".to_string()).build();
+    get_environment_list("conda")
+}
+/// Get list of Conda-format virtual environments through Mamba.
+pub fn get_mamba_environment_list() -> Vec<String> {
+    get_environment_list("mamba")
+}
+fn get_environment_list(manager: &str) -> Vec<String> {
+    let command = Command::init().name(manager.to_string()).build();
     let arguments = vec!["env".to_string(), "list".to_string()];
     let script = Script::init().command(command.clone()).arguments(arguments).build();
     if command.test() {
@@ -1165,8 +1178,14 @@ pub fn get_conda_environment_list() -> Vec<String> {
             .split('\n')
             .filter(|x| !x.is_empty())
             .skip(1)
-            .map(|x| x.trim().chars().take_while(|x| !x.is_whitespace()).collect())
-            .filter(|x: &String| !x.contains(std::path::is_separator))
+            .filter_map(|line| {
+                line.split_whitespace()
+                    .next()
+                    .and_then(|value| match value.contains(is_separator) {
+                        | true => PathBuf::from(value).file_name().and_then(|name| name.to_str()).map(str::to_string),
+                        | false => Some(value.to_string()),
+                    })
+            })
             .collect::<Vec<String>>()
     } else {
         vec![]

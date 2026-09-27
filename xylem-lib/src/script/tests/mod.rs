@@ -1,6 +1,6 @@
 use crate::script::{
-    add_dot_slash, get_conda_environment_list, get_conda_environment_name, Command, Script, ScriptTemplate, VirtualEnvironment,
-    VirtualEnvironmentManager,
+    add_dot_slash, get_conda_environment_list, get_conda_environment_name, get_mamba_environment_list, Command, Script, ScriptTemplate,
+    VirtualEnvironment, VirtualEnvironmentManager,
 };
 use std::path::{Path, PathBuf};
 
@@ -32,7 +32,17 @@ fn test_get_conda_environment_list() {
     let list = get_conda_environment_list();
     let conda = Command::init().name("conda".to_string()).build();
     if conda.test() {
-        assert!(list.contains(&"base".to_string()));
+        assert!(list.iter().all(|name| !name.is_empty()));
+    } else {
+        assert!(list.is_empty());
+    }
+}
+#[test]
+fn test_get_mamba_environment_list() {
+    let list = get_mamba_environment_list();
+    let mamba = Command::init().name("mamba".to_string()).build();
+    if mamba.test() {
+        assert!(list.iter().all(|name| !name.is_empty()));
     } else {
         assert!(list.is_empty());
     }

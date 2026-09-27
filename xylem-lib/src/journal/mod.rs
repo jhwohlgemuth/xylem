@@ -7,6 +7,7 @@ use acorn_schema::validation::{Validate, ValidationReport};
 use alloc::collections::{BTreeMap, BTreeSet};
 use core::fmt;
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 use std::fs::{create_dir_all, remove_file, rename, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -72,6 +73,7 @@ pub enum JournalError {
     Poisoned,
 }
 /// One append-only journal event.
+#[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum JournalEvent {
@@ -107,6 +109,7 @@ pub enum RunStatus {
     Interrupted,
 }
 /// Stable configuration identity recorded at run start.
+#[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ConfigurationIdentity {
     /// Configuration path used by the command.
@@ -137,6 +140,7 @@ pub struct InputSummary {
     pub modules: Vec<ModuleSummary>,
 }
 /// Stable identity and display value for one workflow input.
+#[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JournalInput {
     /// Deterministic zero-based input position.
@@ -154,7 +158,7 @@ pub struct JournalRecord {
     /// Monotonically increasing sequence number, beginning at zero.
     pub sequence: u64,
     /// Unix timestamp in milliseconds.
-    pub timestamp_ms: u64,
+    pub timestamp: u64,
     /// Run identifier repeated on every record for independent validation.
     pub run_id: String,
     /// Recorded transition.
@@ -294,7 +298,7 @@ impl JournalSink {
                 let record = JournalRecord {
                     schema_version: JOURNAL_SCHEMA_VERSION,
                     sequence: self.next_sequence,
-                    timestamp_ms: timestamp_ms(),
+                    timestamp: timestamp_ms(),
                     run_id: run_id.to_string(),
                     event,
                 };
@@ -696,7 +700,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                 let JournalRecord {
                     schema_version,
                     sequence,
-                    timestamp_ms,
+                    timestamp: timestamp_ms,
                     run_id: record_run_id,
                     event,
                 } = record;

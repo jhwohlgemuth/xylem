@@ -5,7 +5,7 @@ and running a Python module inside the declared environment. The configuration
 defines `MESSAGE` as `{{ GREETING }} {{ AUDIENCE }}`, so the module receives the
 interpolated `Hello from Xylem` along with the reserved `MODULE_LIST` value.
 
-Install [Conda](https://docs.conda.io/projects/conda/en/stable/user-guide/install/index.html),
+Install [Conda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/),
 then run the example:
 
 ```shell

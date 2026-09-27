@@ -6,4 +6,5 @@
 notebooks/sandbox.ipynb
 .env
 .pixi/
+pixi.lock
 __pycache__/

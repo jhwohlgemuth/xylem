@@ -1,7 +1,7 @@
 use super::*;
 use acorn_schema::validation::Validate;
 use alloc::sync::Arc;
-use std::fs::{create_dir_all, read, remove_dir, remove_file};
+use std::fs::{create_dir_all, read, read_to_string, remove_dir, remove_file};
 
 fn metadata(run_id: &str) -> RunMetadata {
     RunMetadata {
@@ -56,6 +56,16 @@ fn existing_destination_and_invalid_transition_are_rejected() {
     let journal = RunJournal::create(path.clone(), metadata("run-exclusive"), vec![JournalInput::new(0, None)], Vec::new()).expect("create journal");
     assert!(RunJournal::create(path.clone(), metadata("other"), Vec::new(), Vec::new()).is_err());
     assert!(journal.transition_input(0, ExecutionState::Succeeded, None).is_err());
+    remove_file(path).expect("remove journal");
+}
+#[test]
+fn journal_jsonl_omits_none_fields() {
+    let path = path("omit-none");
+    let journal = RunJournal::create(path.clone(), metadata("run-omit-none"), vec![JournalInput::new(0, None)], Vec::new()).expect("create journal");
+    journal.transition_input(0, ExecutionState::Running, None).expect("start input");
+    journal.transition_input(0, ExecutionState::Succeeded, None).expect("finish input");
+    journal.finish(FinalStatus::Succeeded, None).expect("finish run");
+    assert!(!read_to_string(&path).expect("read journal").contains("null"));
     remove_file(path).expect("remove journal");
 }
 #[test]

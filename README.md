@@ -67,7 +67,7 @@ cargo install --locked xylem-cli
 
 - See the [Xylem book](https://xylem.ornl.gov) for installation, configuration, and module guidance
 - See example configurations in the [`/examples`](./examples/) folder
-- Run the self-contained [Python with Pixi example](./examples/python-with-pixi/README.md) or the [Python with Conda example](./examples/python-with-conda/README.md) with `cargo run --example python-with-pixi` and `cargo run --example python-with-conda`
+- Run the self-contained [kitchensink example](./examples/kitchensink/README.md), [multi-module example](./examples/multi-module/README.md), [Python with Pixi example](./examples/python-with-pixi/README.md), or [Python with Conda example](./examples/python-with-conda/README.md) with their corresponding `cargo run --example <name>` command
 - Read the versioned [Xylem module specification](./MODULE_SPEC.md)
 
 ### Architecture

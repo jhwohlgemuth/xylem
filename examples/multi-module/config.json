@@ -1,0 +1,99 @@
+{
+    "version": "1.0.0",
+    "description": "Pass a message through Conda, Pixi, script, and binary modules",
+    "requirements": ["mamba", "pixi"],
+    "output": "./examples/multi-module/output",
+    "variables": {
+        "MESSAGE": "Hello from Xylem"
+    },
+    "modules": [
+        {
+            "name": "Conda Module",
+            "type": "script",
+            "programmingLanguage": "python",
+            "uri": "file:./examples/multi-module/conda",
+            "template": {
+                "environment": {
+                    "name": "xylem-multi-module-conda",
+                    "manager": "mamba"
+                },
+                "command": "python",
+                "arguments": [
+                    "-m",
+                    "lib.run",
+                    "--message",
+                    "{{ MESSAGE }}",
+                    "--output",
+                    "../output/conda.txt"
+                ]
+            },
+            "completion": {
+                "outputs": [
+                    "{{ OUTPUT_DIRECTORY }}/conda.txt"
+                ]
+            }
+        },
+        {
+            "name": "Pixi Module",
+            "type": "script",
+            "programmingLanguage": "python",
+            "uri": "file:./examples/multi-module/pixi",
+            "template": {
+                "environment": {
+                    "name": "default",
+                    "manager": "pixi"
+                },
+                "command": "python",
+                "arguments": [
+                    "-m",
+                    "lib.run",
+                    "--input",
+                    "../output/conda.txt",
+                    "--output",
+                    "../output/pixi.txt"
+                ]
+            },
+            "completion": {
+                "outputs": [
+                    "{{ OUTPUT_DIRECTORY }}/pixi.txt"
+                ]
+            }
+        },
+        {
+            "name": "Script Module",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:./examples/multi-module/script",
+            "template": {
+                "command": "sh",
+                "arguments": [
+                    "lib/run.sh",
+                    "../output/pixi.txt",
+                    "../output/script.txt"
+                ]
+            },
+            "completion": {
+                "outputs": [
+                    "{{ OUTPUT_DIRECTORY }}/script.txt"
+                ]
+            }
+        },
+        {
+            "name": "Binary Module",
+            "type": "binary",
+            "uri": "file:./examples/multi-module/binary/finalize",
+            "template": {
+                "command": "finalize",
+                "arguments": [
+                    "../output/script.txt",
+                    "../output/final.txt"
+                ]
+            },
+            "completion": {
+                "outputs": [
+                    "{{ OUTPUT_DIRECTORY }}/final.txt"
+                ]
+            }
+        }
+    ]
+}
