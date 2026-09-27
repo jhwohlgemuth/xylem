@@ -17,20 +17,13 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Next execution phase
 
-The immediate user-facing slice is [fixed input concurrency](features/fixed-input-concurrency.md). It may land against the current run-local pool while the deeper execution foundations proceed; later orchestration work must preserve its public `options.batch` contract.
+The prioritized work item is [land typed execution foundations and add resumable execution](features/resumable-execution.md). It is the only item to schedule, and it owns its whole prerequisite chain as ordered phases: the maintained YAML parser, typed errors and workflow outcomes, configuration validation and dry-run, and then resumable execution itself. Work it top to bottom and do not schedule its phases from anywhere else.
 
-Stabilize the dependency and failure foundations before adding workflow behavior:
+It holds the manifest, configuration, process, run-state, and CLI locks for its duration. The one outside claim is the dependency lane's remaining ACORN feature narrowing, which shares the manifest lock with Phase 1 but does not block it.
 
-1. [Upgrade and narrow ACORN dependencies](migrations/acorn-0-2-upgrade.md)
-2. [Synchronize Xylem with ACORN command updates](migrations/acorn-command-environment-sync.md)
-3. [Replace the unmaintained YAML parser](migrations/maintained-yaml-parser.md)
-4. [Introduce typed errors and workflow outcomes](refactors/typed-error-and-outcome-boundary.md)
-5. [Make process execution lossless and deadlock-free](refactors/process-execution-contract.md)
-6. [Isolate workflow environments and define concurrency](refactors/workflow-environment-and-concurrency.md)
+Memory-aware scheduling remains gated on a successful measurement spike. The [hermetic workflow test suite](testing/hermetic-workflow-tests.md) may continue establishing host-independent fixtures alongside it, but assertions that depend on the error, validation, or completion contracts land after those phases.
 
-After those foundations, complete [structured run reporters](features/run-reporters.md) and add [resumable execution](features/resumable-execution.md), both using the existing durable execution journal. [Memory-aware scheduling](features/memory-aware-scheduling.md) remains gated on a successful measurement spike.
-
-The [hermetic workflow test suite](testing/hermetic-workflow-tests.md) may establish fixtures and host-independent helpers alongside the first three items, but assertions that depend on the new error or execution contracts land after those contracts.
+Two plans in this wiki are complete and were removed, with their contracts preserved as prose in the documents that referenced them: the durable execution journal, and fixed input concurrency. The ACORN command environment sync was also removed. Three more describe work that has partly landed and now carry a rechecked `Current evidence` section: structured run reporters, the ACORN 0.2 upgrade, and the hermetic test suite's host-specific fixes.
 
 ## Adding a plan
 

@@ -16,7 +16,7 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 # Current evidence
 
 - The current execution model assigns equal scheduling weight to every input regardless of input size or module behavior.
-- `--threads` bounds Rayon workers, and the planned `options.batch` contract bounds active inputs, but neither represents memory demand.
+- `--threads` bounds Rayon workers and the landed `options.batch` contract bounds active inputs, but neither represents memory demand.
 - Workflow `resources` are string values verified as host requirements; they do not provide a quantitative memory budget or estimator.
 - Xylem does not record peak child-process memory, so there is no repository evidence that the example input-to-output size ratios predict peak RAM.
 - Inputs may be files or directories of heterogeneous contents, and different modules can have different peak-memory curves for the same input.
@@ -29,7 +29,7 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 
 # Dependencies and ordering
 
-This implementation is tracked by [work item #13](https://code.ornl.gov/research-enablement/xylem/-/work_items/13). Measurement may begin independently, but production scheduling depends on [fixed input concurrency](fixed-input-concurrency.md) and deterministic orchestration. Observed-versus-estimated telemetry uses the existing durable execution journal. Do not add runtime dependencies or public configuration until the spike produces an accepted estimator and error bound.
+This implementation is tracked by [work item #13](https://code.ornl.gov/research-enablement/xylem/-/work_items/13). Measurement may begin independently, but production scheduling depends on the landed `options.batch` input ceiling and deterministic orchestration. Observed-versus-estimated telemetry uses the existing durable execution journal. Do not add runtime dependencies or public configuration until the spike produces an accepted estimator and error bound.
 
 # Recommendation
 
@@ -76,6 +76,5 @@ Record estimator identity, estimated bytes, configured budget, safety reserve, a
 
 # Related plans
 
-- [Fixed input concurrency](fixed-input-concurrency.md)
 - [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
 - [Hermetic workflow tests](../testing/hermetic-workflow-tests.md)

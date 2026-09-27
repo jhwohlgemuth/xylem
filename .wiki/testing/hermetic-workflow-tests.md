@@ -7,8 +7,11 @@ impact: critical
 package: [xylem-lib, xylem-cli, workspace]
 tags: [testing, hermetic, cli, process, fixtures, cross-platform]
 status: planned
-priority: next
 ---
+
+# Execution
+
+The prioritized item is [resumable execution](../features/resumable-execution.md), which holds the configuration, process, run-state, and CLI locks. Only host-independent fixture and helper work may proceed alongside it, and only in files that plan does not touch. Assertions that depend on the error, validation, or completion contracts land after the phase that introduces them.
 
 # Goal
 
@@ -16,10 +19,15 @@ Make the default test suite deterministic on supported developer and CI hosts, t
 
 # Current evidence
 
-- `cargo test --workspace --all-targets` on 2026-09-17 compiled successfully but failed 2 of 24 library tests.
-- `test_command` assumes that if `conda` exists then `python` is available through the current `PATH`; the production `Command::test` does not actually enter the named Conda environment.
-- `test_script_run` changes the child working directory to `/root` and expects `/root`, which fails for an ordinary user and non-Linux hosts.
-- `config::tests::test_get_children` contains a hard-coded `/root/dev/command` conditional and asserts a specific developer checkout layout.
+Rechecked against `005aa73`. The host-specific defects are fixed; the coverage the plan set out to add is not there.
+
+- Landed: the suite is green. `cargo test --workspace --all-targets` passes 68 tests with no failures, replacing the 2-of-24 failure this plan was written against.
+- Landed: the hard-coded developer paths are gone. `test_get_children` reads `../tests/fixtures/input` and asserts the sorted `one, three, two`; `test_script_run` uses `std::env::temp_dir()` instead of `/root` and is `cfg`-gated for Windows; `test_command` resolves `std::env::current_exe()` instead of assuming `conda` implies `python` on `PATH`. No `/root` reference remains in any test.
+- Open: ten of the fourteen tests in `xylem-cli/tests/workflow.rs` are behind `#[cfg(not(target_os = "windows"))]`, so a Windows developer or runner executes only four. The gated set is where the durable-journal, batching, ordering, and module-ordering assertions live.
+- Open: `xylem-lib/src/tests/mod.rs` still contains host-probing tests such as the Git clone case, and several tests shell out to `echo` and `sh` fixtures that are skipped rather than replaced on Windows.
+- Open: there are no tests for the error surface, and no compiled-binary test asserts a specific exit code with stable diagnostic text.
+- Open: the fixture modules under `tests/e2e/modules/` are `sh` scripts, so the compiled-CLI path has no Windows equivalent.
+- Open: no snapshot or schema validation ties the JSON summary to `docs/schema/run-summary-v1.schema.json`.
 - Template tests call `std::env::set_var` for shared `_XYLEM_*` names and do not restore them.
 - Tests conditionally call installed `conda`, `mamba`, `cargo`, `ls`, `pwd`, and shell commands instead of injecting capabilities or using controlled helper binaries.
 - `xylem-cli` has zero unit tests and no integration-test files despite declaring `assert_cmd`.

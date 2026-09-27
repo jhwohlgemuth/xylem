@@ -15,13 +15,16 @@ Make the resolved dependency graph proportional to Xylem's implemented capabilit
 
 # Current evidence
 
-- The lockfile resolves 600 packages for two small crates and one CLI command.
-- The current ACORN feature selection pulls analyzer, Polars, Bat, Lychee, native regex, archive, and multiple network stacks even though Xylem uses utility functions.
-- Direct manifest entries with no production source reference include `bytes`, `reqwest`, `sha2`, and `tokio` in `xylem-lib`, plus `console`, `glob`, and `indicatif` in `xylem-cli`. `assert_cmd` is declared in both crates but no compiled CLI test exists.
-- Dependency versions are split between workspace-managed and crate-local declarations. The lockfile includes duplicate `reqwest`, `console`, `indicatif`, `fancy-regex`, and `convert_case` generations.
-- On 2026-09-17, `cargo audit --no-fetch --json` reported 17 vulnerabilities. Affected packages include `aws-lc-sys`, `crossbeam-epoch`, `quick-xml`, `quinn-proto`, `rustls`, `rustls-webpki`, and `tar`; the report also flags unsound `anyhow`, `libyml`, `memmap2`, and two `rand` versions.
-- `deny.toml` permanently ignores six advisories, and `Makefile` adds another ignored advisory. Several concern unsound or unmaintained YAML dependencies used directly by Xylem.
-- `make audit` runs multiple tools, but CI does not invoke it. `cargo deny` currently treats multiple versions and unknown sources as warnings.
+Rechecked against `005aa73`.
+
+- `acorn-lib` still enables its `analysis` feature, so the lockfile still resolves `bat`, `polars`, and the rest of the analyzer stack even though nothing in Xylem calls an analyzer.
+- Confirmed unused direct dependencies: `glob` and `uriparse` in `xylem-cli`, and `valuable` in `xylem-lib`, which imports only `valuable_derive` for the `Valuable` derive on `ContainerRuntime` and `ModuleType`. `glob` is dropped by the prioritized [resumable execution](../features/resumable-execution.md) plan; the rest need an owner.
+- `assert_cmd` is declared in both crates, but only `xylem-cli/tests/workflow.rs` uses it. The `xylem-lib` dev-dependency is unused.
+- The plan's claim that `sha2` and `tokio` are declared in `xylem-lib` is no longer true; neither appears in that manifest. `bytes` and `reqwest` are declared and both are used by `remote.rs`.
+- The lockfile still carries duplicate generations of `console` (0.15 and 0.16), `convert_case` (0.10 and 0.11), `indicatif` (0.17 and 0.18), and `reqwest` (0.12 and 0.13). Xylem declares the older generation of each.
+- `deny.toml` still permanently ignores six advisories, including the two `libyml` and `serde_yml` unsound reports, and the `Makefile` adds more `cargo audit` ignores. The prioritized plan's Phase 1 removes the two YAML entries.
+- `make audit` runs `cargo udeps`, `cargo deny check`, and `cargo audit`, but `.gitlab-ci.yml` still does not invoke it, so the gate is advisory only.
+- Package-count, build-time, and advisory baselines are still unrecorded.
 
 # Project code boundaries
 

@@ -7,8 +7,11 @@ impact: critical
 package: [xylem-lib, xylem-cli]
 tags: [refactor, errors, outcomes, exit-status, reliability]
 status: planned
-priority: next
 ---
+
+# Execution
+
+This plan is executed as Phase 2 of [resumable execution](../features/resumable-execution.md), which owns the whole prerequisite chain. Do not schedule it separately. Its `status` flips when that phase lands.
 
 # Goal
 

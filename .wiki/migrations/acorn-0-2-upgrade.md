@@ -7,8 +7,13 @@ impact: critical
 package: [workspace, xylem-lib, xylem-cli]
 tags: [migration, acorn, dependencies, features, security, build]
 status: planned
-priority: next
 ---
+
+# Execution
+
+Partially landed at baseline `005aa73`: the workspace is on `acorn-core`, `acorn-lib`, and `acorn-schema` 0.2.0 with `Location` and `Scheme` imported from the owning portable crate, so the version migration and its compatibility checkpoints are done. The feature narrowing is not: `acorn-lib` still enables `analysis` and the lockfile still resolves the analyzer stack, including Polars.
+
+The remaining work stays in the dependency lane and is not part of the prioritized [resumable execution](../features/resumable-execution.md) chain, but it shares the manifest lock with that plan's Phase 1.
 
 # Goal
 
@@ -16,11 +21,15 @@ Move Xylem off `acorn-lib` 0.1.50 and onto the current ACORN 0.2 contract repres
 
 # Current evidence
 
-- The workspace pins `acorn-lib = 0.1.50` with `default-features = false` but enables `std` and `analyzer`.
-- Xylem uses ACORN for `Label`, file/path helpers, download/checksum/executable helpers, and `Location`/`Scheme`; it does not call ACORN analyzers.
-- `cargo tree -e features -p xylem-lib` resolves ACORN's analysis stack, including Polars, Bat, Lychee, two Reqwest generations, and their transitive native/TLS dependencies.
-- The adjacent ACORN workspace is version 0.2.0 with Rust 1.96.0. Its portable `Location` and `Scheme` types are owned by `acorn-core`; `download_binary` is async; `file_checksum` accepts an algorithm and returns a typed checksum; and `Scheme` no longer models SSH as a general content location.
-- The current lockfile's oversized ACORN graph contributes multiple active advisories. The migration must measure the resulting graph rather than assuming a version bump alone clears them.
+Rechecked against `005aa73`. The version migration is done and the feature narrowing is not.
+
+- Landed: the workspace resolves `acorn-core`, `acorn-lib`, and `acorn-schema` 0.2.0 from the registry, so the pinned-revision and temporary-override concerns are closed.
+- Landed: `Location` and `Scheme` are imported from the owning portable crate, with no legacy root re-export or compatibility shim in Xylem.
+- Landed: `file_checksum` is called with an explicit algorithm and compared as a typed `Checksum`, and downloads are awaited at the orchestration boundary with no ad-hoc Tokio runtime.
+- Landed: the command environment sync closed the `std::process::Command` fallback, so `run_output_with_env` in ACORN and `cmd!` in Xylem are the only execution path.
+- Open: `Cargo.toml` still declares `acorn-lib = { version = "0.2.0", features = ["analysis"] }`, and `Cargo.lock` still resolves the analyzer stack, including `bat` and `polars`. Nothing in Xylem calls an analyzer.
+- Open: `acorn-core` enables `alloc` only, which is already minimal, but the `analysis` feature on `acorn-lib` is the single largest remaining source of unused graph.
+- Open: the advisory and package-count deltas this plan asked to record were never written down. `make audit` and `cargo deny check` still run, and `deny.toml` still carries six permanent advisory ignores.
 
 # Project code boundaries
 

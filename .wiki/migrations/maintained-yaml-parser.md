@@ -7,8 +7,11 @@ impact: critical
 package: [xylem-lib, workspace]
 tags: [migration, yaml, serde, security, configuration]
 status: planned
-priority: next
 ---
+
+# Execution
+
+This plan is executed as Phase 1 of [resumable execution](../features/resumable-execution.md), which owns the whole prerequisite chain. Do not schedule it separately. Its `status` flips when that phase lands.
 
 # Goal
 

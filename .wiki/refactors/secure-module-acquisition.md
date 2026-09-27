@@ -15,15 +15,17 @@ Make remote workflow modules reproducible and fail closed. A plan must identify 
 
 # Current evidence
 
-- Remote binary schemes include HTTP, HTTPS, and SSH even though the download helper is HTTP-oriented; comments mention an allowlist, but none is implemented.
-- A missing binary checksum terminates as unavailable, yet `--skip-verify-checksum` permits arbitrary downloaded bytes and is exposed as an ordinary workflow/CLI option.
-- Download errors collapse to an empty checksum, making transport, read, and mismatch failures hard to distinguish.
-- Downloaded binaries are written and then made executable before a broader transactional materialization boundary is established.
-- Remote Python modules run `git clone` without a required commit/tag, repository allowlist, depth/size bound, or post-clone origin/revision verification.
-- Remote reachability validation is currently `if true`.
-- Generic remote scripts are accepted by configuration but panic as unimplemented.
-- Offline matching has no explicit branch for remote sources; the guarded URL arm falls through to generic unsupported handling.
-- Destination names derive from URL/hash helpers without a Xylem-owned collision, symlink, or containment policy.
+Rechecked against `005aa73`. The host-allowlist and reachability layer has landed; the transactional, containment, and provenance layers have not.
+
+- Landed: `xylem-lib/src/remote.rs` implements an exact `RemotePolicy::from_hosts` allowlist that normalizes case, rejects wildcards and suffixes, and is enforced against the original URL and across HTTP redirect targets.
+- Landed: `probe_http` falls back when `HEAD` is unsupported and `probe_git` probes non-interactively, so remote reachability is no longer unconditional success.
+- Landed: `options.allowed` and `--allowed` are documented, with `--allowed` replacing rather than extending the configured list, and `redact_url` keeps credentials out of diagnostics.
+- Landed: an offline run rejects remote sources with a typed message and an offline dry run reports them as skipped, instead of falling through to generic unsupported handling.
+- Open: a remote binary with no `checksum` is still rejected, but `--skip-verify-checksum` still bypasses verification as an ordinary configuration field and CLI flag rather than an explicitly unsafe policy.
+- Open: downloads are still written and then made executable, with no capability-owned staging directory, no digest streamed during the write, and no atomic rename boundary.
+- Open: destination names still derive from URL and hash helpers with no Xylem-owned collision, symlink, or traversal containment policy.
+- Open: remote Python modules still run `git clone` through `Script::maybe_git_clone` with no required commit or tag, no depth or object bound, and no post-clone origin or revision verification.
+- Open: generic remote scripts are still accepted by configuration, and the run reporters and the acquisition path share no provenance record.
 
 # Project code boundaries
 

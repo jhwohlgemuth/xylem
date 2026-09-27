@@ -16,12 +16,12 @@ Give each workflow input an immutable execution context containing its variables
 # Current evidence
 
 - `Config::set_environment_variables` writes configuration values and `MODULE_LIST` into the process-global environment.
-- The CLI invokes multiple inputs with `rayon::par_iter`, so concurrent runs inherit shared mutable state and cannot be isolated.
+- The CLI runs inputs through `dispatch_inputs_fail_fast`, which builds a dedicated input pool, so concurrent inputs still inherit shared mutable environment state and cannot be isolated.
 - `get_environment_variables` returns no configuration or module variables when input is `None`; module variables therefore disappear for zero-input workflows.
-- Per-input and module variables are used for argument interpolation but are not attached to `Command::envs`, while globally set configuration variables leak to every child and later workflow in the same process.
+- Per-input and module variables are now attached to each script through `with_envs`, but globally set configuration values still leak to every child and to any later workflow in the same process.
 - Variable precedence is implicit: module values overwrite configuration values, then `INPUT` and `PARENT_DIRECTORY` overwrite both. Reserved-name collisions are not validated.
 - Template tests mutate `_XYLEM_*` process variables and do not restore them, making parallel test execution order-dependent.
-- Parallel `for_each` discards every workflow result, offers no concurrency limit or fail-fast policy, and does not preserve ordered outcomes.
+- The landed `options.batch` ceiling gives rolling admission, fail-fast, and ordered outcomes, but those semantics live in `ExecutionContext` rather than behind an immutable run context, and no cancellation or memory signal reaches the admission decision.
 - The CLI creates a random temporary root but never gives it an explicit retention or cleanup lifetime.
 
 # Project code boundaries
@@ -32,7 +32,7 @@ Give each workflow input an immutable execution context containing its variables
 
 # Dependencies and ordering
 
-Follows [typed outcomes](typed-error-and-outcome-boundary.md) and the [process execution contract](process-execution-contract.md). It extends the existing single Rayon budget with scheduling, failure, and cancellation semantics rather than redefining `-t`. If [fixed input concurrency](../features/fixed-input-concurrency.md) lands first, this refactor preserves `options.batch` and moves its admission helper behind the immutable context rather than introducing a competing limit. Its aggregate results feed the existing durable execution journal and [run reporters](../features/run-reporters.md).
+Follows [typed outcomes](typed-error-and-outcome-boundary.md) and the [process execution contract](process-execution-contract.md). It extends the existing single Rayon budget with scheduling, failure, and cancellation semantics rather than redefining `-t`. The `options.batch` rolling input ceiling has already landed, so this refactor preserves it and moves its admission helper behind the immutable context rather than introducing a competing limit. Its aggregate results feed the existing durable execution journal and [run reporters](../features/run-reporters.md).
 
 # Recommendation
 
@@ -81,6 +81,5 @@ Use an RAII temporary workspace. Remove it after success by default, retain it o
 
 - [Process execution contract](process-execution-contract.md)
 - [Configuration validation and dry-run](configuration-validation-and-dry-run.md)
-- [Fixed input concurrency](../features/fixed-input-concurrency.md)
 - [Memory-aware scheduling](../features/memory-aware-scheduling.md)
 - [Structured run reporters](../features/run-reporters.md)

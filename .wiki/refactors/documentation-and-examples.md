@@ -15,14 +15,17 @@ Give users and contributors one accurate path from installation through a local,
 
 # Current evidence
 
-- `ARCHITECTURE.md` references CLI commands, reporters, directories, and a Python package that do not exist in the current tree; its Mermaid graph includes an unconnected Python node.
-- `ROADMAP.md` marks URL allowlisting and multi-platform releases complete even though acquisition contains allowlist TODOs and current CI does not build macOS.
-- The roadmap says workflow environment variables are unfinished while production code mutates them globally, and it mixes old `pipe` names with Xylem.
-- `CONTRIBUTING.md` documents `check`, `make test-cross`, coverage behavior, and line references that do not match the current CLI or Makefile.
-- README links use inconsistent documentation hosts and verify installation with `xylem help` rather than the conventional generated `xylem --help` interface.
-- Several example README files are empty, most configuration paths are placeholders, and there is no validated self-contained smoke example.
-- Python `__pycache__` bytecode is checked into `examples/`, while `.gitignore` does not ignore Python caches or the generated root `lcov.info` coverage artifact.
-- Public library items have sparse documentation even though the workspace declares `missing-docs = "deny"`; `xylem-lib` locally comments that lint out.
+Rechecked against `005aa73`.
+
+- Landed: `ARCHITECTURE.md` now describes the actual two-crate workspace, the journal, and `RunSummary`, and `docs/src/architecture.md` carries the library/CLI split and the append-only journal contract.
+- Landed: `MODULE_SPEC.md` is a real normative document with a field table, a reserved-variable table, environment-manager rules, and a conformance checklist, and `docs/src/` documents `options.batch`, `options.allowed`, the reporters, the journal, and exit status.
+- Landed: `ROADMAP.md` no longer claims URL allowlisting is incomplete; the `[x]` on parameterized allowlists and reachability checks now matches `RemotePolicy`.
+- Open: no example has automated configuration validation, and several example configurations still point at absolute placeholders such as `file:///path/to/module-a` and `/data/test-cases`.
+- Open: there is no self-contained offline smoke example a new user can run from a clean checkout without editing paths.
+- Open: two Python bytecode files are still tracked at `examples/python-with-conda/lib/__pycache__/`. `.gitignore` already ignores `__pycache__/`, so the fix is `git rm --cached`, not a new ignore rule.
+- Open: the generated `lcov.info` coverage artifact is still tracked and still absent from `.gitignore`.
+- Open: `xylem-lib/Cargo.toml` still comments out `missing-docs = "deny"` that the workspace declares, so public API documentation is unenforced.
+- Open: `CONTRIBUTING.md` still needs checking against the current CLI and `Makefile`, and README install verification still needs to match the generated `xylem --help` interface.
 
 # Project code boundaries
 

@@ -21,37 +21,35 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 
 ## Work lanes
 
+The prioritized item is [resumable execution](features/resumable-execution.md), which runs as one owner across Lanes A, B, C, and D. It executes the maintained YAML parser, typed errors, and configuration validation as its own Phases 1 through 3, so those plans are folded into it rather than run as separate lane items. While it is in progress it holds the manifest, configuration, process, run-state, and CLI locks, and no other lane may claim them.
+
+The lanes below describe what remains after it, and what may run alongside it.
+
 ### Lane A: dependency migrations
 
-1. [ACORN 0.2 upgrade](migrations/acorn-0-2-upgrade.md)
-2. [ACORN command environment sync](migrations/acorn-command-environment-sync.md), with upstream API work and downstream fixtures proceeding in parallel while the manifest pin waits
-3. [Maintained YAML parser](migrations/maintained-yaml-parser.md)
-4. [Dependency and security gates](refactors/dependency-surface-and-security-gates.md)
+1. [ACORN 0.2 upgrade](migrations/acorn-0-2-upgrade.md), feature narrowing only; the 0.2 version migration and the command-environment sync have landed
+2. [Dependency and security gates](refactors/dependency-surface-and-security-gates.md)
 
-ACORN and YAML investigation can run concurrently, but their manifest and lockfile edits are serialized.
+The remaining ACORN work shares the manifest lock with resumable execution Phase 1 and is serialized against it.
 
 ### Lane B: configuration and acquisition
 
-1. [Typed errors and outcomes](refactors/typed-error-and-outcome-boundary.md)
-2. [Configuration validation and dry-run](refactors/configuration-validation-and-dry-run.md)
-3. [Secure module acquisition](refactors/secure-module-acquisition.md)
+1. [Secure module acquisition](refactors/secure-module-acquisition.md), after the driver plan's Phase 3 validation contract lands
 
-This lane owns configuration extraction and validated execution plans.
+Configuration extraction and validated execution plans are owned by the driver plan's Phase 3.
 
 ### Lane C: execution runtime
 
-1. [Typed errors and outcomes](refactors/typed-error-and-outcome-boundary.md)
-2. [Process execution contract](refactors/process-execution-contract.md)
-3. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), after the process contract lands
-4. [Resumable execution](features/resumable-execution.md), after configuration validation
-5. [Memory-aware scheduling](features/memory-aware-scheduling.md), after its spike and the fixed scheduler contract
+1. [Process execution contract](refactors/process-execution-contract.md)
+2. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), after the process contract lands
+3. [Memory-aware scheduling](features/memory-aware-scheduling.md), after its spike and the fixed scheduler contract
 
-[Fixed input concurrency](features/fixed-input-concurrency.md) is an immediate bounded slice that may land before steps 1-3 against the current run-local pool. If it does, later runtime work preserves its `options.batch` contract and scheduler tests. Configurable thread support remains an existing baseline. Advanced orchestration preserves both limits and consumes the process result contract.
+The landed `options.batch` rolling input ceiling is the baseline these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Advanced orchestration preserves both limits and consumes the process result contract.
 
 ### Lane D: CLI and verification
 
 1. [Hermetic workflow tests](testing/hermetic-workflow-tests.md), fixture/helper slice only
-2. [Run reporters](features/run-reporters.md), using the durable journal
+2. [Run reporters](features/run-reporters.md), reconciliation against the landed implementation before any remaining work
 3. Final error-path and compiled-binary test slice
 
 Tests that assert new outcomes wait for the owning contract. Fixture cleanup and fake-command helpers can start without the CLI lock.

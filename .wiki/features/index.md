@@ -2,10 +2,12 @@
 
 ## Planned
 
-- [Fixed input concurrency configuration](fixed-input-concurrency.md) - Add `options.batch` as a rolling cap on active top-level inputs while preserving the global worker budget.
-- [Structured run reporters](run-reporters.md) - Make the existing reporter and output CLI options produce deterministic console, stdout, and JSON workflow summaries.
-- [Resumable execution and output checks](resumable-execution.md) - Declare expected outputs and explicitly skip completed work during resume runs.
+- [Land typed execution foundations and add resumable execution](resumable-execution.md) - Prioritized. Replaces the YAML parser, introduces typed errors, validates configuration into a side-effect-free plan, then declares expected module outputs and skips completed work during resume runs.
 - [Memory-aware adaptive scheduling](memory-aware-scheduling.md) - Validate a peak-memory estimator and admit inputs within a configured memory budget and batch ceiling.
+
+## Landed, pending document reconciliation
+
+- [Structured run reporters](run-reporters.md) - Landed; console and JSON summaries are rendered from the recovered run summary. Only the dead reporter scaffolding remains.
 
 ## In progress
 

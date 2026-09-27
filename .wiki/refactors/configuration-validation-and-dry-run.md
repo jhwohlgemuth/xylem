@@ -9,6 +9,10 @@ tags: [refactor, configuration, validation, dry-run, planning, paths]
 status: planned
 ---
 
+# Execution
+
+This plan is executed as Phase 3 of [resumable execution](../features/resumable-execution.md), which owns the whole prerequisite chain. Do not schedule it separately. Its `status` flips when that phase lands.
+
 # Goal
 
 Turn a JSON or YAML document into a validated workflow plan before performing any host action. Reject unsupported or contradictory configuration with precise diagnostics, and implement dry-run by rendering that plan without filesystem, network, process, permission, or environment mutation.
@@ -34,6 +38,8 @@ Turn a JSON or YAML document into a validated workflow plan before performing an
 # Dependencies and ordering
 
 Consumes the [YAML migration](../migrations/maintained-yaml-parser.md) and [typed error boundary](typed-error-and-outcome-boundary.md). It precedes [secure acquisition](secure-module-acquisition.md) and [run reporters](../features/run-reporters.md).
+
+[Resumable execution](../features/resumable-execution.md) waits on this plan and names it as its Phase 1, while keeping ownership of the work here. Resume adds its completion-declaration checks to the stage 2 validation set and evaluates completion while stage 3 renders the plan, so both changes must extend this contract rather than replace it.
 
 # Recommendation
 
@@ -77,3 +83,4 @@ Dry-run stops after stage 3 and serializes the plan. It may inspect explicitly a
 - [Maintained YAML parser](../migrations/maintained-yaml-parser.md)
 - [Typed errors and outcomes](typed-error-and-outcome-boundary.md)
 - [Secure module acquisition](secure-module-acquisition.md)
+- [Resumable execution](../features/resumable-execution.md)

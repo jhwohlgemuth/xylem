@@ -35,7 +35,9 @@ maintained YAML parser-+
 typed errors and workflow outcomes ------> run reporters
 ```
 
-The fixed-concurrency feature is an immediate contained slice that may land against the current run-local pool before the deeper environment refactor, provided the refactor preserves its public `options.batch` contract. The configuration plan may start parser-independent validation design while the YAML migration is underway. Secure acquisition waits for typed errors, validated locations, and the new ACORN download/checksum APIs so that it does not build another temporary boundary. Resume also consumes configuration validation and the existing journal, which the compact diagram omits. Memory-aware production scheduling is gated on its measurement spike.
+Landed at `005aa73` and removed from the graph: the durable execution journal, the ACORN command environment sync, fixed input concurrency, and most of run reporters. The ACORN 0.2 version migration remains only as feature narrowing, so its node is still open.
+
+The fixed-concurrency contract has landed and defines the public `options.batch` ceiling that later orchestration work must consume rather than replace. The configuration plan is now executed as Phase 3 of resumable execution, which owns the YAML, typed-error, and configuration-validation chain as ordered phases, so those plans are no longer scheduled against each other. Secure acquisition still waits for the error, acquisition-location, and ACORN APIs that chain produces. Memory-aware production scheduling remains gated on a successful measurement spike.
 
 ## Quality and delivery path
 
@@ -53,12 +55,12 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 ## Direct dependency edges
 
 - [ACORN 0.2 upgrade](migrations/acorn-0-2-upgrade.md) precedes acquisition changes because `download_binary` is asynchronous, checksum values are typed, portable location types moved to `acorn-core`, and SSH is no longer an ACORN `Scheme` variant.
-- [ACORN command environment sync](migrations/acorn-command-environment-sync.md) follows the base upgrade, develops upstream and downstream validation in parallel, and precedes removal of Xylem's environment-bearing command fallback.
+- The ACORN command environment sync has landed and removed Xylem's environment-bearing command fallback: `Script::run_checked` calls `cmd!` with a child-only `env:` override and no `std::process::Command` path remains.
 - [Maintained YAML parser](migrations/maintained-yaml-parser.md) precedes final configuration validation so JSON and YAML share one semantic error model.
 - [Typed errors and workflow outcomes](refactors/typed-error-and-outcome-boundary.md) precedes process, configuration, acquisition, and reporter work; none of those plans may encode failure as logging plus `Vec::new()` or `process::exit`.
 - [Process execution](refactors/process-execution-contract.md) precedes [environment and concurrency](refactors/workflow-environment-and-concurrency.md): per-invocation environment and cancellation attach to a structured child-process result, while scheduling builds on the existing typed thread budget.
-- [Fixed input concurrency](features/fixed-input-concurrency.md) defines the public `options.batch` contract and a rolling active-input ceiling. It may land immediately, and environment/concurrency work must consume rather than replace it.
-- [Resumable execution](features/resumable-execution.md) consumes validated completion declarations, the existing durable journal, and deterministic scheduling; it never infers completion from tracing logs.
+- The landed `options.batch` contract defines the rolling active-input ceiling that environment and concurrency work must consume rather than replace.
+- [Resumable execution](features/resumable-execution.md) is the prioritized owner and executes the YAML, typed-error, and configuration-validation plans as its own Phases 1 through 3 before adding completion declarations and skip decisions; it never infers completion from tracing logs.
 - [Memory-aware scheduling](features/memory-aware-scheduling.md) builds on the fixed scheduler boundary and journal telemetry. Only its measurement spike may proceed before an estimator is accepted.
 - [Configuration validation and dry-run](refactors/configuration-validation-and-dry-run.md) precedes secure acquisition and reporters because both consume a validated, side-effect-free execution plan.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) consumes the error, process, configuration, and ACORN migration contracts.
