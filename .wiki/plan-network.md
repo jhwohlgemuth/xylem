@@ -17,6 +17,7 @@ lossless process --------------------------> environment/concurrency
                                                        |
                                                        v
                                              memory-aware scheduling
+lossless process --------------------------> managed container lifecycle
 ```
 
 Landed and removed from the graph: typed errors and workflow outcomes,

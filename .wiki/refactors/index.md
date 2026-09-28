@@ -9,6 +9,7 @@
 - [CI and release pipeline](ci-release-pipeline.md) - Test merge requests and tags, build explicit target artifacts, and publish releases from immutable tags.
 - [Documentation and examples](documentation-and-examples.md) - Reconcile the public docs, roadmap, examples, and repository hygiene with implemented behavior.
 - [Configuration modules](configuration-modules.md) - Compose local and remote workflows as flattened, policy-constrained module groups.
+- [Managed container lifecycle](managed-container-lifecycle.md) - Create, verify, and clean up workflow-owned Docker and Podman containers.
 
 ## Completed records
 
