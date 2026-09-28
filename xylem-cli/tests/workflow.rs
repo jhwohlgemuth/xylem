@@ -112,7 +112,7 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
         .expect("run dry-run plan");
     assert!(output.status.success(), "dry run failed: {}", String::from_utf8_lossy(&output.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid dry-run plan");
-    assert_eq!(plan["schema_version"], 1);
+    assert_eq!(plan["schema_version"], 2);
     assert_eq!(plan["configuration"]["output"], output_directory.display().to_string());
     assert_eq!(plan["modules"][0]["decision"], "would_run");
     assert_eq!(

@@ -95,6 +95,8 @@ pub struct PlannedModule {
     pub module_index: usize,
     /// Configured module name.
     pub module: String,
+    /// Stable ancestry from the root workflow to the executable leaf.
+    pub module_path: Vec<String>,
     /// Whether the decision includes a read-only completion observation.
     pub observed_completion: bool,
     /// Effective variables after workflow, output-default, module, and input precedence.
@@ -172,7 +174,7 @@ impl ExecutionPlan {
                     },
                     modules,
                     resume,
-                    schema_version: 1,
+                    schema_version: 2,
                 })
         })
     }
@@ -182,7 +184,7 @@ impl Module {
         let uri = match &self.module_type {
             | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => uri,
         };
-        let working_directory = module_working_directory(uri, None);
+        let working_directory = module_working_directory(uri.into(), None);
         match &self.template {
             | Some(TemplateAttribute::Template(template)) => {
                 let variables = variables.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
@@ -259,6 +261,7 @@ impl Module {
                         .maybe_input(input.clone())
                         .module_index(module_index)
                         .module(self.name.as_str())
+                        .module_path(self.module_path.clone())
                         .observed_completion(resume && self.completion.is_some())
                         .variables(variables)
                         .build()
@@ -297,17 +300,23 @@ impl From<ValidationReport> for PlanError {
 impl From<Module> for PlannedAcquisition {
     fn from(module: Module) -> Self {
         let (action, source) = match module.module_type {
-            | ModuleType::Binary { uri, .. } => match ModuleUri::from(uri.as_str()) {
-                | ModuleUri::File(_) => ("use_local", uri),
-                | ModuleUri::Url(_) => ("download", uri),
-                | ModuleUri::Unknown(_) => ("reject", uri),
-            },
-            | ModuleType::Configuration { uri } => ("reject", uri),
-            | ModuleType::Script { uri, .. } => match ModuleUri::from(uri.as_str()) {
-                | ModuleUri::File(_) => ("use_local", uri),
-                | ModuleUri::Url(_) => ("clone", uri),
-                | ModuleUri::Unknown(_) => ("reject", uri),
-            },
+            | ModuleType::Binary { uri, .. } => (
+                match ModuleUri::from(&uri) {
+                    | ModuleUri::File(_) => "use_local",
+                    | ModuleUri::Url(_) => "download",
+                    | ModuleUri::Unknown(_) => "reject",
+                },
+                uri.uri().unwrap_or_else(|| <&str>::from(&uri).to_string()),
+            ),
+            | ModuleType::Configuration { uri } => ("reject", uri.uri().unwrap_or_else(|| <&str>::from(&uri).to_string())),
+            | ModuleType::Script { uri, .. } => (
+                match ModuleUri::from(&uri) {
+                    | ModuleUri::File(_) => "use_local",
+                    | ModuleUri::Url(_) => "clone",
+                    | ModuleUri::Unknown(_) => "reject",
+                },
+                uri.uri().unwrap_or_else(|| <&str>::from(&uri).to_string()),
+            ),
         };
         Self {
             action: action.to_string(),

@@ -199,9 +199,10 @@ fn test_configuration_modules_flatten_local_workflows() {
         .expect("resolve nested configuration");
     assert_eq!(config.requirements, vec!["sh", "python"]);
     assert_eq!(config.modules.len(), 1);
-    assert_eq!(config.modules[0].name, "Group::Leaf");
+    assert_eq!(config.modules[0].name, "Leaf");
+    assert_eq!(config.modules[0].module_path, vec!["Group", "Leaf"]);
     match &config.modules[0].module_type {
-        | ModuleType::Script { uri, .. } => assert!(uri.ends_with("/child/module"), "{uri}"),
+        | ModuleType::Script { uri, .. } => assert!(<&str>::from(uri).ends_with("/child/module"), "{uri}"),
         | _ => panic!("nested leaf should remain a script module"),
     }
     let variables = config.modules[0].variables.as_ref().expect("merged variables");
@@ -450,7 +451,7 @@ fn test_yaml_supports_merge_sequence_precedence() {
     let config = parse_yaml_configuration(yaml).expect("merge sequence should deserialize");
     assert_eq!(config.modules[0].name, "First");
     match &config.modules[0].module_type {
-        | ModuleType::Script { uri, .. } => assert_eq!(uri, "file:./first"),
+        | ModuleType::Script { uri, .. } => assert_eq!(<&str>::from(uri), "file:./first"),
         | module_type => panic!("expected script module, found {module_type:?}"),
     }
 }

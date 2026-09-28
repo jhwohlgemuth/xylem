@@ -171,7 +171,7 @@ impl Validate for Module {
         }
         match &self.module_type {
             | ModuleType::Binary { checksum, uri } => {
-                if let Err(error) = rules::url(uri) {
+                if let Err(error) = rules::url(uri.into()) {
                     report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, or SSH"));
                 }
                 let unsupported_remote = matches!(ModuleUri::from(uri), ModuleUri::Url(value) if !matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS));
@@ -185,7 +185,7 @@ impl Validate for Module {
                 }
             }
             | ModuleType::Configuration { uri } => {
-                if let Err(error) = rules::url(uri) {
+                if let Err(error) = rules::url(uri.into()) {
                     report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, or SSH"));
                 }
                 if self.template.is_some() {
@@ -202,7 +202,7 @@ impl Validate for Module {
                 }
             }
             | ModuleType::Script { programming_language, uri } => {
-                if let Err(error) = rules::url(uri) {
+                if let Err(error) = rules::url(uri.into()) {
                     report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, or SSH"));
                 }
                 if programming_language.as_ref().is_some_and(|language| !language.is_supported()) {

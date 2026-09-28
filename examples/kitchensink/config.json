@@ -2,7 +2,7 @@
     "version": "1.0.0",
     "id": "kitchensink",
     "description": "Exercise Mamba, Pixi, Docker, generic script, binary, inputs, variables, completion, and resume",
-    "requirements": ["docker", "mamba", "pixi"],
+    "requirements": ["mamba", "pixi", "podman"],
     "input": ["alpha", "bravo"],
     "output": "./examples/kitchensink/output",
     "variables": {
@@ -10,6 +10,11 @@
         "MESSAGE": "{{ GREETING }} from Xylem"
     },
     "modules": [
+        {
+            "name": "Configuration Module",
+            "type": "configuration",
+            "uri": "file:./configuration/config.json"
+        },
         {
             "name": "Mamba Module",
             "type": "script",
@@ -97,25 +102,25 @@
             }
         },
         {
-            "name": "Docker Module",
+            "name": "Podman Module",
             "type": "script",
             "programmingLanguage": "generic",
             "uri": "file:./examples/kitchensink/docker",
             "template": {
                 "container": {
                     "name": "xylem-kitchensink",
-                    "runtime": "docker"
+                    "runtime": "podman"
                 },
                 "command": "sh",
                 "arguments": [
                     "/workspace/xylem/examples/kitchensink/docker/run.sh",
                     "/workspace/xylem/examples/kitchensink/output/{{ PARENT_DIRECTORY }}/final.txt",
-                    "/workspace/xylem/examples/kitchensink/output/{{ PARENT_DIRECTORY }}/docker.txt"
+                    "/workspace/xylem/examples/kitchensink/output/{{ PARENT_DIRECTORY }}/podman.txt"
                 ]
             },
             "completion": {
                 "outputs": [
-                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/docker.txt"
+                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/podman.txt"
                 ]
             }
         }

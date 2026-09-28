@@ -10,6 +10,8 @@ pub struct ModuleOutcome {
     pub index: usize,
     /// Configured module name.
     pub name: String,
+    /// Stable ancestry from the root workflow to the executable leaf.
+    pub module_path: Vec<String>,
     /// Terminal module state.
     pub state: ExecutionState,
     /// Failure detail, when present.

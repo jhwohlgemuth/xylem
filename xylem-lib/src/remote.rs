@@ -287,6 +287,29 @@ impl RemotePolicy {
             }),
         })
     }
+    /// Read an allowed HTTP(S) configuration document into memory.
+    pub fn read_text(&self, value: &str) -> Result<String, RemoteError> {
+        self.ensure_allowed(value).and_then(|url| match Scheme::from(url.scheme()) {
+            | Scheme::HTTP | Scheme::HTTPS => self
+                .http_client(Some(REMOTE_TIMEOUT))
+                .and_then(|client| {
+                    client
+                        .get(url)
+                        .send()
+                        .map_err(|why| request_failure("read remote configuration", value, why))
+                })
+                .and_then(|response| {
+                    response
+                        .error_for_status()
+                        .map_err(|why| request_failure("read remote configuration", value, why))
+                })
+                .and_then(|response| response.text().map_err(|why| request_failure("read remote configuration", value, why))),
+            | Scheme::File | Scheme::SSH | Scheme::Unsupported => Err(RemoteError::UnsupportedScheme {
+                operation: "read remote configuration",
+                url: redact_url(value),
+            }),
+        })
+    }
 }
 fn normalize_host(value: &str) -> String {
     value.trim_end_matches('.').to_ascii_lowercase()

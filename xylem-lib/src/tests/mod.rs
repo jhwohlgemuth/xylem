@@ -161,7 +161,8 @@ fn test_module() {
     let module = Module {
         completion: None,
         name: "module-a".to_string(),
-        module_type: ModuleType::Configuration { uri: "uri".to_string() },
+        module_path: vec!["module-a".to_string()],
+        module_type: ModuleType::Configuration { uri: Location::from("uri") },
         description: None,
         variables: None,
         before_script: None,

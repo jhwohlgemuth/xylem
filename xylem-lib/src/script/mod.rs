@@ -48,7 +48,7 @@ pub enum EnvironmentValue {
     Bool(bool),
     Unknown,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, Valuable)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Instruction {
     /// Shell arguments as a string
@@ -81,20 +81,20 @@ pub enum ModuleLanguage {
     Rust,
 }
 /// Designates module type which specifies necessary attributes
-#[derive(Clone, Debug, Serialize, Deserialize, Valuable)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ModuleType {
     /// Compiled "black boxes" that are used via a command line interface
     #[serde(alias = "bin")]
-    Binary { checksum: Option<String>, uri: String },
+    Binary { checksum: Option<String>, uri: Location },
     /// Nested workflow module that allows for grouping modules
     #[serde(alias = "config")]
-    Configuration { uri: String },
+    Configuration { uri: Location },
     /// Provides support for executing scripts
     Script {
         #[serde(alias = "language", alias = "programmingLanguage")]
         programming_language: Option<ModuleLanguage>,
-        uri: String,
+        uri: Location,
     },
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -238,6 +238,9 @@ pub struct ContainerEnvironment {
 #[display("{name}")]
 pub struct Module {
     pub name: String,
+    /// Stable ancestry from the root workflow to this executable leaf.
+    #[serde(skip)]
+    pub module_path: Vec<String>,
     #[serde(flatten)]
     pub module_type: ModuleType,
     pub description: Option<String>,
@@ -261,7 +264,7 @@ struct RawModule {
     template: Option<TemplateAttribute>,
     #[serde(rename = "type")]
     module_type: RawModuleType,
-    uri: String,
+    uri: Location,
     variables: Option<Map<String, Value>>,
 }
 /// Script struct
@@ -505,6 +508,7 @@ impl<'de> Deserialize<'de> for Module {
                     completion,
                     description,
                     module_type,
+                    module_path: vec![name.clone()],
                     name,
                     template,
                     variables,
@@ -519,16 +523,17 @@ impl ModuleLanguage {
     }
 }
 impl ModuleUri<'_> {
-    pub fn absolutize(self, source: &Path) -> Option<String> {
+    pub fn absolutize(self, source: &Path) -> Option<Location> {
         match self {
             | Self::File(path) if !path.is_absolute() => source
                 .parent()
                 .map(|parent| parent.join(path).components().collect::<PathBuf>())
-                .map(|path| format!("file:{}", path.display())),
+                .map(|path| Location::from(format!("file:{}", path.display()).as_str())),
             | Self::File(_) | Self::Unknown(_) | Self::Url(_) => None,
         }
     }
-    pub fn from(value: &str) -> ModuleUri<'_> {
+    pub fn from(value: &Location) -> ModuleUri<'_> {
+        let value = <&str>::from(value);
         match URI::try_from(value) {
             | Ok(uri) => match (Scheme::from(uri.scheme().as_str()), uri.scheme().as_str().eq_ignore_ascii_case("ssh")) {
                 | (Scheme::HTTP | Scheme::HTTPS | Scheme::SSH, _) | (Scheme::Unsupported, true) => ModuleUri::Url(Box::new(uri)),
@@ -538,7 +543,7 @@ impl ModuleUri<'_> {
             | Err(_) => ModuleUri::Unknown(value.to_string()),
         }
     }
-    pub fn resolve_configuration(value: &str, source: &Path) -> Option<PathBuf> {
+    pub fn resolve_configuration(value: &Location, source: &Path) -> Option<PathBuf> {
         match ModuleUri::from(value) {
             | ModuleUri::File(path) if path.is_absolute() => Some(path),
             | ModuleUri::File(path) => source.parent().map(|parent| parent.join(path)),
@@ -644,10 +649,10 @@ impl Script {
             | ModuleType::Configuration { .. } => Err(ModuleLoadError::InvalidType { module: module.name.clone() }),
         };
         module_uri.and_then(|module_uri| {
-            module_working_directory(module_uri, root.as_ref())
+            module_working_directory(module_uri.into(), root.as_ref())
                 .ok_or_else(|| ModuleLoadError::InvalidUri {
                     module: module.name.clone(),
-                    uri: module_uri.clone(),
+                    uri: module_uri.uri().unwrap_or_else(|| <&str>::from(module_uri).to_string()),
                 })
                 .and_then(|working_dir| {
                     let default_template_path = PathBuf::from(&working_dir).join(DEFAULT_FILENAME);
@@ -1240,7 +1245,7 @@ pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
 }
 pub(crate) fn module_working_directory(uri: &str, root: Option<&PathBuf>) -> Option<String> {
     let location = Location::from(uri);
-    match ModuleUri::from(uri) {
+    match ModuleUri::from(&location) {
         | ModuleUri::Url(_) => Some(root.map_or_else(|| location.hash(), |path| path.join(location.hash()).to_absolute_path())),
         | ModuleUri::File(path) => Some(path.to_absolute_path()),
         | ModuleUri::Unknown(_) => None,

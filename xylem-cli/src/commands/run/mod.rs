@@ -158,11 +158,6 @@ pub fn run(
             };
             RunFailure::new(exit_code, why.to_string())
         })
-        .and_then(|preview| {
-            preview
-                .resolve(config_path.as_path())
-                .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
-        })
         .and_then(|mut preview| {
             artifact_output
                 .as_ref()
@@ -207,6 +202,19 @@ pub fn run(
                 })
         })
         .and_then(|preview| {
+            let options = preview.options.as_ref();
+            let allowed = options.and_then(|value| value.allowed.as_deref());
+            let dry_run = options.and_then(|value| value.dry_run).unwrap_or_default();
+            RemotePolicy::from_hosts(allowed)
+                .map_err(|why| RunFailure::new(exitcode::USAGE, format!("invalid remote module allowlist — {why}")))
+                .and_then(|policy| {
+                    let source_root = env::temp_dir().join(EnvironmentValue::PREFIX).join("configuration-sources");
+                    preview
+                        .resolve_with_policy(config_path.as_path(), &policy, &source_root, dry_run)
+                        .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
+                })
+        })
+        .and_then(|preview| {
             preview
                 .validate()
                 .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
@@ -220,7 +228,7 @@ pub fn run(
         })
         .and_then(|(preview, inputs)| {
             RemotePolicy::from_hosts(preview.options.as_ref().and_then(|options| options.allowed.as_deref()))
-                .map_err(|why| RunFailure::new(exitcode::USAGE, format!("invalid remote module allowlist: {why}")))
+                .map_err(|why| RunFailure::new(exitcode::USAGE, format!("invalid remote module allowlist — {why}")))
                 .and_then(|policy| {
                     preview.modules.iter().try_for_each(|module| {
                         let uri = match &module.module_type {
@@ -228,7 +236,7 @@ pub fn run(
                         };
                         match ModuleUri::from(uri) {
                             | ModuleUri::Url(_) => policy
-                                .ensure_allowed(uri)
+                                .ensure_allowed(uri.into())
                                 .map(|_| ())
                                 .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, format!("module {}: {why}", module.name))),
                             | ModuleUri::File(_) | ModuleUri::Unknown(_) => Ok(()),

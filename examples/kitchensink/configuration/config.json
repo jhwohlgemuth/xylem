@@ -1,0 +1,32 @@
+{
+    "requirements": [],
+    "variables": {
+        "NESTED_MESSAGE": "{{ MESSAGE }} through the configuration module"
+    },
+    "modules": [
+        {
+            "name": "Nested Module",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:../script",
+            "template": {
+                "command": "true",
+                "arguments": [
+                    "{{ MESSAGE }}"
+                ]
+            }
+        },
+        {
+            "name": "Nested Interpolated Module",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:../script",
+            "template": {
+                "command": "true",
+                "arguments": [
+                    "{{ NESTED_MESSAGE }}"
+                ]
+            }
+        }
+    ]
+}
