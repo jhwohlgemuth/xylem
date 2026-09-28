@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::env::{set_var, vars};
 use std::ffi::OsStr;
 use std::fs::read_to_string;
-use std::path::{is_separator, PathBuf};
+use std::path::{is_separator, Path, PathBuf};
 use strum::EnumIs;
 use tracing::{debug, error, info, trace, warn};
 use uriparse::URI;
@@ -519,6 +519,15 @@ impl ModuleLanguage {
     }
 }
 impl ModuleUri<'_> {
+    pub fn absolutize(self, source: &Path) -> Option<String> {
+        match self {
+            | Self::File(path) if !path.is_absolute() => source
+                .parent()
+                .map(|parent| parent.join(path).components().collect::<PathBuf>())
+                .map(|path| format!("file:{}", path.display())),
+            | Self::File(_) | Self::Unknown(_) | Self::Url(_) => None,
+        }
+    }
     pub fn from(value: &str) -> ModuleUri<'_> {
         match URI::try_from(value) {
             | Ok(uri) => match (Scheme::from(uri.scheme().as_str()), uri.scheme().as_str().eq_ignore_ascii_case("ssh")) {
@@ -527,6 +536,13 @@ impl ModuleUri<'_> {
                 | (Scheme::Unsupported, false) => ModuleUri::Unknown(value.to_string()),
             },
             | Err(_) => ModuleUri::Unknown(value.to_string()),
+        }
+    }
+    pub fn resolve_configuration(value: &str, source: &Path) -> Option<PathBuf> {
+        match ModuleUri::from(value) {
+            | ModuleUri::File(path) if path.is_absolute() => Some(path),
+            | ModuleUri::File(path) => source.parent().map(|parent| parent.join(path)),
+            | ModuleUri::Unknown(_) | ModuleUri::Url(_) => None,
         }
     }
 }
@@ -1179,12 +1195,10 @@ fn get_environment_list(manager: &str) -> Vec<String> {
             .filter(|x| !x.is_empty())
             .skip(1)
             .filter_map(|line| {
-                line.split_whitespace()
-                    .next()
-                    .and_then(|value| match value.contains(is_separator) {
-                        | true => PathBuf::from(value).file_name().and_then(|name| name.to_str()).map(str::to_string),
-                        | false => Some(value.to_string()),
-                    })
+                line.split_whitespace().next().and_then(|value| match value.contains(is_separator) {
+                    | true => PathBuf::from(value).file_name().and_then(|name| name.to_str()).map(str::to_string),
+                    | false => Some(value.to_string()),
+                })
             })
             .collect::<Vec<String>>()
     } else {

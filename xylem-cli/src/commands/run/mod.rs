@@ -158,6 +158,11 @@ pub fn run(
             };
             RunFailure::new(exit_code, why.to_string())
         })
+        .and_then(|preview| {
+            preview
+                .resolve(config_path.as_path())
+                .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
+        })
         .and_then(|mut preview| {
             artifact_output
                 .as_ref()

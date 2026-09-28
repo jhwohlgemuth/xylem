@@ -10,6 +10,9 @@ This map records implementation dependencies found while auditing Xylem 1.0.0 on
 
 ```text
 ACORN 0.2 upgrade -------------------------> secure module acquisition
+                                              |
+                                              v
+                                      configuration modules
 lossless process --------------------------> environment/concurrency
                                                        |
                                                        v
@@ -53,6 +56,7 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 - [Memory-aware scheduling](features/memory-aware-scheduling.md) builds on the fixed scheduler boundary and journal telemetry. Only its measurement spike may proceed before an estimator is accepted.
 - The landed [configuration validation and planning](refactors/configuration-validation-and-dry-run.md) contract precedes secure acquisition and reporters.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) consumes the error, process, configuration, and ACORN migration contracts.
+- [Configuration modules](refactors/configuration-modules.md) consumes the landed planning, resume, outcome, reporter, and batching contracts and coordinates remote source resolution with secure acquisition.
 - The landed [run reporters](features/run-reporters.md) contract consumes structured workflow outcomes and durable journal state without parsing logs.
 - [Dependency and security gates](refactors/dependency-surface-and-security-gates.md) follows both dependency migrations so its accepted graph is not immediately invalidated.
 - [Hermetic tests](testing/hermetic-workflow-tests.md) provides the regression gate required by the CI plan and validates every correctness plan as its contracts land.
@@ -65,10 +69,10 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 | Shared boundary | Plans that overlap | Coordination rule |
 |---|---|---|
 | `Cargo.toml`, crate manifests, `Cargo.lock` | ACORN, ACORN command sync, YAML, dependency gates, process parsing, testing tools | One manifest owner at a time. Land upstream ACORN work before pinning its commit, then regenerate and audit the final lockfile once. |
-| `xylem-lib/src/config/mod.rs` | Environments, acquisition, memory scheduling | Preserve the landed typed-error, validated-planning, batching, and resume contracts. |
-| `xylem-lib/src/script/mod.rs` | Errors, process execution, environments, acquisition, ACORN command sync | Process execution owns `Script` and child-result contracts; the ACORN sync changes only the execution adapter after the upstream commit is fixed. |
+| `xylem-lib/src/config/mod.rs` | Environments, acquisition, configuration modules, memory scheduling | Preserve the landed typed-error, validated-planning, batching, and resume contracts. |
+| `xylem-lib/src/script/mod.rs` | Errors, process execution, environments, acquisition, configuration modules, ACORN command sync | Process execution owns `Script` and child-result contracts; configuration modules owns typed module locations and recursive source resolution. |
 | `xylem-lib/src/execution.rs` and input scheduling in `commands/run/mod.rs` | Environment/concurrency, memory scheduling | Preserve the landed batching and resume scheduler seam; later plans do not introduce competing admission loops. |
-| `xylem-cli/src/{main,cli}.rs` and `commands/run/mod.rs` | Environment/concurrency, memory scheduling, tests | One CLI integration owner. Preserve CLI-owned exit mapping and the landed resume/reporter surface. |
+| `xylem-cli/src/{main,cli}.rs` and `commands/run/mod.rs` | Environment/concurrency, configuration modules, memory scheduling, tests | One CLI integration owner. Preserve CLI-owned exit mapping and the landed resume/reporter surface. |
 | `Makefile` and `.gitlab-ci.yml` | Dependency gates, tests, CI/release, Homebrew export | Dependency-gate commands land before CI wires them into required jobs; Homebrew publication follows the immutable release contract. |
 | `README.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `CONTRIBUTING.md`, `examples/` | Every user-visible plan | Documentation may inventory drift early, but final edits wait for accepted names and behavior. |
 
@@ -76,8 +80,8 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 
 | Package | Boundary | Plans |
 |---|---|---|
-| `xylem-lib` | Configuration, planning, process execution, acquisition, workflow outcomes, scheduling, journal state | ACORN, process, environment, acquisition, memory scheduling |
-| `xylem-cli` | Argument precedence, orchestration, presentation, exit status, temporary workspace lifetime | Environment, memory scheduling, tests |
+| `xylem-lib` | Configuration, planning, process execution, acquisition, workflow outcomes, scheduling, journal state | ACORN, process, environment, acquisition, configuration modules, memory scheduling |
+| `xylem-cli` | Argument precedence, orchestration, presentation, exit status, temporary workspace lifetime | Environment, configuration modules, memory scheduling, tests |
 | `workspace` | Dependency graph, CI, releases, package exports, docs, examples | Dependency gates, CI/release, Homebrew export, documentation, hermetic tests |
 
 ## Handoff checklist

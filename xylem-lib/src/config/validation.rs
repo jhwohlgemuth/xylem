@@ -188,7 +188,18 @@ impl Validate for Module {
                 if let Err(error) = rules::url(uri) {
                     report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, or SSH"));
                 }
-                report.add("type", validation_error("executable", "configuration modules are not executable"));
+                if self.template.is_some() {
+                    report.add(
+                        "template",
+                        validation_error("unsupported", "configuration modules do not accept templates"),
+                    );
+                }
+                if self.completion.is_some() {
+                    report.add(
+                        "completion",
+                        validation_error("unsupported", "configuration modules do not accept completion declarations"),
+                    );
+                }
             }
             | ModuleType::Script { programming_language, uri } => {
                 if let Err(error) = rules::url(uri) {
@@ -206,10 +217,14 @@ impl Validate for Module {
             report.add("after_script", validation_error("unsupported", "lifecycle scripts are not supported"));
         }
         if let Some(template) = &self.template {
-            report = report.merge("template", report_of(template.validate()));
+            if !matches!(self.module_type, ModuleType::Configuration { .. }) {
+                report = report.merge("template", report_of(template.validate()));
+            }
         }
         if let Some(completion) = &self.completion {
-            report = report.merge("completion", report_of(completion.validate()));
+            if !matches!(self.module_type, ModuleType::Configuration { .. }) {
+                report = report.merge("completion", report_of(completion.validate()));
+            }
         }
         validate_variables(self.variables.as_ref(), "variables", &mut report);
         report.finish()

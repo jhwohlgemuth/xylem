@@ -2,7 +2,7 @@ use crate::config::*;
 use crate::execution::{ExecutionContext, ExecutionLimits, InputBatch};
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState, ProgressUpdate};
 use acorn_schema::validation::Validate;
-use std::fs::{remove_file, write};
+use std::fs::{create_dir_all, remove_dir_all, remove_file, write};
 use std::sync::Mutex;
 
 const FIXTURES: &str = "../tests/fixtures";
@@ -155,6 +155,109 @@ fn test_configuration_try_from_uses_mime_type_for_yml_files() {
     let config = Config::try_from(path.as_path()).expect("read YAML configuration by MIME type");
     assert!(config.modules.is_empty());
     remove_file(path).expect("remove YAML configuration");
+}
+#[test]
+fn test_configuration_modules_flatten_local_workflows() {
+    let root = std::env::temp_dir().join(format!("xylem-configuration-modules-{}", std::process::id()));
+    let child_directory = root.join("child");
+    create_dir_all(&child_directory).expect("create child configuration directory");
+    let parent = root.join("config.json");
+    let child = child_directory.join("config.json");
+    write(
+        &parent,
+        r#"{
+            "requirements": ["sh"],
+            "variables": { "PARENT": "parent" },
+            "modules": [{
+                "name": "Group",
+                "type": "configuration",
+                "uri": "file:./child/config.json",
+                "variables": { "WRAPPER": "wrapper" }
+            }]
+        }"#,
+    )
+    .expect("write parent configuration");
+    write(
+        &child,
+        r#"{
+            "requirements": ["python", "sh"],
+            "variables": { "CHILD": "child" },
+            "modules": [{
+                "name": "Leaf",
+                "type": "script",
+                "programmingLanguage": "generic",
+                "uri": "file:./module",
+                "variables": { "LEAF": "leaf" },
+                "template": { "command": "true", "arguments": [] }
+            }]
+        }"#,
+    )
+    .expect("write child configuration");
+    let config = Config::read(parent.clone())
+        .expect("read parent configuration")
+        .resolve(&parent)
+        .expect("resolve nested configuration");
+    assert_eq!(config.requirements, vec!["sh", "python"]);
+    assert_eq!(config.modules.len(), 1);
+    assert_eq!(config.modules[0].name, "Group::Leaf");
+    match &config.modules[0].module_type {
+        | ModuleType::Script { uri, .. } => assert!(uri.ends_with("/child/module"), "{uri}"),
+        | _ => panic!("nested leaf should remain a script module"),
+    }
+    let variables = config.modules[0].variables.as_ref().expect("merged variables");
+    assert_eq!(variables["PARENT"], "parent");
+    assert_eq!(variables["WRAPPER"], "wrapper");
+    assert_eq!(variables["CHILD"], "child");
+    assert_eq!(variables["LEAF"], "leaf");
+    remove_dir_all(root).expect("remove configuration test directory");
+}
+#[test]
+fn test_configuration_modules_reject_cycles() {
+    let root = std::env::temp_dir().join(format!("xylem-configuration-cycle-{}", std::process::id()));
+    create_dir_all(&root).expect("create configuration cycle directory");
+    let first = root.join("first.json");
+    let second = root.join("second.json");
+    write(
+        &first,
+        r#"{"requirements":[],"modules":[{"name":"Second","type":"configuration","uri":"file:./second.json"}]}"#,
+    )
+    .expect("write first configuration");
+    write(
+        &second,
+        r#"{"requirements":[],"modules":[{"name":"First","type":"configuration","uri":"file:./first.json"}]}"#,
+    )
+    .expect("write second configuration");
+    let error = Config::read(first.clone())
+        .expect("read first configuration")
+        .resolve(&first)
+        .expect_err("cycle should fail");
+    assert!(matches!(error, ConfigurationModuleError::Cycle { .. }));
+    assert!(error.to_string().contains("Second::First"));
+    remove_dir_all(root).expect("remove configuration cycle directory");
+}
+#[test]
+fn test_configuration_modules_reject_excessive_depth() {
+    let root = std::env::temp_dir().join(format!("xylem-configuration-depth-{}", std::process::id()));
+    create_dir_all(&root).expect("create configuration depth directory");
+    (0..18usize).for_each(|index| {
+        let path = root.join(format!("{index}.json"));
+        let content = match index {
+            | 17 => r#"{"requirements":[],"modules":[{"name":"Leaf","type":"script","uri":"file:./module","template":{"command":"true","arguments":[]}}]}"#
+                .to_string(),
+            | _ => format!(
+                r#"{{"requirements":[],"modules":[{{"name":"N{index}","type":"configuration","uri":"file:./{}.json"}}]}}"#,
+                index + 1
+            ),
+        };
+        write(path, content).expect("write nested configuration");
+    });
+    let first = root.join("0.json");
+    let error = Config::read(first.clone())
+        .expect("read first configuration")
+        .resolve(&first)
+        .expect_err("depth should fail");
+    assert!(matches!(error, ConfigurationModuleError::Depth { .. }));
+    remove_dir_all(root).expect("remove configuration depth directory");
 }
 #[test]
 fn test_configuration_version_must_be_semantic() {

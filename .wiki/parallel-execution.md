@@ -35,8 +35,11 @@ The remaining ACORN work owns the manifest lock independently of the completed p
 ### Lane B: configuration and acquisition
 
 1. [Secure module acquisition](refactors/secure-module-acquisition.md), consuming the landed validation contract
+2. [Configuration modules](refactors/configuration-modules.md), consuming landed planning, resume, reporter, and batching contracts while coordinating remote source acquisition
 
-Configuration extraction and validated execution plans are landed contracts.
+Configuration extraction and validated execution plans are landed contracts. The
+configuration-modules plan owns recursive source resolution and flattened leaf
+identity; secure acquisition retains ownership of generic transport behavior.
 
 ### Lane C: execution runtime
 

@@ -10,12 +10,13 @@ use alloc::collections::BTreeSet;
 use bon::Builder;
 use convert_case::{Case, Casing};
 use core::fmt;
+use core::iter::once;
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-use std::fs::read_to_string;
+use std::fs::{canonicalize, read_to_string};
 use std::io;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
@@ -63,6 +64,29 @@ pub enum ConfigReadError {
     },
     /// The path does not use a supported configuration extension.
     UnsupportedExtension(PathBuf),
+}
+/// Failure while resolving nested configuration modules.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigurationModuleError {
+    /// A configuration module exceeds the supported nesting depth.
+    #[error("configuration module nesting exceeds 16 levels at {}", path.join("::"))]
+    Depth { path: Vec<String> },
+    /// A configuration source recurs through its ancestor chain.
+    #[error("configuration module cycle at {} ({location})", path.join("::"))]
+    Cycle { path: Vec<String>, location: PathBuf },
+    /// A configuration module uses an unsupported source.
+    #[error("configuration module {module} has unsupported source {uri}")]
+    Source { module: String, uri: String },
+    /// A wrapper declares a field owned by executable leaves.
+    #[error("configuration module {module} does not accept {field}")]
+    Wrapper { module: String, field: &'static str },
+    /// The referenced configuration could not be read.
+    #[error("read configuration module {module}: {source}")]
+    Read {
+        module: String,
+        #[source]
+        source: ConfigReadError,
+    },
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -169,6 +193,11 @@ pub struct Rule {
     pub parameters: Option<Parameters>,
 }
 impl Config {
+    /// Resolve local configuration modules into their executable leaf modules.
+    pub fn resolve(self, source: &Path) -> Result<Self, ConfigurationModuleError> {
+        let source = canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+        self.resolve_at(&source, Vec::new(), Vec::new(), 0)
+    }
     pub fn get_environment_variables(self, module: Option<Module>, input: Option<String>) -> HashMap<String, String> {
         let mut variables = self.variables.clone().unwrap_or_default();
         if !variables.contains_key("OUTPUT_DIRECTORY") {
@@ -587,6 +616,104 @@ impl Config {
         self.options = Some(options);
         self
     }
+    fn merge(
+        parent: Option<&Map<String, Value>>,
+        wrapper: Option<&Map<String, Value>>,
+        child: Option<&Map<String, Value>>,
+    ) -> Option<Map<String, Value>> {
+        let variables = parent
+            .into_iter()
+            .chain(wrapper)
+            .chain(child)
+            .flat_map(|variables| variables.iter())
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<Map<_, _>>();
+        match variables.is_empty() {
+            | true => None,
+            | false => Some(variables),
+        }
+    }
+    fn resolve_at(self, source: &Path, ancestors: Vec<PathBuf>, path: Vec<String>, depth: usize) -> Result<Self, ConfigurationModuleError> {
+        match depth > 16 {
+            | true => Err(ConfigurationModuleError::Depth { path }),
+            | false => {
+                let ancestors = ancestors.into_iter().chain(once(source.to_path_buf())).collect::<Vec<_>>();
+                self.modules
+                    .into_iter()
+                    .try_fold(
+                        (Vec::new(), self.requirements.clone()),
+                        |(mut modules, mut requirements), module| match module.module_type {
+                            | ModuleType::Configuration { uri } => {
+                                let nested_path = path.iter().cloned().chain(once(module.name.clone())).collect::<Vec<_>>();
+                                match (module.template.is_some(), module.completion.is_some()) {
+                                    | (true, _) => Err(ConfigurationModuleError::Wrapper {
+                                        module: module.name,
+                                        field: "template",
+                                    }),
+                                    | (_, true) => Err(ConfigurationModuleError::Wrapper {
+                                        module: module.name,
+                                        field: "completion",
+                                    }),
+                                    | (false, false) => ModuleUri::resolve_configuration(&uri, source)
+                                        .ok_or_else(|| ConfigurationModuleError::Source {
+                                            module: module.name.clone(),
+                                            uri: uri.clone(),
+                                        })
+                                        .and_then(|child_source| {
+                                            let child_source = canonicalize(&child_source).unwrap_or(child_source);
+                                            match ancestors.contains(&child_source) {
+                                                | true => Err(ConfigurationModuleError::Cycle {
+                                                    path: nested_path,
+                                                    location: child_source,
+                                                }),
+                                                | false => Config::read(child_source.clone())
+                                                    .map_err(|source| ConfigurationModuleError::Read {
+                                                        module: module.name.clone(),
+                                                        source,
+                                                    })
+                                                    .and_then(|child| {
+                                                        child.resolve_at(&child_source, ancestors.clone(), nested_path.clone(), depth + 1)
+                                                    })
+                                                    .map(|child| {
+                                                        let variables =
+                                                            Self::merge(self.variables.as_ref(), module.variables.as_ref(), child.variables.as_ref());
+                                                        let children = child
+                                                            .modules
+                                                            .into_iter()
+                                                            .map(move |child_module| child_module.qualify(&nested_path, variables.as_ref()));
+                                                        (children, child.requirements)
+                                                    })
+                                                    .map(|(children, child_requirements)| {
+                                                        modules.extend(children);
+                                                        child_requirements.into_iter().for_each(|requirement| {
+                                                            if !requirements.contains(&requirement) {
+                                                                requirements.push(requirement);
+                                                            }
+                                                        });
+                                                        (modules, requirements)
+                                                    }),
+                                            }
+                                        }),
+                                }
+                            }
+                            | module_type => {
+                                let mut module = Module { module_type, ..module };
+                                if depth > 0 {
+                                    module.absolutize(source);
+                                }
+                                modules.push(module);
+                                Ok((modules, requirements))
+                            }
+                        },
+                    )
+                    .map(|(modules, requirements)| Self {
+                        modules,
+                        requirements,
+                        ..self
+                    })
+            }
+        }
+    }
 }
 impl TryFrom<&Path> for Config {
     type Error = ConfigReadError;
@@ -933,6 +1060,21 @@ fn read_configuration_content(path: &Path, format: ConfigFormat) -> Result<Strin
             }),
             | false => Ok(content),
         })
+}
+impl Module {
+    fn absolutize(&mut self, source: &Path) {
+        let uri = match &mut self.module_type {
+            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => uri,
+        };
+        if let Some(value) = ModuleUri::from(uri).absolutize(source) {
+            *uri = value;
+        }
+    }
+    fn qualify(mut self, path: &[String], variables: Option<&Map<String, Value>>) -> Self {
+        self.name = path.iter().chain(once(&self.name)).cloned().collect::<Vec<_>>().join("::");
+        self.variables = Config::merge(variables, self.variables.as_ref(), None);
+        self
+    }
 }
 
 #[cfg(test)]
