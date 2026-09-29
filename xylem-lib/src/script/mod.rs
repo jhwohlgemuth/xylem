@@ -1,11 +1,11 @@
 use crate::completion::Completion;
 use crate::error::{ModuleLoadError, ProcessError, TemplateError};
 use crate::util::constants::{RE_HANDLEBARS, RE_TEMPLATE_SPACES};
-use acorn::util::Label;
 use acorn_cmd::{args, CommandSpec};
 use acorn_core::util::alloc::StringConversion;
 use acorn_core::{Location, Scheme};
 use acorn_host::fs::read_text;
+use acorn_host::terminal::Label;
 use bon::Builder;
 use clap::ValueEnum;
 use core::convert::TryFrom;

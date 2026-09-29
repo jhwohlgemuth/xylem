@@ -35,9 +35,8 @@ Rechecked against `005aa73`. The host-allowlist and reachability layer has lande
 
 # Dependencies and ordering
 
-Follows the [ACORN 0.3.1 upgrade](../migrations/acorn-0-3-1-upgrade.md), the
-landed typed-error and validated-planning contracts, and [process
-execution](process-execution-contract.md).
+Builds on the landed ACORN 0.3.2, typed-error, and validated-planning contracts,
+and follows [process execution](process-execution-contract.md).
 
 # Recommendation
 
@@ -81,5 +80,4 @@ execution](process-execution-contract.md).
 
 # Related plans
 
-- [ACORN 0.3.1 upgrade](../migrations/acorn-0-3-1-upgrade.md)
 - [Dependency surface and security gates](dependency-surface-and-security-gates.md)

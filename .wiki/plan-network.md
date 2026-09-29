@@ -9,11 +9,11 @@ This map records implementation dependencies found while auditing Xylem 1.0.0 on
 ## Correctness and execution path
 
 ```text
-ACORN 0.3.1 upgrade -----------------------> secure module acquisition
-                                              |              |
-                                              v              |
-                                      configuration modules  |
-                                                             v
+secure module acquisition
+          |              |
+          v              |
+configuration modules    |
+                         v
 lossless process -> environment/concurrency -> sandboxed workflow execution
                             |                                |
                             v                   +------------+------------+
@@ -29,8 +29,8 @@ Landed and removed from the graph: typed errors and workflow outcomes,
 resumable execution, structured run reporters, the durable execution journal,
 the maintained YAML parser, configuration validation and side-effect-free
 planning, completion declarations and markers, the ACORN command environment
-sync, and fixed input concurrency. The ACORN 0.3.1 migration and dependency
-narrowing remain open.
+sync and 0.3.2 dependency migration, and fixed input concurrency. Dependency
+narrowing remains open.
 
 The typed-error, fixed-concurrency, validated-planning, and resume contracts
 have landed. Secure acquisition still waits for its acquisition-location and
@@ -40,8 +40,7 @@ measurement spike.
 ## Quality and delivery path
 
 ```text
-ACORN upgrade ----+
-YAML migration ---+----> dependency and security gates
+YAML migration --------> dependency and security gates
                              |
 hermetic tests ---------------+----> CI and release pipeline ----> Homebrew export
 
@@ -52,7 +51,7 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 
 ## Direct dependency edges
 
-- [ACORN 0.3.1 upgrade](migrations/acorn-0-3-1-upgrade.md) precedes acquisition changes because it stabilizes the command, location, checksum, filesystem, validation, and feature contracts consumed by acquisition work.
+- The landed ACORN 0.3.2 migration supplies the command, location, checksum, filesystem, validation, and feature contracts consumed by acquisition work.
 - The ACORN command environment sync has landed and removed Xylem's environment-bearing command fallback: `Script::run_checked` calls `cmd!` with a child-only `env:` override and no `std::process::Command` path remains.
 - The maintained YAML parser and configuration validation contracts have landed and are consumed by later work.
 - The landed typed-errors and workflow-outcomes contract is the baseline for process and acquisition work; neither may encode failure as logging plus an empty result or process exit.

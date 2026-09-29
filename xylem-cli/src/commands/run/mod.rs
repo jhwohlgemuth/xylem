@@ -1,4 +1,4 @@
-use acorn::util::Label;
+use acorn_host::terminal::Label;
 use acorn_schema::validation::Validate;
 use clap_verbosity_flag::Verbosity;
 use core::time::Duration;

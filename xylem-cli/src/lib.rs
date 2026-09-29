@@ -35,7 +35,7 @@ pub type Void = color_eyre::Result<()>;
 ///
 /// `sanitize` escapes ANSI control characters inside logged values to guard
 /// against terminal injection. It also escapes the color codes that
-/// [Label](acorn::util::Label) embeds in messages, so pass `false` to render
+/// [Label](acorn_host::terminal::Label) embeds in messages, so pass `false` to render
 /// those labels in color when every logged value is trusted.
 pub fn init_tracing(env: Option<&PathBuf>, verbose: &Verbosity, filter: Option<&str>, sanitize: bool) -> Void {
     let dotenv_loaded = load_dotenv(env)?;

@@ -1,6 +1,12 @@
 # CHANGELOG 🌱
 > Wisdom is knowledge of things that don't change, intelligence is the knowledge of things that do
 
+## Unreleased
+
+### 📦 Dependencies
+
+- Upgrade the ACORN crates from the pinned 0.2.0 Git revision to the published 0.3.2 packages while continuing to use ACORN's canonical path-conversion APIs.
+
 ## [1.0.2](https://code.ornl.gov/research-enablement/xylem/compare/v1.0.0..v1.0.2) - 2026-09-19
 
 ### 🚀 Features

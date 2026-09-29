@@ -26,6 +26,7 @@ acorn-cmd = { workspace = true }
 acorn-core = { workspace = true }
 acorn-host = { workspace = true }
 acorn-lib = { workspace = true }
+acorn-macros = { workspace = true }
 acorn-schema = { workspace = true }
 convert_case = { workspace = true }
 dotenvy = { workspace = true }

@@ -15,9 +15,9 @@ Make the resolved dependency graph proportional to Xylem's implemented capabilit
 
 # Current evidence
 
-Rechecked against `005aa73`.
+Rechecked against the current worktree on 2026-09-29.
 
-- `acorn-lib` still enables its `analysis` feature, so the lockfile still resolves `bat`, `polars`, and the rest of the analyzer stack even though nothing in Xylem calls an analyzer.
+- The ACORN 0.3.2 migration moved the ACORN crates from a pinned Git revision to published packages. Xylem still needs `acorn-lib`'s `analysis` feature because `PathConversion::lexically_normalized` is exposed only through that feature in ACORN 0.3.2, so `bat`, `polars`, and the rest of the analyzer stack remain in the graph. The locked package count is 844.
 - Confirmed unused direct dependencies: `uriparse` in `xylem-cli`, and
   `valuable` in `xylem-lib`, which imports only `valuable_derive` for the
   `Valuable` derive on `ContainerRuntime` and `ModuleType`. The completed
@@ -25,10 +25,11 @@ Rechecked against `005aa73`.
   remaining entries still need an owner.
 - `assert_cmd` is declared in both crates, but only `xylem-cli/tests/workflow.rs` uses it. The `xylem-lib` dev-dependency is unused.
 - The plan's claim that `sha2` and `tokio` are declared in `xylem-lib` is no longer true; neither appears in that manifest. `bytes` and `reqwest` are declared and both are used by `remote.rs`.
-- The lockfile still carries duplicate generations of `console` (0.15 and 0.16), `convert_case` (0.10 and 0.11), `indicatif` (0.17 and 0.18), and `reqwest` (0.12 and 0.13). Xylem declares the older generation of each.
+- The lockfile carries duplicate generations of `console` (0.15 and 0.16), `convert_case` (0.10 and 0.11), `indicatif` (0.17 and 0.18), `quick-xml` (0.39 and 0.41), and `reqwest` (0.12 and 0.13). Xylem declares the older generation of `console`, `indicatif`, and `reqwest`; ACORN's analyzer graph contributes the newer generations.
+- `cargo deny check` passes with the documented exceptions. `cargo audit` reports `RUSTSEC-2026-0194` and `RUSTSEC-2026-0195` because ACORN 0.3.2 constrains `quick-xml` to 0.39 while the fix requires 0.41, plus `RUSTSEC-2023-0071` in the analyzer graph's `rsa` 0.9.10 with no fixed release. This plan owns the exceptions, will review them by 2026-10-28, and removes them when published upstream releases permit remediation.
 - Phase 1 removed `serde_yml`, `libyml`, and their two unsoundness exceptions. The remaining permanent advisory ignores and extra `cargo audit` exceptions still need the policy defined here.
 - `make audit` runs `cargo udeps`, `cargo deny check`, and `cargo audit`, but `.gitlab-ci.yml` still does not invoke it, so the gate is advisory only.
-- Package-count, build-time, and advisory baselines are still unrecorded.
+- Clean-check time and release binary size remain unrecorded for the reviewed graph; the current package-count and advisory baselines are recorded above.
 
 # Project code boundaries
 
@@ -38,9 +39,8 @@ Rechecked against `005aa73`.
 
 # Dependencies and ordering
 
-Finalize after the [ACORN migration](../migrations/acorn-0-3-1-upgrade.md); the
-YAML migration has landed. Its commands are prerequisites for the [CI/release
-pipeline](ci-release-pipeline.md).
+The ACORN and YAML migrations have landed. The commands defined here are
+prerequisites for the [CI/release pipeline](ci-release-pipeline.md).
 
 # Recommendation
 
@@ -73,5 +73,4 @@ pipeline](ci-release-pipeline.md).
 
 # Related plans
 
-- [ACORN 0.3.1 upgrade](../migrations/acorn-0-3-1-upgrade.md)
 - [CI and release pipeline](ci-release-pipeline.md)

@@ -16,12 +16,12 @@ name = "xylem"
 path = "src/main.rs"
 
 [dependencies]
-xylem-lib = { version = "1.0.2", path = "../xylem-lib" }
+xylem-lib = { version = "1.0.3", path = "../xylem-lib" }
 clap = { version = "4.4.2", features = ["derive", "unstable-doc"] }
 console = { version = "0.15.7", default-features = false, features = ["ansi-parsing"] }
 indicatif = "0.17.6"
 nanoid = "0.4.0"
-acorn-lib = { workspace = true }
+acorn-host = { workspace = true }
 acorn-schema = { workspace = true }
 clap-verbosity-flag = { workspace = true }
 color-eyre = { workspace = true }

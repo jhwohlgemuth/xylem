@@ -29,8 +29,8 @@ Completed plans are removed, with their landed contracts preserved as prose in
 the documents that still depend on them. This includes typed execution,
 resumable execution, validated planning, the YAML migration, structured run
 reporters, the durable execution journal, fixed input concurrency, and the
-ACORN command environment sync. The ACORN 0.3.1 upgrade and hermetic test suite
-still carry rechecked current-evidence sections.
+ACORN command environment sync and dependency upgrade. The hermetic test suite
+still carries a rechecked current-evidence section.
 
 ## Adding a plan
 

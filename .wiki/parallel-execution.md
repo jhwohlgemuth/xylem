@@ -28,10 +28,9 @@ The lanes below contain only remaining work.
 
 ### Lane A: dependency migrations
 
-1. [ACORN 0.3.1 upgrade](migrations/acorn-0-3-1-upgrade.md), including removal of the unused `acorn-lib` analysis dependency
-2. [Dependency and security gates](refactors/dependency-surface-and-security-gates.md)
+1. [Dependency and security gates](refactors/dependency-surface-and-security-gates.md)
 
-The remaining ACORN work owns the manifest lock independently of the completed parser and completion phases.
+The dependency-gate work owns the manifest lock independently of the completed ACORN, parser, and completion phases.
 
 ### Lane B: configuration and acquisition
 
@@ -75,7 +74,6 @@ The following slices have disjoint primary write sets:
 
 | Slice | Primary ownership | Restriction |
 |---|---|---|
-| ACORN compatibility inventory | temporary diagnostics and `migrations/acorn-0-3-1-upgrade.md` notes | Do not edit manifests until holding the manifest lock. |
 | Hermetic helper preparation | new test-support module and new fixtures | Do not edit CLI roots or rewrite assertions owned by later contracts. |
 | CI rule validation | isolated CI lint inputs and plan notes | Do not edit `Makefile` or `.gitlab-ci.yml` until dependency-gate commands are accepted. |
 

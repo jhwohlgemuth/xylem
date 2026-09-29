@@ -1,11 +1,11 @@
 extern crate alloc;
 
-use acorn::util::Label;
-use acorn::With;
 use acorn_core::util::alloc::StringConversion;
 use acorn_core::util::{Checksum, MimeType, SemanticVersion};
 use acorn_core::{Location, Scheme};
 use acorn_host::fs::{file_checksum, make_executable};
+use acorn_host::terminal::Label;
+use acorn_macros::With;
 use alloc::collections::BTreeSet;
 use bon::Builder;
 use convert_case::{Case, Casing};
