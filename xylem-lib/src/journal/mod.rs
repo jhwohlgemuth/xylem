@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use strum::EnumIs;
 
 /// Current on-disk journal schema version.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 3;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 4;
 /// Maximum number of UTF-8 bytes retained for one journal error detail.
 pub const MAX_ERROR_BYTES: usize = 4096;
 trait Summary {
@@ -114,6 +114,7 @@ pub enum JournalEvent {
         input_id: String,
         module_index: usize,
         module: String,
+        module_path: Vec<String>,
         state: ExecutionState,
         error: Option<String>,
     },
@@ -203,6 +204,16 @@ pub struct JournalInput {
     /// User-facing input value. `None` represents a zero-input workflow.
     pub value: Option<String>,
 }
+/// Stable identity for one executable module in a run journal.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct JournalModule {
+    /// Deterministic zero-based module position.
+    pub index: usize,
+    /// Configured leaf display name.
+    pub name: String,
+    /// Stable ancestry from the root workflow to the executable leaf.
+    pub module_path: Vec<String>,
+}
 /// One versioned line in a journal file.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JournalRecord {
@@ -234,6 +245,8 @@ pub struct ModuleSummary {
     pub index: usize,
     /// Configured module name.
     pub name: String,
+    /// Stable ancestry from the root workflow to the executable leaf.
+    pub module_path: Vec<String>,
     /// Latest durable state.
     pub state: ExecutionState,
     /// Bounded failure detail, when present.
@@ -249,7 +262,7 @@ pub struct RunJournal {
     path: PathBuf,
     run_id: String,
     inputs: Vec<JournalInput>,
-    modules: Vec<String>,
+    modules: Vec<JournalModule>,
     containers: Vec<JournalContainer>,
     sink: Mutex<JournalSink>,
 }
@@ -295,6 +308,19 @@ impl ExecutionState {
     /// Whether this state represents completed work.
     pub fn is_complete(self) -> bool {
         self.is_succeeded() || self.is_skipped() || self.is_skipped_existing()
+    }
+}
+impl fmt::Display for ExecutionState {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            | Self::NotStarted => "not_started",
+            | Self::Pending => "pending",
+            | Self::Running => "running",
+            | Self::Succeeded => "succeeded",
+            | Self::Failed => "failed",
+            | Self::Skipped => "skipped",
+            | Self::SkippedExisting => "skipped_existing",
+        })
     }
 }
 impl Summary for InputSummary {
@@ -346,6 +372,12 @@ impl JournalInput {
         }
     }
 }
+impl JournalModule {
+    /// Create a stable module identity from its ordered position, display name, and ancestry.
+    pub fn new(index: usize, name: String, module_path: Vec<String>) -> Self {
+        Self { index, name, module_path }
+    }
+}
 impl JournalSink {
     /// Append one event with the next sequence number and durable flush.
     fn append_locked(&mut self, run_id: &str, event: JournalEvent) -> Result<(), JournalError> {
@@ -378,7 +410,7 @@ impl RunJournal {
     /// Create a new journal and durably initialize every input and module.
     ///
     /// Existing destinations are never overwritten. No execution should begin until this constructor has successfully returned.
-    pub fn create(path: PathBuf, metadata: RunMetadata, inputs: Vec<JournalInput>, modules: Vec<String>) -> Result<Self, JournalError> {
+    pub fn create(path: PathBuf, metadata: RunMetadata, inputs: Vec<JournalInput>, modules: Vec<JournalModule>) -> Result<Self, JournalError> {
         Self::create_with_containers(path, metadata, inputs, modules, Vec::new())
     }
     /// Create a journal with run-scoped container declarations.
@@ -386,7 +418,7 @@ impl RunJournal {
         path: PathBuf,
         metadata: RunMetadata,
         inputs: Vec<JournalInput>,
-        modules: Vec<String>,
+        modules: Vec<JournalModule>,
         containers: Vec<JournalContainer>,
     ) -> Result<Self, JournalError> {
         metadata
@@ -432,12 +464,13 @@ impl RunJournal {
                                         error: None,
                                     })
                                     .and_then(|()| {
-                                        modules.iter().enumerate().try_for_each(|(module_index, module)| {
+                                        modules.iter().try_for_each(|module| {
                                             journal.append(JournalEvent::ModuleState {
                                                 input_index: input.index,
                                                 input_id: input.input_id.clone(),
-                                                module_index,
-                                                module: module.clone(),
+                                                module_index: module.index,
+                                                module: module.name.clone(),
+                                                module_path: module.module_path.clone(),
                                                 state: ExecutionState::NotStarted,
                                                 error: None,
                                             })
@@ -537,7 +570,8 @@ impl RunJournal {
                                     input_index,
                                     input_id: input.input_id.clone(),
                                     module_index,
-                                    module: module.clone(),
+                                    module: module.name.clone(),
+                                    module_path: module.module_path.clone(),
                                     state,
                                     error: error.map(bounded_error),
                                 },
@@ -589,7 +623,8 @@ impl Validate for RunJournal {
             | true => ValidationReport::from_error("run_id", ValidationError::new("nonempty").with_message("Run ID cannot be empty")),
             | false => ValidationReport::new(),
         };
-        self.inputs
+        let report = self
+            .inputs
             .iter()
             .enumerate()
             .fold((report, BTreeSet::new()), |(mut report, mut input_ids), (expected_index, input)| {
@@ -612,7 +647,25 @@ impl Validate for RunJournal {
                 }
                 (report, input_ids)
             })
-            .0
+            .0;
+        self.modules
+            .iter()
+            .enumerate()
+            .fold(report, |mut report, (expected_index, module)| {
+                if module.index != expected_index {
+                    report.add(
+                        format!("modules[{expected_index}].index"),
+                        ValidationError::new("sequence").with_message(format!("Expected module index {expected_index}, found {}", module.index)),
+                    );
+                }
+                if module.name.is_empty() || module.module_path.is_empty() || module.module_path.iter().any(String::is_empty) {
+                    report.add(
+                        format!("modules[{expected_index}].module_path"),
+                        ValidationError::new("nonempty").with_message("Module name and ancestry cannot be empty"),
+                    );
+                }
+                report
+            })
             .finish()
     }
 }
@@ -743,6 +796,14 @@ impl RunSummary {
                 self.inputs.iter().filter(|input| input.state.is_failed()).try_for_each(|input| {
                     let name = input.value.as_deref().unwrap_or("<no input>");
                     writeln!(output, "Failed: {name}: {}", input.error.as_deref().unwrap_or("module execution failed"))
+                })
+            })
+            .and_then(|()| {
+                self.inputs.iter().try_for_each(|input| {
+                    input.modules.iter().try_for_each(|module| match module.error.as_deref() {
+                        | Some(error) => writeln!(output, "Module {}: {}: {error}", module.module_path.join("::"), module.state),
+                        | None => writeln!(output, "Module {}: {}", module.module_path.join("::"), module.state),
+                    })
                 })
             })
             .and_then(|()| writeln!(output, "Journal: {}", journal_path.display()))
@@ -923,6 +984,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                             input_id,
                             module_index,
                             module,
+                            module_path,
                             state,
                             error,
                         } => inputs
@@ -933,17 +995,20 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                 | false => {
                                     let initialized_modules = input.modules.len();
                                     match input.modules.get_mut(module_index) {
-                                        | Some(summary) => match summary.index != module_index || summary.name != module {
-                                            | true => Err(JournalError::Invalid(format!(
-                                                "module identity changed at input {input_index}, index {module_index}"
-                                            ))),
-                                            | false => validate_transition(summary.state, state, "module")
-                                                .map(|()| summary.update_state(state, error, timestamp_ms)),
-                                        },
+                                        | Some(summary) => {
+                                            match summary.index != module_index || summary.name != module || summary.module_path != module_path {
+                                                | true => Err(JournalError::Invalid(format!(
+                                                    "module identity changed at input {input_index}, index {module_index}"
+                                                ))),
+                                                | false => validate_transition(summary.state, state, "module")
+                                                    .map(|()| summary.update_state(state, error, timestamp_ms)),
+                                            }
+                                        }
                                         | None if state.is_not_started() && module_index == initialized_modules => {
                                             input.modules.push(ModuleSummary {
                                                 index: module_index,
                                                 name: module,
+                                                module_path,
                                                 state,
                                                 error,
                                                 started_at_ms: None,

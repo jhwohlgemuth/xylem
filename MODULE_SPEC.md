@@ -36,8 +36,8 @@ The fields have these meanings:
 | Field | Required | Contract |
 | --- | --- | --- |
 | `name` | Yes | Human-readable module name. Xylem converts it to snake case in `MODULE_LIST`. |
-| `type` | Yes | `script` or `binary`. `configuration` is reserved and is not executable in version 1.0. |
-| `uri` | Yes | A local `file:` URI or a supported remote Git/HTTP URI. |
+| `type` | Yes | `script`, `binary`, or the reusable workflow wrapper `configuration`. |
+| `uri` | Yes | A scalar local `file:` or remote Git/HTTP URI, or a structured location with `scheme`, `uri`, and optional Git `revision`. |
 | `programmingLanguage` | No | `python` or `generic` in version 1.0. Omission selects generic behavior; the JSON aliases `language` and `programming_language` are also accepted. |
 | `description` | No | Human-readable purpose. |
 | `variables` | No | Module-scoped scalar variables. These override workflow variables. |
@@ -62,6 +62,34 @@ example/
 Remote script modules are cloned into Xylem's per-run working directory before
 execution and, for Python modules, environment preparation. HTTP, HTTPS, and
 SSH Git transports are accepted.
+
+## Configuration modules
+
+A `configuration` module references another JSON or YAML workflow and expands
+in place to its executable leaves. Local `file:` references are relative to the
+configuration that declares them. An HTTP(S) URI ending in `.json`, `.yaml`, or
+`.yml` is read directly; other remote locations are treated as Git repositories
+whose root must contain `config.json`. A structured Git location may select a
+branch, tag, or commit with `revision`. Direct HTTP documents do not accept a
+revision.
+
+Expansion is depth-first and limited to 16 nested wrappers. Xylem rejects
+source cycles and reports each leaf with its full `module_path`, such as
+`Preprocess::Normalize`. A wrapper may declare `variables`, but not `template`
+or `completion`. Child `input` is ignored because the root input remains the
+execution unit. Requirements are de-duplicated across all reachable workflows.
+
+Variables are merged from the parent workflow, wrapper, child workflow, and
+child leaf in that order. A child `output` replaces the inherited output
+default, while an explicit `OUTPUT_DIRECTORY` variable and the CLI
+`--artifact-output` override remain authoritative. `MODULE_LIST` contains the
+qualified, depth-first leaf identities.
+
+The root dry-run, resume, batch, verification, and artifact-output choices
+apply at every depth. A child may tighten `options.allowed` or enable
+`offline`; it cannot loosen inherited policy. Remote configuration sources are
+rejected without a request during dry-run, and all remote sources are rejected
+when the effective policy is offline.
 
 ## Completion and resume
 

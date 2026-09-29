@@ -15,6 +15,9 @@ fn metadata(run_id: &str) -> RunMetadata {
         started_at_ms: 1,
     }
 }
+fn module() -> JournalModule {
+    JournalModule::new(0, "module".to_string(), vec!["group".to_string(), "module".to_string()])
+}
 fn path(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("xylem-journal-{label}-{}-{}.jsonl", std::process::id(), timestamp_ms()))
 }
@@ -129,13 +132,8 @@ fn metadata_and_journal_inputs_are_validated_before_use() {
 #[test]
 fn missing_finalization_is_interrupted_and_truncated_tail_is_ignored() {
     let path = path("truncated");
-    let journal = RunJournal::create(
-        path.clone(),
-        metadata("run-truncated"),
-        vec![JournalInput::new(0, None)],
-        vec!["module".to_string()],
-    )
-    .expect("create journal");
+    let journal =
+        RunJournal::create(path.clone(), metadata("run-truncated"), vec![JournalInput::new(0, None)], vec![module()]).expect("create journal");
     journal.transition_input(0, ExecutionState::Running, None).expect("start input");
     drop(journal);
     OpenOptions::new()
@@ -155,7 +153,7 @@ fn missing_finalization_is_interrupted_and_truncated_tail_is_ignored() {
 fn round_trips_all_states_and_recovers_a_summary() {
     let path = path("round-trip");
     let inputs = vec![JournalInput::new(0, Some("one".to_string())), JournalInput::new(1, None)];
-    let journal = RunJournal::create(path.clone(), metadata("run-one"), inputs, vec!["module".to_string()]).expect("create journal");
+    let journal = RunJournal::create(path.clone(), metadata("run-one"), inputs, vec![module()]).expect("create journal");
     journal.transition_input(0, ExecutionState::Pending, None).expect("pending input");
     journal.transition_input(0, ExecutionState::Running, None).expect("run input");
     journal.transition_module(0, 0, ExecutionState::Running, None).expect("run module");
@@ -168,6 +166,7 @@ fn round_trips_all_states_and_recovers_a_summary() {
     assert_eq!(summary.status, RunStatus::Succeeded);
     assert_eq!(summary.inputs[0].state, ExecutionState::Succeeded);
     assert_eq!(summary.inputs[0].modules[0].state, ExecutionState::Succeeded);
+    assert_eq!(summary.inputs[0].modules[0].module_path, vec!["group", "module"]);
     assert_eq!(summary.inputs[1].state, ExecutionState::Skipped);
     remove_file(path).expect("remove journal");
 }

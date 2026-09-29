@@ -16,7 +16,7 @@ use xylem_lib::config::{Config, ConfigOptions, ConfigReadError};
 use xylem_lib::container::ContainerLifecycle;
 use xylem_lib::execution::{ExecutionContext, ExecutionLimits};
 use xylem_lib::journal::{
-    ConfigurationIdentity, ContainerState, ExecutionState, FinalStatus, JournalContainer, JournalInput, RunJournal, RunMetadata,
+    ConfigurationIdentity, ContainerState, ExecutionState, FinalStatus, JournalContainer, JournalInput, JournalModule, RunJournal, RunMetadata,
 };
 use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::ExecutionPlan;
@@ -77,16 +77,17 @@ impl ProgressObserver for WorkflowProgress {
         };
         match update.state {
             | ProgressState::Started => {
+                let module = update.module_path.join("::");
                 let message = match update.input {
-                    | Some(input) => format!("{} · {input}", update.module),
-                    | None => update.module,
+                    | Some(input) => format!("{module} · {input}"),
+                    | None => module,
                 };
                 bar.set_message(message);
             }
             | ProgressState::Finished | ProgressState::Skipped | ProgressState::SkippedExisting => bar.inc(1),
             | ProgressState::Failed => {
                 bar.inc(1);
-                bar.set_message(format!("{} failed", update.module));
+                bar.set_message(format!("{} failed", update.module_path.join("::")));
             }
         }
     }
@@ -218,7 +219,29 @@ pub fn run(
                     let source_root = env::temp_dir().join(EnvironmentValue::PREFIX).join("configuration-sources");
                     preview
                         .resolve_with_policy(config_path.as_path(), &policy, &source_root, dry_run)
-                        .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
+                        .map(|mut resolved| {
+                            if let Some(output) = artifact_output.as_ref().and_then(|path| path.to_str()) {
+                                resolved.output = Some(output.to_string());
+                                resolved
+                                    .variables
+                                    .get_or_insert_default()
+                                    .insert("OUTPUT_DIRECTORY".to_string(), serde_json::Value::String(output.to_string()));
+                                resolved.modules.iter_mut().for_each(|module| {
+                                    module
+                                        .variables
+                                        .get_or_insert_default()
+                                        .insert("OUTPUT_DIRECTORY".to_string(), serde_json::Value::String(output.to_string()));
+                                });
+                            }
+                            resolved
+                        })
+                        .map_err(|why| {
+                            let exit_code = match why.is_availability() {
+                                | true => exitcode::UNAVAILABLE,
+                                | false => exitcode::DATAERR,
+                            };
+                            RunFailure::new(exit_code, why.to_string())
+                        })
                 })
         })
         .and_then(|preview| {
@@ -272,7 +295,7 @@ pub fn run(
                         plan.modules.iter().for_each(|module| {
                             println!(
                                 "{} · {}: {}",
-                                module.module,
+                                module.module_path.join("::"),
                                 module.input.as_deref().unwrap_or("<no input>"),
                                 module.decision
                             );
@@ -342,7 +365,14 @@ pub fn run(
                                                             .enumerate()
                                                             .map(|(index, value)| JournalInput::new(index, value))
                                                             .collect::<Vec<_>>();
-                                                        let module_names = cfg.modules.iter().map(|module| module.name.clone()).collect::<Vec<_>>();
+                                                        let journal_modules = cfg
+                                                            .modules
+                                                            .iter()
+                                                            .enumerate()
+                                                            .map(|(index, module)| {
+                                                                JournalModule::new(index, module.name.clone(), module.module_path.clone())
+                                                            })
+                                                            .collect::<Vec<_>>();
                                                         let run_id = id.clone();
                                                         let configuration = ConfigurationIdentity {
                                                             path: config_path.display().to_string(),
@@ -369,7 +399,7 @@ pub fn run(
                                                             journal_path.clone(),
                                                             metadata,
                                                             journal_inputs,
-                                                            module_names,
+                                                            journal_modules,
                                                             journal_containers.clone(),
                                                         );
                                                         let create_journal_result = create_journal.map_err(|why| {

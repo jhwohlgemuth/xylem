@@ -5,13 +5,19 @@ process exit boundary. The library owns configuration parsing, module
 preparation, variable resolution, command construction, and workflow
 execution.
 
-Configuration follows a four-stage contract: parse the named JSON or YAML
-document, validate all declared capabilities, build an immutable execution
-plan, then execute that accepted plan. Planning resolves CLI precedence,
+Configuration follows a five-stage contract: parse the named JSON or YAML
+document, resolve reachable configuration modules, validate all declared
+capabilities, build an immutable execution plan, then execute that accepted
+plan. Resolution flattens nested workflows depth-first while retaining stable
+leaf ancestry and intersecting child remote policy with the root policy.
+Planning resolves CLI precedence,
 inputs, artifact roots, variables, acquisition intent, command arguments, and
 completion declarations before Xylem creates its run workspace. Resume adds
 explicitly labeled read-only completion observations; ordinary planning is
-host-write-free.
+host-write-free. Git-backed configuration discovery is the bounded exception:
+it checks out the source in the managed configuration-source workspace before
+the immutable plan is built. Remote configuration resolution is disabled in
+dry-run mode.
 
 ```text
 configuration (JSON or YAML)
@@ -58,8 +64,9 @@ classification to a process exit code and renders the terminal diagnostic.
 Resume decisions are made before module preparation from explicit completion
 declarations. The runtime requires both non-empty declared outputs and an exact
 canonical marker identity, and records skips as `skipped_existing` in journal
-schema version 2. Dry-run uses a separate in-memory execution plan and performs
-no filesystem writes.
+schema version 4. Journal events and recovered summaries carry both the leaf
+display name and its qualified `module_path`. Dry-run uses a separate in-memory
+execution plan and performs no filesystem writes.
 
 See
 [ARCHITECTURE.md](https://code.ornl.gov/research-enablement/xylem/-/blob/main/ARCHITECTURE.md)

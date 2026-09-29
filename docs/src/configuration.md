@@ -35,6 +35,34 @@ Explicit input lists preserve their declared order and duplicate values keep
 their first occurrence. Directory-derived inputs are sorted by path. CLI
 `--input` replaces configured input values rather than appending to them.
 
+## Reusable configuration modules
+
+Use a `configuration` module to expand another workflow in place:
+
+```json
+{
+  "name": "Preprocess",
+  "type": "configuration",
+  "uri": "file:./workflows/preprocess.json",
+  "variables": {
+    "METHOD": "normalized"
+  }
+}
+```
+
+Nested workflows expand depth-first to executable leaves. Local paths are
+relative to the declaring configuration. HTTP(S) `.json`, `.yaml`, and `.yml`
+locations are read directly; Git locations load repository-root `config.json`
+and may use the structured form
+`{"scheme":"https","uri":"https://example.org/workflow.git","revision":"v1.2.3"}`.
+
+The root input and run options remain authoritative. Variables merge in
+parent, wrapper, child, then leaf order; child outputs replace inherited output
+defaults unless `OUTPUT_DIRECTORY` was explicitly set. Child requirements are
+de-duplicated into the root workflow, and reports identify leaves with a
+qualified `module_path`. Wrappers cannot declare `template` or `completion`.
+Cycles and nesting beyond 16 wrappers are rejected before execution.
+
 ## YAML behavior
 
 YAML configuration files may use anchors, aliases, and merge keys. Explicit
@@ -111,6 +139,10 @@ for reachability before downloading or cloning it. The execution plan records
 the acquisition action without performing it. Dry-run does not create a run
 directory, probe the network, change permissions, spawn a process, or write an
 environment variable.
+
+Nested workflows may only tighten the inherited allowlist and may enable
+offline mode. A remote configuration wrapper fails without making a request in
+dry-run mode; local wrappers still produce a complete flattened plan.
 
 See the repository's
 [module specification](https://code.ornl.gov/research-enablement/xylem/-/blob/main/MODULE_SPEC.md)

@@ -226,6 +226,18 @@ fn test_remote_allowlist_matches_exact_normalized_authorities() {
     assert!(policy.ensure_allowed("https://example.net/module").is_err());
     assert!(policy.ensure_allowed("https://example.com:8443/module").is_err());
 }
+#[test]
+fn test_remote_allowlist_restriction_cannot_expand_parent_policy() {
+    let parent_hosts = vec!["example.com".to_string(), "shared.example".to_string()];
+    let child_hosts = vec!["shared.example".to_string(), "child.example".to_string()];
+    let policy = RemotePolicy::from_hosts(Some(&parent_hosts))
+        .expect("valid parent policy")
+        .restrict(Some(&child_hosts))
+        .expect("valid child policy");
+    assert!(policy.ensure_allowed("https://shared.example/module").is_ok());
+    assert!(policy.ensure_allowed("https://example.com/module").is_err());
+    assert!(policy.ensure_allowed("https://child.example/module").is_err());
+}
 #[cfg(unix)]
 #[test]
 fn test_remote_git_probe_reports_failure_and_timeout() {

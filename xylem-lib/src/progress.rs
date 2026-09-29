@@ -36,6 +36,8 @@ pub struct ProgressUpdate {
     pub phase: ProgressPhase,
     /// Module name.
     pub module: String,
+    /// Stable ancestry from the root workflow to the executable leaf.
+    pub module_path: Vec<String>,
     /// Active workflow input, when execution is input-scoped.
     pub input: Option<String>,
     /// Current state of the item.
@@ -43,11 +45,12 @@ pub struct ProgressUpdate {
 }
 impl ProgressPhase {
     /// Emit a progress update for this phase when an observer is present.
-    pub fn emit(self, observer: Option<&dyn ProgressObserver>, state: ProgressState, module: &str, input: Option<&str>) {
+    pub fn emit(self, state: ProgressState, module: &str, module_path: &[String], observer: Option<&dyn ProgressObserver>, input: Option<&str>) {
         if let Some(observer) = observer {
             observer.update(ProgressUpdate {
                 phase: self,
                 module: module.to_string(),
+                module_path: module_path.to_vec(),
                 input: input.map(String::from),
                 state,
             });

@@ -3,6 +3,10 @@
 
 ## Unreleased
 
+### 🚀 Features
+
+- Complete reusable local, HTTP(S), and Git-backed configuration modules with recursive policy-constrained flattening and qualified runtime identities.
+
 ### 📦 Dependencies
 
 - Upgrade the ACORN crates from the pinned 0.2.0 Git revision to the published 0.3.2 packages while continuing to use ACORN's canonical path-conversion APIs.

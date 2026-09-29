@@ -351,7 +351,13 @@ struct RawModule {
 pub struct Script {
     #[builder(default = Command::init().build())]
     pub command: Command,
-    #[builder(default = Vec::<String>::new())]
+    #[builder(
+        default = Vec::<String>::new(),
+        with = |arguments: impl IntoIterator<Item = impl AsRef<OsStr>>| arguments
+            .into_iter()
+            .map(|argument| argument.as_ref().to_string_lossy().into_owned())
+            .collect()
+    )]
     pub arguments: Vec<String>,
     /// Directory in which the script should be executed when run method is invoked
     #[builder(default = ".".to_string())]
@@ -533,22 +539,6 @@ impl EnvironmentValue {
         values.into_iter().for_each(|(key, value)| set_var(key, value));
     }
 }
-impl Module {
-    /// Resolve the module's explicitly configured or auto-detected virtual environment.
-    pub fn resolve_virtual_environment(&self, working_dir: &str) -> Result<Option<VirtualEnvironment>, TemplateError> {
-        match &self.template {
-            | Some(TemplateAttribute::Path(value)) => {
-                let template_path = PathBuf::from(working_dir).join(value);
-                match template_path.is_file() {
-                    | true => ScriptTemplate::from_path(template_path).map(|template| template.virtual_environment),
-                    | false => Ok(None),
-                }
-            }
-            | Some(TemplateAttribute::Template(value)) => Ok(value.virtual_environment.clone()),
-            | None => ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(working_dir)),
-        }
-    }
-}
 impl<'de> Deserialize<'de> for Module {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -590,6 +580,22 @@ impl<'de> Deserialize<'de> for Module {
                 })
             },
         )
+    }
+}
+impl Module {
+    /// Resolve the module's explicitly configured or auto-detected virtual environment.
+    pub fn resolve_virtual_environment(&self, working_dir: &str) -> Result<Option<VirtualEnvironment>, TemplateError> {
+        match &self.template {
+            | Some(TemplateAttribute::Path(value)) => {
+                let template_path = PathBuf::from(working_dir).join(value);
+                match template_path.is_file() {
+                    | true => ScriptTemplate::from_path(template_path).map(|template| template.virtual_environment),
+                    | false => Ok(None),
+                }
+            }
+            | Some(TemplateAttribute::Template(value)) => Ok(value.virtual_environment.clone()),
+            | None => ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(working_dir)),
+        }
     }
 }
 impl ModuleLanguage {
@@ -1242,7 +1248,10 @@ fn create_environment_script(current_dir: String, manager: &str, environments: V
                     None
                 }
                 | Some(_) => {
-                    let arguments = vec!["env", "create", "-f", "environment.yml"].into_iter().map(String::from).collect();
+                    let arguments = vec!["env", "create", "-f", "environment.yml"]
+                        .into_iter()
+                        .map(String::from)
+                        .collect::<Vec<_>>();
                     let command = Command::init().name(manager.to_string()).build();
                     Some(Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir))
                 }
@@ -1274,7 +1283,7 @@ fn create_pixi_environment_script(current_dir: String, environment: VirtualEnvir
             let arguments = vec!["install", "--environment", &environment.name]
                 .into_iter()
                 .map(String::from)
-                .collect();
+                .collect::<Vec<_>>();
             Some(Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir))
         }
         | None => {
@@ -1385,6 +1394,5 @@ pub(crate) fn module_working_directory(uri: &str, root: Option<&PathBuf>) -> Opt
         | ModuleUri::Unknown(_) => None,
     }
 }
-
 #[cfg(test)]
 mod tests;

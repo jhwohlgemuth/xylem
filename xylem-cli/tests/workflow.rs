@@ -61,7 +61,84 @@ esac
     std::fs::set_permissions(&executable, permissions).expect("make fake Docker runtime executable");
     (executable, log)
 }
-
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_configuration_module_executes_and_reports_qualified_leaf_identity() {
+    let test_root = std::env::temp_dir().join(format!("xylem-configuration-cli-{}", std::process::id()));
+    let child_directory = test_root.join("child");
+    let module_directory = child_directory.join("module");
+    let report_directory = test_root.join("reports");
+    create_dir_all(&module_directory).expect("create nested module directory");
+    let root_config = test_root.join("config.json");
+    let child_config = child_directory.join("config.json");
+    write(
+        &root_config,
+        r#"{
+            "requirements": [],
+            "modules": [{ "name": "Group", "type": "configuration", "uri": "file:./child/config.json" }]
+        }"#,
+    )
+    .expect("write root configuration");
+    write(
+        &child_config,
+        r#"{
+            "output": "child-output",
+            "requirements": [],
+            "modules": [{
+                "name": "Leaf",
+                "type": "script",
+                "uri": "file:./module",
+                "variables": { "OUTPUT_DIRECTORY": "leaf-output" },
+                "template": { "command": "true", "arguments": [] }
+            }]
+        }"#,
+    )
+    .expect("write child configuration");
+    let artifact_output = test_root.join("artifacts");
+    let mut dry_run = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let dry_run = dry_run
+        .args([
+            "run",
+            "--config",
+            root_config.to_str().expect("UTF-8 configuration path"),
+            "--dry-run",
+            "--reporter",
+            "json",
+            "--artifact-output",
+            artifact_output.to_str().expect("UTF-8 artifact path"),
+        ])
+        .output()
+        .expect("run nested dry run");
+    assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&dry_run.stdout).expect("valid nested execution plan");
+    assert_eq!(plan["modules"][0]["module_path"], serde_json::json!(["Group", "Leaf"]));
+    assert_eq!(
+        plan["modules"][0]["variables"]["_XYLEM_OUTPUT_DIRECTORY"],
+        artifact_output.to_string_lossy().as_ref()
+    );
+    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    command
+        .args([
+            "run",
+            "--config",
+            root_config.to_str().expect("UTF-8 configuration path"),
+            "--reporter",
+            "json",
+            "--output",
+            report_directory.to_str().expect("UTF-8 report path"),
+        ])
+        .assert()
+        .success();
+    let report_path = read_dir(&report_directory)
+        .expect("read report directory")
+        .map(|entry| entry.expect("report entry").path())
+        .find(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .expect("JSON report");
+    let report: xylem_lib::journal::RunSummary = serde_json::from_slice(&read(report_path).expect("read JSON report")).expect("valid JSON report");
+    assert_eq!(report.inputs[0].modules[0].name, "Leaf");
+    assert_eq!(report.inputs[0].modules[0].module_path, vec!["Group", "Leaf"]);
+    remove_dir_all(test_root).expect("remove configuration CLI test directory");
+}
 #[test]
 fn test_configuration_read_failures_use_distinct_exit_codes() {
     let test_root = std::env::temp_dir().join(format!("xylem-config-errors-{}", std::process::id()));
@@ -237,6 +314,83 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
+fn test_fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!("xylem-durable-failure-{}", std::process::id()));
+    let output_directory = test_root.join("reports");
+    create_dir_all(&output_directory).expect("create durable failure directory");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "version": "1.0.0",
+        "requirements": ["sh"],
+        "input": ["one", "two", "three"],
+        "options": { "batch": 1 },
+        "modules": [{
+            "name": "Failure Probe",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:./tests/e2e/modules/failure-probe"
+        }]
+    });
+    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize failure config")).expect("write failure config");
+    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    command
+        .current_dir(workspace)
+        .args([
+            "run",
+            "--config",
+            config_path.to_str().expect("UTF-8 config path"),
+            "--reporter",
+            "json",
+            "--output",
+            output_directory.to_str().expect("UTF-8 output path"),
+        ])
+        .assert()
+        .failure()
+        .code(exitcode::SOFTWARE);
+
+    let report_path = read_dir(&output_directory)
+        .expect("read output directory")
+        .map(|entry| entry.expect("directory entry").path())
+        .find(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .expect("failure JSON report");
+    let report: xylem_lib::journal::RunSummary =
+        serde_json::from_slice(&read(report_path).expect("read failure report")).expect("valid failure report");
+    assert_eq!(report.status, xylem_lib::journal::RunStatus::Failed);
+    assert_eq!(report.inputs[0].state, xylem_lib::journal::ExecutionState::Failed);
+    assert_eq!(report.inputs[1].state, xylem_lib::journal::ExecutionState::NotStarted);
+    assert_eq!(report.inputs[2].state, xylem_lib::journal::ExecutionState::NotStarted);
+    remove_dir_all(test_root).expect("remove durable failure directory");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_json_stdout_is_not_corrupted_by_diagnostics() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let output = command
+        .current_dir(workspace)
+        .args(["run", "--config", "tests/e2e/config.json", "--reporter", "json"])
+        .output()
+        .expect("run JSON stdout workflow");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let report: xylem_lib::journal::RunSummary = serde_json::from_slice(&output.stdout).expect("stdout should contain only the JSON report");
+    assert_eq!(report.status, xylem_lib::journal::RunStatus::Succeeded);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let journal_path = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("Journal: "))
+        .map(std::path::PathBuf::from)
+        .expect("stderr should identify the durable journal");
+    let run_directory = journal_path.parent().expect("journal should have a parent");
+    assert!(journal_path.is_file());
+    remove_dir_all(run_directory).expect("remove default run directory");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
 fn test_keep_alive_runtime_reports_early_exit_and_timeout() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -360,83 +514,6 @@ fn test_keep_alive_runtime_uses_exact_arguments_and_cleanup_override() {
     let invocations = read_to_string(&log).expect("read retained runtime log");
     assert!(!invocations.contains("rm --force"), "{invocations}");
     remove_dir_all(test_root).expect("remove keep-alive success fixture");
-}
-#[cfg(not(target_os = "windows"))]
-#[test]
-fn test_fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("CLI crate should be inside the workspace");
-    let test_root = std::env::temp_dir().join(format!("xylem-durable-failure-{}", std::process::id()));
-    let output_directory = test_root.join("reports");
-    create_dir_all(&output_directory).expect("create durable failure directory");
-    let config_path = test_root.join("config.json");
-    let config = serde_json::json!({
-        "version": "1.0.0",
-        "requirements": ["sh"],
-        "input": ["one", "two", "three"],
-        "options": { "batch": 1 },
-        "modules": [{
-            "name": "Failure Probe",
-            "type": "script",
-            "programmingLanguage": "generic",
-            "uri": "file:./tests/e2e/modules/failure-probe"
-        }]
-    });
-    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize failure config")).expect("write failure config");
-    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
-    command
-        .current_dir(workspace)
-        .args([
-            "run",
-            "--config",
-            config_path.to_str().expect("UTF-8 config path"),
-            "--reporter",
-            "json",
-            "--output",
-            output_directory.to_str().expect("UTF-8 output path"),
-        ])
-        .assert()
-        .failure()
-        .code(exitcode::SOFTWARE);
-
-    let report_path = read_dir(&output_directory)
-        .expect("read output directory")
-        .map(|entry| entry.expect("directory entry").path())
-        .find(|path| path.extension().is_some_and(|extension| extension == "json"))
-        .expect("failure JSON report");
-    let report: xylem_lib::journal::RunSummary =
-        serde_json::from_slice(&read(report_path).expect("read failure report")).expect("valid failure report");
-    assert_eq!(report.status, xylem_lib::journal::RunStatus::Failed);
-    assert_eq!(report.inputs[0].state, xylem_lib::journal::ExecutionState::Failed);
-    assert_eq!(report.inputs[1].state, xylem_lib::journal::ExecutionState::NotStarted);
-    assert_eq!(report.inputs[2].state, xylem_lib::journal::ExecutionState::NotStarted);
-    remove_dir_all(test_root).expect("remove durable failure directory");
-}
-#[cfg(not(target_os = "windows"))]
-#[test]
-fn test_json_stdout_is_not_corrupted_by_diagnostics() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("CLI crate should be inside the workspace");
-    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
-    let output = command
-        .current_dir(workspace)
-        .args(["run", "--config", "tests/e2e/config.json", "--reporter", "json"])
-        .output()
-        .expect("run JSON stdout workflow");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    let report: xylem_lib::journal::RunSummary = serde_json::from_slice(&output.stdout).expect("stdout should contain only the JSON report");
-    assert_eq!(report.status, xylem_lib::journal::RunStatus::Succeeded);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let journal_path = stderr
-        .lines()
-        .find_map(|line| line.strip_prefix("Journal: "))
-        .map(std::path::PathBuf::from)
-        .expect("stderr should identify the durable journal");
-    let run_directory = journal_path.parent().expect("journal should have a parent");
-    assert!(journal_path.is_file());
-    remove_dir_all(run_directory).expect("remove default run directory");
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
@@ -946,5 +1023,10 @@ fn test_writes_versioned_journal_and_json_report_from_the_same_summary() {
         .inputs
         .iter()
         .all(|input| input.state == xylem_lib::journal::ExecutionState::Succeeded));
+    assert!(report
+        .inputs
+        .iter()
+        .flat_map(|input| &input.modules)
+        .all(|module| !module.module_path.is_empty()));
     remove_dir_all(output_directory).expect("remove durable output directory");
 }

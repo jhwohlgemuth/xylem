@@ -65,7 +65,7 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 - [Memory-aware scheduling](features/memory-aware-scheduling.md) builds on the fixed scheduler boundary and journal telemetry. Only its measurement spike may proceed before an estimator is accepted.
 - The landed configuration-validation and planning contract precedes secure acquisition and reporters.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) consumes the error, process, configuration, and ACORN migration contracts.
-- [Configuration modules](refactors/configuration-modules.md) consumes the landed planning, resume, outcome, reporter, and batching contracts and coordinates remote source resolution with secure acquisition.
+- Configuration modules are a landed contract consumed by secure acquisition and reporting work.
 - The landed run-reporter contract consumes structured workflow outcomes and durable journal state without parsing logs.
 - [Dependency and security gates](refactors/dependency-surface-and-security-gates.md) follows both dependency migrations so its accepted graph is not immediately invalidated.
 - [Hermetic tests](testing/hermetic-workflow-tests.md) provides the regression gate required by the CI plan and validates every correctness plan as its contracts land.

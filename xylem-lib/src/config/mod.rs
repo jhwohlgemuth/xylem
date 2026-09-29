@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use acorn_cmd::args;
 use acorn_core::util::alloc::StringConversion;
 use acorn_core::util::{Checksum, MimeType, SemanticVersion};
 use acorn_core::{Location, Scheme};
@@ -20,6 +21,7 @@ use std::fs::{canonicalize, create_dir_all, read_to_string};
 use std::io;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
+use url::Url;
 
 use crate::completion::{CompletionDecision, CompletionPlan};
 use crate::error::{AcquisitionError, RequirementError};
@@ -32,7 +34,6 @@ use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
 
 mod validation;
-
 /// Supported workflow configuration serialization formats.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConfigFormat {
@@ -73,7 +74,10 @@ pub enum ConfigurationModuleError {
     Depth { path: Vec<String> },
     /// A configuration source recurs through its ancestor chain.
     #[error("configuration module cycle at {} ({location})", path.join("::"))]
-    Cycle { path: Vec<String>, location: PathBuf },
+    Cycle { path: Vec<String>, location: String },
+    /// A nested workflow declares an invalid remote policy.
+    #[error("configuration module {module} has invalid remote policy: {reason}")]
+    Policy { module: String, reason: String },
     /// A configuration module uses an unsupported source.
     #[error("configuration module {module} has unsupported source {uri}")]
     Source { module: String, uri: String },
@@ -93,6 +97,15 @@ pub enum ConfigurationModuleError {
     /// Remote configuration acquisition failed before execution began.
     #[error("resolve remote configuration module {module}: {reason}")]
     Remote { module: String, reason: String },
+    /// A direct HTTP configuration document declares a Git-only revision.
+    #[error("configuration module {module} cannot apply revision to direct document {uri}")]
+    Revision { module: String, uri: String },
+}
+#[derive(Clone, Debug)]
+enum ConfigurationSource {
+    File(PathBuf),
+    Git { identity: String, path: PathBuf },
+    Http(String),
 }
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -213,7 +226,18 @@ impl Config {
     /// Resolve local configuration modules into their executable leaf modules.
     pub fn resolve(self, source: &Path) -> Result<Self, ConfigurationModuleError> {
         let source = canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
-        self.resolve_at(&source, Vec::new(), Vec::new(), 0)
+        self.resolve_at(
+            ConfigurationSource::File(source),
+            Path::new(""),
+            false,
+            false,
+            Vec::new(),
+            Vec::new(),
+            0,
+            None,
+            None,
+            None,
+        )
     }
     /// Resolve local and remote configuration modules before planning.
     ///
@@ -226,95 +250,19 @@ impl Config {
         source_root: &Path,
         dry_run: bool,
     ) -> Result<Self, ConfigurationModuleError> {
-        self.resolve_with_policy_at(source, policy, source_root, dry_run, false)
-    }
-    fn resolve_with_policy_at(
-        self,
-        source: &Path,
-        policy: &RemotePolicy,
-        source_root: &Path,
-        dry_run: bool,
-        nested: bool,
-    ) -> Result<Self, ConfigurationModuleError> {
-        self.modules
-            .into_iter()
-            .try_fold(
-                (Vec::new(), self.requirements.clone()),
-                |(mut modules, mut requirements), module| match module.module_type {
-                    | ModuleType::Configuration { uri } => {
-                        let path = vec![module.name.clone()];
-                        let uri_text = uri.uri().unwrap_or_else(|| <&str>::from(&uri).to_string());
-                        let child = match ModuleUri::from(&uri) {
-                            | ModuleUri::File(_) => ModuleUri::resolve_configuration(&uri, source)
-                                .ok_or_else(|| ConfigurationModuleError::Source {
-                                    module: module.name.clone(),
-                                    uri: uri_text.clone(),
-                                })
-                                .and_then(|child_source| {
-                                    Config::read(child_source.clone())
-                                        .map_err(|source| ConfigurationModuleError::Read {
-                                            module: module.name.clone(),
-                                            source,
-                                        })
-                                        .and_then(|child| child.resolve_with_policy_at(&child_source, policy, source_root, dry_run, true))
-                                }),
-                            | ModuleUri::Url(value) if matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS) => match dry_run
-                            {
-                                | true => Err(ConfigurationModuleError::RemoteDryRun {
-                                    module: module.name.clone(),
-                                    uri: uri_text.clone(),
-                                }),
-                                | false => policy
-                                    .read_text(&uri_text)
-                                    .map_err(|source| ConfigurationModuleError::Remote {
-                                        module: module.name.clone(),
-                                        reason: source.to_string(),
-                                    })
-                                    .and_then(|content| Self::read_remote_document(&content, &uri_text, &module.name)),
-                            },
-                            | ModuleUri::Url(_) => match dry_run {
-                                | true => Err(ConfigurationModuleError::RemoteDryRun {
-                                    module: module.name.clone(),
-                                    uri: uri_text.clone(),
-                                }),
-                                | false => policy
-                                    .probe_git(&uri_text)
-                                    .map_err(|source| ConfigurationModuleError::Remote {
-                                        module: module.name.clone(),
-                                        reason: source.to_string(),
-                                    })
-                                    .and_then(|()| Self::clone_configuration(&uri, &uri_text, source_root, &module.name)),
-                            },
-                            | ModuleUri::Unknown(_) => Err(ConfigurationModuleError::Source {
-                                module: module.name.clone(),
-                                uri: uri_text,
-                            }),
-                        }?;
-                        let variables = Self::merge(self.variables.as_ref(), module.variables.as_ref(), child.variables.as_ref());
-                        modules.extend(child.modules.into_iter().map(|child| child.qualify(&path, variables.as_ref())));
-                        child.requirements.into_iter().for_each(|requirement| {
-                            if !requirements.contains(&requirement) {
-                                requirements.push(requirement);
-                            }
-                        });
-                        Ok((modules, requirements))
-                    }
-                    | module_type => {
-                        let mut module = Module { module_type, ..module };
-                        module.absolutize_container_mounts(source);
-                        if nested {
-                            module.absolutize(source);
-                        }
-                        modules.push(module);
-                        Ok((modules, requirements))
-                    }
-                },
-            )
-            .map(|(modules, requirements)| Self {
-                modules,
-                requirements,
-                ..self
-            })
+        let offline = self.options.as_ref().and_then(|options| options.offline).unwrap_or_default();
+        self.resolve_at(
+            ConfigurationSource::File(source.to_path_buf()),
+            source_root,
+            dry_run,
+            offline,
+            Vec::new(),
+            Vec::new(),
+            0,
+            Some(policy.clone()),
+            None,
+            None,
+        )
     }
     pub fn get_environment_variables(self, module: Option<Module>, input: Option<String>) -> HashMap<String, String> {
         let mut variables = self.variables.clone().unwrap_or_default();
@@ -357,7 +305,14 @@ impl Config {
         let names = self
             .modules
             .iter()
-            .map(|module| module.module_path.join("::").to_case(Case::Snake))
+            .map(|module| {
+                module
+                    .module_path
+                    .iter()
+                    .map(|segment| segment.to_case(Case::Snake))
+                    .collect::<Vec<_>>()
+                    .join("::")
+            })
             .collect::<Vec<String>>();
         names.join(",").to_string()
     }
@@ -398,7 +353,7 @@ impl Config {
                         .enumerate()
                         .filter(|(index, _)| selected.contains(index))
                         .map(|(_, module)| {
-                            ProgressPhase::Preparation.emit(observer, ProgressState::Started, &module.name, None);
+                            ProgressPhase::Preparation.emit(ProgressState::Started, &module.name, &module.module_path, observer, None);
                             let result = match &module.module_type {
                                 | ModuleType::Binary { uri, checksum } => module.prepare_binary(uri.into(), checksum.as_deref(), &options, &policy),
                                 | ModuleType::Script { programming_language, uri } => match programming_language {
@@ -409,8 +364,10 @@ impl Config {
                                 | ModuleType::Configuration { .. } => Err(format!("module {} uses reserved configuration module type", module.name)),
                             };
                             match result {
-                                | Ok(()) => ProgressPhase::Preparation.emit(observer, ProgressState::Finished, &module.name, None),
-                                | Err(_) => ProgressPhase::Preparation.emit(observer, ProgressState::Failed, &module.name, None),
+                                | Ok(()) => {
+                                    ProgressPhase::Preparation.emit(ProgressState::Finished, &module.name, &module.module_path, observer, None)
+                                }
+                                | Err(_) => ProgressPhase::Preparation.emit(ProgressState::Failed, &module.name, &module.module_path, observer, None),
                             }
                             result.map_err(|why| AcquisitionError::Module {
                                 module: module.name.clone(),
@@ -539,7 +496,7 @@ impl Config {
                                 | None => Ok(ExecutionState::SkippedExisting),
                             },
                             | false => {
-                                ProgressPhase::Execution.emit(observer, ProgressState::Started, &module.name, input.as_deref());
+                                ProgressPhase::Execution.emit(ProgressState::Started, &module.name, &module.module_path, observer, input.as_deref());
                                 match journal {
                                     | Some(journal) => journal
                                         .transition_module(input_index, module_index, ExecutionState::Running, None)
@@ -653,7 +610,7 @@ impl Config {
                 match result {
                     | Ok(terminal) => {
                         let progress_state = ProgressState::from(terminal);
-                        ProgressPhase::Execution.emit(observer, progress_state, &module.name, input.as_deref());
+                        ProgressPhase::Execution.emit(progress_state, &module.name, &module.module_path, observer, input.as_deref());
                         outcomes.push(ModuleOutcome {
                             index: module_index,
                             name: module.name.clone(),
@@ -671,7 +628,7 @@ impl Config {
                             },
                             | None => why,
                         };
-                        ProgressPhase::Execution.emit(observer, ProgressState::Failed, &module.name, input.as_deref());
+                        ProgressPhase::Execution.emit(ProgressState::Failed, &module.name, &module.module_path, observer, input.as_deref());
                         outcomes.push(ModuleOutcome {
                             index: module_index,
                             name: module.name.clone(),
@@ -757,34 +714,43 @@ impl Config {
             | false => Some(variables),
         }
     }
-    fn clone_configuration(location: &Location, uri: &str, source_root: &Path, module: &str) -> Result<Self, ConfigurationModuleError> {
-        let destination = source_root.join(location.hash());
+    fn clone_configuration(
+        location: &Location,
+        uri: &str,
+        source_root: &Path,
+        module: &str,
+    ) -> Result<(Self, ConfigurationSource), ConfigurationModuleError> {
+        let revision = Self::revision(location);
+        let destination_name = revision.map_or_else(
+            || location.hash(),
+            |revision| format!("{}-{}", location.hash(), revision.to_case(Case::Snake)),
+        );
+        let destination = source_root.join(&destination_name);
+        let identity = format!("git:{uri}#{}", revision.map_or("HEAD", String::as_str));
         create_dir_all(source_root)
             .map_err(|source| ConfigurationModuleError::Remote {
                 module: module.to_string(),
                 reason: source.to_string(),
             })
-            .and_then(|()| {
-                Script::maybe_git_clone(uri.to_string(), source_root.display().to_string()).ok_or_else(|| ConfigurationModuleError::Source {
-                    module: module.to_string(),
-                    uri: uri.to_string(),
-                })
+            .and_then(|()| match destination.join(".git").is_dir() {
+                | true => Ok(()),
+                | false => Script::init()
+                    .command(Command::init().name("git".to_string()).build())
+                    .arguments(args!["-c", "http.followRedirects=false", "clone", uri, destination_name])
+                    .current_dir(source_root.display().to_string())
+                    .build()
+                    .run_checked()
+                    .map(|_| ())
+                    .map_err(|source| ConfigurationModuleError::Remote {
+                        module: module.to_string(),
+                        reason: source.to_string(),
+                    }),
             })
-            .and_then(|script| {
-                script.run_checked().map(|_| ()).map_err(|source| ConfigurationModuleError::Remote {
-                    module: module.to_string(),
-                    reason: source.to_string(),
-                })
-            })
             .and_then(|()| {
-                let revision = match location {
-                    | Location::Detailed { revision: Some(value), .. } => Some(value),
-                    | Location::Simple(_) | Location::Detailed { revision: None, .. } => None,
-                };
                 revision.map_or(Ok(()), |revision| {
                     Script::init()
                         .command(Command::init().name("git".to_string()).build())
-                        .arguments(vec!["checkout".to_string(), revision.clone()])
+                        .arguments(args!["checkout", revision])
                         .current_dir(destination.display().to_string())
                         .build()
                         .run_checked()
@@ -797,16 +763,115 @@ impl Config {
             })
             .and_then(|()| {
                 let entrypoint = destination.join("config.json");
-                Config::read(entrypoint).map_err(|source| ConfigurationModuleError::Read {
-                    module: module.to_string(),
-                    source,
-                })
+                Config::read(entrypoint.clone())
+                    .map(|config| (config, ConfigurationSource::Git { identity, path: entrypoint }))
+                    .map_err(|source| ConfigurationModuleError::Read {
+                        module: module.to_string(),
+                        source,
+                    })
             })
+    }
+    fn identity(location: &Location, source: &ConfigurationSource) -> Option<String> {
+        let uri = location.uri().unwrap_or_else(|| <&str>::from(location).to_string());
+        match ModuleUri::from(location) {
+            | ModuleUri::File(path) => source.path().map(|parent| {
+                let child = match path.is_absolute() {
+                    | true => path,
+                    | false => parent.parent().map_or(path.clone(), |directory| directory.join(path)),
+                };
+                canonicalize(&child).unwrap_or(child).display().to_string()
+            }),
+            | ModuleUri::Url(value)
+                if matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS) && Self::is_remote_document(&uri) =>
+            {
+                Some(uri)
+            }
+            | ModuleUri::Url(_) => Some(format!("git:{uri}#{}", Self::revision(location).map_or("HEAD", String::as_str))),
+            | ModuleUri::Unknown(_) => None,
+        }
+    }
+    fn load(
+        location: &Location,
+        source: &ConfigurationSource,
+        source_root: &Path,
+        dry_run: bool,
+        offline: bool,
+        module: &str,
+        policy: Option<&RemotePolicy>,
+    ) -> Result<(Self, ConfigurationSource), ConfigurationModuleError> {
+        let uri = location.uri().unwrap_or_else(|| <&str>::from(location).to_string());
+        match ModuleUri::from(location) {
+            | ModuleUri::File(path) => match source.path() {
+                | Some(parent) => {
+                    let child = match path.is_absolute() {
+                        | true => path,
+                        | false => parent.parent().map_or(path.clone(), |directory| directory.join(path)),
+                    };
+                    let child = canonicalize(&child).unwrap_or(child);
+                    Config::read(child.clone())
+                        .map(|config| (config, ConfigurationSource::File(child)))
+                        .map_err(|source| ConfigurationModuleError::Read {
+                            module: module.to_string(),
+                            source,
+                        })
+                }
+                | None => Err(ConfigurationModuleError::Source {
+                    module: module.to_string(),
+                    uri,
+                }),
+            },
+            | ModuleUri::Url(value) => {
+                let scheme = Scheme::from(value.scheme().as_str());
+                let direct_document = matches!(scheme, Scheme::HTTP | Scheme::HTTPS) && Self::is_remote_document(&uri);
+                match (dry_run, offline, policy, direct_document) {
+                    | (true, _, _, _) => Err(ConfigurationModuleError::RemoteDryRun {
+                        module: module.to_string(),
+                        uri,
+                    }),
+                    | (false, true, _, _) => Err(ConfigurationModuleError::Remote {
+                        module: module.to_string(),
+                        reason: format!("offline mode disallows {uri}"),
+                    }),
+                    | (false, false, None, _) => Err(ConfigurationModuleError::Source {
+                        module: module.to_string(),
+                        uri,
+                    }),
+                    | (false, false, Some(_), true) if Self::revision(location).is_some() => Err(ConfigurationModuleError::Revision {
+                        module: module.to_string(),
+                        uri,
+                    }),
+                    | (false, false, Some(policy), true) => policy
+                        .read_text(&uri)
+                        .map_err(|source| ConfigurationModuleError::Remote {
+                            module: module.to_string(),
+                            reason: source.to_string(),
+                        })
+                        .and_then(|content| Self::read_remote_document(&content, &uri, module))
+                        .map(|config| (config, ConfigurationSource::Http(uri))),
+                    | (false, false, Some(policy), false) => policy
+                        .probe_git(&uri)
+                        .map_err(|source| ConfigurationModuleError::Remote {
+                            module: module.to_string(),
+                            reason: source.to_string(),
+                        })
+                        .and_then(|()| Self::clone_configuration(location, &uri, source_root, module)),
+                }
+            }
+            | ModuleUri::Unknown(_) => Err(ConfigurationModuleError::Source {
+                module: module.to_string(),
+                uri,
+            }),
+        }
+    }
+    fn is_remote_document(uri: &str) -> bool {
+        Url::parse(uri)
+            .ok()
+            .is_some_and(|url| matches!(MimeType::from(url.path()), MimeType::Json | MimeType::Yaml))
     }
     fn read_remote_document(content: &str, uri: &str, module: &str) -> Result<Self, ConfigurationModuleError> {
         let path = PathBuf::from(uri);
-        let format = match uri.rsplit_once('.') {
-            | Some((_, "yaml" | "yml")) => ConfigFormat::Yaml,
+        let format = match Url::parse(uri).ok().map(|url| MimeType::from(url.path())) {
+            | Some(MimeType::Yaml) => ConfigFormat::Yaml,
             | _ => ConfigFormat::Json,
         };
         let parsed = match format {
@@ -818,11 +883,30 @@ impl Config {
             source: ConfigReadError::Invalid { format, path, source },
         })
     }
-    fn resolve_at(self, source: &Path, ancestors: Vec<PathBuf>, path: Vec<String>, depth: usize) -> Result<Self, ConfigurationModuleError> {
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_at(
+        self,
+        source: ConfigurationSource,
+        source_root: &Path,
+        dry_run: bool,
+        offline: bool,
+        ancestors: Vec<String>,
+        path: Vec<String>,
+        depth: usize,
+        policy: Option<RemotePolicy>,
+        inherited_variables: Option<Map<String, Value>>,
+        inherited_output: Option<String>,
+    ) -> Result<Self, ConfigurationModuleError> {
         match depth > 16 {
             | true => Err(ConfigurationModuleError::Depth { path }),
             | false => {
-                let ancestors = ancestors.into_iter().chain(once(source.to_path_buf())).collect::<Vec<_>>();
+                let identity = source.identity();
+                if ancestors.contains(&identity) {
+                    return Err(ConfigurationModuleError::Cycle { path, location: identity });
+                }
+                let ancestors = ancestors.into_iter().chain(once(identity)).collect::<Vec<_>>();
+                let variables = Self::merge(inherited_variables.as_ref(), self.variables.as_ref(), None);
+                let output = self.output.clone().or(inherited_output);
                 self.modules
                     .into_iter()
                     .try_fold(
@@ -832,62 +916,79 @@ impl Config {
                                 let nested_path = path.iter().cloned().chain(once(module.name.clone())).collect::<Vec<_>>();
                                 match (module.template.is_some(), module.completion.is_some()) {
                                     | (true, _) => Err(ConfigurationModuleError::Wrapper {
-                                        module: module.name,
+                                        module: nested_path.join("::"),
                                         field: "template",
                                     }),
                                     | (_, true) => Err(ConfigurationModuleError::Wrapper {
-                                        module: module.name,
+                                        module: nested_path.join("::"),
                                         field: "completion",
                                     }),
-                                    | (false, false) => ModuleUri::resolve_configuration(&uri, source)
-                                        .ok_or_else(|| ConfigurationModuleError::Source {
-                                            module: module.name.clone(),
-                                            uri: uri.uri().unwrap_or_else(|| <&str>::from(&uri).to_string()),
-                                        })
-                                        .and_then(|child_source| {
-                                            let child_source = canonicalize(&child_source).unwrap_or(child_source);
-                                            match ancestors.contains(&child_source) {
-                                                | true => Err(ConfigurationModuleError::Cycle {
-                                                    path: nested_path,
-                                                    location: child_source,
-                                                }),
-                                                | false => Config::read(child_source.clone())
-                                                    .map_err(|source| ConfigurationModuleError::Read {
-                                                        module: module.name.clone(),
-                                                        source,
-                                                    })
-                                                    .and_then(|child| {
-                                                        child.resolve_at(&child_source, ancestors.clone(), nested_path.clone(), depth + 1)
-                                                    })
-                                                    .map(|child| {
-                                                        let variables =
-                                                            Self::merge(self.variables.as_ref(), module.variables.as_ref(), child.variables.as_ref());
-                                                        let children = child
-                                                            .modules
-                                                            .into_iter()
-                                                            .map(move |child_module| child_module.qualify(&nested_path, variables.as_ref()));
-                                                        (children, child.requirements)
-                                                    })
-                                                    .map(|(children, child_requirements)| {
-                                                        modules.extend(children);
-                                                        child_requirements.into_iter().for_each(|requirement| {
-                                                            if !requirements.contains(&requirement) {
-                                                                requirements.push(requirement);
-                                                            }
-                                                        });
-                                                        (modules, requirements)
-                                                    }),
-                                            }
+                                    | (false, false) => match Self::identity(&uri, &source).filter(|identity| ancestors.contains(identity)) {
+                                        | Some(location) => Err(ConfigurationModuleError::Cycle {
+                                            path: nested_path.clone(),
+                                            location,
                                         }),
+                                        | None => Self::load(&uri, &source, source_root, dry_run, offline, &nested_path.join("::"), policy.as_ref()),
+                                    }
+                                    .and_then(|(child, child_source)| {
+                                        let child_offline = offline || child.options.as_ref().and_then(|options| options.offline).unwrap_or_default();
+                                        let child_policy = policy.as_ref().map_or(Ok(None), |policy| {
+                                            policy
+                                                .restrict(child.options.as_ref().and_then(|options| options.allowed.as_deref()))
+                                                .map(Some)
+                                                .map_err(|source| ConfigurationModuleError::Policy {
+                                                    module: nested_path.join("::"),
+                                                    reason: source.to_string(),
+                                                })
+                                        });
+                                        child_policy.and_then(|child_policy| {
+                                            let inherited = Self::merge(variables.as_ref(), module.variables.as_ref(), None);
+                                            child.resolve_at(
+                                                child_source,
+                                                source_root,
+                                                dry_run,
+                                                child_offline,
+                                                ancestors.clone(),
+                                                nested_path.clone(),
+                                                depth.saturating_add(1),
+                                                child_policy,
+                                                inherited,
+                                                output.clone(),
+                                            )
+                                        })
+                                    })
+                                    .map(|child| {
+                                        modules.extend(child.modules);
+                                        child.requirements.into_iter().for_each(|requirement| {
+                                            if !requirements.contains(&requirement) {
+                                                requirements.push(requirement);
+                                            }
+                                        });
+                                        (modules, requirements)
+                                    }),
                                 }
                             }
                             | module_type => {
                                 let mut module = Module { module_type, ..module };
-                                if depth > 0 {
-                                    module.absolutize(source);
-                                }
-                                modules.push(module);
-                                Ok((modules, requirements))
+                                Self::validate_nested_leaf(&module, &source, offline, &path, policy.as_ref()).map(|()| {
+                                    if let Some(source) = source.path() {
+                                        module.absolutize_container_mounts(source);
+                                        if !path.is_empty() {
+                                            module.absolutize(source);
+                                        }
+                                    }
+                                    module.module_path = path.iter().chain(once(&module.name)).cloned().collect();
+                                    module.variables = Self::merge(variables.as_ref(), module.variables.as_ref(), None);
+                                    if let Some(output) = output.as_ref() {
+                                        module
+                                            .variables
+                                            .get_or_insert_default()
+                                            .entry("OUTPUT_DIRECTORY".to_string())
+                                            .or_insert_with(|| Value::String(output.clone()));
+                                    }
+                                    modules.push(module);
+                                    (modules, requirements)
+                                })
                             }
                         },
                     )
@@ -897,6 +998,50 @@ impl Config {
                         ..self
                     })
             }
+        }
+    }
+    fn revision(location: &Location) -> Option<&String> {
+        match location {
+            | Location::Detailed { revision, .. } => revision.as_ref(),
+            | Location::Simple(_) => None,
+        }
+    }
+    fn validate_nested_leaf(
+        module: &Module,
+        source: &ConfigurationSource,
+        offline: bool,
+        path: &[String],
+        policy: Option<&RemotePolicy>,
+    ) -> Result<(), ConfigurationModuleError> {
+        let location = match &module.module_type {
+            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => uri,
+        };
+        let module_path = path.iter().chain(once(&module.name)).cloned().collect::<Vec<_>>().join("::");
+        match (path.is_empty(), source, ModuleUri::from(location), offline, policy) {
+            | (true, _, _, _, _) | (_, ConfigurationSource::File(_) | ConfigurationSource::Git { .. }, ModuleUri::File(_), _, _) => Ok(()),
+            | (false, ConfigurationSource::Http(_), ModuleUri::File(_), _, _) | (false, _, ModuleUri::Unknown(_), _, _) => {
+                Err(ConfigurationModuleError::Source {
+                    module: module_path,
+                    uri: <&str>::from(location).to_string(),
+                })
+            }
+            | (false, _, ModuleUri::Url(_), true, _) => Err(ConfigurationModuleError::Remote {
+                module: module_path,
+                reason: format!("offline mode disallows {}", <&str>::from(location)),
+            }),
+            | (false, _, ModuleUri::Url(_), false, Some(policy)) => {
+                policy
+                    .ensure_allowed(location.into())
+                    .map(|_| ())
+                    .map_err(|source| ConfigurationModuleError::Remote {
+                        module: module_path,
+                        reason: source.to_string(),
+                    })
+            }
+            | (false, _, ModuleUri::Url(_), false, None) => Err(ConfigurationModuleError::Source {
+                module: module_path,
+                uri: <&str>::from(location).to_string(),
+            }),
         }
     }
 }
@@ -944,6 +1089,27 @@ impl fmt::Display for ConfigReadError {
             | Self::UnsupportedExtension(path) => {
                 write!(formatter, "configuration {} must use a .json, .yaml, or .yml extension", path.display())
             }
+        }
+    }
+}
+impl ConfigurationModuleError {
+    /// Whether this failure represents unavailable remote acquisition rather than invalid configuration data.
+    pub fn is_availability(&self) -> bool {
+        matches!(self, Self::Remote { .. })
+    }
+}
+impl ConfigurationSource {
+    fn identity(&self) -> String {
+        match self {
+            | Self::File(path) => canonicalize(path).unwrap_or_else(|_| path.clone()).display().to_string(),
+            | Self::Git { identity, .. } => identity.clone(),
+            | Self::Http(uri) => uri.clone(),
+        }
+    }
+    fn path(&self) -> Option<&Path> {
+        match self {
+            | Self::File(path) | Self::Git { path, .. } => Some(path),
+            | Self::Http(_) => None,
         }
     }
 }
@@ -1225,11 +1391,6 @@ impl Module {
         if let Some(TemplateAttribute::Template(template)) = &mut self.template {
             template.absolutize_container_mounts(source);
         }
-    }
-    fn qualify(mut self, path: &[String], variables: Option<&Map<String, Value>>) -> Self {
-        self.module_path = path.iter().chain(once(&self.name)).cloned().collect();
-        self.variables = Config::merge(variables, self.variables.as_ref(), None);
-        self
     }
 }
 fn default_container_env() -> bool {

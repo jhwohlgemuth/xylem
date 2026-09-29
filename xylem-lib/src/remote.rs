@@ -55,8 +55,9 @@ struct AllowedAuthority {
     port: Option<u16>,
 }
 /// Exact-host policy for remote module URLs.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RemotePolicy {
+    allow_all: bool,
     authorities: Vec<AllowedAuthority>,
 }
 impl TryFrom<&str> for AllowedAuthority {
@@ -136,6 +137,14 @@ impl fmt::Display for RemoteError {
         }
     }
 }
+impl Default for RemotePolicy {
+    fn default() -> Self {
+        Self {
+            allow_all: true,
+            authorities: Vec::new(),
+        }
+    }
+}
 impl RemotePolicy {
     /// Construct a policy from `HOST` or `HOST:PORT` entries.
     ///
@@ -146,7 +155,26 @@ impl RemotePolicy {
             .iter()
             .map(|value| AllowedAuthority::try_from(value.as_str()))
             .collect::<Result<Vec<_>, _>>()
-            .map(|authorities| Self { authorities })
+            .map(|authorities| Self {
+                allow_all: authorities.is_empty(),
+                authorities,
+            })
+    }
+    /// Apply a nested workflow allowlist without permitting any authority denied by the parent policy.
+    pub fn restrict(&self, hosts: Option<&[String]>) -> Result<Self, RemoteError> {
+        Self::from_hosts(hosts).map(|child| match (self.allow_all, child.allow_all) {
+            | (true, _) => child,
+            | (_, true) => self.clone(),
+            | (false, false) => Self {
+                allow_all: false,
+                authorities: self
+                    .authorities
+                    .iter()
+                    .filter(|authority| child.authorities.contains(authority))
+                    .cloned()
+                    .collect(),
+            },
+        })
     }
     /// Validate that a URL is permitted by this policy.
     pub fn ensure_allowed(&self, value: &str) -> Result<Url, RemoteError> {
@@ -163,7 +191,7 @@ impl RemotePolicy {
     }
     fn allows_url(&self, url: &Url) -> bool {
         url.host_str().map(normalize_host).is_some_and(|host| {
-            self.authorities.is_empty()
+            self.allow_all
                 || self.authorities.iter().any(|allowed| {
                     allowed.host == host
                         && match allowed.port {
