@@ -4,6 +4,7 @@ use acorn_core::validation::{digest, ValidationError};
 use acorn_schema::validation::{report_of, rules, Validate, ValidationReport};
 use core::mem;
 use glob::Pattern;
+use std::path::Component;
 
 impl Validate for Completion {
     fn validate(&self) -> Result<(), ValidationReport> {
@@ -154,11 +155,69 @@ impl Validate for ContainerEnvironment {
                 validation_error("unsupported", "container contexts are not supported during execution"),
             );
         }
-        if self.image.is_some() {
-            report.add(
-                "image",
-                validation_error("unsupported", "container image acquisition is not supported during execution"),
-            );
+        match self.create {
+            | true => {
+                if matches!(self.runtime, ContainerRuntime::Apptainer | ContainerRuntime::Unknown) {
+                    report.add("runtime", validation_error("supported", "managed containers require docker or podman"));
+                }
+                if self.image.as_ref().is_none_or(|image| image.trim().is_empty()) {
+                    report.add("image", validation_error("required", "managed container image is required"));
+                }
+                if self.command.as_ref().is_some_and(|command| command.is_empty()) {
+                    report.add("command", validation_error("nonempty", "managed container command must not be empty"));
+                }
+                if matches!(self.startup_timeout_seconds, Some(0)) {
+                    report.add(
+                        "startup_timeout_seconds",
+                        validation_error("positive", "startup timeout must be greater than zero"),
+                    );
+                }
+                let mut targets = BTreeSet::new();
+                self.mounts.iter().enumerate().for_each(|(index, mount)| {
+                    let path = format!("mounts[{index}]");
+                    if mount.source.trim().is_empty() || mount.source.contains(',') {
+                        report.add(
+                            format!("{path}.source"),
+                            validation_error("path", "mount source must be nonempty and must not contain commas"),
+                        );
+                    }
+                    let target = Path::new(&mount.target);
+                    let invalid_target = !target.is_absolute()
+                        || mount.target == "/"
+                        || mount.target.contains(',')
+                        || target.components().any(|component| matches!(component, Component::ParentDir))
+                        || target.components().collect::<PathBuf>() != target;
+                    if invalid_target {
+                        report.add(
+                            format!("{path}.target"),
+                            validation_error("path", "mount target must be an absolute, normalized non-root path without commas"),
+                        );
+                    } else if targets.iter().any(|existing| {
+                        let existing = Path::new(existing);
+                        target.starts_with(existing) || existing.starts_with(target)
+                    }) {
+                        report.add(
+                            format!("{path}.target"),
+                            validation_error("nonoverlapping", "mount targets must not overlap"),
+                        );
+                    } else {
+                        targets.insert(mount.target.as_str());
+                    }
+                });
+            }
+            | false => {
+                let has_image = self.image.is_some();
+                let has_command = self.command.is_some();
+                let has_cleanup = self.cleanup.is_some();
+                let has_mounts = !self.mounts.is_empty();
+                let has_timeout = self.startup_timeout_seconds.is_some();
+                if has_image || has_command || has_cleanup || has_mounts || has_timeout {
+                    report.add(
+                        "create",
+                        validation_error("required", "set create to true to use managed container fields"),
+                    );
+                }
+            }
         }
         report.finish()
     }

@@ -11,6 +11,7 @@ use crate::error::PyProjectError;
 
 pub mod completion;
 pub mod config;
+pub mod container;
 pub mod error;
 pub mod execution;
 pub mod journal;

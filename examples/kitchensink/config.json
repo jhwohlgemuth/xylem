@@ -108,6 +108,20 @@
             "uri": "file:./examples/kitchensink/docker",
             "template": {
                 "container": {
+                    "cleanup": "always",
+                    "command": [
+                        "sleep",
+                        "infinity"
+                    ],
+                    "create": true,
+                    "image": "alpine:3.22",
+                    "mounts": [
+                        {
+                            "read_only": false,
+                            "source": "../..",
+                            "target": "/workspace/xylem"
+                        }
+                    ],
                     "name": "xylem-kitchensink",
                     "runtime": "podman"
                 },

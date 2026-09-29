@@ -149,14 +149,6 @@ fn test_configuration_errors_preserve_format_path_and_source() {
     remove_file(empty).expect("remove empty YAML configuration");
 }
 #[test]
-fn test_configuration_try_from_uses_mime_type_for_yml_files() {
-    let path = std::env::temp_dir().join(format!("xylem-config-mime-{}.yml", std::process::id()));
-    write(&path, "requirements: []\nmodules: []\n").expect("write YAML configuration");
-    let config = Config::try_from(path.as_path()).expect("read YAML configuration by MIME type");
-    assert!(config.modules.is_empty());
-    remove_file(path).expect("remove YAML configuration");
-}
-#[test]
 fn test_configuration_modules_flatten_local_workflows() {
     let root = std::env::temp_dir().join(format!("xylem-configuration-modules-{}", std::process::id()));
     let child_directory = root.join("child");
@@ -261,6 +253,14 @@ fn test_configuration_modules_reject_excessive_depth() {
     remove_dir_all(root).expect("remove configuration depth directory");
 }
 #[test]
+fn test_configuration_try_from_uses_mime_type_for_yml_files() {
+    let path = std::env::temp_dir().join(format!("xylem-config-mime-{}.yml", std::process::id()));
+    write(&path, "requirements: []\nmodules: []\n").expect("write YAML configuration");
+    let config = Config::try_from(path.as_path()).expect("read YAML configuration by MIME type");
+    assert!(config.modules.is_empty());
+    remove_file(path).expect("remove YAML configuration");
+}
+#[test]
 fn test_configuration_version_must_be_semantic() {
     for version in ["1", "1.2", "1.2.3"] {
         let config = serde_json::json!({
@@ -336,6 +336,45 @@ fn test_json_and_yaml_reject_unknown_fields() {
         assert!(parse_json_configuration(json).is_err(), "JSON should reject {json}");
         assert!(parse_yaml_configuration(yaml).is_err(), "YAML should reject {yaml}");
     }
+}
+#[test]
+fn test_managed_container_validation_requires_owned_fields() {
+    let managed: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{
+            "name": "managed",
+            "type": "script",
+            "uri": "file:.",
+            "template": {
+                "command": "echo",
+                "arguments": [],
+                "container": {
+                    "name": "worker",
+                    "create": true,
+                    "image": "alpine:3.22",
+                    "runtime": "docker",
+                    "mounts": [{"source": ".", "target": "/workspace"}]
+                }
+            }
+        }]
+    }))
+    .expect("managed container configuration");
+    assert!(managed.validate().is_ok());
+    let external_with_image: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{
+            "name": "external",
+            "type": "script",
+            "uri": "file:.",
+            "template": {
+                "command": "echo",
+                "arguments": [],
+                "container": {"name": "worker", "image": "alpine:3.22", "runtime": "docker"}
+            }
+        }]
+    }))
+    .expect("external container configuration");
+    assert!(external_with_image.validate().is_err());
 }
 #[test]
 fn test_preparation_and_execution_emit_progress_updates() {

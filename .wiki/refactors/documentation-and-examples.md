@@ -68,6 +68,4 @@ Inventory can begin immediately. Final behavior descriptions follow the accepted
 
 # Related plans
 
-- [Configuration validation and dry-run](configuration-validation-and-dry-run.md)
-- [Structured run reporters](../features/run-reporters.md)
 - [CI and release pipeline](ci-release-pipeline.md)

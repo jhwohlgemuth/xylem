@@ -13,13 +13,16 @@ use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use tracing::{debug, info};
 use xylem_lib::config::{Config, ConfigOptions, ConfigReadError};
+use xylem_lib::container::ContainerLifecycle;
 use xylem_lib::execution::{ExecutionContext, ExecutionLimits};
-use xylem_lib::journal::{ConfigurationIdentity, ExecutionState, FinalStatus, JournalInput, RunJournal, RunMetadata};
+use xylem_lib::journal::{
+    ConfigurationIdentity, ContainerState, ExecutionState, FinalStatus, JournalContainer, JournalInput, RunJournal, RunMetadata,
+};
 use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::ExecutionPlan;
 use xylem_lib::progress::{ProgressObserver, ProgressPhase, ProgressState, ProgressUpdate};
 use xylem_lib::remote::RemotePolicy;
-use xylem_lib::script::{EnvironmentValue, ModuleType, ModuleUri};
+use xylem_lib::script::{managed_container_name, ContainerCleanup, EnvironmentValue, ModuleType, ModuleUri};
 use xylem_lib::util::deduplicate;
 use xylem_lib::ReporterType;
 
@@ -138,6 +141,8 @@ pub fn run(
     cli_allowed: &Option<Vec<String>>,
     cli_skip_verify_checksum: bool,
     cli_skip_verify_requirements: bool,
+    cli_container_cleanup: Option<ContainerCleanup>,
+    cli_no_container_env: bool,
     _verbose: Verbosity,
     limits: ExecutionLimits,
     no_progress: bool,
@@ -196,7 +201,9 @@ pub fn run(
                             .with_offline(Some(offline))
                             .with_resume(Some(resume))
                             .with_skip_verify_checksum(Some(skip_verify_checksum))
-                            .with_skip_verify_requirements(Some(skip_verify_requirements)),
+                            .with_skip_verify_requirements(Some(skip_verify_requirements))
+                            .with_container_cleanup(cli_container_cleanup)
+                            .with_forward_container_env(!cli_no_container_env),
                     );
                     preview
                 })
@@ -308,7 +315,8 @@ pub fn run(
                                                     .options
                                                     .clone()
                                                     .unwrap_or_else(|| ConfigOptions::init().build())
-                                                    .with_root(Some(root.clone()));
+                                                    .with_root(Some(root.clone()))
+                                                    .with_container_run_id(Some(id.clone()));
                                                 debug!("=> {} Run configuration options = {}", Label::using(), format!("{options:#?}").dimmed());
                                                 let required_modules = Ok(plan
                                                     .modules
@@ -343,10 +351,29 @@ pub fn run(
                                                         };
                                                         let dry_run = options.dry_run.unwrap_or_default();
                                                         let metadata = RunMetadata::now(run_id, configuration, dry_run);
-                                                        let create_journal =
-                                                            RunJournal::create(journal_path.clone(), metadata, journal_inputs, module_names);
+                                                        let journal_containers = plan
+                                                            .containers
+                                                            .iter()
+                                                            .enumerate()
+                                                            .map(|(index, container)| JournalContainer {
+                                                                index,
+                                                                name: match container.action.as_str() {
+                                                                    | "would_create" => managed_container_name(&container.name, &id),
+                                                                    | _ => container.name.clone(),
+                                                                },
+                                                                owned: container.action == "would_create",
+                                                                runtime: container.runtime.to_string(),
+                                                            })
+                                                            .collect::<Vec<_>>();
+                                                        let create_journal = RunJournal::create_with_containers(
+                                                            journal_path.clone(),
+                                                            metadata,
+                                                            journal_inputs,
+                                                            module_names,
+                                                            journal_containers.clone(),
+                                                        );
                                                         let create_journal_result = create_journal.map_err(|why| {
-                                                            RunFailure::new(exitcode::CANTCREAT, format!("create durable execution journal: {why}"))
+                                                            RunFailure::new(exitcode::CANTCREAT, format!("create durable execution journal — {why}"))
                                                         });
                                                         match create_journal_result {
                                                             | Ok(journal) => {
@@ -367,8 +394,7 @@ pub fn run(
                                                                         config
                                                                             .prepare_modules_selected(&execution, &required_modules, Some(&progress))
                                                                             .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
-                                                                    })
-                                                                    .map(Config::set_environment_variables);
+                                                                    });
                                                                 progress.finish_preparation(prepared.is_ok());
                                                                 let dispatched = match prepared {
                                                                     | Ok(prepared) => {
@@ -378,73 +404,161 @@ pub fn run(
                                                                             .unwrap_or_else(|| ConfigOptions::init().root(root.clone()).build());
                                                                         let concurrency = execution.input_concurrency(options.batch);
                                                                         debug!(concurrency, "=> {} Active workflow input limit", Label::using());
-                                                                        let operation = |index, input: &Option<String>| {
-                                                                            match input {
-                                                                                | Some(value) => info!(
-                                                                                    value,
-                                                                                    source = input_kind,
-                                                                                    "=> {} Workflow input",
-                                                                                    Label::using()
-                                                                                ),
-                                                                                | None => info!(
-                                                                                    "=> {} Configuration with {}",
-                                                                                    Label::using(),
-                                                                                    Label::fmt_not_found("NO INPUTS")
-                                                                                ),
-                                                                            }
-                                                                            let transition = journal
-                                                                                .transition_input(index, ExecutionState::Pending, None)
-                                                                                .map_err(|why| format!("record pending input state: {why}"))
-                                                                                .and_then(|()| {
-                                                                                    journal
-                                                                                        .transition_input(index, ExecutionState::Running, None)
-                                                                                        .map_err(|why| format!("record running input state: {why}"))
-                                                                                });
-                                                                            match transition {
-                                                                                | Err(message) => {
-                                                                                    let state = ExecutionState::Failed;
-                                                                                    let _ = journal.transition_input(index, state, Some(&message));
-                                                                                    WorkflowOutcome::failed(input.clone(), message)
-                                                                                }
-                                                                                | Ok(()) => {
-                                                                                    let mut outcome = prepared.clone().run_workflow_recorded(
-                                                                                        input.clone(),
-                                                                                        &options,
-                                                                                        Some(&progress),
-                                                                                        Some(&journal),
-                                                                                        index,
-                                                                                    );
-                                                                                    let terminal_transition = journal.transition_input(
-                                                                                        index,
-                                                                                        outcome.state,
-                                                                                        outcome.error.as_deref(),
-                                                                                    );
-                                                                                    if let Err(why) = terminal_transition {
-                                                                                        let message = format!("record terminal input state: {why}");
-                                                                                        outcome.state = ExecutionState::Failed;
-                                                                                        outcome.error = Some(match outcome.error {
-                                                                                            | Some(primary) => {
-                                                                                                format!("{primary}; additionally, {message}")
-                                                                                            }
-                                                                                            | None => message,
-                                                                                        });
-                                                                                    }
-                                                                                    outcome
-                                                                                }
-                                                                            }
-                                                                        };
-                                                                        let failed = |outcome: &WorkflowOutcome| !outcome.is_success();
-                                                                        let execute_dispatch = execution.dispatch_inputs_fail_fast(
-                                                                            &inputs,
-                                                                            options.batch,
-                                                                            operation,
-                                                                            failed,
-                                                                        );
-                                                                        execute_dispatch.map_err(|why| {
+                                                                        let lifecycle = ContainerLifecycle::start(
+                                                                            &prepared,
+                                                                            &required_modules,
+                                                                            options.root.as_deref().unwrap_or(root.as_path()),
+                                                                            &id,
+                                                                            options.offline.unwrap_or_default(),
+                                                                            options.container_cleanup,
+                                                                        )
+                                                                        .map_err(|why| {
+                                                                            journal_containers.iter().for_each(|container| {
+                                                                                let _ = journal.transition_container(
+                                                                                    container.index,
+                                                                                    ContainerState::Failed,
+                                                                                    Some(&why.to_string()),
+                                                                                );
+                                                                            });
                                                                             RunFailure::new(
-                                                                                exitcode::OSERR,
-                                                                                format!("initialize Xylem input worker pool: {why}"),
+                                                                                exitcode::UNAVAILABLE,
+                                                                                format!("prepare containers — {why}"),
                                                                             )
+                                                                        });
+                                                                        lifecycle.and_then(|lifecycle| {
+                                                                            journal_containers.iter().for_each(|container| {
+                                                                                let state = match container.owned {
+                                                                                    | true => ContainerState::Ready,
+                                                                                    | false => ContainerState::External,
+                                                                                };
+                                                                                let _ = journal.transition_container(container.index, state, None);
+                                                                            });
+                                                                            let operation = |index, input: &Option<String>| {
+                                                                                match input {
+                                                                                    | Some(value) => info!(
+                                                                                        value,
+                                                                                        source = input_kind,
+                                                                                        "=> {} Workflow input",
+                                                                                        Label::using()
+                                                                                    ),
+                                                                                    | None => info!(
+                                                                                        "=> {} Configuration with {}",
+                                                                                        Label::using(),
+                                                                                        Label::fmt_not_found("NO INPUTS")
+                                                                                    ),
+                                                                                }
+                                                                                let transition = journal
+                                                                                    .transition_input(index, ExecutionState::Pending, None)
+                                                                                    .map_err(|why| format!("record pending input state — {why}"))
+                                                                                    .and_then(|()| {
+                                                                                        journal
+                                                                                            .transition_input(index, ExecutionState::Running, None)
+                                                                                            .map_err(|why| {
+                                                                                                format!("record running input state — {why}")
+                                                                                            })
+                                                                                    });
+                                                                                match transition {
+                                                                                    | Err(message) => {
+                                                                                        let state = ExecutionState::Failed;
+                                                                                        let _ =
+                                                                                            journal.transition_input(index, state, Some(&message));
+                                                                                        WorkflowOutcome::failed(input.clone(), message)
+                                                                                    }
+                                                                                    | Ok(()) => {
+                                                                                        let mut outcome = prepared.clone().run_workflow_recorded(
+                                                                                            input.clone(),
+                                                                                            &options,
+                                                                                            Some(&progress),
+                                                                                            Some(&journal),
+                                                                                            index,
+                                                                                        );
+                                                                                        let terminal_transition = journal.transition_input(
+                                                                                            index,
+                                                                                            outcome.state,
+                                                                                            outcome.error.as_deref(),
+                                                                                        );
+                                                                                        if let Err(why) = terminal_transition {
+                                                                                            let message =
+                                                                                                format!("record terminal input state — {why}");
+                                                                                            outcome.state = ExecutionState::Failed;
+                                                                                            outcome.error = Some(match outcome.error {
+                                                                                                | Some(primary) => {
+                                                                                                    format!("{primary}; additionally, {message}")
+                                                                                                }
+                                                                                                | None => message,
+                                                                                            });
+                                                                                        }
+                                                                                        outcome
+                                                                                    }
+                                                                                }
+                                                                            };
+                                                                            let failed = |outcome: &WorkflowOutcome| !outcome.is_success();
+                                                                            let dispatched = execution
+                                                                                .dispatch_inputs_fail_fast(&inputs, options.batch, operation, failed)
+                                                                                .map_err(|why| {
+                                                                                    RunFailure::new(
+                                                                                        exitcode::OSERR,
+                                                                                        format!("initialize Xylem input worker pool — {why}"),
+                                                                                    )
+                                                                                });
+                                                                            let succeeded = dispatched.as_ref().is_ok_and(|outcomes| {
+                                                                                outcomes.iter().flatten().all(WorkflowOutcome::is_success)
+                                                                            });
+                                                                            let cleanup = lifecycle.finish(succeeded);
+                                                                            match (dispatched, cleanup) {
+                                                                                | (Ok(outcomes), Ok(finished)) => {
+                                                                                    journal_containers
+                                                                                        .iter()
+                                                                                        .filter(|container| container.owned)
+                                                                                        .for_each(|container| {
+                                                                                            let state =
+                                                                                                match finished.retained.contains(&container.name) {
+                                                                                                    | true => ContainerState::Retained,
+                                                                                                    | false => ContainerState::Removed,
+                                                                                                };
+                                                                                            let _ = journal.transition_container(
+                                                                                                container.index,
+                                                                                                state,
+                                                                                                None,
+                                                                                            );
+                                                                                        });
+                                                                                    finished.retained.iter().for_each(|name| {
+                                                                                        info!(name, "=> Retained managed container")
+                                                                                    });
+                                                                                    Ok(outcomes)
+                                                                                }
+                                                                                | (Err(primary), Ok(_)) => Err(primary),
+                                                                                | (Ok(_), Err(cleanup)) => {
+                                                                                    journal_containers
+                                                                                        .iter()
+                                                                                        .filter(|container| container.owned)
+                                                                                        .for_each(|container| {
+                                                                                            let _ = journal.transition_container(
+                                                                                                container.index,
+                                                                                                ContainerState::Failed,
+                                                                                                Some(&cleanup.to_string()),
+                                                                                            );
+                                                                                        });
+                                                                                    Err(RunFailure::new(
+                                                                                        exitcode::IOERR,
+                                                                                        format!("clean up containers — {cleanup}"),
+                                                                                    ))
+                                                                                }
+                                                                                | (Err(primary), Err(cleanup)) => {
+                                                                                    journal_containers
+                                                                                        .iter()
+                                                                                        .filter(|container| container.owned)
+                                                                                        .for_each(|container| {
+                                                                                            let _ = journal.transition_container(
+                                                                                                container.index,
+                                                                                                ContainerState::Failed,
+                                                                                                Some(&cleanup.to_string()),
+                                                                                            );
+                                                                                        });
+                                                                                    Err(primary
+                                                                                        .with_secondary(format!("clean up containers — {cleanup}")))
+                                                                                }
+                                                                            }
                                                                         })
                                                                     }
                                                                     | Err(why) => Err(why),
@@ -472,11 +586,11 @@ pub fn run(
                                                                 if let Err(why) = journal.finish(final_status, final_error.as_deref()) {
                                                                     primary_failure = Some(match primary_failure {
                                                                         | Some(failure) => {
-                                                                            failure.with_secondary(format!("finalize execution journal: {why}"))
+                                                                            failure.with_secondary(format!("finalize execution journal — {why}"))
                                                                         }
                                                                         | None => RunFailure::new(
                                                                             exitcode::IOERR,
-                                                                            format!("finalize execution journal: {why}"),
+                                                                            format!("finalize execution journal — {why}"),
                                                                         ),
                                                                     });
                                                                 }
@@ -485,11 +599,11 @@ pub fn run(
                                                                     | Err(why) => {
                                                                         primary_failure = Some(match primary_failure {
                                                                             | Some(failure) => {
-                                                                                failure.with_secondary(format!("recover execution journal: {why}"))
+                                                                                failure.with_secondary(format!("recover execution journal — {why}"))
                                                                             }
                                                                             | None => RunFailure::new(
                                                                                 exitcode::IOERR,
-                                                                                format!("recover execution journal: {why}"),
+                                                                                format!("recover execution journal — {why}"),
                                                                             ),
                                                                         });
                                                                         None
@@ -504,11 +618,11 @@ pub fn run(
                                                                         {
                                                                             primary_failure = Some(match primary_failure {
                                                                                 | Some(failure) => {
-                                                                                    failure.with_secondary(format!("write journal location: {why}"))
+                                                                                    failure.with_secondary(format!("write journal location — {why}"))
                                                                                 }
                                                                                 | None => RunFailure::new(
                                                                                     exitcode::IOERR,
-                                                                                    format!("write journal location: {why}"),
+                                                                                    format!("write journal location — {why}"),
                                                                                 ),
                                                                             });
                                                                         }
@@ -517,7 +631,7 @@ pub fn run(
                                                                     if let Err(why) = render {
                                                                         primary_failure = Some(match primary_failure {
                                                                             | Some(failure) => {
-                                                                                failure.with_secondary(format!("render run report: {why}"))
+                                                                                failure.with_secondary(format!("render run report — {why}"))
                                                                             }
                                                                             | None => {
                                                                                 RunFailure::new(exitcode::IOERR, format!("render run report: {why}"))

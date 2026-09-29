@@ -114,6 +114,8 @@ pub fn run_example(config: &str) -> Void {
         &None,
         false,
         false,
+        None,
+        false,
         Verbosity::default(),
         ExecutionLimits::default(),
         true,

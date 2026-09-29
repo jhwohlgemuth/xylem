@@ -21,8 +21,8 @@ Rechecked against `005aa73`.
 - Confirmed unused direct dependencies: `uriparse` in `xylem-cli`, and
   `valuable` in `xylem-lib`, which imports only `valuable_derive` for the
   `Valuable` derive on `ContainerRuntime` and `ModuleType`. The completed
-  [resumable execution](../features/resumable-execution.md) work moved `glob`
-  to its active library owner; the remaining entries still need an owner.
+  resumable-execution work moved `glob` to its active library owner; the
+  remaining entries still need an owner.
 - `assert_cmd` is declared in both crates, but only `xylem-cli/tests/workflow.rs` uses it. The `xylem-lib` dev-dependency is unused.
 - The plan's claim that `sha2` and `tokio` are declared in `xylem-lib` is no longer true; neither appears in that manifest. `bytes` and `reqwest` are declared and both are used by `remote.rs`.
 - The lockfile still carries duplicate generations of `console` (0.15 and 0.16), `convert_case` (0.10 and 0.11), `indicatif` (0.17 and 0.18), and `reqwest` (0.12 and 0.13). Xylem declares the older generation of each.
@@ -38,7 +38,9 @@ Rechecked against `005aa73`.
 
 # Dependencies and ordering
 
-Finalize after the [ACORN](../migrations/acorn-0-2-upgrade.md) and [YAML](../migrations/maintained-yaml-parser.md) migrations. Its commands are prerequisites for the [CI/release pipeline](ci-release-pipeline.md).
+Finalize after the [ACORN migration](../migrations/acorn-0-3-1-upgrade.md); the
+YAML migration has landed. Its commands are prerequisites for the [CI/release
+pipeline](ci-release-pipeline.md).
 
 # Recommendation
 
@@ -71,6 +73,5 @@ Finalize after the [ACORN](../migrations/acorn-0-2-upgrade.md) and [YAML](../mig
 
 # Related plans
 
-- [ACORN 0.2 upgrade](../migrations/acorn-0-2-upgrade.md)
-- [Maintained YAML parser](../migrations/maintained-yaml-parser.md)
+- [ACORN 0.3.1 upgrade](../migrations/acorn-0-3-1-upgrade.md)
 - [CI and release pipeline](ci-release-pipeline.md)

@@ -11,10 +11,10 @@ status: planned
 
 # Execution
 
-The [resumable execution](../features/resumable-execution.md), typed-error,
-validation, and completion contracts are complete, including their compiled
-CLI close-out cases. Remaining hermetic fixture work coordinates with the open
-process and environment plans only when it touches those runtime contracts.
+The resumable-execution, typed-error, validation, and completion contracts are
+complete, including their compiled CLI close-out cases. Remaining hermetic
+fixture work coordinates with the open process and environment plans only when
+it touches those runtime contracts.
 
 # Goal
 
@@ -45,7 +45,11 @@ Rechecked against `005aa73`. The host-specific defects are fixed; the coverage t
 
 # Dependencies and ordering
 
-Host-independent fixture and helper work can begin immediately. Final assertions follow their owning contracts: [typed outcomes](../refactors/typed-error-and-outcome-boundary.md), [process execution](../refactors/process-execution-contract.md), configuration, environment, acquisition, and reporters. The green suite is required by [CI/release repair](../refactors/ci-release-pipeline.md).
+Host-independent fixture and helper work can begin immediately. Final
+assertions follow their owning contracts: landed typed outcomes, [process
+execution](../refactors/process-execution-contract.md), configuration,
+environment, acquisition, and reporters. The green suite is required by
+[CI/release repair](../refactors/ci-release-pipeline.md).
 
 # Recommendation
 
@@ -92,5 +96,4 @@ Cover help, no command, valid dry-run, invalid config, missing requirement, chil
 # Related plans
 
 - [Process execution contract](../refactors/process-execution-contract.md)
-- [Configuration validation and dry-run](../refactors/configuration-validation-and-dry-run.md)
 - [CI and release pipeline](../refactors/ci-release-pipeline.md)

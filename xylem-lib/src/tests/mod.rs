@@ -486,6 +486,15 @@ fn test_script_get_arguments() {
         format!("{}", script.clone().with_container(container.clone())),
         "docker exec CONTAINER echo hello world"
     );
+    let forwarded = script.clone().with_container(container.clone()).with_envs(HashMap::from([
+        ("_XYLEM_ZETA".to_string(), "last".to_string()),
+        ("_XYLEM_ALPHA".to_string(), "first".to_string()),
+    ]));
+    assert_eq!(
+        forwarded.to_string(),
+        "docker exec --env _XYLEM_ALPHA --env _XYLEM_ZETA CONTAINER echo hello world"
+    );
+    assert_eq!(forwarded.with_container_env(false).to_string(), "docker exec CONTAINER echo hello world");
     assert_eq!(
         format!(
             "{}",
@@ -509,6 +518,10 @@ fn test_script_get_arguments() {
     assert_eq!(
         format!("{}", script.clone().with_container(container.clone())),
         "apptainer exec CONTAINER echo hello world"
+    );
+    assert_eq!(
+        format!("{}", script.clone().with_container(container.clone()).with_container_env(false)),
+        "apptainer exec --cleanenv CONTAINER echo hello world"
     );
     assert_eq!(
         format!(

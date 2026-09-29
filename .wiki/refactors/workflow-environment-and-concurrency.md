@@ -32,7 +32,7 @@ Give each workflow input an immutable execution context containing its variables
 
 # Dependencies and ordering
 
-Follows [typed outcomes](typed-error-and-outcome-boundary.md) and the [process execution contract](process-execution-contract.md). It extends the existing single Rayon budget with scheduling, failure, and cancellation semantics rather than redefining `-t`. The `options.batch` rolling input ceiling has already landed, so this refactor preserves it and moves its admission helper behind the immutable context rather than introducing a competing limit. Its aggregate results feed the existing durable execution journal and [run reporters](../features/run-reporters.md).
+Follows the landed typed-outcome contract and the [process execution contract](process-execution-contract.md). It extends the existing single Rayon budget with scheduling, failure, and cancellation semantics rather than redefining `-t`. The `options.batch` rolling input ceiling has already landed, so this refactor preserves it and moves its admission helper behind the immutable context rather than introducing a competing limit. Its aggregate results feed the existing durable execution journal and run reporters.
 
 # Recommendation
 
@@ -80,6 +80,4 @@ Use an RAII temporary workspace. Remove it after success by default, retain it o
 # Related plans
 
 - [Process execution contract](process-execution-contract.md)
-- [Configuration validation and dry-run](configuration-validation-and-dry-run.md)
 - [Memory-aware scheduling](../features/memory-aware-scheduling.md)
-- [Structured run reporters](../features/run-reporters.md)

@@ -6,7 +6,7 @@ difficulty: medium
 impact: high
 package: [xylem-lib, xylem-cli]
 tags: [containers, docker, podman, workflow, cleanup]
-status: planned
+status: implemented
 ---
 
 # Goal
@@ -38,7 +38,7 @@ execution container fields:
   "runtime": "podman",
   "image": "alpine:3.22",
   "create": true,
-  "arguments": ["sleep", "infinity"],
+  "command": ["sleep", "infinity"],
   "cleanup": "on_success"
 }
 ```
@@ -46,8 +46,8 @@ execution container fields:
 - Preserve `create: false` as the default, retaining current `exec` behavior.
 - Require `image` when `create` is true; reject lifecycle-only fields when the
   container is externally managed.
-- Before preparation, group compatible declarations by `(runtime, context,
-  name)`. Reject conflicting declarations rather than choosing one silently.
+- After module preparation, group compatible declarations by `(runtime, name)`.
+  Reject conflicting declarations rather than choosing one silently.
 - For owned containers, perform `run --detach --name ...`, then poll bounded
   `inspect` state until running. Treat an existing container as an error unless
   it belongs to the same retained run workspace.
@@ -56,8 +56,8 @@ execution container fields:
   container name, and safe command context.
 - Record create, ready, and cleanup transitions in the execution journal and
   include owned container details in JSON and console reports.
-- Clean up owned containers with `rm --force` after a successful run by
-  default. Support `always`, `never`, and `on_success`; never remove an
+- Clean up owned containers with `rm --force` after every run by default.
+  Support `always`, `never`, and `on_success`; never remove an
   externally managed container.
 - Dry runs validate declarations and render lifecycle intent without invoking
   the runtime or allocating a container workspace.
@@ -114,5 +114,10 @@ execution container fields:
   bounded command execution and cancellation.
 - Coordinate with [workflow environment and concurrency](workflow-environment-and-concurrency.md)
   for workspace ownership and cleanup ordering.
-- Consume [structured run reporters](../features/run-reporters.md) and the
-  durable journal rather than introducing a separate event stream.
+- For sandboxed runs, follow
+  [sandboxed workflow execution](sandboxed-workflow-execution.md) and use only
+  a backend-advertised private container runtime. Never mount a host Docker or
+  Podman socket into a workflow sandbox. Externally managed host containers
+  remain available only in explicit unsandboxed compatibility mode.
+- Consume the landed structured run reporters and durable journal rather than
+  introducing a separate event stream.

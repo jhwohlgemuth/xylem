@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
 use std::path::PathBuf;
 use xylem_lib::execution::ExecutionLimits;
+use xylem_lib::script::ContainerCleanup;
 use xylem_lib::ReporterType;
 
 #[derive(Debug, Subcommand)]
@@ -28,6 +29,9 @@ pub enum Commands {
         /// Workflow artifact root; overrides configuration output
         #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         artifact_output: Option<PathBuf>,
+        /// Override cleanup policy for containers created by Xylem
+        #[arg(long, value_enum)]
+        container_cleanup: Option<ContainerCleanup>,
         /// Directory for the durable journal and file-based reports
         #[arg(short = 'o', long = "report-output", visible_alias = "output", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         report_output: Option<PathBuf>,
@@ -40,6 +44,9 @@ pub enum Commands {
         /// Execute workflow without connection to the internet
         #[arg(short = 'X', long, value_name = "BOOL")]
         offline: bool,
+        /// Do not forward resolved Xylem environment variables into containers
+        #[arg(long)]
+        no_container_env: bool,
         /// Skip modules whose declared outputs and completion marker are current
         #[arg(long, value_name = "BOOL")]
         resume: bool,
@@ -125,6 +132,20 @@ mod tests {
         match parse(&["xylem", "run", "--output", "reports"]).command {
             | Some(Commands::Run { report_output, .. }) => {
                 assert_eq!(report_output, Some(PathBuf::from("reports")));
+            }
+            | None => panic!("run command should parse"),
+        }
+    }
+    #[test]
+    fn test_container_policy_flags_parse() {
+        match parse(&["xylem", "run", "--container-cleanup", "on-success", "--no-container-env"]).command {
+            | Some(Commands::Run {
+                container_cleanup,
+                no_container_env,
+                ..
+            }) => {
+                assert_eq!(container_cleanup, Some(ContainerCleanup::OnSuccess));
+                assert!(no_container_env);
             }
             | None => panic!("run command should parse"),
         }

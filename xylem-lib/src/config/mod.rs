@@ -94,6 +94,7 @@ pub enum ConfigurationModuleError {
     #[error("resolve remote configuration module {module}: {reason}")]
     Remote { module: String, reason: String },
 }
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum InputAttribute {
@@ -172,6 +173,16 @@ pub struct ConfigOptions {
     pub skip_verify_requirements: Option<bool>,
     /// Exact remote module hosts permitted by this workflow.
     pub allowed: Option<Vec<String>>,
+    /// Runtime-only cleanup override for managed containers.
+    #[serde(skip)]
+    pub container_cleanup: Option<ContainerCleanup>,
+    /// Runtime-only policy for forwarding Xylem variables to containers.
+    #[builder(default = true)]
+    #[serde(skip, default = "default_container_env")]
+    pub forward_container_env: bool,
+    /// Runtime-only identifier used to derive managed container names.
+    #[serde(skip)]
+    pub container_run_id: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -290,6 +301,7 @@ impl Config {
                     }
                     | module_type => {
                         let mut module = Module { module_type, ..module };
+                        module.absolutize_container_mounts(source);
                         if nested {
                             module.absolutize(source);
                         }
@@ -557,7 +569,9 @@ impl Config {
                                                             .ensure_relative()
                                                             .expand_arguments_from(envs.clone())
                                                             .with_current_dir(working_dir)
-                                                            .with_envs(envs);
+                                                            .with_envs(envs)
+                                                            .with_container_run(options.container_run_id.as_deref())
+                                                            .with_container_env(options.forward_container_env);
                                                         match options.dry_run.unwrap_or_default() {
                                                             | true => {
                                                                 info!(
@@ -589,7 +603,9 @@ impl Config {
                                                             let script = loaded
                                                                 .expand_arguments_from(envs.clone())
                                                                 .with_current_dir(working_dir.clone())
-                                                                .with_envs(envs);
+                                                                .with_envs(envs)
+                                                                .with_container_run(options.container_run_id.as_deref())
+                                                                .with_container_env(options.forward_container_env);
                                                             let configured = match programming_language {
                                                                 | Some(ModuleLanguage::Python) => module
                                                                     .resolve_virtual_environment(&working_dir)
@@ -1196,6 +1212,29 @@ impl Module {
         format!("module {} remote source {} failed: {why}", self.name, redact_url(url))
     }
 }
+impl Module {
+    fn absolutize(&mut self, source: &Path) {
+        let uri = match &mut self.module_type {
+            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => uri,
+        };
+        if let Some(value) = ModuleUri::from(uri).absolutize(source) {
+            *uri = value;
+        }
+    }
+    fn absolutize_container_mounts(&mut self, source: &Path) {
+        if let Some(TemplateAttribute::Template(template)) = &mut self.template {
+            template.absolutize_container_mounts(source);
+        }
+    }
+    fn qualify(mut self, path: &[String], variables: Option<&Map<String, Value>>) -> Self {
+        self.module_path = path.iter().chain(once(&self.name)).cloned().collect();
+        self.variables = Config::merge(variables, self.variables.as_ref(), None);
+        self
+    }
+}
+fn default_container_env() -> bool {
+    true
+}
 fn deserialize_version<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -1230,21 +1269,5 @@ fn read_configuration_content(path: &Path, format: ConfigFormat) -> Result<Strin
             | false => Ok(content),
         })
 }
-impl Module {
-    fn absolutize(&mut self, source: &Path) {
-        let uri = match &mut self.module_type {
-            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => uri,
-        };
-        if let Some(value) = ModuleUri::from(uri).absolutize(source) {
-            *uri = value;
-        }
-    }
-    fn qualify(mut self, path: &[String], variables: Option<&Map<String, Value>>) -> Self {
-        self.module_path = path.iter().chain(once(&self.name)).cloned().collect();
-        self.variables = Config::merge(variables, self.variables.as_ref(), None);
-        self
-    }
-}
-
 #[cfg(test)]
 mod tests;

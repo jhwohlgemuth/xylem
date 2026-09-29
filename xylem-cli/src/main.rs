@@ -13,12 +13,14 @@ fn main() -> Void {
     match &args.command {
         | Some(Commands::Run {
             artifact_output,
+            container_cleanup,
             config,
             reporter,
             report_output,
             input,
             dry_run,
             offline,
+            no_container_env,
             resume,
             allowed,
             skip_verify_checksum,
@@ -37,6 +39,8 @@ fn main() -> Void {
             allowed,
             *skip_verify_checksum,
             *skip_verify_requirements,
+            *container_cleanup,
+            *no_container_env,
             *verbose,
             args.threads,
             args.no_progress,

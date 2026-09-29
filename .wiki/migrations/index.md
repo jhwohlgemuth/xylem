@@ -2,5 +2,4 @@
 
 ## Planned
 
-- [ACORN 0.2 dependency upgrade](acorn-0-2-upgrade.md) - Move from `acorn-lib` 0.1.50 to the 0.2 contract and enable only the capabilities Xylem uses. Version migration landed; feature narrowing remains.
-- [Maintained YAML parser](maintained-yaml-parser.md) - Replace unmaintained `serde_yml`/`libyml` and remove permanent advisory exceptions. Executed as Phase 1 of [resumable execution](../features/resumable-execution.md).
+- [ACORN 0.3.1 dependency upgrade](acorn-0-3-1-upgrade.md) - Move the pinned ACORN 0.2.0 packages to 0.3.1 and remove the unused `acorn-lib` analysis dependency.

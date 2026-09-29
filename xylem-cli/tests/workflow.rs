@@ -89,6 +89,56 @@ fn test_configured_batch_caps_active_inputs_in_the_compiled_cli() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
+fn test_dry_run_plans_managed_container_without_starting_runtime() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!("xylem-managed-plan-{}", std::process::id()));
+    let _ = remove_dir_all(&test_root);
+    create_dir_all(&test_root).expect("create managed plan fixture");
+    let config = test_root.join("config.json");
+    let document = serde_json::json!({
+        "requirements": [],
+        "modules": [{
+            "name": "managed",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": format!("file:{}", test_root.display()),
+            "template": {
+                "command": "echo",
+                "arguments": ["hello"],
+                "container": {
+                    "name": "worker",
+                    "create": true,
+                    "image": "alpine:3.22",
+                    "mounts": [{"source": ".", "target": "/workspace"}]
+                }
+            }
+        }]
+    });
+    write(&config, serde_json::to_vec_pretty(&document).expect("serialize fixture")).expect("write managed plan fixture");
+    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let output = command
+        .current_dir(workspace)
+        .args([
+            "run",
+            "--config",
+            config.to_str().expect("UTF-8 configuration path"),
+            "--dry-run",
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("run managed dry-run plan");
+    assert!(output.status.success(), "dry run failed: {}", String::from_utf8_lossy(&output.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid dry-run plan");
+    assert_eq!(plan["containers"][0]["action"], "would_create");
+    assert_eq!(plan["containers"][0]["name"], "worker");
+    assert_eq!(plan["containers"][0]["mounts"][0]["source"], test_root.display().to_string());
+    remove_dir_all(test_root).expect("remove managed plan fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
 fn test_dry_run_renders_a_plan_without_writing_files() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -112,7 +162,7 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
         .expect("run dry-run plan");
     assert!(output.status.success(), "dry run failed: {}", String::from_utf8_lossy(&output.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid dry-run plan");
-    assert_eq!(plan["schema_version"], 2);
+    assert_eq!(plan["schema_version"], 3);
     assert_eq!(plan["configuration"]["output"], output_directory.display().to_string());
     assert_eq!(plan["modules"][0]["decision"], "would_run");
     assert_eq!(

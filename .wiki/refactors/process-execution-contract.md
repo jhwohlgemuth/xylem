@@ -31,7 +31,9 @@ Execute module commands without pipe deadlocks or argument corruption, and retur
 
 # Dependencies and ordering
 
-Consumes the [typed error and workflow outcome](typed-error-and-outcome-boundary.md) taxonomy. It precedes [workflow environment and concurrency](workflow-environment-and-concurrency.md), secure acquisition subprocesses, and reporters.
+Consumes the landed typed-error and workflow-outcome taxonomy. It precedes
+[workflow environment and concurrency](workflow-environment-and-concurrency.md),
+secure acquisition subprocesses, and reporters.
 
 # Recommendation
 
@@ -75,6 +77,5 @@ Consumes the [typed error and workflow outcome](typed-error-and-outcome-boundary
 
 # Related plans
 
-- [Typed errors and outcomes](typed-error-and-outcome-boundary.md)
 - [Workflow environment and concurrency](workflow-environment-and-concurrency.md)
 - [Hermetic workflow tests](../testing/hermetic-workflow-tests.md)

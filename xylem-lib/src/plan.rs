@@ -3,7 +3,9 @@ extern crate alloc;
 
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
 use crate::config::{Config, InputAttribute};
-use crate::script::{module_working_directory, Module, ModuleType, ModuleUri, Script, TemplateAttribute};
+use crate::script::{
+    module_working_directory, ContainerCleanup, ContainerEnvironment, ContainerRuntime, Module, ModuleType, ModuleUri, Script, TemplateAttribute,
+};
 use acorn_schema::validation::ValidationReport;
 use alloc::collections::BTreeMap;
 use bon::Builder;
@@ -28,6 +30,8 @@ pub enum PlanError {
 pub struct ExecutionPlan {
     /// Configuration used to build the plan.
     pub configuration: PlanConfiguration,
+    /// Deduplicated containers required by modules that would run.
+    pub containers: Vec<PlannedContainer>,
     /// Ordered module decisions for every input.
     pub modules: Vec<PlannedModule>,
     /// Whether resume observations influenced decisions.
@@ -75,6 +79,26 @@ pub struct PlannedCompletion {
     /// Sorted output path or glob patterns.
     pub outputs: Vec<String>,
 }
+/// One container operation required by the plan.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PlannedContainer {
+    /// Whether Xylem would create or verify the container.
+    pub action: String,
+    /// Effective cleanup policy for a managed container.
+    pub cleanup: Option<ContainerCleanup>,
+    /// Configured image for a managed container.
+    pub image: Option<String>,
+    /// Configured logical name.
+    pub name: String,
+    /// Modules referencing this declaration.
+    pub module_indices: Vec<usize>,
+    /// Explicit bind mounts.
+    pub mounts: Vec<PlannedMount>,
+    /// Runtime used for delegation.
+    pub runtime: ContainerRuntime,
+    /// Readiness timeout in seconds.
+    pub startup_timeout_seconds: u64,
+}
 /// One planned module decision.
 #[derive(Builder, Clone, Debug, Eq, PartialEq, Serialize)]
 #[builder(on(String, into), start_fn(name = init))]
@@ -101,6 +125,16 @@ pub struct PlannedModule {
     pub observed_completion: bool,
     /// Effective variables after workflow, output-default, module, and input precedence.
     pub variables: BTreeMap<String, String>,
+}
+/// One bind mount shown in a dry-run plan.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PlannedMount {
+    /// Whether the mount is read-only.
+    pub read_only: bool,
+    /// Resolved host source.
+    pub source: String,
+    /// Absolute guest target.
+    pub target: String,
 }
 /// Resolve CLI-over-configuration input precedence with deterministic duplicate handling.
 impl Config {
@@ -146,6 +180,31 @@ impl Config {
         })
     }
 }
+impl ContainerEnvironment {
+    fn planned(self, module_index: usize) -> PlannedContainer {
+        PlannedContainer {
+            action: match self.create {
+                | true => "would_create".to_string(),
+                | false => "would_verify_existing".to_string(),
+            },
+            cleanup: self.create.then_some(self.cleanup.unwrap_or_default()),
+            image: self.image,
+            module_indices: vec![module_index],
+            mounts: self
+                .mounts
+                .into_iter()
+                .map(|mount| PlannedMount {
+                    read_only: mount.read_only,
+                    source: mount.source,
+                    target: mount.target,
+                })
+                .collect(),
+            name: self.name,
+            runtime: self.runtime,
+            startup_timeout_seconds: self.startup_timeout_seconds.unwrap_or(30),
+        }
+    }
+}
 impl ExecutionPlan {
     /// Build a plan using only configuration and explicitly labeled read-only completion observations.
     pub fn build(config: &Config, path: String, inputs: &[Option<String>], resume: bool) -> Result<Self, PlanError> {
@@ -166,6 +225,7 @@ impl ExecutionPlan {
                         })
                 })
                 .map(|modules| Self {
+                    containers: PlannedContainer::from_modules(config, &modules),
                     configuration: PlanConfiguration {
                         id: config.id.clone(),
                         output: config.output.clone(),
@@ -174,7 +234,7 @@ impl ExecutionPlan {
                     },
                     modules,
                     resume,
-                    schema_version: 2,
+                    schema_version: 3,
                 })
         })
     }
@@ -188,7 +248,7 @@ impl Module {
         match &self.template {
             | Some(TemplateAttribute::Template(template)) => {
                 let variables = variables.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
-                let script = Script::from_template(template.clone()).expand_arguments_from(variables);
+                let script = Script::from_template(template.as_ref().clone()).expand_arguments_from(variables);
                 PlannedCommand {
                     arguments: script.arguments,
                     program: Some(script.command.name),
@@ -322,5 +382,34 @@ impl From<Module> for PlannedAcquisition {
             action: action.to_string(),
             source,
         }
+    }
+}
+impl PlannedContainer {
+    fn from_modules(config: &Config, modules: &[PlannedModule]) -> Vec<Self> {
+        modules
+            .iter()
+            .filter(|module| module.decision == "would_run")
+            .map(|module| module.module_index)
+            .filter_map(|module_index| {
+                config.modules.get(module_index).and_then(|module| {
+                    Script::from_module(module.clone(), None)
+                        .ok()
+                        .and_then(|script| script.command.container)
+                        .map(|container| (module_index, container))
+                })
+            })
+            .fold(
+                BTreeMap::<(ContainerRuntime, String), Self>::new(),
+                |mut planned, (module_index, container)| {
+                    let key = (container.runtime, container.name.clone());
+                    planned
+                        .entry(key)
+                        .and_modify(|value| value.module_indices.push(module_index))
+                        .or_insert_with(|| container.planned(module_index));
+                    planned
+                },
+            )
+            .into_values()
+            .collect()
     }
 }

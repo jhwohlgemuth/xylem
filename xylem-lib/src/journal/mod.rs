@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use strum::EnumIs;
 
 /// Current on-disk journal schema version.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 2;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 3;
 /// Maximum number of UTF-8 bytes retained for one journal error detail.
 pub const MAX_ERROR_BYTES: usize = 4096;
 trait Summary {
@@ -31,6 +31,23 @@ trait Summary {
         }
         *updated_at_ms = timestamp_ms;
     }
+}
+/// Durable state of a container used by the run.
+#[derive(Clone, Copy, Debug, Deserialize, EnumIs, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContainerState {
+    /// The declaration is known but lifecycle work has not started.
+    NotStarted,
+    /// The container is running and ready for module commands.
+    Ready,
+    /// The managed container was removed.
+    Removed,
+    /// The managed container was intentionally retained.
+    Retained,
+    /// An external container was verified and left untouched.
+    External,
+    /// Lifecycle work failed.
+    Failed,
 }
 /// State of a run input or module at one point in time.
 #[derive(Clone, Copy, Debug, Deserialize, EnumIs, Eq, PartialEq, Serialize)]
@@ -79,6 +96,12 @@ pub enum JournalError {
 pub enum JournalEvent {
     /// Declares the run before any work begins.
     RunStarted { metadata: RunMetadata },
+    /// Records a container lifecycle transition.
+    ContainerState {
+        container: JournalContainer,
+        state: ContainerState,
+        error: Option<String>,
+    },
     /// Records an input transition.
     InputState {
         input: JournalInput,
@@ -119,6 +142,24 @@ pub struct ConfigurationIdentity {
     /// Optional workflow version declared by the configuration.
     pub version: Option<String>,
 }
+/// Latest reconstructed lifecycle state for one container.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ContainerSummary {
+    /// Deterministic zero-based position.
+    pub index: usize,
+    /// Effective runtime name.
+    pub name: String,
+    /// Whether Xylem owns the container lifecycle.
+    pub owned: bool,
+    /// Runtime executable name.
+    pub runtime: String,
+    /// Latest durable state.
+    pub state: ContainerState,
+    /// Bounded lifecycle failure, when present.
+    pub error: Option<String>,
+    /// Timestamp of the latest transition.
+    pub updated_at_ms: u64,
+}
 /// Latest reconstructed input state and its ordered modules.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct InputSummary {
@@ -138,6 +179,18 @@ pub struct InputSummary {
     pub updated_at_ms: u64,
     /// Ordered module states.
     pub modules: Vec<ModuleSummary>,
+}
+/// Stable identity for a container in a run journal.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct JournalContainer {
+    /// Deterministic zero-based position.
+    pub index: usize,
+    /// Effective runtime name used for execution.
+    pub name: String,
+    /// Whether Xylem owns the container lifecycle.
+    pub owned: bool,
+    /// Runtime executable name.
+    pub runtime: String,
 }
 /// Stable identity and display value for one workflow input.
 #[skip_serializing_none]
@@ -171,6 +224,7 @@ struct JournalSink {
     next_sequence: u64,
     input_states: Vec<ExecutionState>,
     module_states: Vec<Vec<ExecutionState>>,
+    container_states: Vec<ContainerState>,
     finalized: bool,
 }
 /// Latest reconstructed module state.
@@ -196,6 +250,7 @@ pub struct RunJournal {
     run_id: String,
     inputs: Vec<JournalInput>,
     modules: Vec<String>,
+    containers: Vec<JournalContainer>,
     sink: Mutex<JournalSink>,
 }
 /// Run metadata written before any input begins.
@@ -231,6 +286,8 @@ pub struct RunSummary {
     pub status: RunStatus,
     /// Final bounded run error, when present.
     pub error: Option<String>,
+    /// Ordered container lifecycle summaries.
+    pub containers: Vec<ContainerSummary>,
     /// Ordered input summaries.
     pub inputs: Vec<InputSummary>,
 }
@@ -322,6 +379,16 @@ impl RunJournal {
     ///
     /// Existing destinations are never overwritten. No execution should begin until this constructor has successfully returned.
     pub fn create(path: PathBuf, metadata: RunMetadata, inputs: Vec<JournalInput>, modules: Vec<String>) -> Result<Self, JournalError> {
+        Self::create_with_containers(path, metadata, inputs, modules, Vec::new())
+    }
+    /// Create a journal with run-scoped container declarations.
+    pub fn create_with_containers(
+        path: PathBuf,
+        metadata: RunMetadata,
+        inputs: Vec<JournalInput>,
+        modules: Vec<String>,
+        containers: Vec<JournalContainer>,
+    ) -> Result<Self, JournalError> {
         metadata
             .validate()
             .map_err(JournalError::from)
@@ -334,17 +401,28 @@ impl RunJournal {
                     run_id: metadata.run_id.clone(),
                     inputs: inputs.clone(),
                     modules: modules.clone(),
+                    containers: containers.clone(),
                     sink: Mutex::new(JournalSink {
                         writer: BufWriter::new(file),
                         next_sequence: 0,
                         input_states: vec![ExecutionState::NotStarted; inputs.len()],
                         module_states,
+                        container_states: vec![ContainerState::NotStarted; containers.len()],
                         finalized: false,
                     }),
                 };
                 match journal.validate().map_err(JournalError::from) {
                     | Ok(()) => journal
                         .append(JournalEvent::RunStarted { metadata })
+                        .and_then(|()| {
+                            containers.into_iter().try_for_each(|container| {
+                                journal.append(JournalEvent::ContainerState {
+                                    container,
+                                    state: ContainerState::NotStarted,
+                                    error: None,
+                                })
+                            })
+                        })
                         .and_then(|()| {
                             inputs.into_iter().try_for_each(|input| {
                                 journal
@@ -375,6 +453,30 @@ impl RunJournal {
                         Err(why)
                     }
                 }
+            })
+    }
+    /// Durably transition one run-scoped container.
+    pub fn transition_container(&self, index: usize, state: ContainerState, error: Option<&str>) -> Result<(), JournalError> {
+        self.containers
+            .get(index)
+            .cloned()
+            .ok_or_else(|| JournalError::Invalid(format!("unknown container index {index}")))
+            .and_then(|container| {
+                self.sink.lock().map_err(|_| JournalError::Poisoned).and_then(|mut sink| {
+                    let current = sink.container_states[index];
+                    validate_container_transition(current, state)
+                        .and_then(|()| {
+                            sink.append_locked(
+                                &self.run_id,
+                                JournalEvent::ContainerState {
+                                    container,
+                                    state,
+                                    error: error.map(bounded_error),
+                                },
+                            )
+                        })
+                        .map(|()| sink.container_states[index] = state)
+                })
             })
     }
     /// Return the journal's filesystem path.
@@ -621,6 +723,23 @@ impl RunSummary {
                 )
             })
             .and_then(|()| {
+                let (removed, retained, external, failed) =
+                    self.containers
+                        .iter()
+                        .fold((0usize, 0usize, 0usize, 0usize), |(removed, retained, external, failed), container| {
+                            (
+                                removed.saturating_add(usize::from(container.state.is_removed())),
+                                retained.saturating_add(usize::from(container.state.is_retained())),
+                                external.saturating_add(usize::from(container.state.is_external())),
+                                failed.saturating_add(usize::from(container.state.is_failed())),
+                            )
+                        });
+                writeln!(
+                    output,
+                    "Containers: {removed} removed, {retained} retained, {external} external, {failed} failed"
+                )
+            })
+            .and_then(|()| {
                 self.inputs.iter().filter(|input| input.state.is_failed()).try_for_each(|input| {
                     let name = input.value.as_deref().unwrap_or("<no input>");
                     writeln!(output, "Failed: {name}: {}", input.error.as_deref().unwrap_or("module execution failed"))
@@ -689,6 +808,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
     type Error = JournalError;
 
     fn try_from(records: Vec<JournalRecord>) -> Result<Self, Self::Error> {
+        let mut containers = BTreeMap::<usize, ContainerSummary>::new();
         let mut metadata = None;
         let mut inputs = BTreeMap::<usize, InputSummary>::new();
         let mut finalization = None;
@@ -732,6 +852,42 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                     metadata = Some(value);
                                     Ok(())
                                 }
+                            }
+                        }
+                        | JournalEvent::ContainerState { container, state, error } => {
+                            let initialized = containers.len();
+                            match containers.get_mut(&container.index) {
+                                | Some(summary) => {
+                                    let changed =
+                                        summary.name != container.name || summary.owned != container.owned || summary.runtime != container.runtime;
+                                    match changed {
+                                        | true => Err(JournalError::Invalid(format!("container identity changed at index {}", container.index))),
+                                        | false => validate_container_transition(summary.state, state).map(|()| {
+                                            summary.state = state;
+                                            summary.error = error;
+                                            summary.updated_at_ms = timestamp_ms;
+                                        }),
+                                    }
+                                }
+                                | None if state.is_not_started() && container.index == initialized => {
+                                    containers.insert(
+                                        container.index,
+                                        ContainerSummary {
+                                            index: container.index,
+                                            name: container.name,
+                                            owned: container.owned,
+                                            runtime: container.runtime,
+                                            state,
+                                            error,
+                                            updated_at_ms: timestamp_ms,
+                                        },
+                                    );
+                                    Ok(())
+                                }
+                                | None => Err(JournalError::Invalid(format!(
+                                    "container {} was not initialized in order",
+                                    container.index
+                                ))),
                             }
                         }
                         | JournalEvent::InputState { input, state, error } => {
@@ -834,6 +990,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                             duration_ms,
                             status,
                             error,
+                            containers: containers.into_values().collect(),
                             inputs: inputs.into_values().collect(),
                         })
                     }
@@ -860,6 +1017,19 @@ fn timestamp_ms() -> u64 {
         .as_millis()
         .try_into()
         .unwrap_or(u64::MAX)
+}
+fn validate_container_transition(current: ContainerState, next: ContainerState) -> Result<(), JournalError> {
+    let valid = match current {
+        | ContainerState::NotStarted => next.is_ready() || next.is_external() || next.is_failed(),
+        | ContainerState::Ready => next.is_removed() || next.is_retained() || next.is_failed(),
+        | ContainerState::Removed | ContainerState::Retained | ContainerState::External | ContainerState::Failed => false,
+    };
+    match valid {
+        | true => Ok(()),
+        | false => Err(JournalError::Invalid(format!(
+            "invalid container transition from {current:?} to {next:?}"
+        ))),
+    }
 }
 fn validate_transition(current: ExecutionState, next: ExecutionState, kind: &str) -> Result<(), JournalError> {
     let valid = match current {

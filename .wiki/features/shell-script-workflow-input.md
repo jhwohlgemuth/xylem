@@ -19,38 +19,52 @@ boundary.
 
 # Contract decisions
 
+- Replace the reserved `ShellScript(ScriptTemplate)` payload with a structured
+  discovery request containing the script and declared input roots. Resolve
+  relative roots from the configuration source and require operator policy to
+  grant them before provisioning.
 - Define stdout as the sole input channel, with one UTF-8 path per line.
 - Reject non-zero status, invalid UTF-8, empty records, and output above a
   documented byte and record limit.
-- Run discovery before plan construction and represent discovery failures as
-  typed input errors with captured status and bounded stderr.
+- Build a static plan first, then run discovery through the workflow sandbox
+  before constructing the final immutable execution plan. Represent discovery
+  failures as typed input errors with captured status and bounded stderr.
 - Preserve first occurrence order and apply the same duplicate policy as CLI
   and configured list inputs.
-- Make the side effect explicit: normal planning may execute input discovery,
-  while a future strict no-process planning mode must reject it.
-- Apply the workflow's remote, environment, and working-directory policy
-  deliberately; do not inherit arbitrary process-global variables.
+- Make the side effect explicit: normal execution performs discovery between
+  the static and final plans, while write-free dry-run never executes it.
+- Apply a discovery-specific narrowing of the workflow sandbox policy: declared
+  input roots are read-only, scratch is private, and network and credentials
+  are denied by default. Do not inherit arbitrary process-global variables.
+- Treat stdout paths as guest paths under declared input roots. Reject path
+  traversal, special files, and symlink escapes while mapping them back to host
+  inputs.
+- Keep write-free dry-run process-free. With no CLI input override, report
+  dynamic inputs as unresolved rather than running discovery implicitly.
 
 # Implementation phases
 
 ## Phase 1: Typed discovery boundary
 
-Add a capability-owned input discovery type and error enum. Move list and
+Add a capability-owned input discovery request and error enum. Move list and
 directory resolution behind that boundary so shell discovery shares the same
-normalization, duplicate handling, limits, and diagnostics.
+normalization, duplicate handling, limits, and diagnostics. Validate declared
+roots before resolving the script.
 
 ## Phase 2: Bounded shell execution
 
-Execute the configured `ScriptTemplate` through the checked process layer.
-Capture stdout and stderr without deadlock, enforce time and output limits, and
-parse stdout into input records only after successful completion.
+Execute the configured `ScriptTemplate` through the checked sandbox session.
+Capture stdout and stderr without deadlock, enforce time, PID, byte, and record
+limits, and parse stdout into input records only after successful completion.
 
 ## Phase 3: Planning and CLI integration
 
-Replace the current semantic-validation rejection with discovery during input
-resolution. Record the discovery source in the execution plan and keep CLI
-inputs at highest precedence so an explicit CLI list does not spawn the
-configured discovery script.
+Replace the current semantic-validation rejection with a static discovery plan
+followed by sandboxed input resolution. Record the discovery command identity,
+effective policy digest, source, and bounded result metadata in the final
+execution plan. Keep CLI inputs at highest precedence so an explicit CLI list
+does not provision a discovery sandbox. Add a versioned journal transition for
+registering discovered inputs before module execution.
 
 ## Phase 4: Documentation and fixtures
 
@@ -63,6 +77,9 @@ coverage.
 - Unit tests for empty output, duplicates, ordering, invalid UTF-8, non-zero
   status, oversized output, timeout, and bounded stderr.
 - Integration proof that CLI inputs bypass the shell script.
+- Integration proof that discovery cannot read undeclared host paths, inherit
+  ambient credentials, reach the network, or escape declared input roots.
+- Dry-run proof that no discovery session is provisioned.
 - Determinism proof that identical stdout yields byte-identical plans.
 - `cargo nextest run --workspace --all-targets`
 - `cargo clippy --workspace --all-targets -- -D warnings`
@@ -73,5 +90,13 @@ coverage.
 - Every process and parsing failure is typed and path-qualified.
 - Input discovery cannot silently inherit unrestricted environment state or
   produce unbounded memory use.
+- Input discovery has no direct host-process path and cannot broaden the
+  workflow's effective sandbox policy.
 - CLI input precedence remains unchanged.
 
+# Dependencies
+
+- Follows [lossless process execution](../refactors/process-execution-contract.md).
+- Follows [sandboxed workflow execution](../refactors/sandboxed-workflow-execution.md)
+  and consumes its policy, session, path-mapping, cancellation, and journal
+  contracts.

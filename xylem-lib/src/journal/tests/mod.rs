@@ -39,6 +39,24 @@ fn concurrent_writes_remain_valid_and_sequenced() {
     remove_file(path).expect("remove journal");
 }
 #[test]
+fn container_states_are_recovered() {
+    let path = path("containers");
+    let containers = vec![JournalContainer {
+        index: 0,
+        name: "xylem-worker-run".to_string(),
+        owned: true,
+        runtime: "docker".to_string(),
+    }];
+    let journal =
+        RunJournal::create_with_containers(path.clone(), metadata("run-containers"), Vec::new(), Vec::new(), containers).expect("create journal");
+    journal.transition_container(0, ContainerState::Ready, None).expect("ready container");
+    journal.transition_container(0, ContainerState::Removed, None).expect("remove container");
+    journal.finish(FinalStatus::Succeeded, None).expect("finish run");
+    let summary = RunJournal::read(&path).expect("recover journal");
+    assert_eq!(summary.containers[0].state, ContainerState::Removed);
+    remove_file(path).expect("remove journal");
+}
+#[test]
 fn error_details_are_bounded_without_splitting_utf8() {
     let path = path("bounded");
     let journal = RunJournal::create(path.clone(), metadata("run-bounded"), vec![JournalInput::new(0, None)], Vec::new()).expect("create journal");
@@ -74,6 +92,7 @@ fn json_report_is_atomic_and_refuses_overwrite() {
     create_dir_all(&directory).expect("create reporter test directory");
     let summary = RunSummary {
         schema_version: JOURNAL_SCHEMA_VERSION,
+        containers: Vec::new(),
         run_id: "atomic-report".to_string(),
         configuration: ConfigurationIdentity {
             path: "config.json".to_string(),

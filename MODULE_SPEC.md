@@ -105,6 +105,23 @@ configured list for a run.
 A template MUST contain `command` and `arguments`. It MAY contain `environment`
 and `container`.
 
+A `container` MUST provide a logical `name` and MAY select `runtime` (`docker`
+by default, `podman`, or externally managed `apptainer`). With the default
+`create: false`, Xylem verifies a named Docker or Podman container and delegates
+the command with `exec`; it never starts, stops, or removes that container.
+
+With `create: true`, Xylem requires Docker or Podman plus an `image`, creates a
+run-scoped container after module preparation, waits for running/healthy state,
+and delegates every referencing module to it. A managed declaration MAY provide
+`command`, explicit `mounts` (`source`, absolute `target`, and `read_only`),
+`startup_timeout_seconds`, and `cleanup` (`always`, `on_success`, or `never`).
+Relative mount sources resolve against the file that declares them. No host path
+is mounted implicitly. `--container-cleanup` overrides cleanup for one run.
+
+Resolved `_XYLEM_*` values are forwarded to container commands by default.
+`--no-container-env` disables that forwarding without changing variables already
+defined by the image or existing container.
+
 `arguments` supports two representations:
 
 - Exec form, an array of argument strings. This form SHOULD be used because each

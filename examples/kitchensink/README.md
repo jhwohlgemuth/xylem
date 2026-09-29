@@ -20,22 +20,20 @@ Mamba → mamba.txt → Pixi → pixi.txt → script → script.txt → binary �
 
 Install [Mamba](https://mamba.readthedocs.io/en/latest/installation/),
 [Pixi](https://pixi.sh/latest/installation/), and
-[Podman](https://podman.io/). The Podman module uses `podman exec`, so Xylem
-does not create the container or mount the repository; you must start it before
-running the workflow. On macOS, initialize and start the Podman VM once:
+[Podman](https://podman.io/). Xylem creates the Podman container, mounts the
+repository, waits for readiness, and removes it when the run finishes. On macOS,
+initialize and start the Podman VM once:
 
 ```shell
 podman machine init
 podman machine start
 ```
 
-Start a container with the repository mounted at `/workspace/xylem`, then run the
-workflow. The example runner compiles the local binary with the Rust toolchain
+Run the workflow. The example runner compiles the local binary with the Rust toolchain
 that `cargo run` already requires, producing a native opaque executable on
 Windows, Linux (including musl hosts), and macOS.
 
 ```shell
-podman run --rm --detach --name xylem-kitchensink --volume "$PWD:/workspace/xylem" alpine:3.22 sleep infinity
 cargo run --example kitchensink
 ```
 
@@ -49,5 +47,3 @@ cargo run --package xylem-cli -- -vvvv run --config examples/kitchensink/config.
 The output files are written below `output/alpha/` and `output/bravo/`. Re-run
 with `--resume` to skip stages whose declared outputs and completion markers
 still match the workflow configuration.
-
-Stop the container when finished with `podman stop xylem-kitchensink`.

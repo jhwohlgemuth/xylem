@@ -7,6 +7,7 @@ use acorn_core::util::alloc::StringConversion;
 use acorn_core::{Location, Scheme};
 use acorn_host::fs::read_text;
 use bon::Builder;
+use clap::ValueEnum;
 use core::convert::TryFrom;
 use derive_more::{Display, FromStr};
 use fancy_regex::Regex;
@@ -25,7 +26,23 @@ use uriparse::URI;
 use valuable_derive::Valuable;
 use which::which;
 
-#[derive(Clone, Debug, Display, Serialize, Deserialize, Valuable)]
+/// Cleanup policy for a container created by Xylem.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Display, Eq, PartialEq, Serialize, ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum ContainerCleanup {
+    /// Remove the container after every run outcome.
+    #[default]
+    #[display("always")]
+    Always,
+    /// Remove the container only after a successful run.
+    #[display("on_success")]
+    #[value(name = "on-success")]
+    OnSuccess,
+    /// Retain the container after the run.
+    #[display("never")]
+    Never,
+}
+#[derive(Clone, Copy, Debug, Display, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize, Valuable)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainerRuntime {
     #[display("docker")]
@@ -151,7 +168,7 @@ enum RawModuleType {
 #[serde(untagged)]
 pub enum TemplateAttribute {
     Path(String),
-    Template(ScriptTemplate),
+    Template(Box<ScriptTemplate>),
 }
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub enum TemplateType {
@@ -219,7 +236,7 @@ pub struct Command {
 /// let container = ContainerEnvironment::init().name("myenv").build();
 /// let container = ContainerEnvironment::init().name("myenv").runtime(ContainerRuntime::Podman).build();
 /// ```
-#[derive(Builder, Clone, Debug, Deserialize, Display, Serialize)]
+#[derive(Builder, Clone, Debug, Deserialize, Display, Eq, PartialEq, Serialize)]
 #[display("{}", "{runtime}:{image}")]
 #[builder(start_fn(name = init))]
 #[serde(deny_unknown_fields)]
@@ -228,11 +245,40 @@ pub struct ContainerEnvironment {
     pub name: String,
     /// Runtime (ex. "docker", "podman", etc...)
     #[builder(default=ContainerRuntime::Docker)]
+    #[serde(default = "default_container_runtime")]
     pub runtime: ContainerRuntime,
     /// Context name to use (defaults to active context)
     pub context: Option<String>,
     /// Name of image container was built from
     pub image: Option<String>,
+    /// Whether Xylem creates and owns the container for this run.
+    #[builder(default)]
+    #[serde(default)]
+    pub create: bool,
+    /// Optional command used to keep a managed container running.
+    pub command: Option<Vec<String>>,
+    /// Cleanup policy for a managed container.
+    pub cleanup: Option<ContainerCleanup>,
+    /// Explicit bind mounts available to a managed container.
+    #[builder(default)]
+    #[serde(default)]
+    pub mounts: Vec<ContainerMount>,
+    /// Maximum number of seconds to wait for readiness.
+    pub startup_timeout_seconds: Option<u64>,
+}
+/// Explicit bind mount for a managed container.
+#[derive(Builder, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[builder(start_fn(name = init))]
+#[serde(deny_unknown_fields)]
+pub struct ContainerMount {
+    /// Host path, resolved relative to the declaring file.
+    pub source: String,
+    /// Absolute path exposed inside the container.
+    pub target: String,
+    /// Whether the guest mount is read-only.
+    #[builder(default = true)]
+    #[serde(default = "default_true")]
+    pub read_only: bool,
 }
 #[derive(Clone, Debug, Display, Serialize)]
 #[display("{name}")]
@@ -293,6 +339,8 @@ pub struct Script {
     #[builder(default = ".".to_string())]
     pub current_dir: String,
     pub envs: Option<HashMap<String, String>>,
+    #[builder(default = true)]
+    pub forward_container_env: bool,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -684,7 +732,7 @@ impl Script {
                             },
                             | TemplateAttribute::Template(value) => {
                                 debug!(module = module.name, "=> {} Template attribute", Label::using());
-                                Ok(Script::from_template(value.clone()))
+                                Ok(Script::from_template(value.as_ref().clone()))
                             }
                         },
                         | None => match default_template_path.try_exists() {
@@ -795,17 +843,31 @@ impl Script {
                     | Some(VirtualEnvironment { manager, .. }) => manager.to_string(),
                     | _ => self.command.name.clone(),
                 };
-                let mut arguments = match runtime {
-                    //TODO: Add support for using "docker run" when container does not exist and image is known
-                    | ContainerRuntime::Docker | ContainerRuntime::Podman => vec!["exec".to_string(), name.to_string(), wrapped_command],
-                    | ContainerRuntime::Apptainer => vec!["exec".to_string(), name.to_string(), wrapped_command],
+                let arguments = match runtime {
+                    | ContainerRuntime::Docker | ContainerRuntime::Podman => {
+                        let environment = match self.forward_container_env {
+                            | true => {
+                                let mut keys = self.envs.clone().unwrap_or_default().into_keys().collect::<Vec<_>>();
+                                keys.sort();
+                                keys.into_iter().flat_map(|key| args!["--env", key]).collect::<Vec<_>>()
+                            }
+                            | false => args![],
+                        };
+                        args!["exec", ..environment, name, wrapped_command, ..self_arguments]
+                    }
+                    | ContainerRuntime::Apptainer => args![
+                        "exec",
+                        ..(!self.forward_container_env).then_some("--cleanenv"),
+                        name,
+                        wrapped_command,
+                        ..self_arguments
+                    ],
                     | ContainerRuntime::Unknown => {
                         error!(name = runtime.to_string(), "=> {} Container runtime", Label::not_found());
-                        vec![]
+                        args![]
                     }
                 };
-                arguments.extend(self_arguments);
-                arguments
+                arguments.into_iter().map(|argument| argument.to_string_lossy().into_owned()).collect()
             }
             | _ => self_arguments,
         }
@@ -872,6 +934,10 @@ impl Script {
         let current_dir = PathBuf::from(&self.current_dir);
         let envs = self.envs.clone().unwrap_or_default();
         warn!(cwd = %current_dir.display(), script = self.to_string(), "=> {}", Label::run());
+        let envs = match (&self.command.container, self.forward_container_env) {
+            | (Some(_), false) => HashMap::new(),
+            | _ => envs,
+        };
         let specification = envs.into_iter().fold(
             CommandSpec::new(command).args(arguments).current_dir(&current_dir),
             |specification, (key, value)| specification.env(key, value),
@@ -928,7 +994,21 @@ impl Script {
     }
     /// Set script environment variables to be set during script.run call
     pub fn with_envs(mut self, values: HashMap<String, String>) -> Self {
-        self.envs = Some(values.clone());
+        self.envs = Some(values);
+        self
+    }
+    /// Configure whether resolved Xylem variables are forwarded to a container command.
+    pub fn with_container_env(mut self, forward: bool) -> Self {
+        self.forward_container_env = forward;
+        self
+    }
+    /// Resolve the effective run-scoped name for a managed container.
+    pub fn with_container_run(mut self, run_id: Option<&str>) -> Self {
+        if let (Some(container), Some(run_id)) = (&mut self.command.container, run_id) {
+            if container.create {
+                container.name = managed_container_name(&container.name, run_id);
+            }
+        }
         self
     }
     /// Set virtual environment for the script
@@ -977,7 +1057,24 @@ impl ScriptTemplate {
     pub fn from_path(path: PathBuf) -> Result<ScriptTemplate, TemplateError> {
         read_to_string(&path)
             .map_err(|source| TemplateError::Read { path: path.clone(), source })
-            .and_then(|content| serde_json::from_str(&content).map_err(|source| TemplateError::Parse { path, source }))
+            .and_then(|content| {
+                serde_json::from_str::<ScriptTemplate>(&content)
+                    .map_err(|source| TemplateError::Parse { path: path.clone(), source })
+                    .map(|mut template| {
+                        template.absolutize_container_mounts(&path);
+                        template
+                    })
+            })
+    }
+    pub(crate) fn absolutize_container_mounts(&mut self, source: &Path) {
+        if let (Some(parent), Some(container)) = (source.parent(), &mut self.container) {
+            container.mounts.iter_mut().for_each(|mount| {
+                let path = PathBuf::from(&mount.source);
+                if !path.is_absolute() {
+                    mount.source = parent.join(path).components().collect::<PathBuf>().display().to_string();
+                }
+            });
+        }
     }
     pub fn resolve_python_virtual_environment(path: PathBuf) -> Result<Option<VirtualEnvironment>, TemplateError> {
         let default_template_path = path.join("template.json");
@@ -1107,9 +1204,6 @@ fn add_dot_slash(path: PathBuf) -> PathBuf {
 fn create_conda_environment_script(current_dir: String) -> Option<Script> {
     create_environment_script(current_dir, "conda", get_conda_environment_list())
 }
-fn create_mamba_environment_script(current_dir: String) -> Option<Script> {
-    create_environment_script(current_dir, "mamba", get_mamba_environment_list())
-}
 fn create_environment_script(current_dir: String, manager: &str, environments: Vec<String>) -> Option<Script> {
     let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
     match manifest_path.try_exists() {
@@ -1142,6 +1236,9 @@ fn create_environment_script(current_dir: String, manager: &str, environments: V
         }
     }
 }
+fn create_mamba_environment_script(current_dir: String) -> Option<Script> {
+    create_environment_script(current_dir, "mamba", get_mamba_environment_list())
+}
 fn create_pixi_environment_script(current_dir: String, environment: VirtualEnvironment) -> Option<Script> {
     match find_pixi_manifest(PathBuf::from(&current_dir)) {
         | Some(manifest_path) => {
@@ -1158,6 +1255,12 @@ fn create_pixi_environment_script(current_dir: String, environment: VirtualEnvir
             None
         }
     }
+}
+fn default_container_runtime() -> ContainerRuntime {
+    ContainerRuntime::Docker
+}
+fn default_true() -> bool {
+    true
 }
 fn find_pixi_manifest(path: PathBuf) -> Option<PathBuf> {
     let pixi_toml = path.join("pixi.toml");
@@ -1181,34 +1284,6 @@ fn find_pixi_manifest(path: PathBuf) -> Option<PathBuf> {
 /// Get list of Conda virtual environments through Conda.
 pub fn get_conda_environment_list() -> Vec<String> {
     get_environment_list("conda")
-}
-/// Get list of Conda-format virtual environments through Mamba.
-pub fn get_mamba_environment_list() -> Vec<String> {
-    get_environment_list("mamba")
-}
-fn get_environment_list(manager: &str) -> Vec<String> {
-    let command = Command::init().name(manager.to_string()).build();
-    let arguments = vec!["env".to_string(), "list".to_string()];
-    let script = Script::init().command(command.clone()).arguments(arguments).build();
-    if command.test() {
-        script
-            .run()
-            .unwrap_or_default()
-            .join("\n")
-            .replace(['#', '*'], "")
-            .split('\n')
-            .filter(|x| !x.is_empty())
-            .skip(1)
-            .filter_map(|line| {
-                line.split_whitespace().next().and_then(|value| match value.contains(is_separator) {
-                    | true => PathBuf::from(value).file_name().and_then(|name| name.to_str()).map(str::to_string),
-                    | false => Some(value.to_string()),
-                })
-            })
-            .collect::<Vec<String>>()
-    } else {
-        vec![]
-    }
 }
 /// Get name of Conda virtual environment from manifest file
 ///
@@ -1242,6 +1317,38 @@ pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
         },
         | _ => None,
     }
+}
+fn get_environment_list(manager: &str) -> Vec<String> {
+    let command = Command::init().name(manager.to_string()).build();
+    let arguments = vec!["env".to_string(), "list".to_string()];
+    let script = Script::init().command(command.clone()).arguments(arguments).build();
+    if command.test() {
+        script
+            .run()
+            .unwrap_or_default()
+            .join("\n")
+            .replace(['#', '*'], "")
+            .split('\n')
+            .filter(|x| !x.is_empty())
+            .skip(1)
+            .filter_map(|line| {
+                line.split_whitespace().next().and_then(|value| match value.contains(is_separator) {
+                    | true => PathBuf::from(value).file_name().and_then(|name| name.to_str()).map(str::to_string),
+                    | false => Some(value.to_string()),
+                })
+            })
+            .collect::<Vec<String>>()
+    } else {
+        vec![]
+    }
+}
+/// Get list of Conda-format virtual environments through Mamba.
+pub fn get_mamba_environment_list() -> Vec<String> {
+    get_environment_list("mamba")
+}
+/// Return the deterministic runtime name for a managed container.
+pub fn managed_container_name(logical_name: &str, run_id: &str) -> String {
+    format!("xylem-{logical_name}-{run_id}")
 }
 pub(crate) fn module_working_directory(uri: &str, root: Option<&PathBuf>) -> Option<String> {
     let location = Location::from(uri);
