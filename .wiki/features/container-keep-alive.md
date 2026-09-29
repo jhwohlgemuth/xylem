@@ -6,7 +6,7 @@ difficulty: medium
 impact: medium
 package: [xylem-lib, xylem-cli]
 tags: [containers, configuration, lifecycle, docker, podman]
-status: planned
+status: implemented
 ---
 
 # Goal

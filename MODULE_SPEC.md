@@ -113,8 +113,12 @@ the command with `exec`; it never starts, stops, or removes that container.
 With `create: true`, Xylem requires Docker or Podman plus an `image`, creates a
 run-scoped container after module preparation, waits for running/healthy state,
 and delegates every referencing module to it. A managed declaration MAY provide
-`command`, explicit `mounts` (`source`, absolute `target`, and `read_only`),
-`startup_timeout_seconds`, and `cleanup` (`always`, `on_success`, or `never`).
+either `command` or `keep_alive: true`, explicit `mounts` (`source`, absolute
+`target`, and `read_only`), `startup_timeout_seconds`, and `cleanup` (`always`,
+`on_success`, or `never`). `keep_alive` runs `sleep infinity` directly without a
+shell and therefore requires a Linux image whose `sleep` implementation accepts
+`infinity`; it cannot be combined with `command`. Omitting both fields preserves
+the image's configured entrypoint and command.
 Relative mount sources resolve against the file that declares them. No host path
 is mounted implicitly. `--container-cleanup` overrides cleanup for one run.
 

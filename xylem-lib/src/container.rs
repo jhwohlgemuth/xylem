@@ -2,7 +2,7 @@
 extern crate alloc;
 
 use crate::config::Config;
-use crate::script::{managed_container_name, ContainerCleanup, ContainerEnvironment, ContainerRuntime, Script};
+use crate::script::{managed_container_name, ContainerCleanup, ContainerEnvironment, ContainerRuntime, ContainerStartup, Script};
 use acorn_cmd::args;
 use alloc::collections::{BTreeMap, BTreeSet};
 use core::fmt;
@@ -133,8 +133,9 @@ impl ContainerEnvironment {
                         },
                     )
                     .and_then(|arguments| {
+                        let (_, startup_arguments) = self.resolved_startup();
                         self.runtime
-                            .run(args![..arguments, image, ..self.command.clone().unwrap_or_default()])
+                            .run(args![..arguments, image, ..startup_arguments])
                             .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
                     })
             },
@@ -216,7 +217,7 @@ impl ContainerLifecycle {
         let timeout = Duration::from_secs(declaration.startup_timeout_seconds.unwrap_or(DEFAULT_STARTUP_TIMEOUT_SECONDS));
         match declaration.create {
             | false => match declaration.runtime {
-                | ContainerRuntime::Docker | ContainerRuntime::Podman => declaration.runtime.wait_ready(&declaration.name, timeout),
+                | ContainerRuntime::Docker | ContainerRuntime::Podman => declaration.runtime.wait_ready(&declaration.name, timeout, None),
                 | ContainerRuntime::Apptainer => Ok(()),
                 | ContainerRuntime::Unknown => Err(ContainerError::new("unsupported container runtime")),
             }
@@ -230,6 +231,7 @@ impl ContainerLifecycle {
             }),
             | true => {
                 let name = managed_container_name(&declaration.name, run_id);
+                let startup = declaration.resolved_startup().0;
                 declaration.create_managed(&name, run_id, offline).and_then(|id| {
                     self.containers.push(ActiveContainer {
                         cleanup: cleanup_override.or(declaration.cleanup).unwrap_or_default(),
@@ -237,7 +239,7 @@ impl ContainerLifecycle {
                         name: name.clone(),
                         runtime: declaration.runtime,
                     });
-                    declaration.runtime.wait_ready(&name, timeout)
+                    declaration.runtime.wait_ready(&name, timeout, Some(startup))
                 })
             }
         }
@@ -273,11 +275,17 @@ impl ContainerRuntime {
                 ))),
             })
     }
-    fn wait_ready(self, name: &str, timeout: Duration) -> Result<(), ContainerError> {
+    fn wait_ready(self, name: &str, timeout: Duration, startup: Option<ContainerStartup>) -> Result<(), ContainerError> {
         let started = Instant::now();
         loop {
             let readiness = self.inspect(name).and_then(|container| match container.state.running {
-                | false => Err(ContainerError::new(format!("container {name} is not running"))),
+                | false => Err(ContainerError::new(match startup {
+                    | Some(ContainerStartup::KeepAlive) => format!(
+                        "container {name} is not running with startup strategy keep_alive; the image may not provide sleep with infinity support"
+                    ),
+                    | Some(startup) => format!("container {name} is not running with startup strategy {startup}"),
+                    | None => format!("container {name} is not running"),
+                })),
                 | true => match container.state.health.map(|health| health.status) {
                     | None => Ok(true),
                     | Some(status) if status == "healthy" => Ok(true),

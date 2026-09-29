@@ -166,6 +166,12 @@ impl Validate for ContainerEnvironment {
                 if self.command.as_ref().is_some_and(|command| command.is_empty()) {
                     report.add("command", validation_error("nonempty", "managed container command must not be empty"));
                 }
+                if self.keep_alive && self.command.is_some() {
+                    report.add(
+                        "keep_alive",
+                        validation_error("exclusive", "managed container keep_alive must not be combined with command"),
+                    );
+                }
                 if matches!(self.startup_timeout_seconds, Some(0)) {
                     report.add(
                         "startup_timeout_seconds",
@@ -208,10 +214,11 @@ impl Validate for ContainerEnvironment {
             | false => {
                 let has_image = self.image.is_some();
                 let has_command = self.command.is_some();
+                let has_keep_alive = self.keep_alive;
                 let has_cleanup = self.cleanup.is_some();
                 let has_mounts = !self.mounts.is_empty();
                 let has_timeout = self.startup_timeout_seconds.is_some();
-                if has_image || has_command || has_cleanup || has_mounts || has_timeout {
+                if has_image || has_command || has_keep_alive || has_cleanup || has_mounts || has_timeout {
                     report.add(
                         "create",
                         validation_error("required", "set create to true to use managed container fields"),

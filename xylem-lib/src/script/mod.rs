@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
 use std::collections::HashMap;
 use std::env::{set_var, vars};
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs::read_to_string;
 use std::path::{is_separator, Path, PathBuf};
 use strum::EnumIs;
@@ -56,6 +56,20 @@ pub enum ContainerRuntime {
     Apptainer,
     #[display("unknown")]
     Unknown,
+}
+/// Startup strategy for a container created by Xylem.
+#[derive(Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContainerStartup {
+    /// Run the configured command without a shell.
+    #[display("explicit_command")]
+    ExplicitCommand,
+    /// Preserve the image's configured entrypoint and command.
+    #[display("image_default")]
+    ImageDefault,
+    /// Run the documented idle command.
+    #[display("keep_alive")]
+    KeepAlive,
 }
 /// Values that from Serde that can be set as environment variables
 #[derive(Clone, Debug, Display)]
@@ -255,8 +269,12 @@ pub struct ContainerEnvironment {
     #[builder(default)]
     #[serde(default)]
     pub create: bool,
-    /// Optional command used to keep a managed container running.
+    /// Optional startup command for a managed container.
     pub command: Option<Vec<String>>,
+    /// Whether to run the documented idle command for a managed container.
+    #[builder(default)]
+    #[serde(default)]
+    pub keep_alive: bool,
     /// Cleanup policy for a managed container.
     pub cleanup: Option<ContainerCleanup>,
     /// Explicit bind mounts available to a managed container.
@@ -398,6 +416,15 @@ impl Command {
                 error!(name = self.name, "=> {} Command test", Label::fail());
                 false
             }
+        }
+    }
+}
+impl ContainerEnvironment {
+    pub(crate) fn resolved_startup(&self) -> (ContainerStartup, Vec<OsString>) {
+        match (self.keep_alive, &self.command) {
+            | (true, _) => (ContainerStartup::KeepAlive, args!["sleep", "infinity"]),
+            | (false, Some(command)) => (ContainerStartup::ExplicitCommand, args![..command.clone()]),
+            | (false, None) => (ContainerStartup::ImageDefault, args![]),
         }
     }
 }

@@ -4,7 +4,8 @@ extern crate alloc;
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
 use crate::config::{Config, InputAttribute};
 use crate::script::{
-    module_working_directory, ContainerCleanup, ContainerEnvironment, ContainerRuntime, Module, ModuleType, ModuleUri, Script, TemplateAttribute,
+    module_working_directory, ContainerCleanup, ContainerEnvironment, ContainerRuntime, ContainerStartup, Module, ModuleType, ModuleUri, Script,
+    TemplateAttribute,
 };
 use acorn_schema::validation::ValidationReport;
 use alloc::collections::BTreeMap;
@@ -98,6 +99,8 @@ pub struct PlannedContainer {
     pub runtime: ContainerRuntime,
     /// Readiness timeout in seconds.
     pub startup_timeout_seconds: u64,
+    /// Startup strategy for a managed container, or null for an external container.
+    pub startup: Option<ContainerStartup>,
 }
 /// One planned module decision.
 #[derive(Builder, Clone, Debug, Eq, PartialEq, Serialize)]
@@ -182,6 +185,7 @@ impl Config {
 }
 impl ContainerEnvironment {
     fn planned(self, module_index: usize) -> PlannedContainer {
+        let startup = self.create.then(|| self.resolved_startup().0);
         PlannedContainer {
             action: match self.create {
                 | true => "would_create".to_string(),
@@ -202,6 +206,7 @@ impl ContainerEnvironment {
             name: self.name,
             runtime: self.runtime,
             startup_timeout_seconds: self.startup_timeout_seconds.unwrap_or(30),
+            startup,
         }
     }
 }
@@ -234,7 +239,7 @@ impl ExecutionPlan {
                     },
                     modules,
                     resume,
-                    schema_version: 3,
+                    schema_version: 4,
                 })
         })
     }

@@ -1,5 +1,6 @@
 use crate::config::{Config, InputAttribute};
 use crate::plan::ExecutionPlan;
+use crate::script::ContainerStartup;
 use std::fs::{create_dir_all, remove_dir_all, write};
 
 #[cfg(target_os = "linux")]
@@ -79,6 +80,68 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
         [output.join("input-a").join("*.txt").display().to_string()]
     );
     assert!(!output.exists());
+}
+#[test]
+fn test_execution_plan_reports_container_startup_strategies() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [
+            {
+                "name": "explicit",
+                "type": "script",
+                "uri": "file:.",
+                "template": {
+                    "arguments": [],
+                    "command": "echo",
+                    "container": {
+                        "command": ["serve"],
+                        "create": true,
+                        "image": "alpine:3.22",
+                        "name": "explicit"
+                    }
+                }
+            },
+            {
+                "name": "external",
+                "type": "script",
+                "uri": "file:.",
+                "template": {"arguments": [], "command": "echo", "container": {"name": "external"}}
+            },
+            {
+                "name": "image-default",
+                "type": "script",
+                "uri": "file:.",
+                "template": {
+                    "arguments": [],
+                    "command": "echo",
+                    "container": {"create": true, "image": "alpine:3.22", "name": "image-default"}
+                }
+            },
+            {
+                "name": "keep-alive",
+                "type": "script",
+                "uri": "file:.",
+                "template": {
+                    "arguments": [],
+                    "command": "echo",
+                    "container": {"create": true, "image": "alpine:3.22", "keep_alive": true, "name": "keep-alive"}
+                }
+            }
+        ]
+    }))
+    .expect("container startup plan fixture");
+    let plan = ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect("build container startup plan");
+    let startup = |name: &str| {
+        plan.containers
+            .iter()
+            .find(|container| container.name == name)
+            .and_then(|container| container.startup)
+    };
+    assert_eq!(plan.schema_version, 4);
+    assert_eq!(startup("explicit"), Some(ContainerStartup::ExplicitCommand));
+    assert_eq!(startup("external"), None);
+    assert_eq!(startup("image-default"), Some(ContainerStartup::ImageDefault));
+    assert_eq!(startup("keep-alive"), Some(ContainerStartup::KeepAlive));
 }
 #[cfg(target_os = "linux")]
 #[test]

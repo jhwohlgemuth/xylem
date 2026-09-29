@@ -1,4 +1,66 @@
 use std::fs::{create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write};
+#[cfg(not(target_os = "windows"))]
+use std::os::unix::fs::PermissionsExt;
+
+#[cfg(not(target_os = "windows"))]
+fn managed_keep_alive_config() -> serde_json::Value {
+    serde_json::json!({
+        "requirements": [],
+        "modules": [{
+            "name": "managed",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:.",
+            "template": {
+                "command": "true",
+                "arguments": [],
+                "container": {
+                    "cleanup": "always",
+                    "create": true,
+                    "image": "alpine:3.22",
+                    "keep_alive": true,
+                    "name": "worker",
+                    "runtime": "docker",
+                    "startup_timeout_seconds": 1
+                }
+            }
+        }]
+    })
+}
+#[cfg(not(target_os = "windows"))]
+fn write_fake_docker(root: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let executable = root.join("docker");
+    let log = root.join("docker.log");
+    write(
+        &executable,
+        r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$XYLEM_FAKE_DOCKER_LOG"
+case "$1" in
+  run)
+    printf 'fake-container-id\n'
+    ;;
+  inspect)
+    case "${XYLEM_FAKE_DOCKER_STATE:-ready}" in
+      exited) printf '[{"State":{"Running":false}}]\n' ;;
+      starting) printf '[{"State":{"Running":true,"Health":{"Status":"starting"}}}]\n' ;;
+      *) printf '[{"State":{"Running":true}}]\n' ;;
+    esac
+    ;;
+  exec|rm)
+    ;;
+  *)
+    exit 64
+    ;;
+esac
+"#,
+    )
+    .expect("write fake Docker runtime");
+    let mut permissions = executable.metadata().expect("inspect fake Docker runtime").permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&executable, permissions).expect("make fake Docker runtime executable");
+    (executable, log)
+}
 
 #[test]
 fn test_configuration_read_failures_use_distinct_exit_codes() {
@@ -111,6 +173,7 @@ fn test_dry_run_plans_managed_container_without_starting_runtime() {
                     "name": "worker",
                     "create": true,
                     "image": "alpine:3.22",
+                    "keep_alive": true,
                     "mounts": [{"source": ".", "target": "/workspace"}]
                 }
             }
@@ -135,6 +198,7 @@ fn test_dry_run_plans_managed_container_without_starting_runtime() {
     assert_eq!(plan["containers"][0]["action"], "would_create");
     assert_eq!(plan["containers"][0]["name"], "worker");
     assert_eq!(plan["containers"][0]["mounts"][0]["source"], test_root.display().to_string());
+    assert_eq!(plan["containers"][0]["startup"], "keep_alive");
     remove_dir_all(test_root).expect("remove managed plan fixture");
 }
 #[cfg(not(target_os = "windows"))]
@@ -162,7 +226,7 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
         .expect("run dry-run plan");
     assert!(output.status.success(), "dry run failed: {}", String::from_utf8_lossy(&output.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid dry-run plan");
-    assert_eq!(plan["schema_version"], 3);
+    assert_eq!(plan["schema_version"], 4);
     assert_eq!(plan["configuration"]["output"], output_directory.display().to_string());
     assert_eq!(plan["modules"][0]["decision"], "would_run");
     assert_eq!(
@@ -170,6 +234,132 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
         output_directory.display().to_string()
     );
     assert!(!output_directory.exists());
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_keep_alive_runtime_reports_early_exit_and_timeout() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!("xylem-keep-alive-failures-{}", std::process::id()));
+    let _ = remove_dir_all(&test_root);
+    create_dir_all(&test_root).expect("create keep-alive failure fixture");
+    let config = test_root.join("config.json");
+    write(
+        &config,
+        serde_json::to_vec_pretty(&managed_keep_alive_config()).expect("serialize keep-alive failure fixture"),
+    )
+    .expect("write keep-alive failure fixture");
+    let (_, log) = write_fake_docker(&test_root);
+    let path = std::env::join_paths(core::iter::once(test_root.clone()).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())))
+        .expect("construct fake runtime PATH");
+    let mut exited = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let exited = exited
+        .current_dir(workspace)
+        .env("PATH", &path)
+        .env("XYLEM_FAKE_DOCKER_LOG", &log)
+        .env("XYLEM_FAKE_DOCKER_STATE", "exited")
+        .args([
+            "--no-progress",
+            "run",
+            "--config",
+            config.to_str().expect("UTF-8 configuration path"),
+            "--offline",
+        ])
+        .output()
+        .expect("run early-exit keep-alive workflow");
+    assert!(!exited.status.success());
+    let diagnostics = String::from_utf8_lossy(&exited.stderr);
+    assert!(diagnostics.contains("startup strategy keep_alive"), "{diagnostics}");
+    assert!(diagnostics.contains("sleep with infinity support"), "{diagnostics}");
+    assert!(read_to_string(&log)
+        .expect("read early-exit runtime log")
+        .contains("rm --force fake-container-id"));
+    write(&log, "").expect("reset fake runtime log");
+    let mut starting = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let starting = starting
+        .current_dir(workspace)
+        .env("PATH", &path)
+        .env("XYLEM_FAKE_DOCKER_LOG", &log)
+        .env("XYLEM_FAKE_DOCKER_STATE", "starting")
+        .args([
+            "--no-progress",
+            "run",
+            "--config",
+            config.to_str().expect("UTF-8 configuration path"),
+            "--offline",
+        ])
+        .output()
+        .expect("run readiness-timeout keep-alive workflow");
+    assert!(!starting.status.success());
+    let diagnostics = String::from_utf8_lossy(&starting.stderr);
+    assert!(diagnostics.contains("did not become healthy within 1s"), "{diagnostics}");
+    assert!(read_to_string(&log)
+        .expect("read timeout runtime log")
+        .contains("rm --force fake-container-id"));
+    remove_dir_all(test_root).expect("remove keep-alive failure fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_keep_alive_runtime_uses_exact_arguments_and_cleanup_override() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!("xylem-keep-alive-success-{}", std::process::id()));
+    let _ = remove_dir_all(&test_root);
+    create_dir_all(&test_root).expect("create keep-alive success fixture");
+    let config = test_root.join("config.json");
+    write(
+        &config,
+        serde_json::to_vec_pretty(&managed_keep_alive_config()).expect("serialize keep-alive success fixture"),
+    )
+    .expect("write keep-alive success fixture");
+    let (_, log) = write_fake_docker(&test_root);
+    let path = std::env::join_paths(core::iter::once(test_root.clone()).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())))
+        .expect("construct fake runtime PATH");
+    let mut success = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let success = success
+        .current_dir(workspace)
+        .env("PATH", &path)
+        .env("XYLEM_FAKE_DOCKER_LOG", &log)
+        .args([
+            "--no-progress",
+            "run",
+            "--config",
+            config.to_str().expect("UTF-8 configuration path"),
+            "--offline",
+        ])
+        .output()
+        .expect("run successful keep-alive workflow");
+    assert!(success.status.success(), "{}", String::from_utf8_lossy(&success.stderr));
+    let invocations = read_to_string(&log).expect("read successful runtime log");
+    assert!(
+        invocations.lines().any(|line| line.ends_with("--pull=never alpine:3.22 sleep infinity")),
+        "{invocations}"
+    );
+    assert!(invocations.lines().any(|line| line.starts_with("exec ")), "{invocations}");
+    assert!(invocations.contains("rm --force fake-container-id"), "{invocations}");
+    write(&log, "").expect("reset fake runtime log");
+    let mut retained = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let retained = retained
+        .current_dir(workspace)
+        .env("PATH", &path)
+        .env("XYLEM_FAKE_DOCKER_LOG", &log)
+        .args([
+            "--no-progress",
+            "run",
+            "--config",
+            config.to_str().expect("UTF-8 configuration path"),
+            "--container-cleanup",
+            "never",
+            "--offline",
+        ])
+        .output()
+        .expect("run retained keep-alive workflow");
+    assert!(retained.status.success(), "{}", String::from_utf8_lossy(&retained.stderr));
+    let invocations = read_to_string(&log).expect("read retained runtime log");
+    assert!(!invocations.contains("rm --force"), "{invocations}");
+    remove_dir_all(test_root).expect("remove keep-alive success fixture");
 }
 #[cfg(not(target_os = "windows"))]
 #[test]

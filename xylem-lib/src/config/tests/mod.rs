@@ -377,6 +377,84 @@ fn test_managed_container_validation_requires_owned_fields() {
     assert!(external_with_image.validate().is_err());
 }
 #[test]
+fn test_managed_container_keep_alive_round_trips_and_validates() {
+    let document = serde_json::json!({
+        "requirements": [],
+        "modules": [{
+            "name": "managed",
+            "type": "script",
+            "uri": "file:.",
+            "template": {
+                "command": "echo",
+                "arguments": [],
+                "container": {
+                    "name": "worker",
+                    "create": true,
+                    "image": "alpine:3.22",
+                    "keep_alive": true,
+                    "runtime": "docker"
+                }
+            }
+        }]
+    });
+    let config: Config = serde_json::from_value(document.clone()).expect("keep-alive JSON configuration");
+    assert!(config.validate().is_ok());
+    let serialized = serde_json::to_value(&config).expect("serialize keep-alive JSON configuration");
+    assert_eq!(serialized["modules"][0]["template"]["container"]["keep_alive"], true);
+    let yaml = serde_norway::to_string(&config).expect("serialize keep-alive YAML configuration");
+    let yaml = parse_yaml_configuration(&yaml).expect("deserialize keep-alive YAML configuration");
+    let yaml = serde_json::to_value(yaml).expect("serialize round-tripped YAML configuration");
+    assert_eq!(yaml["modules"][0]["template"]["container"]["keep_alive"], true);
+    let mut omitted = document;
+    omitted["modules"][0]["template"]["container"]
+        .as_object_mut()
+        .expect("container object")
+        .remove("keep_alive");
+    let omitted: Config = serde_json::from_value(omitted).expect("configuration without keep_alive");
+    let omitted = serde_json::to_value(omitted).expect("serialize default keep_alive");
+    assert_eq!(omitted["modules"][0]["template"]["container"]["keep_alive"], false);
+    let invalid = [
+        (
+            serde_json::json!({"name": "worker", "keep_alive": true, "runtime": "docker"}),
+            "set create to true to use managed container fields",
+        ),
+        (
+            serde_json::json!({"name": "worker", "create": true, "image": "alpine:3.22", "keep_alive": true, "runtime": "apptainer"}),
+            "managed containers require docker or podman",
+        ),
+        (
+            serde_json::json!({"name": "worker", "create": true, "image": "alpine:3.22", "keep_alive": true, "runtime": "unknown"}),
+            "container runtime is not supported",
+        ),
+        (
+            serde_json::json!({
+                "name": "worker",
+                "command": ["serve"],
+                "create": true,
+                "image": "alpine:3.22",
+                "keep_alive": true,
+                "runtime": "docker"
+            }),
+            "keep_alive must not be combined with command",
+        ),
+    ];
+    invalid.into_iter().for_each(|(container, message)| {
+        let mut document = serde_json::json!({
+            "requirements": [],
+            "modules": [{
+                "name": "invalid",
+                "type": "script",
+                "uri": "file:.",
+                "template": {"arguments": [], "command": "echo"}
+            }]
+        });
+        document["modules"][0]["template"]["container"] = container;
+        let config: Config = serde_json::from_value(document).expect("deserialize invalid semantic configuration");
+        let error = config.validate().expect_err("keep-alive declaration must be rejected").to_string();
+        assert!(error.contains(message), "{error}");
+    });
+}
+#[test]
 fn test_preparation_and_execution_emit_progress_updates() {
     let config: Config = serde_json::from_value(serde_json::json!({
         "requirements": [],

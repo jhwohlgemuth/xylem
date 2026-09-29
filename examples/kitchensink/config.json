@@ -109,12 +109,9 @@
             "template": {
                 "container": {
                     "cleanup": "always",
-                    "command": [
-                        "sleep",
-                        "infinity"
-                    ],
                     "create": true,
                     "image": "alpine:3.22",
+                    "keep_alive": true,
                     "mounts": [
                         {
                             "read_only": false,

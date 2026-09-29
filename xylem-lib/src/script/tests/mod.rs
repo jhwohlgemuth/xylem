@@ -1,7 +1,8 @@
 use crate::script::{
-    add_dot_slash, get_conda_environment_list, get_conda_environment_name, get_mamba_environment_list, Command, Script, ScriptTemplate,
-    VirtualEnvironment, VirtualEnvironmentManager,
+    add_dot_slash, get_conda_environment_list, get_conda_environment_name, get_mamba_environment_list, Command, ContainerEnvironment,
+    ContainerStartup, Script, ScriptTemplate, VirtualEnvironment, VirtualEnvironmentManager,
 };
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 const FIXTURES: &str = "../tests/fixtures";
@@ -26,6 +27,27 @@ fn test_create_pixi_environment() {
 
     assert_eq!(script.to_string(), "pixi install --environment default");
     assert!(Path::new(&script.current_dir).ends_with("tests/fixtures/pixi-module"));
+}
+#[test]
+fn test_container_startup_resolution() {
+    let image_default = ContainerEnvironment::init().name("default".to_string()).build();
+    let explicit = ContainerEnvironment::init()
+        .name("explicit".to_string())
+        .command(vec!["serve".to_string(), "--port".to_string(), "8080".to_string()])
+        .build();
+    let keep_alive = ContainerEnvironment::init().name("keep-alive".to_string()).keep_alive(true).build();
+    assert_eq!(image_default.resolved_startup(), (ContainerStartup::ImageDefault, Vec::new()));
+    assert_eq!(
+        explicit.resolved_startup(),
+        (
+            ContainerStartup::ExplicitCommand,
+            ["serve", "--port", "8080"].map(OsString::from).to_vec()
+        )
+    );
+    assert_eq!(
+        keep_alive.resolved_startup(),
+        (ContainerStartup::KeepAlive, ["sleep", "infinity"].map(OsString::from).to_vec())
+    );
 }
 #[test]
 fn test_get_conda_environment_list() {

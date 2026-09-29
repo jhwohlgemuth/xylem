@@ -21,7 +21,9 @@ Mamba → mamba.txt → Pixi → pixi.txt → script → script.txt → binary �
 Install [Mamba](https://mamba.readthedocs.io/en/latest/installation/),
 [Pixi](https://pixi.sh/latest/installation/), and
 [Podman](https://podman.io/). Xylem creates the Podman container, mounts the
-repository, waits for readiness, and removes it when the run finishes. On macOS,
+repository, keeps the Alpine container idle with `sleep infinity`, waits for
+readiness, and removes it when the run finishes. The `keep_alive` option requires
+a Linux image whose `sleep` implementation accepts `infinity`. On macOS,
 initialize and start the Podman VM once:
 
 ```shell
