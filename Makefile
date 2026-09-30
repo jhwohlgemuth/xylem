@@ -62,6 +62,11 @@ doc:
 doctest:
 	@cargo test --doc
 
+help:
+	@mkdir -p docs/src/generated
+	@cargo run --quiet --package xylem-cli -- --help | sed 's/[[:space:]]*$$//' > docs/src/generated/xylem-help.txt
+	@cargo run --quiet --package xylem-cli -- run --help | sed 's/[[:space:]]*$$//' > docs/src/generated/xylem-run-help.txt
+
 homebrew-formula:
 	@./scripts/homebrew/generate-formula.sh $(VERSION) ./Formula/xylem.rb
 
@@ -111,8 +116,10 @@ TASKS = \
 	cover \
 	coverage \
 	doc \
-	lint \
+	doctest \
+	help \
 	homebrew-formula \
+	lint \
 	publish-book \
 	setup \
 	test \

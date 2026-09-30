@@ -3,6 +3,11 @@
 This roadmap contains only forward-looking milestones. Detailed implementation
 plans and their dependency order live in the [planning wiki](./.wiki/index.md).
 
+Current 1.x support is intentionally narrower: Linux is the rigorously tested
+release target, Homebrew is tested on Linux and macOS, and the local POSIX-shell
+workflow is the baseline offline path. Items below are aspirations, not current
+support claims.
+
 ## v1.x interoperability and portability
 
 - [ ] Publish rigorously tested macOS and Windows binaries

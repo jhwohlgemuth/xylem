@@ -2,8 +2,7 @@
 # Visit https://bit.ly/cffinit to generate yours today!
 
 cff-version: 1.2.0
-title: >-
-  Xylem CLI Application
+title: Xylem
 message: >-
   If you use this software, please cite it using the
   metadata from this file.
@@ -22,7 +21,7 @@ authors:
 repository-code: 'https://code.ornl.gov/research-enablement/xylem'
 identifiers:
   - type: doi
-  - value: 10.11578/dc.20260310.2
+    value: 10.11578/dc.20260310.2
 abstract: >-
   Command line (multi)tool for sustainable science that can
   be used in myriad automation contexts including the
@@ -36,3 +35,4 @@ keywords:
   - python
   - modular
 license: MIT
+version: 1.0.3

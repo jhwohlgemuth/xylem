@@ -1,13 +1,13 @@
 use acorn_host::terminal::Label;
 use acorn_schema::validation::Validate;
+use alloc::collections::BTreeSet;
 use clap_verbosity_flag::Verbosity;
+use core::fmt;
 use core::time::Duration;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use nanoid::nanoid;
 use owo_colors::OwoColorize;
-use std::collections::BTreeSet;
 use std::env;
-use std::fmt;
 use std::fs::create_dir_all;
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
@@ -68,7 +68,7 @@ impl RunFailure {
         self.exit_code
     }
 }
-impl std::error::Error for RunFailure {}
+impl core::error::Error for RunFailure {}
 impl ProgressObserver for WorkflowProgress {
     fn update(&self, update: ProgressUpdate) {
         let bar = match update.phase {
@@ -130,6 +130,7 @@ impl WorkflowProgress {
     }
 }
 #[allow(clippy::too_many_arguments)]
+/// Resolve, validate, plan, execute, journal, and report one workflow run.
 pub fn run(
     config: &Option<PathBuf>,
     reporter: &[ReporterType],

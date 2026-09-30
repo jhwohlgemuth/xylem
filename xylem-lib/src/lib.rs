@@ -10,26 +10,38 @@ use std::path::PathBuf;
 use crate::error::PyProjectError;
 
 pub mod completion;
+// These legacy API modules predate the workspace documentation gate. Keep the
+// exception at module boundaries so new top-level APIs remain denied by default.
+#[allow(missing_docs)]
 pub mod config;
 pub mod container;
+#[allow(missing_docs)]
 pub mod error;
 pub mod execution;
+#[allow(missing_docs)]
 pub mod journal;
 pub mod outcome;
 pub mod plan;
 pub mod progress;
+#[allow(missing_docs)]
 pub mod remote;
+#[allow(missing_docs)]
 pub mod script;
+#[allow(missing_docs)]
 pub mod util;
 
 pub use config::*;
 
 #[derive(ValueEnum, Copy, Clone, Debug, Display, PartialEq, Eq)]
+/// Output format for a completed run or dry-run plan.
 pub enum ReporterType {
+    /// Human-readable terminal output.
     Console,
+    /// Machine-readable JSON output.
     Json,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
+/// Relevant fields read from a Python `pyproject.toml` document.
 pub struct PyProjectToml {
     #[serde(flatten)]
     inner: pyproject_toml::PyProjectToml,
@@ -37,11 +49,13 @@ pub struct PyProjectToml {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
+/// Tool-specific section of a Python project manifest.
 pub struct PyProjectTool {
     xylem: Option<ToolXylem>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
+/// Xylem settings embedded in a Python project manifest.
 pub struct ToolXylem {
     module_name: String,
 }
@@ -53,6 +67,7 @@ impl core::ops::Deref for PyProjectToml {
     }
 }
 impl PyProjectToml {
+    /// Read and parse a Python project manifest.
     pub fn read(path: PathBuf) -> Result<Self, PyProjectError> {
         read_to_string(&path)
             .map_err(|source| PyProjectError::Read { path: path.clone(), source })
@@ -61,6 +76,7 @@ impl PyProjectToml {
                 | false => toml::from_str(&content).map_err(|source| PyProjectError::Parse { path, source }),
             })
     }
+    /// Return the configured Xylem module name, if present.
     pub fn get_module_name(self) -> Option<String> {
         match self.tool {
             | Some(PyProjectTool { xylem, .. }) => match xylem {

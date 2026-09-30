@@ -7,6 +7,7 @@ use xylem_lib::ReporterType;
 
 #[derive(Debug, Subcommand)]
 #[command(long_about = None)]
+/// Top-level Xylem commands.
 pub enum Commands {
     /// Run workflow using configuration file
     ///
@@ -60,6 +61,7 @@ pub enum Commands {
         #[arg(long = "skip-verify-requirements", value_name = "BOOL")]
         skip_verify_requirements: bool,
         #[command(flatten)]
+        /// Logging verbosity for this run.
         verbose: Verbosity,
     },
 }
@@ -77,6 +79,7 @@ pub enum Commands {
 #[command(author, version, about, verbatim_doc_comment)]
 pub struct Arguments {
     #[command(flatten)]
+    /// Global logging verbosity.
     pub verbose: Verbosity,
     /// Maximum number of Rayon workers used by Xylem (does not limit child tools)
     #[arg(default_value_t = ExecutionLimits::default(), short = 't', long, value_name = "N", global = true)]
@@ -88,6 +91,7 @@ pub struct Arguments {
     #[arg(long, global = true)]
     pub no_progress: bool,
     #[command(subcommand)]
+    /// Command to execute; omission prints no output and exits successfully.
     pub command: Option<Commands>,
 }
 

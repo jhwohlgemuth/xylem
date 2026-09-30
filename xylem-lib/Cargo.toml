@@ -49,12 +49,5 @@ url = { workspace = true }
 [dev-dependencies]
 assert_cmd = "2.1.1"
 
-[lints.rust]
-# missing-docs = "deny"
-rust-2018-idioms = "warn"
-unsafe_code = "forbid"
-
-[lints.clippy]
-std_instead_of_core = "warn"
-std_instead_of_alloc = "warn"
-alloc_instead_of_core = "warn"
+[lints]
+workspace = true

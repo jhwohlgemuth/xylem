@@ -1,4 +1,7 @@
 .DS_store
+/.coverage
+/.coverage.*
+/lcov.info
 /target
 /bin
 /docs/book
@@ -6,5 +9,8 @@
 notebooks/sandbox.ipynb
 .env
 .pixi/
+.pytest_cache/
 pixi.lock
+*.py[cod]
 __pycache__/
+htmlcov/

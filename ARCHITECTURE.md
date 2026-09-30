@@ -24,15 +24,19 @@ selection and terminal presentation.
 
 ## Diagram
 ```mermaid
-graph LR
-    a[Xylem] --> b[xylem-cli/]
-    a --> c[xylem-lib/]
-    b --> e[CLI application]
-    c --> f[Rust crate]
-    d --> g[Python</br>package]
-    e --> h[commands]
-    f --> j[xylem-lib</br>utility functions]
-    g --> k[Module</br>utility functions]
+flowchart LR
+    cli[xylem-cli<br/>arguments and exit codes] --> parse[Parse and resolve configuration]
+    parse --> validate[Validate capabilities]
+    validate --> plan[Build immutable execution plan]
+    plan --> execute[Execute modules]
+    execute --> journal[Append-only journal]
+    journal --> report[Console and JSON reporters]
+    lib[xylem-lib] --> parse
+    lib --> validate
+    lib --> plan
+    lib --> execute
+    lib --> journal
+    lib --> report
 ```
 
 ## Notes

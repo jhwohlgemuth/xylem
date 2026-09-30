@@ -3,14 +3,25 @@
 The repository's [`examples/`](https://code.ornl.gov/research-enablement/xylem/-/tree/main/examples)
 directory contains single-module and composed workflows.
 
-The self-contained examples below also have Cargo example targets, so they can be
+Start with the offline smoke workflow. It uses only a checked-in POSIX shell
+script and requires no environment manager, container runtime, or network:
+
+```shell
+cargo run --package xylem-cli -- run \
+  --config examples/offline-smoke/config.json \
+  --offline \
+  --no-progress
+```
+
+The checked-in runnable examples below also have Cargo example targets, so they can be
 run without spelling out a configuration path:
 
 ```shell
-cargo run --example python-with-pixi
-cargo run --example python-with-conda
-cargo run --example multi-module
+cargo run --example offline-smoke
 cargo run --example kitchensink
+cargo run --example multi-module
+cargo run --example python-with-conda
+cargo run --example python-with-pixi
 ```
 
 These targets work from any directory because they change into the workspace

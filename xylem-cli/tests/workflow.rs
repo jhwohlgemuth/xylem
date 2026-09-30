@@ -1,3 +1,4 @@
+//! End-to-end command-line workflow tests.
 use std::fs::{create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
@@ -311,6 +312,67 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
         output_directory.display().to_string()
     );
     assert!(!output_directory.exists());
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_offline_smoke_example_runs_from_a_clean_directory() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!(
+        "xylem-offline-smoke-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should follow the Unix epoch")
+            .as_nanos()
+    ));
+    let source = workspace.join("examples/offline-smoke");
+    let example = test_root.join("examples/offline-smoke");
+    create_dir_all(example.join("module")).expect("create clean smoke example");
+    write(
+        example.join("config.json"),
+        read(source.join("config.json")).expect("read smoke configuration"),
+    )
+    .expect("copy smoke configuration");
+    write(
+        example.join("module/run.sh"),
+        read(source.join("module/run.sh")).expect("read smoke module"),
+    )
+    .expect("copy smoke module");
+
+    let mut dry_run = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let dry_run = dry_run
+        .current_dir(&test_root)
+        .args([
+            "run",
+            "--config",
+            "examples/offline-smoke/config.json",
+            "--offline",
+            "--dry-run",
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("run smoke dry run");
+    assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
+    serde_json::from_slice::<serde_json::Value>(&dry_run.stdout).expect("valid smoke execution plan");
+    assert!(!example.join("output").exists());
+
+    let mut run = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    run.current_dir(&test_root)
+        .args(["run", "--config", "examples/offline-smoke/config.json", "--offline", "--no-progress"])
+        .assert()
+        .success();
+    assert_eq!(
+        read_to_string(example.join("output/greeting-Ada.txt")).expect("Ada greeting"),
+        "Hello, Ada!\n"
+    );
+    assert_eq!(
+        read_to_string(example.join("output/greeting-Grace.txt")).expect("Grace greeting"),
+        "Hello, Grace!\n"
+    );
+    remove_dir_all(test_root).expect("remove smoke example");
 }
 #[cfg(not(target_os = "windows"))]
 #[test]

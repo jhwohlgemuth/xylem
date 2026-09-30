@@ -11,6 +11,23 @@ use std::sync::Mutex;
 use std::thread;
 
 const FIXTURES: &str = "../tests/fixtures";
+
+fn configuration_files(root: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(root)
+        .unwrap_or_else(|error| panic!("read {}: {error}", root.display()))
+        .map(|entry| entry.expect("configuration entry").path())
+        .flat_map(|path| match path.is_dir() {
+            | true => configuration_files(&path),
+            | false => vec![path],
+        })
+        .filter(|path| {
+            matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some("config.json" | "config.yaml" | "config.yml")
+            )
+        })
+        .collect()
+}
 #[derive(Default)]
 struct RecordingProgress {
     updates: Mutex<Vec<ProgressUpdate>>,
@@ -727,17 +744,8 @@ fn test_configuration_version_must_be_semantic() {
 }
 #[test]
 fn test_every_example_configuration_passes_semantic_validation() {
-    let examples = std::fs::read_dir("../examples").expect("read examples directory");
-    let mut configurations = examples
-        .map(|entry| entry.expect("example entry").path().join("config.json"))
-        .filter(|path| path.is_file())
-        .collect::<Vec<_>>();
-    configurations.extend(
-        std::fs::read_dir("../tests")
-            .expect("read tests directory")
-            .map(|entry| entry.expect("test entry").path().join("config.json"))
-            .filter(|path| path.is_file()),
-    );
+    let mut configurations = configuration_files(Path::new("../examples"));
+    configurations.extend(configuration_files(Path::new("../tests")));
     configurations.sort();
     assert!(!configurations.is_empty());
     configurations.into_iter().for_each(|path| {

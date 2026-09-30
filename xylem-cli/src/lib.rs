@@ -1,5 +1,7 @@
 //! Xylem Command-Line Interface
 //! > Digital xylem that transports data through workflows with structure and support
+extern crate alloc;
+
 use clap_verbosity_flag::Verbosity;
 use color_eyre::eyre::{eyre, Result};
 use std::env::set_current_dir;
@@ -12,7 +14,9 @@ use tracing_subscriber::EnvFilter;
 use xylem_lib::execution::ExecutionLimits;
 use xylem_lib::ReporterType;
 
+/// Command-line argument definitions.
 pub mod cli;
+/// Command implementations.
 pub mod commands;
 
 // Environment variables

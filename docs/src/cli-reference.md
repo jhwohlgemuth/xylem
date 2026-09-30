@@ -83,3 +83,7 @@ directory. Run the generated help for version-specific spelling and defaults:
 xylem --help
 xylem run --help
 ```
+
+The checked-in [`xylem --help`](./generated/xylem-help.txt) and
+[`xylem run --help`](./generated/xylem-run-help.txt) snapshots are regenerated
+with `make help` and compared with the compiled CLI in tests.

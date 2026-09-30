@@ -29,7 +29,7 @@ Linux users can install and upgrade Xylem through the official tap.
 
 # Dependencies and ordering
 
-The [CI and release pipeline](../refactors/ci-release-pipeline.md) must produce the new immutable version tag and artifacts. The [documentation and examples](../refactors/documentation-and-examples.md) plan records the verified installation command after activation.
+The [CI and release pipeline](../refactors/ci-release-pipeline.md) must produce the new immutable version tag and artifacts. Update the public installation documentation with the verified command after activation.
 
 # Recommendation
 
@@ -58,4 +58,3 @@ The [CI and release pipeline](../refactors/ci-release-pipeline.md) must produce 
 - [CI and release pipeline](../refactors/ci-release-pipeline.md)
 - [Dependency surface and security gates](../refactors/dependency-surface-and-security-gates.md)
 - [Hermetic workflow tests](../testing/hermetic-workflow-tests.md)
-- [Documentation and examples](../refactors/documentation-and-examples.md)

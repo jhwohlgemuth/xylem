@@ -1,0 +1,84 @@
+Run workflow using configuration file
+
+```text
+    Run with INFO logging level, loads config.json from current directory
+    $> xylem run -vv
+
+    Perform dry run using configuration file at /path/to/config.json
+    $> xylem run --config /path/to/config --dry-run
+```
+
+Usage: xylem run [OPTIONS]
+
+Options:
+  -c, --config <PATH>
+          Path to configuration file
+
+  -r, --reporter <REPORTER>...
+          Reporter(s) used for the final durable summary
+
+          Possible values:
+          - console: Human-readable terminal output
+          - json:    Machine-readable JSON output
+
+          [default: console]
+
+      --artifact-output <PATH>
+          Workflow artifact root; overrides configuration output
+
+  -t, --threads <N>
+          Maximum number of Rayon workers used by Xylem (does not limit child tools)
+
+          [default: 10]
+
+      --container-cleanup <CONTAINER_CLEANUP>
+          Override cleanup policy for containers created by Xylem
+
+          Possible values:
+          - always:     Remove the container after every run outcome
+          - on-success: Remove the container only after a successful run
+          - never:      Retain the container after the run
+
+      --env <PATH>
+          Load environment variables from a specific dotenv file
+
+      --no-progress
+          Disable interactive workflow progress indicators
+
+  -o, --report-output <PATH>
+          Directory for the durable journal and file-based reports
+
+          [aliases: --output]
+
+  -i, --input <LIST>
+          Value(s) to use as INPUT variable in workflow
+
+  -d, --dry-run
+          Execute workflow dry run (do not actually make changes to environment)
+
+  -X, --offline
+          Execute workflow without connection to the internet
+
+      --no-container-env
+          Do not forward resolved Xylem environment variables into containers
+
+      --resume
+          Skip modules whose declared outputs and completion marker are current
+
+      --allowed <HOST[:PORT]>
+          Exact remote module host(s) to allow; CLI values replace configured hosts
+
+      --skip-verify-checksum
+          Skip calculating and verifying checksum for downloaded binary files
+
+      --skip-verify-requirements
+          Skip enforcing workflow configured requirements (mostly for troubleshooting)
+
+  -v, --verbose...
+          Increase logging verbosity
+
+  -q, --quiet...
+          Decrease logging verbosity
+
+  -h, --help
+          Print help (see a summary with '-h')

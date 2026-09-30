@@ -58,7 +58,6 @@ they need a new runtime contract.
 1. CI/release analysis and isolated script prototypes
 2. [CI and release pipeline](refactors/ci-release-pipeline.md) after required checks exist
 3. [Homebrew release export](features/homebrew-export.md) after immutable release artifacts and checksums exist
-4. [Documentation and examples](refactors/documentation-and-examples.md) after public behavior and installation commands stabilize
 
 ## Safe initial batch
 

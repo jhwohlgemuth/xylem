@@ -210,11 +210,11 @@ pub enum VirtualEnvironmentManager {
     #[display("mamba")]
     #[serde(alias = "mamba")]
     Mamba,
-    /// Simple Python version management (https://github.com/pyenv/pyenv)
+    /// Simple Python version management (<https://github.com/pyenv/pyenv>)
     #[display("pyenv")]
     #[serde(alias = "pyenv")]
     Pyenv,
-    /// Tool to create isolated Python environments (https://virtualenv.pypa.io/en/latest/)
+    /// Tool to create isolated Python environments (<https://virtualenv.pypa.io/en/latest/>)
     #[display("venv")]
     #[serde(alias = "venv")]
     Virtualenv,
@@ -722,7 +722,6 @@ impl Script {
     ///   - use "template.json", if it exists
     ///   - use default script if "template.json" does not exist
     ///
-    /// ```
     pub fn from_module(module: Module, root: Option<PathBuf>) -> Result<Script, ModuleLoadError> {
         const DEFAULT_FILENAME: &str = "template.json";
         let module_uri = match &module.module_type {

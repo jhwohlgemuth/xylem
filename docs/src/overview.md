@@ -27,3 +27,11 @@ smaller rolling ceiling on active top-level inputs. Child tools can still
 create their own threads or process multiple items internally.
 
 For the stable module-level interface, see the [module contract](./modules.md).
+
+## Support tiers
+
+Linux is the rigorously tested binary target. Homebrew is tested on Linux and
+macOS. Windows builds are available for early use, while full macOS and Windows
+support remains roadmap work. The local POSIX-shell workflow is the supported
+offline baseline; Pixi, Conda/Mamba, containers, and remote acquisition are
+optional integration tiers.

@@ -290,7 +290,7 @@ impl Config {
     }
     /// Get inputs from input attribute for concurrent workflow execution
     ///
-    /// See [InputAttribute](crate::InputAttribute) for more details
+    /// See [InputAttribute] for more details.
     ///
     pub fn get_inputs(self) -> Result<Option<Vec<String>>, PlanError> {
         self.resolve_inputs(None).map(|inputs| {

@@ -1,3 +1,4 @@
+//! Xylem command-line executable.
 use clap::Parser;
 use std::process::exit;
 use tracing::instrument;

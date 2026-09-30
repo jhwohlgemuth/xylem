@@ -11,7 +11,10 @@
 > Digital xylem that transports data through workflows with structure and support
 
 ## Installation
-> Xylem is currently only tested rigorously on Linux, full Windows support is coming soon
+
+The supported release target is static Linux (`x86_64-unknown-linux-musl`).
+Homebrew is tested on Linux and macOS. Windows builds are published for early
+use, but rigorous macOS and Windows support remains on the roadmap.
 
 ### Install with Homebrew
 
@@ -31,10 +34,8 @@ cargo install --locked xylem-cli
 ```
 
 ### Download pre-compiled binary
-- Download newest binary from [releases page](https://code.ornl.gov/research-enablement/xylem/-/releases)
-    ```shell
-    curl -LO https://code.ornl.gov/api/v4/projects/15383/packages/generic/x86_64-unknown-linux-musl/v1.0.2/xylem
-    ```
+- Download the Linux binary attached to the newest version on the
+  [releases page](https://code.ornl.gov/research-enablement/xylem/-/releases).
 - Make binary executable
     ```shell
     chmod +x ./xylem
@@ -43,7 +44,7 @@ cargo install --locked xylem-cli
     ```shell
     mv xylem /usr/local/bin
     ```
-- Verify installation with `xylem help`
+- Verify installation with `xylem --version` and `xylem --help`
 
 ### Build from source
 - Clone this project and navigate to it
@@ -59,15 +60,25 @@ cargo install --locked xylem-cli
 
 - Test the installation
   ```shell
-  xylem help
+  xylem --version
+  xylem --help
   ```
 
 ## Documentation
 > **TIP** Read the Xylem book at https://xylem.ornl.gov and/or explore the [Wiki](https://code.ornl.gov/research-enablement/xylem/-/wikis/home)
 
 - See the [Xylem book](https://xylem.ornl.gov) for installation, configuration, and module guidance
-- See example configurations in the [`/examples`](./examples/) folder
-- Run the self-contained [kitchensink example](./examples/kitchensink/README.md), [multi-module example](./examples/multi-module/README.md), [Python with Pixi example](./examples/python-with-pixi/README.md), or [Python with Conda example](./examples/python-with-conda/README.md) with their corresponding `cargo run --example <name>` command
+- Use the [workflow configuration reference](./docs/src/configuration.md) for
+  the current JSON and YAML contract
+- See the supported paths and dependency tiers in the [`examples`](./examples/) catalog
+- Start with the self-contained [offline smoke example](./examples/offline-smoke/README.md),
+  which needs only a POSIX shell
+- Run the broader [kitchensink example](./examples/kitchensink/README.md),
+  [multi-module example](./examples/multi-module/README.md),
+  [Python with Pixi example](./examples/python-with-pixi/README.md), or
+  [Python with Conda example](./examples/python-with-conda/README.md) with its
+  corresponding `cargo run --example <name>` command after installing the
+  dependencies listed in that example's README
 - Read the versioned [Xylem module specification](./MODULE_SPEC.md)
 
 ### Architecture

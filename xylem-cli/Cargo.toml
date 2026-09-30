@@ -42,5 +42,5 @@ openssl-sys = { version = "0.9.117", features = ["vendored"] }
 [dev-dependencies]
 assert_cmd = "2.0.16"
 
-[lints.rust]
-unsafe_code = "forbid"
+[lints]
+workspace = true

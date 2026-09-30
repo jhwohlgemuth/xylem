@@ -1,0 +1,33 @@
+{
+  "version": "1.0.0",
+  "id": "offline-smoke",
+  "description": "Run a local shell module without network access or external environment managers",
+  "requirements": ["sh"],
+  "input": ["Ada", "Grace"],
+  "output": "./examples/offline-smoke/output",
+  "options": {
+    "offline": true
+  },
+  "modules": [
+    {
+      "name": "Greeting",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:./examples/offline-smoke/module",
+      "template": {
+        "command": "sh",
+        "arguments": [
+          "run.sh",
+          "{{ INPUT }}",
+          "../output/greeting-{{ INPUT }}.txt"
+        ]
+      },
+      "completion": {
+        "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/greeting-{{ INPUT }}.json",
+        "outputs": [
+          "{{ OUTPUT_DIRECTORY }}/greeting-{{ INPUT }}.txt"
+        ]
+      }
+    }
+  ]
+}

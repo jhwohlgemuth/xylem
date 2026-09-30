@@ -45,7 +45,6 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 - [Hermetic tests](testing/hermetic-workflow-tests.md) provides the regression gate required by the CI plan and validates every correctness plan as its contracts land.
 - [CI and release pipeline](refactors/ci-release-pipeline.md) consumes the hermetic suite and dependency gates.
 - [Homebrew release export](features/homebrew-export.md) consumes immutable tagged artifacts and checksums from the CI/release pipeline.
-- [Documentation and examples](refactors/documentation-and-examples.md) follows user-facing contract decisions, the repaired build/release workflow, and the verified Homebrew installation contract.
 
 ## Shared integration boundaries
 
