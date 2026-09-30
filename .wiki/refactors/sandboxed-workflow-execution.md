@@ -509,10 +509,7 @@ normal supported installations do not execute workflow code on the host.
   acquisition owns provenance and atomic materialization; this plan owns where
   external helpers execute and how verified bytes enter a session.
 - Precedes [shell-script workflow input](../features/shell-script-workflow-input.md).
-- Precedes the sandboxed portion of
-  [managed container lifecycle](managed-container-lifecycle.md); the latter may
-  use only a private runtime advertised by the sandbox backend.
-- Preserves the landed validation, deterministic plan, resume, journal,
+- Preserves the validation, deterministic plan, resume, journal,
   reporter, and batching contracts.
 
 # Validation

@@ -15,10 +15,8 @@ Execute module commands without pipe deadlocks or argument corruption, and retur
 
 # Current evidence
 
-- `Script::run` pipes both stdout and stderr, drains stdout to EOF, then drains stderr. A child that fills stderr while stdout remains open can block both processes indefinitely.
-- After manually draining both pipes, it calls `wait_with_output`; output bytes in that return value are no longer meaningful.
-- Any spawn, capture, wait, or non-zero-exit failure returns `Vec::new()`, which is indistinguishable from a successful silent command.
-- Stderr lines are appended to the same string vector as stdout, losing stream identity and ordering.
+- `Script::run` now returns `Result<Vec<String>, ProcessError>`, and the ACORN command primitive captures both pipes without the former sequential-read deadlock. Spawn and non-zero-exit failures are no longer converted to an empty success value.
+- The successful result still appends stderr lines to stdout lines in one `Vec<String>`, losing stream identity, byte fidelity, status, duration, and truncation metadata.
 - `Instruction::ShellFormat` is parsed with `split_whitespace`, so quoting, escaped spaces, and empty arguments are not preserved.
 - Display formatting joins arguments with spaces without shell escaping, so logged commands are ambiguous and cannot be copied safely.
 - There is no timeout, cancellation, output-size bound, signal status, or child cleanup contract.
@@ -27,11 +25,11 @@ Execute module commands without pipe deadlocks or argument corruption, and retur
 
 - **Update:** `xylem-lib/src/script/mod.rs`, its tests, template fixtures, and public documentation.
 - **Create:** a process execution module if extraction makes ownership clearer; structured `ExecutionResult`, `CapturedOutput`, and execution-option types; fake child-process fixtures.
-- **Delete:** `Script::run -> Vec<String>`, sequential manual pipe draining, `split_whitespace` parsing, and empty-vector error fallbacks.
+- **Delete:** the combined `Vec<String>` result, `split_whitespace` parsing, and lossy output conversion at the execution boundary.
 
 # Dependencies and ordering
 
-Consumes the landed typed-error and workflow-outcome taxonomy. It precedes
+Consumes the existing typed-error and workflow-outcome taxonomy. It precedes
 [workflow environment and concurrency](workflow-environment-and-concurrency.md),
 secure acquisition subprocesses, and reporters.
 

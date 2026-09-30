@@ -17,20 +17,12 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Next execution phase
 
-Typed execution and resumable execution are complete. The next
-dependency-ready runtime item is
+The next dependency-ready runtime item is
 [lossless process execution](refactors/process-execution-contract.md), followed
 by workflow environment and concurrency. Secure acquisition may proceed in its
 separate configuration/acquisition lane.
 
 Memory-aware scheduling remains gated on a successful measurement spike. The [hermetic workflow test suite](testing/hermetic-workflow-tests.md) may continue establishing host-independent fixtures alongside it.
-
-Completed plans are removed, with their landed contracts preserved as prose in
-the documents that still depend on them. This includes typed execution,
-resumable execution, validated planning, the YAML migration, structured run
-reporters, the durable execution journal, fixed input concurrency, and the
-ACORN command environment sync and dependency upgrade. The hermetic test suite
-still carries a rechecked current-evidence section.
 
 ## Adding a plan
 

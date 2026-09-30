@@ -9,4 +9,3 @@
 - [CI and release pipeline](ci-release-pipeline.md) - Test merge requests and tags, build explicit target artifacts, and publish releases from immutable tags.
 - [Documentation and examples](documentation-and-examples.md) - Reconcile the public docs, roadmap, examples, and repository hygiene with implemented behavior.
 - [Sandboxed workflow execution](sandboxed-workflow-execution.md) - Route workflow preparation and commands through a fail-closed policy, resource, and lifecycle boundary.
-- [Managed container lifecycle](managed-container-lifecycle.md) - Create, verify, and clean up workflow-owned Docker and Podman containers.

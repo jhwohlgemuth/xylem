@@ -15,16 +15,12 @@ Ensure every proposed code or dependency change is tested before merge, and ensu
 
 # Current evidence
 
-Rechecked against `005aa73`. Some hardening has landed; the structural gaps remain.
-
-- Landed: jobs now carry explicit `when: never` tag guards and per-job `changes` lists, and the recent history shows fixes for runner architecture, hardcoded `amd64` release targets, exact workspace version parsing, protected tag rules, and release-job ordering. Build and release now require `test`, and release assets come from a version tag rather than a hand-edited string.
-- Landed: the tag pipeline verifies uploaded immutable artifacts, renders the source formula, and opens a tap merge request rather than pushing to a protected branch.
-- Open: the `test` job still runs only on the default branch, so merge requests are not gated by it. `changes` lists still omit `Cargo.lock`, `tests/`, `Makefile`, and `.gitlab-ci.yml` on several jobs, so those can bypass the relevant job.
-- Open: images are still floating. Four jobs use the ACORN `rust:latest` tag, the release job uses `release-cli:latest`, and the publish job uses `curlimages/curl:latest`. `ubuntu` is unqualified in the default image.
-- Open: `make lint` still runs `cargo fmt` and `cargo clippy --no-deps --all-targets --fix --allow-dirty`, so a CI lint check built on it would mutate the worktree and hide findings.
-- Open: `make test` and `make doc` still `cargo clean` first, so CI pays a cold build and cannot observe incremental-cache behavior.
-- Open: uploaded artifacts still have no recorded checksum or build-input provenance pointing back to the exact commit.
-- Open: `TARGETS` in the `Makefile` and the contributor docs still list nine cross-compilation targets with no Make target or CI matrix that builds them, and `make build` still assumes PowerShell plus the Windows GNU toolchain.
+- The `test` job still runs only on the default branch, so merge requests are not gated by it. `changes` lists still omit `Cargo.lock`, `tests/`, `Makefile`, and `.gitlab-ci.yml` on several jobs, so those can bypass the relevant job.
+- Images are still floating. Four jobs use the ACORN `rust:latest` tag, the release job uses `release-cli:latest`, and the publish job uses `curlimages/curl:latest`. `ubuntu` is unqualified in the default image.
+- `make lint` still runs `cargo fmt` and `cargo clippy --no-deps --all-targets --fix --allow-dirty`, so a CI lint check built on it would mutate the worktree and hide findings.
+- `make test` and `make doc` still `cargo clean` first, so CI pays a cold build and cannot observe incremental-cache behavior.
+- Uploaded artifacts still have no recorded checksum or build-input provenance pointing back to the exact commit.
+- `TARGETS` in the `Makefile` and the contributor docs still list nine cross-compilation targets with no Make target or CI matrix that builds them, and `make build` still assumes PowerShell plus the Windows GNU toolchain.
 
 # Project code boundaries
 

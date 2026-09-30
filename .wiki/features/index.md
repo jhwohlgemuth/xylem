@@ -7,8 +7,4 @@
 
 ## In progress
 
-- [Homebrew release export](homebrew-export.md) - Repository and tap automation is complete; operational activation awaits protected tap credentials, required Homebrew runners, merge checks, and a new release tag.
-
-## Implemented
-
-- [Managed-container keepalive](container-keep-alive.md) - Add an opt-in idle startup strategy while preserving image defaults and explicit commands.
+- [Homebrew release activation](homebrew-export.md) - Configure protected credentials, required runners, and merge checks, then verify publication from a new release tag.

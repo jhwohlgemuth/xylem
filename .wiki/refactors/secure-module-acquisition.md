@@ -15,17 +15,14 @@ Make remote workflow modules reproducible and fail closed. A plan must identify 
 
 # Current evidence
 
-Rechecked against `005aa73`. The host-allowlist and reachability layer has landed; the transactional, containment, and provenance layers have not.
+The existing host allowlist, redirect checks, reachability probes, URL
+redaction, and offline handling are the baseline. The remaining gaps are:
 
-- Landed: `xylem-lib/src/remote.rs` implements an exact `RemotePolicy::from_hosts` allowlist that normalizes case, rejects wildcards and suffixes, and is enforced against the original URL and across HTTP redirect targets.
-- Landed: `probe_http` falls back when `HEAD` is unsupported and `probe_git` probes non-interactively, so remote reachability is no longer unconditional success.
-- Landed: `options.allowed` and `--allowed` are documented, with `--allowed` replacing rather than extending the configured list, and `redact_url` keeps credentials out of diagnostics.
-- Landed: an offline run rejects remote sources with a typed message and an offline dry run reports them as skipped, instead of falling through to generic unsupported handling.
-- Open: a remote binary with no `checksum` is still rejected, but `--skip-verify-checksum` still bypasses verification as an ordinary configuration field and CLI flag rather than an explicitly unsafe policy.
-- Open: downloads are still written and then made executable, with no capability-owned staging directory, no digest streamed during the write, and no atomic rename boundary.
-- Open: destination names still derive from URL and hash helpers with no Xylem-owned collision, symlink, or traversal containment policy.
-- Open: remote Python modules still run `git clone` through `Script::maybe_git_clone` with no required commit or tag, no depth or object bound, and no post-clone origin or revision verification.
-- Open: generic remote scripts are still accepted by configuration, and the run reporters and the acquisition path share no provenance record.
+- `--skip-verify-checksum` is still an ordinary configuration field and CLI flag rather than an explicitly unsafe operator policy.
+- Downloads have no capability-owned staging directory, streamed digest, or atomic rename boundary.
+- Destination names still lack an Xylem-owned collision, symlink, and traversal-containment policy.
+- Remote Python modules still use an unbounded `git clone` with no required immutable revision or post-clone origin verification.
+- Generic remote scripts remain accepted, and acquisition emits no provenance record for run reporters.
 
 # Project code boundaries
 
@@ -35,7 +32,7 @@ Rechecked against `005aa73`. The host-allowlist and reachability layer has lande
 
 # Dependencies and ordering
 
-Builds on the landed ACORN 0.3.2, typed-error, and validated-planning contracts,
+Builds on the existing ACORN, typed-error, and validated-planning contracts,
 and follows [process execution](process-execution-contract.md).
 
 # Recommendation

@@ -21,7 +21,7 @@ Give each workflow input an immutable execution context containing its variables
 - Per-input and module variables are now attached to each script through `with_envs`, but globally set configuration values still leak to every child and to any later workflow in the same process.
 - Variable precedence is implicit: module values overwrite configuration values, then `INPUT` and `PARENT_DIRECTORY` overwrite both. Reserved-name collisions are not validated.
 - Template tests mutate `_XYLEM_*` process variables and do not restore them, making parallel test execution order-dependent.
-- The landed `options.batch` ceiling gives rolling admission, fail-fast, and ordered outcomes, but those semantics live in `ExecutionContext` rather than behind an immutable run context, and no cancellation or memory signal reaches the admission decision.
+- The `options.batch` ceiling gives rolling admission, fail-fast, and ordered outcomes, but those semantics live in `ExecutionContext` rather than behind an immutable run context, and no cancellation or memory signal reaches the admission decision.
 - The CLI creates a random temporary root but never gives it an explicit retention or cleanup lifetime.
 
 # Project code boundaries
@@ -32,7 +32,7 @@ Give each workflow input an immutable execution context containing its variables
 
 # Dependencies and ordering
 
-Follows the landed typed-outcome contract and the [process execution contract](process-execution-contract.md). It extends the existing single Rayon budget with scheduling, failure, and cancellation semantics rather than redefining `-t`. The `options.batch` rolling input ceiling has already landed, so this refactor preserves it and moves its admission helper behind the immutable context rather than introducing a competing limit. Its aggregate results feed the existing durable execution journal and run reporters.
+Follows the typed-outcome contract and the [process execution contract](process-execution-contract.md). It extends the existing single Rayon budget with scheduling, failure, and cancellation semantics rather than redefining `-t`. This refactor preserves the `options.batch` rolling input ceiling and moves its admission helper behind the immutable context rather than introducing a competing limit. Its aggregate results feed the existing durable execution journal and run reporters.
 
 # Recommendation
 
