@@ -46,7 +46,7 @@ boundary. Modules execute in declaration order for an input, while multiple
 inputs and module preparation may use the configured Rayon pool.
 
 The library-owned execution journal is the durable source of truth for run,
-input, and module state. It serializes concurrent transitions, assigns ordered
+input, module, and optional GPU-monitoring state. It serializes concurrent transitions, assigns ordered
 sequence numbers, flushes every complete JSON Lines record, and recovers a
 deterministic summary while tolerating only a truncated final record. The CLI
 owns reporter presentation and exit-code selection; reporters read the
@@ -64,7 +64,7 @@ classification to a process exit code and renders the terminal diagnostic.
 Resume decisions are made before module preparation from explicit completion
 declarations. The runtime requires both non-empty declared outputs and an exact
 canonical marker identity, and records skips as `skipped_existing` in journal
-schema version 4. Journal events and recovered summaries carry both the leaf
+schema version 5. Journal events and recovered summaries carry both the leaf
 display name and its qualified `module_path`. Dry-run uses a separate in-memory
 execution plan and performs no filesystem writes.
 

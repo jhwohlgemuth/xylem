@@ -115,6 +115,7 @@ pub fn run_example(config: &str) -> Void {
         false,
         false,
         false,
+        false,
         &None,
         false,
         false,

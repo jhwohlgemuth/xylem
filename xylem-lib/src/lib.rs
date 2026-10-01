@@ -18,6 +18,7 @@ pub mod container;
 #[allow(missing_docs)]
 pub mod error;
 pub mod execution;
+pub mod gpu;
 #[allow(missing_docs)]
 pub mod journal;
 pub mod outcome;

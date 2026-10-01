@@ -177,6 +177,9 @@ pub struct ConfigOptions {
     pub batch: Option<InputBatch>,
     #[serde(alias = "dry-run")]
     pub dry_run: Option<bool>,
+    /// Collect run-wide NVIDIA GPU telemetry with `nvidia-smi`.
+    #[serde(alias = "gpu-monitor")]
+    pub gpu_monitor: Option<bool>,
     pub offline: Option<bool>,
     /// Skip modules whose declared outputs and marker are current.
     pub resume: Option<bool>,

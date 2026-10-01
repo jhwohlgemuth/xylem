@@ -42,6 +42,9 @@ pub enum Commands {
         /// Execute workflow dry run (do not actually make changes to environment)
         #[arg(short, long = "dry-run", value_name = "BOOL")]
         dry_run: bool,
+        /// Collect run-wide NVIDIA GPU telemetry with nvidia-smi
+        #[arg(long = "gpu-monitor")]
+        gpu_monitor: bool,
         /// Execute workflow without connection to the internet
         #[arg(short = 'X', long, value_name = "BOOL")]
         offline: bool,
@@ -162,6 +165,17 @@ mod tests {
         let after = parse(&["xylem", "run", "--env", "custom.env", "--no-progress"]);
         assert_eq!(after.env, Some(PathBuf::from("custom.env")));
         assert!(after.no_progress);
+    }
+    #[test]
+    fn test_gpu_monitor_is_explicit() {
+        match parse(&["xylem", "run", "--gpu-monitor"]).command {
+            | Some(Commands::Run { gpu_monitor, .. }) => assert!(gpu_monitor),
+            | None => panic!("run command should parse"),
+        }
+        match parse(&["xylem", "run"]).command {
+            | Some(Commands::Run { gpu_monitor, .. }) => assert!(!gpu_monitor),
+            | None => panic!("run command should parse"),
+        }
     }
     #[test]
     fn test_help_documents_thread_contract() {

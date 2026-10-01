@@ -29,6 +29,7 @@ acorn-lib = { workspace = true }
 acorn-macros = { workspace = true }
 acorn-schema = { workspace = true }
 convert_case = { workspace = true }
+csv = { workspace = true }
 dotenvy = { workspace = true }
 exitcode = { workspace = true }
 glob = { workspace = true }

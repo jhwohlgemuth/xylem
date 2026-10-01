@@ -3,10 +3,12 @@ extern crate alloc;
 
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
 use crate::config::{Config, InputAttribute};
+use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
 use crate::script::{
     module_working_directory, ContainerCleanup, ContainerEnvironment, ContainerRuntime, ContainerStartup, Module, ModuleType, ModuleUri, Script,
     TemplateAttribute,
 };
+use acorn_core::time::Milliseconds;
 use acorn_schema::validation::ValidationReport;
 use alloc::collections::BTreeMap;
 use bon::Builder;
@@ -33,12 +35,22 @@ pub struct ExecutionPlan {
     pub configuration: PlanConfiguration,
     /// Deduplicated containers required by modules that would run.
     pub containers: Vec<PlannedContainer>,
+    /// GPU monitoring that would run during execution.
+    pub gpu_monitoring: Option<PlannedGpuMonitoring>,
     /// Ordered module decisions for every input.
     pub modules: Vec<PlannedModule>,
     /// Whether resume observations influenced decisions.
     pub resume: bool,
     /// Execution-plan schema version.
     pub schema_version: u32,
+}
+/// GPU monitoring selected for a planned run.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PlannedGpuMonitoring {
+    /// Fixed sampling interval in milliseconds.
+    pub interval: Milliseconds,
+    /// Telemetry provider executable.
+    pub source: String,
 }
 /// Configuration identity embedded in an execution plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -237,9 +249,18 @@ impl ExecutionPlan {
                         path,
                         version: config.version.clone(),
                     },
+                    gpu_monitoring: config
+                        .options
+                        .as_ref()
+                        .and_then(|options| options.gpu_monitor)
+                        .unwrap_or_default()
+                        .then(|| PlannedGpuMonitoring {
+                            interval: GPU_SAMPLE_INTERVAL_MS,
+                            source: "nvidia-smi".to_string(),
+                        }),
                     modules,
                     resume,
-                    schema_version: 4,
+                    schema_version: 5,
                 })
         })
     }

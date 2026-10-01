@@ -19,7 +19,7 @@ fn module() -> JournalModule {
     JournalModule::new(0, "module".to_string(), vec!["group".to_string(), "module".to_string()])
 }
 fn path(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("xylem-journal-{label}-{}-{}.jsonl", std::process::id(), timestamp_ms()))
+    std::env::temp_dir().join(format!("xylem-journal-{label}-{}-{}.jsonl", std::process::id(), timestamp()))
 }
 
 #[test]
@@ -80,6 +80,117 @@ fn existing_destination_and_invalid_transition_are_rejected() {
     remove_file(path).expect("remove journal");
 }
 #[test]
+fn gpu_monitoring_aggregates_samples_by_uuid() {
+    let path = path("gpu-aggregate");
+    let journal = RunJournal::create(path.clone(), metadata("run-gpu"), Vec::new(), Vec::new()).expect("create journal");
+    let device = GpuDevice {
+        index: 0,
+        name: "NVIDIA Test".to_string(),
+        memory_total_mib: Some(8192),
+        uuid: "GPU-a".to_string(),
+    };
+    journal.start_gpu_monitoring(Milliseconds::new(1000)).expect("start monitoring");
+    journal.record_gpu_inventory(vec![device]).expect("record inventory");
+    journal
+        .record_gpu_sample(vec![GpuReading {
+            memory_used_mib: Some(1024),
+            utilization_percent: Some(25),
+            uuid: "GPU-a".to_string(),
+        }])
+        .expect("record first sample");
+    journal
+        .record_gpu_sample(vec![GpuReading {
+            memory_used_mib: Some(3072),
+            utilization_percent: Some(75),
+            uuid: "GPU-a".to_string(),
+        }])
+        .expect("record second sample");
+    journal.finish_gpu_monitoring(None).expect("finish monitoring");
+    journal.finish(FinalStatus::Succeeded, None).expect("finish run");
+    let summary = RunJournal::read(&path).expect("recover journal");
+    let monitoring = summary.gpu_monitoring.expect("GPU summary");
+    assert_eq!(monitoring.status, GpuMonitoringStatus::Complete);
+    assert_eq!(monitoring.devices[0].samples, 2);
+    assert_eq!(
+        monitoring.devices[0].utilization_percent,
+        Some(GpuMetricSummary {
+            average: 50,
+            maximum: 75,
+            samples: 2,
+        })
+    );
+    assert_eq!(
+        monitoring.devices[0].memory_used_mib,
+        Some(GpuMetricSummary {
+            average: 2048,
+            maximum: 3072,
+            samples: 2,
+        })
+    );
+    remove_file(path).expect("remove journal");
+}
+#[test]
+fn gpu_monitoring_recovers_unavailable_and_interrupted_states() {
+    let unavailable_path = path("gpu-unavailable");
+    let unavailable =
+        RunJournal::create(unavailable_path.clone(), metadata("run-gpu-unavailable"), Vec::new(), Vec::new()).expect("create unavailable journal");
+    unavailable
+        .start_gpu_monitoring(Milliseconds::new(1000))
+        .expect("start unavailable monitoring");
+    unavailable
+        .finish_gpu_monitoring(Some("nvidia-smi missing"))
+        .expect("finish unavailable monitoring");
+    unavailable
+        .finish(FinalStatus::Failed, Some("GPU unavailable"))
+        .expect("finish unavailable run");
+    let summary = RunJournal::read(&unavailable_path).expect("recover unavailable journal");
+    assert_eq!(
+        summary.gpu_monitoring.as_ref().map(|monitoring| monitoring.status),
+        Some(GpuMonitoringStatus::Unavailable)
+    );
+    remove_file(unavailable_path).expect("remove unavailable journal");
+
+    let interrupted_path = path("gpu-interrupted");
+    let interrupted =
+        RunJournal::create(interrupted_path.clone(), metadata("run-gpu-interrupted"), Vec::new(), Vec::new()).expect("create interrupted journal");
+    interrupted
+        .start_gpu_monitoring(Milliseconds::new(1000))
+        .expect("start interrupted monitoring");
+    drop(interrupted);
+    let summary = RunJournal::read(&interrupted_path).expect("recover interrupted journal");
+    assert_eq!(
+        summary.gpu_monitoring.as_ref().map(|monitoring| monitoring.status),
+        Some(GpuMonitoringStatus::Interrupted)
+    );
+    remove_file(interrupted_path).expect("remove interrupted journal");
+}
+#[test]
+fn gpu_monitoring_rejects_invalid_event_order_and_identity() {
+    let path = path("gpu-invalid");
+    let journal = RunJournal::create(path.clone(), metadata("run-gpu-invalid"), Vec::new(), Vec::new()).expect("create journal");
+    assert!(journal.record_gpu_sample(Vec::new()).is_err());
+    journal.start_gpu_monitoring(Milliseconds::new(1000)).expect("start monitoring");
+    assert!(journal.record_gpu_sample(Vec::new()).is_err());
+    journal
+        .record_gpu_inventory(vec![GpuDevice {
+            index: 0,
+            name: "NVIDIA Test".to_string(),
+            memory_total_mib: Some(8192),
+            uuid: "GPU-a".to_string(),
+        }])
+        .expect("record inventory");
+    assert!(journal
+        .record_gpu_sample(vec![GpuReading {
+            memory_used_mib: Some(1),
+            utilization_percent: Some(1),
+            uuid: "GPU-b".to_string(),
+        }])
+        .is_err());
+    assert!(journal.finish(FinalStatus::Succeeded, None).is_err());
+    drop(journal);
+    remove_file(path).expect("remove journal");
+}
+#[test]
 fn journal_jsonl_omits_none_fields() {
     let path = path("omit-none");
     let journal = RunJournal::create(path.clone(), metadata("run-omit-none"), vec![JournalInput::new(0, None)], Vec::new()).expect("create journal");
@@ -91,7 +202,7 @@ fn journal_jsonl_omits_none_fields() {
 }
 #[test]
 fn json_report_is_atomic_and_refuses_overwrite() {
-    let directory = std::env::temp_dir().join(format!("xylem-journal-report-{}-{}.jsonl", std::process::id(), timestamp_ms()));
+    let directory = std::env::temp_dir().join(format!("xylem-journal-report-{}-{}.jsonl", std::process::id(), timestamp()));
     create_dir_all(&directory).expect("create reporter test directory");
     let summary = RunSummary {
         schema_version: JOURNAL_SCHEMA_VERSION,
@@ -108,6 +219,7 @@ fn json_report_is_atomic_and_refuses_overwrite() {
         duration_ms: Some(1),
         status: RunStatus::Succeeded,
         error: None,
+        gpu_monitoring: None,
         inputs: Vec::new(),
     };
     let path = summary.write_json_atomic(&directory).expect("write JSON report");

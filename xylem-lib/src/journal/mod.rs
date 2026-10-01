@@ -2,6 +2,7 @@
 extern crate alloc;
 
 use crate::ReporterType;
+use acorn_core::time::Milliseconds;
 use acorn_core::validation::ValidationError;
 use acorn_schema::validation::{Validate, ValidationReport};
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -16,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use strum::EnumIs;
 
 /// Current on-disk journal schema version.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 4;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 5;
 /// Maximum number of UTF-8 bytes retained for one journal error detail.
 pub const MAX_ERROR_BYTES: usize = 4096;
 trait Summary {
@@ -77,6 +78,25 @@ pub enum FinalStatus {
     /// At least one required operation failed.
     Failed,
 }
+/// Recovered disposition of requested GPU monitoring.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GpuMonitoringStatus {
+    /// Monitoring completed for the run.
+    Complete,
+    /// Monitoring started but stopped after a sampling failure.
+    Degraded,
+    /// The run ended before monitoring finalized.
+    Interrupted,
+    /// Monitoring could not collect its initial inventory and sample.
+    Unavailable,
+}
+#[derive(Clone, Debug)]
+enum GpuJournalState {
+    Disabled,
+    Finished,
+    Started { device_ids: Option<BTreeSet<String>> },
+}
 /// Journal creation, persistence, validation, or recovery failure.
 #[derive(Debug)]
 pub enum JournalError {
@@ -102,6 +122,14 @@ pub enum JournalEvent {
         state: ContainerState,
         error: Option<String>,
     },
+    /// Records the immutable GPU inventory observed at monitoring start.
+    GpuInventory { devices: Vec<GpuDevice> },
+    /// Marks the end of GPU monitoring.
+    GpuMonitoringFinished { error: Option<String> },
+    /// Marks the requested GPU sampling cadence.
+    GpuMonitoringStarted { interval: Milliseconds },
+    /// Records one run-wide reading for every inventoried GPU.
+    GpuSample { readings: Vec<GpuReading> },
     /// Records an input transition.
     InputState {
         input: JournalInput,
@@ -160,6 +188,82 @@ pub struct ContainerSummary {
     pub error: Option<String>,
     /// Timestamp of the latest transition.
     pub updated_at_ms: u64,
+}
+/// Stable identity and capacity for one monitored GPU.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct GpuDevice {
+    /// Driver enumeration index for display only.
+    pub index: u32,
+    /// Product name reported by the driver.
+    pub name: String,
+    /// Total frame-buffer memory in MiB, when supported.
+    pub memory_total_mib: Option<u64>,
+    /// Stable NVIDIA device UUID.
+    pub uuid: String,
+}
+#[derive(Clone, Debug)]
+struct GpuDeviceAggregate {
+    device: GpuDevice,
+    memory_used_mib: MetricAggregate,
+    samples: u64,
+    utilization_percent: MetricAggregate,
+}
+/// Aggregated telemetry for one monitored GPU.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct GpuDeviceSummary {
+    /// Driver enumeration index for display only.
+    pub index: u32,
+    /// Product name reported by the driver.
+    pub name: String,
+    /// Total frame-buffer memory in MiB, when supported.
+    pub memory_total_mib: Option<u64>,
+    /// Aggregate used frame-buffer memory in MiB.
+    pub memory_used_mib: Option<GpuMetricSummary>,
+    /// Number of readings containing this GPU.
+    pub samples: u64,
+    /// Aggregate GPU utilization percentage.
+    pub utilization_percent: Option<GpuMetricSummary>,
+    /// Stable NVIDIA device UUID.
+    pub uuid: String,
+}
+/// Integer aggregate for one sampled GPU metric.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct GpuMetricSummary {
+    /// Arithmetic mean rounded to the nearest integer.
+    pub average: u64,
+    /// Maximum observed value.
+    pub maximum: u64,
+    /// Number of supported readings included in the aggregate.
+    pub samples: u64,
+}
+/// Recovered run-wide GPU monitoring summary.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct GpuMonitoringSummary {
+    /// Bounded failure detail for unavailable or degraded monitoring.
+    pub error: Option<String>,
+    /// Fixed sampling interval in milliseconds.
+    pub interval: Milliseconds,
+    /// Monitoring disposition.
+    pub status: GpuMonitoringStatus,
+    /// Ordered monitored devices and their aggregates.
+    pub devices: Vec<GpuDeviceSummary>,
+}
+#[derive(Clone, Debug)]
+struct GpuRecovery {
+    devices: BTreeMap<String, GpuDeviceAggregate>,
+    error: Option<String>,
+    finished: bool,
+    interval: Milliseconds,
+}
+/// One timestamped GPU reading stored in a journal sample event.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct GpuReading {
+    /// Used frame-buffer memory in MiB, when supported.
+    pub memory_used_mib: Option<u64>,
+    /// GPU utilization percentage, when supported.
+    pub utilization_percent: Option<u8>,
+    /// Stable NVIDIA device UUID.
+    pub uuid: String,
 }
 /// Latest reconstructed input state and its ordered modules.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -237,6 +341,13 @@ struct JournalSink {
     module_states: Vec<Vec<ExecutionState>>,
     container_states: Vec<ContainerState>,
     finalized: bool,
+    gpu_monitoring: GpuJournalState,
+}
+#[derive(Clone, Debug, Default)]
+struct MetricAggregate {
+    maximum: u64,
+    samples: u64,
+    sum: u128,
 }
 /// Latest reconstructed module state.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -299,6 +410,8 @@ pub struct RunSummary {
     pub status: RunStatus,
     /// Final bounded run error, when present.
     pub error: Option<String>,
+    /// Run-wide NVIDIA GPU telemetry, when requested.
+    pub gpu_monitoring: Option<GpuMonitoringSummary>,
     /// Ordered container lifecycle summaries.
     pub containers: Vec<ContainerSummary>,
     /// Ordered input summaries.
@@ -320,6 +433,28 @@ impl fmt::Display for ExecutionState {
             | Self::Failed => "failed",
             | Self::Skipped => "skipped",
             | Self::SkippedExisting => "skipped_existing",
+        })
+    }
+}
+impl Validate for GpuDevice {
+    fn validate(&self) -> Result<(), ValidationReport> {
+        let mut report = ValidationReport::new();
+        if self.name.is_empty() {
+            report.add("name", ValidationError::new("nonempty").with_message("GPU name cannot be empty"));
+        }
+        if self.uuid.is_empty() {
+            report.add("uuid", ValidationError::new("nonempty").with_message("GPU UUID cannot be empty"));
+        }
+        report.finish()
+    }
+}
+impl fmt::Display for GpuMonitoringStatus {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            | Self::Complete => "complete",
+            | Self::Degraded => "degraded",
+            | Self::Interrupted => "interrupted",
+            | Self::Unavailable => "unavailable",
         })
     }
 }
@@ -362,6 +497,104 @@ impl From<ValidationReport> for JournalError {
         Self::Invalid(error.to_string())
     }
 }
+impl GpuRecovery {
+    fn new(interval: Milliseconds) -> Result<Self, JournalError> {
+        match interval.is_zero() {
+            | true => Err(JournalError::Invalid("GPU monitoring interval must be greater than zero".to_string())),
+            | false => Ok(Self {
+                devices: BTreeMap::new(),
+                error: None,
+                finished: false,
+                interval,
+            }),
+        }
+    }
+    fn finish(&mut self, error: Option<String>) -> Result<(), JournalError> {
+        match (self.finished, error.is_none() && self.devices.is_empty()) {
+            | (true, _) => Err(JournalError::Invalid("GPU monitoring is already finished".to_string())),
+            | (false, true) => Err(JournalError::Invalid(
+                "GPU monitoring cannot finish successfully without an inventory".to_string(),
+            )),
+            | (false, false) => {
+                self.error = error;
+                self.finished = true;
+                Ok(())
+            }
+        }
+    }
+    fn inventory(&mut self, devices: Vec<GpuDevice>) -> Result<(), JournalError> {
+        match (self.finished, self.devices.is_empty()) {
+            | (true, _) => Err(JournalError::Invalid("GPU inventory follows monitoring completion".to_string())),
+            | (false, false) => Err(JournalError::Invalid("GPU inventory was already recorded".to_string())),
+            | (false, true) => devices
+                .validate()
+                .map_err(JournalError::from)
+                .and_then(|()| validate_gpu_inventory(&devices))
+                .map(|()| {
+                    self.devices = devices
+                        .into_iter()
+                        .map(|device| {
+                            (
+                                device.uuid.clone(),
+                                GpuDeviceAggregate {
+                                    device,
+                                    memory_used_mib: MetricAggregate::default(),
+                                    samples: 0,
+                                    utilization_percent: MetricAggregate::default(),
+                                },
+                            )
+                        })
+                        .collect();
+                }),
+        }
+    }
+    fn sample(&mut self, readings: Vec<GpuReading>) -> Result<(), JournalError> {
+        match (self.finished, self.devices.is_empty()) {
+            | (true, _) => Err(JournalError::Invalid("GPU sample follows monitoring completion".to_string())),
+            | (false, true) => Err(JournalError::Invalid("GPU sample precedes inventory".to_string())),
+            | (false, false) => validate_gpu_readings(&readings, self.devices.keys()).map(|()| {
+                readings.into_iter().for_each(|reading| {
+                    if let Some(device) = self.devices.get_mut(&reading.uuid) {
+                        device.samples = device.samples.saturating_add(1);
+                        reading.memory_used_mib.into_iter().for_each(|value| device.memory_used_mib.update(value));
+                        reading
+                            .utilization_percent
+                            .into_iter()
+                            .for_each(|value| device.utilization_percent.update(u64::from(value)));
+                    }
+                });
+            }),
+        }
+    }
+    fn summary(self) -> GpuMonitoringSummary {
+        let status = match (self.finished, self.error.is_some(), self.devices.is_empty()) {
+            | (false, _, _) => GpuMonitoringStatus::Interrupted,
+            | (true, true, true) => GpuMonitoringStatus::Unavailable,
+            | (true, true, false) => GpuMonitoringStatus::Degraded,
+            | (true, false, _) => GpuMonitoringStatus::Complete,
+        };
+        let mut devices = self
+            .devices
+            .into_values()
+            .map(|aggregate| GpuDeviceSummary {
+                index: aggregate.device.index,
+                name: aggregate.device.name,
+                memory_total_mib: aggregate.device.memory_total_mib,
+                memory_used_mib: aggregate.memory_used_mib.summary(),
+                samples: aggregate.samples,
+                utilization_percent: aggregate.utilization_percent.summary(),
+                uuid: aggregate.device.uuid,
+            })
+            .collect::<Vec<_>>();
+        devices.sort_by(|left, right| (left.index, &left.uuid).cmp(&(right.index, &right.uuid)));
+        GpuMonitoringSummary {
+            error: self.error,
+            interval: self.interval,
+            status,
+            devices,
+        }
+    }
+}
 impl JournalInput {
     /// Create a deterministic input identity from its ordered position.
     pub fn new(index: usize, value: Option<String>) -> Self {
@@ -387,7 +620,7 @@ impl JournalSink {
                 let record = JournalRecord {
                     schema_version: JOURNAL_SCHEMA_VERSION,
                     sequence: self.next_sequence,
-                    timestamp: timestamp_ms(),
+                    timestamp: timestamp().get(),
                     run_id: run_id.to_string(),
                     event,
                 };
@@ -399,6 +632,20 @@ impl JournalSink {
                     .map(|()| self.next_sequence += 1)
             }
         }
+    }
+}
+impl MetricAggregate {
+    fn summary(self) -> Option<GpuMetricSummary> {
+        (self.samples > 0).then(|| GpuMetricSummary {
+            average: u64::try_from((self.sum + u128::from(self.samples / 2)) / u128::from(self.samples)).unwrap_or(u64::MAX),
+            maximum: self.maximum,
+            samples: self.samples,
+        })
+    }
+    fn update(&mut self, value: u64) {
+        self.maximum = self.maximum.max(value);
+        self.samples = self.samples.saturating_add(1);
+        self.sum = self.sum.saturating_add(u128::from(value));
     }
 }
 impl Summary for ModuleSummary {
@@ -441,6 +688,7 @@ impl RunJournal {
                         module_states,
                         container_states: vec![ContainerState::NotStarted; containers.len()],
                         finalized: false,
+                        gpu_monitoring: GpuJournalState::Disabled,
                     }),
                 };
                 match journal.validate().map_err(JournalError::from) {
@@ -510,6 +758,86 @@ impl RunJournal {
                         })
                         .map(|()| sink.container_states[index] = state)
                 })
+            })
+    }
+    /// Durably record the immutable GPU inventory discovered by the monitor.
+    pub(crate) fn record_gpu_inventory(&self, devices: Vec<GpuDevice>) -> Result<(), JournalError> {
+        devices
+            .validate()
+            .map_err(JournalError::from)
+            .and_then(|()| validate_gpu_inventory(&devices))
+            .and_then(|()| {
+                self.sink
+                    .lock()
+                    .map_err(|_| JournalError::Poisoned)
+                    .and_then(|mut sink| match &sink.gpu_monitoring {
+                        | GpuJournalState::Started { device_ids: None } => sink
+                            .append_locked(&self.run_id, JournalEvent::GpuInventory { devices: devices.clone() })
+                            .map(|()| {
+                                sink.gpu_monitoring = GpuJournalState::Started {
+                                    device_ids: Some(devices.into_iter().map(|device| device.uuid).collect()),
+                                };
+                            }),
+                        | GpuJournalState::Started { device_ids: Some(_) } => {
+                            Err(JournalError::Invalid("GPU inventory was already recorded".to_string()))
+                        }
+                        | GpuJournalState::Disabled => Err(JournalError::Invalid("GPU inventory precedes monitoring start".to_string())),
+                        | GpuJournalState::Finished => Err(JournalError::Invalid("GPU inventory follows monitoring completion".to_string())),
+                    })
+            })
+    }
+    /// Durably record one run-wide GPU sample.
+    pub(crate) fn record_gpu_sample(&self, readings: Vec<GpuReading>) -> Result<(), JournalError> {
+        self.sink
+            .lock()
+            .map_err(|_| JournalError::Poisoned)
+            .and_then(|mut sink| match &sink.gpu_monitoring {
+                | GpuJournalState::Started {
+                    device_ids: Some(device_ids),
+                } => validate_gpu_readings(&readings, device_ids.iter())
+                    .and_then(|()| sink.append_locked(&self.run_id, JournalEvent::GpuSample { readings })),
+                | GpuJournalState::Started { device_ids: None } => Err(JournalError::Invalid("GPU sample precedes inventory".to_string())),
+                | GpuJournalState::Disabled => Err(JournalError::Invalid("GPU sample precedes monitoring start".to_string())),
+                | GpuJournalState::Finished => Err(JournalError::Invalid("GPU sample follows monitoring completion".to_string())),
+            })
+    }
+    /// Durably start run-wide GPU monitoring.
+    pub(crate) fn start_gpu_monitoring(&self, interval: Milliseconds) -> Result<(), JournalError> {
+        match interval.is_zero() {
+            | true => Err(JournalError::Invalid("GPU monitoring interval must be greater than zero".to_string())),
+            | false => self
+                .sink
+                .lock()
+                .map_err(|_| JournalError::Poisoned)
+                .and_then(|mut sink| match sink.gpu_monitoring {
+                    | GpuJournalState::Disabled => sink
+                        .append_locked(&self.run_id, JournalEvent::GpuMonitoringStarted { interval })
+                        .map(|()| sink.gpu_monitoring = GpuJournalState::Started { device_ids: None }),
+                    | GpuJournalState::Started { .. } | GpuJournalState::Finished => {
+                        Err(JournalError::Invalid("GPU monitoring was already started".to_string()))
+                    }
+                }),
+        }
+    }
+    /// Durably finish run-wide GPU monitoring.
+    pub(crate) fn finish_gpu_monitoring(&self, error: Option<&str>) -> Result<(), JournalError> {
+        self.sink
+            .lock()
+            .map_err(|_| JournalError::Poisoned)
+            .and_then(|mut sink| match &sink.gpu_monitoring {
+                | GpuJournalState::Started { device_ids } if error.is_some() || device_ids.is_some() => sink
+                    .append_locked(
+                        &self.run_id,
+                        JournalEvent::GpuMonitoringFinished {
+                            error: error.map(bounded_error),
+                        },
+                    )
+                    .map(|()| sink.gpu_monitoring = GpuJournalState::Finished),
+                | GpuJournalState::Started { .. } => Err(JournalError::Invalid(
+                    "GPU monitoring cannot finish successfully without an inventory".to_string(),
+                )),
+                | GpuJournalState::Disabled => Err(JournalError::Invalid("GPU monitoring was not started".to_string())),
+                | GpuJournalState::Finished => Err(JournalError::Invalid("GPU monitoring is already finished".to_string())),
             })
     }
     /// Return the journal's filesystem path.
@@ -587,12 +915,14 @@ impl RunJournal {
             match (
                 sink.finalized,
                 status == FinalStatus::Succeeded && sink.input_states.iter().any(|state| !state.is_complete()),
+                matches!(sink.gpu_monitoring, GpuJournalState::Started { .. }),
             ) {
-                | (true, _) => Err(JournalError::Invalid("run is already finalized".to_string())),
-                | (false, true) => Err(JournalError::Invalid(
+                | (true, _, _) => Err(JournalError::Invalid("run is already finalized".to_string())),
+                | (false, true, _) => Err(JournalError::Invalid(
                     "a successful run cannot contain unfinished or failed inputs".to_string(),
                 )),
-                | (false, false) => sink
+                | (false, false, true) => Err(JournalError::Invalid("run cannot finalize while GPU monitoring is active".to_string())),
+                | (false, false, false) => sink
                     .append_locked(
                         &self.run_id,
                         JournalEvent::RunFinished {
@@ -676,7 +1006,7 @@ impl RunMetadata {
             run_id,
             configuration,
             dry_run,
-            started_at_ms: timestamp_ms(),
+            started_at_ms: timestamp().get(),
         }
     }
 }
@@ -792,6 +1122,40 @@ impl RunSummary {
                     "Containers: {removed} removed, {retained} retained, {external} external, {failed} failed"
                 )
             })
+            .and_then(|()| match &self.gpu_monitoring {
+                | None => Ok(()),
+                | Some(monitoring) => writeln!(
+                    output,
+                    "GPU monitoring: {} at {} ms{}",
+                    monitoring.status,
+                    monitoring.interval,
+                    monitoring.error.as_deref().map_or(String::new(), |error| format!(": {error}"))
+                )
+                .and_then(|()| {
+                    monitoring.devices.iter().try_for_each(|device| {
+                        let utilization = device
+                            .utilization_percent
+                            .as_ref()
+                            .map_or_else(|| "n/a".to_string(), |metric| format!("avg {}%, max {}%", metric.average, metric.maximum));
+                        let memory = device.memory_used_mib.as_ref().map_or_else(
+                            || "n/a".to_string(),
+                            |metric| {
+                                format!(
+                                    "avg {} MiB, max {} MiB{}",
+                                    metric.average,
+                                    metric.maximum,
+                                    device.memory_total_mib.map_or(String::new(), |total| format!(" / {total} MiB"))
+                                )
+                            },
+                        );
+                        writeln!(
+                            output,
+                            "GPU {} {} ({}): {} samples, utilization {utilization}, memory {memory}",
+                            device.index, device.name, device.uuid, device.samples
+                        )
+                    })
+                }),
+            })
             .and_then(|()| {
                 self.inputs.iter().filter(|input| input.state.is_failed()).try_for_each(|input| {
                     let name = input.value.as_deref().unwrap_or("<no input>");
@@ -873,6 +1237,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
         let mut metadata = None;
         let mut inputs = BTreeMap::<usize, InputSummary>::new();
         let mut finalization = None;
+        let mut gpu_monitoring = None::<GpuRecovery>;
         let mut run_id = None::<String>;
         records
             .into_iter()
@@ -951,6 +1316,22 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                 ))),
                             }
                         }
+                        | JournalEvent::GpuInventory { devices } => gpu_monitoring
+                            .as_mut()
+                            .ok_or_else(|| JournalError::Invalid("GPU inventory precedes monitoring start".to_string()))
+                            .and_then(|monitoring| monitoring.inventory(devices)),
+                        | JournalEvent::GpuMonitoringFinished { error } => gpu_monitoring
+                            .as_mut()
+                            .ok_or_else(|| JournalError::Invalid("GPU monitoring completion precedes monitoring start".to_string()))
+                            .and_then(|monitoring| monitoring.finish(error)),
+                        | JournalEvent::GpuMonitoringStarted { interval } => match gpu_monitoring.is_some() {
+                            | true => Err(JournalError::Invalid("GPU monitoring was already started".to_string())),
+                            | false => GpuRecovery::new(interval).map(|monitoring| gpu_monitoring = Some(monitoring)),
+                        },
+                        | JournalEvent::GpuSample { readings } => gpu_monitoring
+                            .as_mut()
+                            .ok_or_else(|| JournalError::Invalid("GPU sample precedes monitoring start".to_string()))
+                            .and_then(|monitoring| monitoring.sample(readings)),
                         | JournalEvent::InputState { input, state, error } => {
                             let initialized_inputs = inputs.len();
                             match inputs.get_mut(&input.index) {
@@ -1022,10 +1403,14 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                     }
                                 }
                             }),
-                        | JournalEvent::RunFinished { status, error } => {
-                            finalization = Some((status, error, timestamp_ms));
-                            Ok(())
-                        }
+                        | JournalEvent::RunFinished { status, error } => match gpu_monitoring.as_ref().is_some_and(|monitoring| !monitoring.finished)
+                        {
+                            | true => Err(JournalError::Invalid("run finalized while GPU monitoring was active".to_string())),
+                            | false => {
+                                finalization = Some((status, error, timestamp_ms));
+                                Ok(())
+                            }
+                        },
                     })
             })
             .and_then(|()| metadata.ok_or_else(|| JournalError::Invalid("run_started record is missing".to_string())))
@@ -1055,6 +1440,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                             duration_ms,
                             status,
                             error,
+                            gpu_monitoring: gpu_monitoring.map(GpuRecovery::summary),
                             containers: containers.into_values().collect(),
                             inputs: inputs.into_values().collect(),
                         })
@@ -1075,13 +1461,44 @@ fn bounded_error(value: &str) -> String {
         format!("{}{}", &value[..end], SUFFIX)
     }
 }
-fn timestamp_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
+fn validate_gpu_inventory(devices: &[GpuDevice]) -> Result<(), JournalError> {
+    let (_, _, duplicate_index, duplicate_uuid) = devices.iter().fold(
+        (BTreeSet::new(), BTreeSet::new(), false, false),
+        |(mut indices, mut uuids, duplicate_index, duplicate_uuid), device| {
+            let unique_index = indices.insert(device.index);
+            let unique_uuid = uuids.insert(device.uuid.as_str());
+            (indices, uuids, duplicate_index || !unique_index, duplicate_uuid || !unique_uuid)
+        },
+    );
+    match (devices.is_empty(), duplicate_index, duplicate_uuid) {
+        | (true, _, _) => Err(JournalError::Invalid("GPU inventory must not be empty".to_string())),
+        | (false, true, _) => Err(JournalError::Invalid("GPU inventory must contain unique indices".to_string())),
+        | (false, false, true) => Err(JournalError::Invalid("GPU inventory must contain unique UUIDs".to_string())),
+        | (false, false, false) => Ok(()),
+    }
+}
+fn validate_gpu_readings<'a>(readings: &[GpuReading], device_ids: impl Iterator<Item = &'a String>) -> Result<(), JournalError> {
+    let expected = device_ids.map(String::as_str).collect::<BTreeSet<_>>();
+    let actual = readings.iter().map(|reading| reading.uuid.as_str()).collect::<BTreeSet<_>>();
+    let invalid_value = readings
+        .iter()
+        .any(|reading| reading.uuid.is_empty() || reading.utilization_percent.is_some_and(|value| value > 100));
+    match (readings.len() == actual.len(), actual == expected, invalid_value) {
+        | (false, _, _) => Err(JournalError::Invalid("GPU sample contains duplicate UUIDs".to_string())),
+        | (true, false, _) => Err(JournalError::Invalid("GPU sample does not match the recorded inventory".to_string())),
+        | (true, true, true) => Err(JournalError::Invalid("GPU sample contains an invalid value".to_string())),
+        | (true, true, false) => Ok(()),
+    }
+}
+fn timestamp() -> Milliseconds {
+    Milliseconds::new(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
+    )
 }
 fn validate_container_transition(current: ContainerState, next: ContainerState) -> Result<(), JournalError> {
     let valid = match current {

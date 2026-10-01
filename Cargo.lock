@@ -5,8 +5,7 @@ version = 4
 [[package]]
 name = "acorn-cmd"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bef7ad442dcc1b80ab9f293caed0c26cd978b297ba7f2ca0f2e9b2c0d6a281f2"
+source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=5d29344660334e2f0fd09b96a6f84b4510e57286#5d29344660334e2f0fd09b96a6f84b4510e57286"
 dependencies = [
  "acorn-macros",
  "shell-words",
@@ -16,8 +15,7 @@ dependencies = [
 [[package]]
 name = "acorn-core"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e75c8fc18fe8f82a430b09ab4e32711d02dbb71c43be1109d734354e19031359"
+source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=5d29344660334e2f0fd09b96a6f84b4510e57286#5d29344660334e2f0fd09b96a6f84b4510e57286"
 dependencies = [
  "aho-corasick",
  "anydoc",
@@ -45,8 +43,7 @@ dependencies = [
 [[package]]
 name = "acorn-host"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9332e585600d4cefd4a773546ca2cf205f2854951ec24131d84341f34d425f9f"
+source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=5d29344660334e2f0fd09b96a6f84b4510e57286#5d29344660334e2f0fd09b96a6f84b4510e57286"
 dependencies = [
  "acorn-cmd",
  "acorn-core",
@@ -64,8 +61,7 @@ dependencies = [
 [[package]]
 name = "acorn-lib"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63917ad4cb351da9b059f82b22f3b10a780ab5ce6bb2c9f748123b7906c6280d"
+source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=5d29344660334e2f0fd09b96a6f84b4510e57286#5d29344660334e2f0fd09b96a6f84b4510e57286"
 dependencies = [
  "acorn-cmd",
  "acorn-core",
@@ -156,8 +152,7 @@ dependencies = [
 [[package]]
 name = "acorn-macros"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "123700c17d5e16bc9b3546807e90d71ac8458a9f3a90c562180e3d7829935459"
+source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=5d29344660334e2f0fd09b96a6f84b4510e57286#5d29344660334e2f0fd09b96a6f84b4510e57286"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -168,8 +163,7 @@ dependencies = [
 [[package]]
 name = "acorn-schema"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31ac69901adfb053e7795cda47434accec326dce091326d7dbd1feb6a1efc840"
+source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=5d29344660334e2f0fd09b96a6f84b4510e57286#5d29344660334e2f0fd09b96a6f84b4510e57286"
 dependencies = [
  "acorn-core",
  "acorn-macros",
@@ -8786,6 +8780,7 @@ dependencies = [
  "bytes",
  "clap",
  "convert_case 0.11.0",
+ "csv",
  "derive_more",
  "dotenvy",
  "exitcode",

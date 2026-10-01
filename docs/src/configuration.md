@@ -89,11 +89,18 @@ example, `GREETING` is available as `_XYLEM_GREETING`.
 
 ## Options
 
-Configuration options include `batch`, `dry_run`, `offline`, `allowed`,
+Configuration options include `batch`, `dry_run`, `gpu_monitor`, `offline`, `allowed`,
 `resume`, `skip_verify_checksum`, and `skip_verify_requirements`. Enabling a
 Boolean CLI flag overrides a false or absent configuration value. When
 supplied, `--allowed`, `--input`, and `--artifact-output` replace their
 configured values.
+
+`gpu_monitor` enables run-wide NVIDIA GPU telemetry at a fixed one-second
+interval. Xylem invokes `nvidia-smi` on the host, journals raw utilization and
+frame-buffer memory readings, and reports compact per-GPU averages and peaks.
+The readings are device-wide and may include activity from unrelated processes
+on a shared host. Monitoring is represented in dry-run plans without invoking
+`nvidia-smi`.
 
 `resume` evaluates each module at top-level input granularity. A module is
 skipped only when all declared output globs resolve to non-empty files and its

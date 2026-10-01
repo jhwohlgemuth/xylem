@@ -137,11 +137,20 @@ fn test_execution_plan_reports_container_startup_strategies() {
             .find(|container| container.name == name)
             .and_then(|container| container.startup)
     };
-    assert_eq!(plan.schema_version, 4);
+    assert_eq!(plan.schema_version, 5);
     assert_eq!(startup("explicit"), Some(ContainerStartup::ExplicitCommand));
     assert_eq!(startup("external"), None);
     assert_eq!(startup("image-default"), Some(ContainerStartup::ImageDefault));
     assert_eq!(startup("keep-alive"), Some(ContainerStartup::KeepAlive));
+}
+#[test]
+fn test_execution_plan_reports_gpu_monitoring_without_host_queries() {
+    let mut config = config("/tmp/xylem-plan-output");
+    config.options = Some(crate::config::ConfigOptions::init().gpu_monitor(true).build());
+    let plan = ExecutionPlan::build(&config, "config.json".to_string(), &[Some("input-a".to_string())], false).expect("build GPU monitoring plan");
+    let monitoring = plan.gpu_monitoring.expect("planned GPU monitoring");
+    assert_eq!(monitoring.interval, crate::gpu::GPU_SAMPLE_INTERVAL_MS);
+    assert_eq!(monitoring.source, "nvidia-smi");
 }
 #[cfg(target_os = "linux")]
 #[test]

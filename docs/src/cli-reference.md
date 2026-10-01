@@ -30,6 +30,7 @@ The `run` command accepts:
 - `--artifact-output <PATH>` to override the workflow artifact root and default
   `OUTPUT_DIRECTORY`;
 - `--dry-run` to describe work without executing module commands;
+- `--gpu-monitor` to collect run-wide NVIDIA GPU utilization and memory metrics;
 - `--offline` to prohibit remote acquisition;
 - `--resume` to skip modules with complete declared outputs and a matching marker;
 - repeatable or comma-delimited `--allowed <HOST[:PORT]>` values to replace
@@ -55,9 +56,14 @@ in that directory. The configuration `output` field continues to describe
 workflow artifacts and does not override this CLI reporting destination. The
 legacy `--output` spelling remains an alias for `--report-output`.
 
-The version 2 JSON summary includes the run and configuration identities,
+The version 5 JSON summary includes the run and configuration identities,
 timestamps and duration, dry-run flag, final status, and ordered input/module
-states. Diagnostics remain on standard error, so `--reporter json` can be
+states. When GPU monitoring is enabled, the journal retains one raw sample per
+second and the summary includes per-device sample counts, average and peak
+utilization, and average and peak frame-buffer memory usage. A missing or
+invalid initial `nvidia-smi` query prevents module execution; a later sampling
+failure marks monitoring as degraded without changing an otherwise successful
+workflow result. Diagnostics remain on standard error, so `--reporter json` can be
 piped without tracing text corrupting the document. A required module failure
 finalizes the journal as failed, stops admitting new inputs, leaves work that
 was never admitted as `not_started`, and returns a non-zero status after the
@@ -74,7 +80,8 @@ Dry-run is write-free. It renders a deterministic execution-plan document to
 the console or JSON standard output without creating a workspace, journal,
 report, marker, or artifact. Consequently, `--report-output` is rejected with
 `--dry-run`; `--artifact-output` remains valid because it changes only the
-in-memory plan.
+in-memory plan. `--gpu-monitor` is likewise represented in the plan without
+probing the host.
 
 When `--config` is omitted, Xylem looks for `config.json` in the current
 directory. Run the generated help for version-specific spelling and defaults:

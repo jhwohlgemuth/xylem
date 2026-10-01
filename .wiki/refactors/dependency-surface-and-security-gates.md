@@ -17,7 +17,7 @@ Make the resolved dependency graph proportional to Xylem's implemented capabilit
 
 Rechecked against the current worktree on 2026-09-29.
 
-- The ACORN 0.3.2 migration moved the ACORN crates from a pinned Git revision to published packages. Xylem still needs `acorn-lib`'s `analysis` feature because `PathConversion::lexically_normalized` is exposed only through that feature in ACORN 0.3.2, so `bat`, `polars`, and the rest of the analyzer stack remain in the graph. The locked package count is 844.
+- Xylem pins the ACORN crates to revision `5d293446` because GPU monitoring uses the `Milliseconds` type added after the published 0.3.2 packages. Xylem still needs `acorn-lib`'s `analysis` feature because `PathConversion::lexically_normalized` is exposed only through that feature, so `bat`, `polars`, and the rest of the analyzer stack remain in the graph. The locked package count is 844.
 - Confirmed unused direct dependencies: `uriparse` in `xylem-cli`, and
   `valuable` in `xylem-lib`, which imports only `valuable_derive` for the
   `Valuable` derive on `ContainerRuntime` and `ModuleType`.

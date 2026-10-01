@@ -1,6 +1,7 @@
 use acorn_host::terminal::Label;
 use acorn_schema::validation::Validate;
 use alloc::collections::BTreeSet;
+use alloc::sync::Arc;
 use clap_verbosity_flag::Verbosity;
 use core::fmt;
 use core::time::Duration;
@@ -15,6 +16,7 @@ use tracing::{debug, info};
 use xylem_lib::config::{Config, ConfigOptions, ConfigReadError};
 use xylem_lib::container::ContainerLifecycle;
 use xylem_lib::execution::{ExecutionContext, ExecutionLimits};
+use xylem_lib::gpu::{GpuMonitor, GpuMonitorError};
 use xylem_lib::journal::{
     ConfigurationIdentity, ContainerState, ExecutionState, FinalStatus, JournalContainer, JournalInput, JournalModule, RunJournal, RunMetadata,
 };
@@ -69,6 +71,15 @@ impl RunFailure {
     }
 }
 impl core::error::Error for RunFailure {}
+impl From<GpuMonitorError> for RunFailure {
+    fn from(error: GpuMonitorError) -> Self {
+        match error {
+            | GpuMonitorError::Journal(error) => Self::new(exitcode::IOERR, error.to_string()),
+            | GpuMonitorError::Runtime(message) => Self::new(exitcode::UNAVAILABLE, message),
+            | GpuMonitorError::Thread(message) => Self::new(exitcode::OSERR, message),
+        }
+    }
+}
 impl ProgressObserver for WorkflowProgress {
     fn update(&self, update: ProgressUpdate) {
         let bar = match update.phase {
@@ -138,6 +149,7 @@ pub fn run(
     artifact_output: &Option<PathBuf>,
     cli_input: &Option<Vec<String>>,
     cli_dry_run: bool,
+    cli_gpu_monitor: bool,
     cli_offline: bool,
     cli_resume: bool,
     cli_allowed: &Option<Vec<String>>,
@@ -192,6 +204,7 @@ pub fn run(
                     let options = preview.options.take().unwrap_or_else(|| ConfigOptions::init().build());
                     let allowed = cli_allowed.clone().or(options.allowed.clone());
                     let dry_run = cli_dry_run || options.dry_run.unwrap_or_default();
+                    let gpu_monitor = cli_gpu_monitor || options.gpu_monitor.unwrap_or_default();
                     let offline = cli_offline || options.offline.unwrap_or_default();
                     let resume = cli_resume || options.resume.unwrap_or_default();
                     let skip_verify_checksum = cli_skip_verify_checksum || options.skip_verify_checksum.unwrap_or_default();
@@ -200,6 +213,7 @@ pub fn run(
                         options
                             .with_allowed(allowed)
                             .with_dry_run(Some(dry_run))
+                            .with_gpu_monitor(Some(gpu_monitor))
                             .with_offline(Some(offline))
                             .with_resume(Some(resume))
                             .with_skip_verify_checksum(Some(skip_verify_checksum))
@@ -408,6 +422,7 @@ pub fn run(
                                                         });
                                                         match create_journal_result {
                                                             | Ok(journal) => {
+                                                                let journal = Arc::new(journal);
                                                                 info!(path = %journal_path.display(), run_id = id, "=> {} Execution journal", Label::using());
                                                                 let progress_disabled =
                                                                     no_progress || !io::stderr().is_terminal() || env::var_os("CI").is_some();
@@ -416,16 +431,31 @@ pub fn run(
                                                                     cfg.modules.len().saturating_mul(inputs.len()) as u64,
                                                                     progress_disabled,
                                                                 );
-                                                                let prepared = cfg
-                                                                    .with_options(options)
-                                                                    .verify_requirements()
-                                                                    .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
-                                                                    .map(Config::verify_resources)
-                                                                    .and_then(|config| {
-                                                                        config
-                                                                            .prepare_modules_selected(&execution, &required_modules, Some(&progress))
-                                                                            .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
-                                                                    });
+                                                                let gpu_monitor_enabled = options.gpu_monitor.unwrap_or_default();
+                                                                let mut gpu_monitor = None;
+                                                                let monitoring = match gpu_monitor_enabled {
+                                                                    | true => GpuMonitor::start(Arc::clone(&journal))
+                                                                        .map(|monitor| gpu_monitor = Some(monitor))
+                                                                        .map_err(RunFailure::from),
+                                                                    | false => Ok(()),
+                                                                };
+                                                                let prepared = monitoring.and_then(|()| {
+                                                                    cfg.with_options(options)
+                                                                        .verify_requirements()
+                                                                        .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
+                                                                        .map(Config::verify_resources)
+                                                                        .and_then(|config| {
+                                                                            config
+                                                                                .prepare_modules_selected(
+                                                                                    &execution,
+                                                                                    &required_modules,
+                                                                                    Some(&progress),
+                                                                                )
+                                                                                .map_err(|why| {
+                                                                                    RunFailure::new(exitcode::UNAVAILABLE, why.to_string())
+                                                                                })
+                                                                        })
+                                                                });
                                                                 progress.finish_preparation(prepared.is_ok());
                                                                 let dispatched = match prepared {
                                                                     | Ok(prepared) => {
@@ -593,6 +623,17 @@ pub fn run(
                                                                         })
                                                                     }
                                                                     | Err(why) => Err(why),
+                                                                };
+                                                                let monitoring = gpu_monitor
+                                                                    .map(GpuMonitor::stop)
+                                                                    .transpose()
+                                                                    .map(|_| ())
+                                                                    .map_err(RunFailure::from);
+                                                                let dispatched = match (dispatched, monitoring) {
+                                                                    | (Ok(outcomes), Ok(())) => Ok(outcomes),
+                                                                    | (Err(primary), Ok(())) => Err(primary),
+                                                                    | (Ok(_), Err(monitoring)) => Err(monitoring),
+                                                                    | (Err(primary), Err(monitoring)) => Err(primary.with_secondary(monitoring)),
                                                                 };
                                                                 let mut primary_failure = match &dispatched {
                                                                     | Ok(outcomes) => {
