@@ -70,8 +70,9 @@ Rechecked against `fa07c39`.
 - `ExecutionLimits` bounds Xylem's Rayon workers only. It does not bound child
   CPU, memory, PIDs, disk, output, network bandwidth, or wall time.
 - `InputAttribute::ShellScript` is deserialized but rejected by validation and
-  planning. Its existing plan requires bounded execution but does not yet have
-  an isolation provider.
+  planning. The CEL workflow-input plan replaces this reserved variant with
+  side-effect-free expression evaluation and does not require an isolation
+  provider.
 - `ContainerEnvironment` wraps a module command in `docker exec`, `podman
   exec`, or `apptainer exec`. It names an application environment and is not a
   Xylem security boundary. Passing the host Docker socket into a workflow
@@ -129,7 +130,6 @@ Route all of these operations through the same execution boundary:
 
 - module commands, including binary and script modules;
 - virtual-environment creation and package-manager hooks;
-- workflow input scripts when that feature lands;
 - configured before/after hooks if they become active;
 - Git and other external acquisition helpers;
 - managed application-container commands when the backend supports them.
@@ -174,7 +174,7 @@ broker capabilities that bind a credential to a destination and operation.
 
 ## Keep network phases distinct
 
-Use deny-by-default networking for module execution and input discovery.
+Use deny-by-default networking for module execution.
 Acquisition and environment preparation may request a separate, time-bounded
 network policy, so they run in a preparation session that has no inputs,
 artifacts, credentials, or host-writable mounts. Package-manager hooks are
@@ -304,10 +304,8 @@ The execution sequence becomes:
 ```text
 parse configuration
   -> validate workflow request and operator policy
-  -> build static plan and effective policy
+  -> resolve configured inputs and build the plan and effective policy
   -> create run workspace and journal
-  -> resolve dynamic inputs in a restricted discovery session when needed
-  -> build the final plan
   -> acquire and prepare modules in a network-limited preparation session
      with no workflow inputs or artifact mount
   -> close preparation and provision a network-denied execution session
@@ -328,42 +326,13 @@ class, session ID, image digest, requested and effective policy digests,
 resource-limit termination, artifact publication, and cleanup/retention state.
 Never journal raw credentials or credential-bearing URLs.
 
-# Workflow input scripts
+# CEL workflow inputs
 
-The existing shell-input feature must consume this sandbox boundary rather
-than call `Script::run_checked` directly.
-
-Replace the currently reserved `ShellScript(ScriptTemplate)` payload with a
-structured discovery request that includes the script and one or more input
-roots. Resolve relative roots from the configuration source, then intersect
-them with the operator policy before exposing them at stable guest paths. The
-feature is not active today, so this can be a validated contract change rather
-than an ambiguous inference from the script's working directory.
-
-Normal execution uses two planning stages:
-
-1. Static planning validates the discovery command and resolves its effective
-   sandbox policy without executing it.
-2. Xylem provisions a discovery session, exposes only the declared input roots
-   read-only plus private scratch, denies network and credentials by default,
-   and executes with strict wall-time, PID, output-byte, and record limits.
-3. Xylem accepts UTF-8 stdout only, one non-empty path per line, preserves
-   first occurrence order, maps guest paths back to declared input roots, and
-   rejects traversal, special files, and symlink escapes.
-4. The final immutable execution plan records the resolved inputs, discovery
-   command identity, effective-policy digest, and bounded result metadata.
-
-CLI `--input` continues to bypass discovery. A write-free dry run does not
-provision a sandbox or execute discovery; when no CLI inputs are supplied it
-reports that dynamic inputs are unresolved and exits with a specific planning
-diagnostic. A later explicit `--resolve-inputs` mode may opt into sandboxed
-discovery before rendering a plan without weakening ordinary dry-run.
-
-Because the current journal is created with a complete input list, dynamic
-discovery also requires either a pre-journal discovery record or a versioned
-journal transition that registers inputs before module execution. Prefer the
-versioned transition so discovery failures and policy evidence remain in the
-same durable run record.
+The CEL workflow-input feature evaluates a bounded, side-effect-free expression
+inside the trusted planning process. It exposes no filesystem, process,
+network, environment, clock, or random functions, so it does not consume this
+sandbox boundary. Strings produced by CEL remain ordinary workflow inputs and
+receive the same execution-time path capabilities as configured list inputs.
 
 # Interaction with module containers
 
@@ -441,17 +410,7 @@ and a run cannot access the host outside its declared capabilities.
 Exit gate: fault-injection tests leave no unaccounted sandbox, child, scratch
 directory, or partial artifact publication.
 
-## Phase 5: Workflow input scripts
-
-- Update the shell-input plan to use sandboxed discovery and dynamic journal
-  input registration.
-- Add bounded output parsing, guest/host path mapping, deterministic
-  deduplication, and dry-run behavior.
-
-Exit gate: discovery has no direct host process path and cannot broaden the
-eventual workflow policy.
-
-## Phase 6: Stronger provider and secure-by-default rollout
+## Phase 5: Stronger provider and secure-by-default rollout
 
 - Implement and qualify one separate-kernel or managed backend.
 - Add installation diagnostics without provisioning resources during dry-run.
@@ -474,13 +433,13 @@ normal supported installations do not execute workflow code on the host.
   workflow-owned process spawning.
 - `xylem-lib/src/{remote,completion}.rs` for acquisition routing and artifact
   publication/marker ordering.
-- `xylem-lib/src/journal/` and versioned schemas for sandbox/discovery lifecycle
+- `xylem-lib/src/journal/` and versioned schemas for sandbox lifecycle
   records.
 - `xylem-cli/src/{cli,main}.rs` and `xylem-cli/src/commands/run/mod.rs` for
   trusted policy selection, session ownership, cancellation, cleanup, and exit
   mapping.
 - `MODULE_SPEC.md`, architecture/configuration/CLI documentation, examples,
-  and the shell-input and managed-container plans.
+  and the managed-container plans.
 
 ## Create
 
@@ -508,7 +467,8 @@ normal supported installations do not execute workflow code on the host.
 - Coordinates with [secure module acquisition](secure-module-acquisition.md):
   acquisition owns provenance and atomic materialization; this plan owns where
   external helpers execute and how verified bytes enter a session.
-- Precedes [shell-script workflow input](../features/shell-script-workflow-input.md).
+- Does not gate [CEL workflow input](../features/cel-workflow-input.md), whose
+  evaluator has no process or I/O capability.
 - Preserves the validation, deterministic plan, resume, journal,
   reporter, and batching contracts.
 
@@ -569,7 +529,5 @@ it for hostile workloads.
   retain labeled resources.
 - Unsandboxed compatibility is explicit, auditable, and never selected as a
   fallback.
-- Workflow input scripts reuse the same boundary with stricter discovery
-  permissions and deterministic bounded output.
 - Documentation distinguishes shared-kernel containment from a qualified
   separate-kernel or managed boundary and states the remaining risks.
