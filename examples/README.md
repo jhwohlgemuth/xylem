@@ -4,6 +4,8 @@ Examples are grouped by the dependencies they require:
 
 - [`offline-smoke`](./offline-smoke/) is the supported first-run example. It
   uses only a local POSIX shell and works with `--offline`.
+- [`failure-logging`](./failure-logging/) is an intentionally failing,
+  shell-only workflow that demonstrates concurrent inputs and module logs.
 - [`python-with-pixi`](./python-with-pixi/) and
   [`python-with-conda`](./python-with-conda/) demonstrate managed Python
   environments.

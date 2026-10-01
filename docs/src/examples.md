@@ -17,6 +17,7 @@ The checked-in runnable examples below also have Cargo example targets, so they 
 run without spelling out a configuration path:
 
 ```shell
+cargo run --example failure-logging
 cargo run --example offline-smoke
 cargo run --example kitchensink
 cargo run --example multi-module
@@ -29,6 +30,20 @@ root before reading the configuration. Listing `cargo run --example` without a
 name shows every available target. They disable progress bars and pin the
 verbose configuration dumps to `INFO` so the run reads as a workflow narrative;
 set `XYLEM_LOG_LEVEL` to override the filter.
+
+## Failure logging
+
+The shell-only failure logging example runs four inputs through Prepare,
+Validate, and Publish modules. Validation intentionally rejects `bravo` and
+`delta`, while `alpha` and `charlie` finish the workflow. The command exits
+with a failure status by design:
+
+```shell
+cargo run --example failure-logging
+```
+
+See the [example README](https://code.ornl.gov/research-enablement/xylem/-/blob/main/examples/failure-logging/README.md)
+for a representative terminal transcript and the resulting module states.
 
 ## Multi-module
 

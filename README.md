@@ -73,6 +73,8 @@ cargo install --locked xylem-cli
 - See the supported paths and dependency tiers in the [`examples`](./examples/) catalog
 - Start with the self-contained [offline smoke example](./examples/offline-smoke/README.md),
   which needs only a POSIX shell
+- Inspect intentional failures and their logs with the shell-only
+  [failure logging example](./examples/failure-logging/README.md)
 - Run the broader [kitchensink example](./examples/kitchensink/README.md),
   [multi-module example](./examples/multi-module/README.md),
   [Python with Pixi example](./examples/python-with-pixi/README.md), or

@@ -1,0 +1,43 @@
+{
+  "version": "1.0.0",
+  "id": "failure-logging",
+  "description": "Show concurrent inputs, ordered modules, and intentional failures in Xylem logs",
+  "requirements": ["sh"],
+  "input": ["alpha", "bravo", "charlie", "delta"],
+  "options": {
+    "batch": 4,
+    "offline": true
+  },
+  "modules": [
+    {
+      "name": "Prepare",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:./examples/failure-logging/module",
+      "template": {
+        "command": "sh",
+        "arguments": ["run.sh", "prepare", "{{ INPUT }}"]
+      }
+    },
+    {
+      "name": "Validate",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:./examples/failure-logging/module",
+      "template": {
+        "command": "sh",
+        "arguments": ["run.sh", "validate", "{{ INPUT }}"]
+      }
+    },
+    {
+      "name": "Publish",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:./examples/failure-logging/module",
+      "template": {
+        "command": "sh",
+        "arguments": ["run.sh", "publish", "{{ INPUT }}"]
+      }
+    }
+  ]
+}
