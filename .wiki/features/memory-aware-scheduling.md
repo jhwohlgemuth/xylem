@@ -6,7 +6,7 @@ difficulty: high
 impact: high
 package: [xylem-lib, xylem-cli]
 tags: [feature, scheduler, memory, resources, telemetry, concurrency]
-status: planned
+status: in-progress
 ---
 
 # Goal
@@ -30,6 +30,33 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 # Dependencies and ordering
 
 This implementation is tracked by [work item #13](https://code.ornl.gov/research-enablement/xylem/-/work_items/13). Measurement may begin independently, but production scheduling depends on the existing `options.batch` input ceiling and deterministic orchestration. Observed-versus-estimated telemetry uses the durable execution journal. Do not add runtime dependencies or public configuration until the spike produces an accepted estimator and error bound.
+
+# Measurement spike status
+
+The non-publishable `xylem-memory-spike` workspace tool now implements the
+measurement gate under `tools/memory-spike/`. It does not change Xylem runtime,
+configuration, plan, journal, or report contracts.
+
+- Measurements require Linux cgroup v2 with an explicitly delegated writable
+  subtree and collect exact process-tree `memory.peak` plus sampled anonymous,
+  file-backed, and current memory.
+- The versioned manifest records opaque case IDs, exact ordered module
+  identities, explicit training/holdout assignments, input bytes, and checked
+  raster dimensions, bands, bit depths, formats, and compression modes.
+- Individual cases receive one warm-up and five recorded runs. Concurrent
+  holdout mixes receive one warm-up and three recorded runs.
+- Analysis compares input-byte, decoded-byte, and conservative size-bucket
+  estimators. Training determines a 5%-step safety multiplier plus one extra
+  5% guard; holdout extrapolation is rejected.
+- A candidate passes only with no failed/OOM observations, no held-out case or
+  mix underprediction, and at least 20% lower median reservation than the
+  observed fixed worst case. Synthetic observations validate the harness but
+  never affect the decision.
+
+The current production decision remains **pending** and therefore does not
+authorize memory-aware admission. A workload owner must supply the approved
+real corpus and module revisions, run the spike on the production-class Linux
+host, sanitize the observations, and record the generated evidence here.
 
 # Recommendation
 

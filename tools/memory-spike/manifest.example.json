@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "estimators": [
+    {
+      "key": "example-imagery-v1",
+      "required_for_go": true,
+      "baseline_case_id": "baseline",
+      "modules": [
+        { "name": "example", "version": "1.0.0", "revision": "replace-with-commit" }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "baseline",
+      "estimator_key": "example-imagery-v1",
+      "partition": "baseline",
+      "config": "fixtures/baseline.json",
+      "input": null,
+      "features": { "file_count": 0, "input_bytes": 0, "decoded_bytes": 0, "rasters": [] }
+    },
+    {
+      "case_id": "train-small",
+      "estimator_key": "example-imagery-v1",
+      "partition": "training",
+      "config": "fixtures/workflow.json",
+      "input": "/external/corpus/train-small",
+      "features": {
+        "file_count": 1,
+        "input_bytes": 1048576,
+        "decoded_bytes": 4194304,
+        "rasters": [{ "width": 2048, "height": 2048, "bands": 1, "bits_per_sample": 8, "format": "tiff", "compression": "none" }]
+      }
+    },
+    {
+      "case_id": "train-medium",
+      "estimator_key": "example-imagery-v1",
+      "partition": "training",
+      "config": "fixtures/workflow.json",
+      "input": "/external/corpus/train-medium",
+      "features": {
+        "file_count": 1,
+        "input_bytes": 2097152,
+        "decoded_bytes": 8388608,
+        "rasters": [{ "width": 4096, "height": 2048, "bands": 1, "bits_per_sample": 8, "format": "tiff", "compression": "none" }]
+      }
+    },
+    {
+      "case_id": "train-large",
+      "estimator_key": "example-imagery-v1",
+      "partition": "training",
+      "config": "fixtures/workflow.json",
+      "input": "/external/corpus/train-large",
+      "features": {
+        "file_count": 1,
+        "input_bytes": 4194304,
+        "decoded_bytes": 16777216,
+        "rasters": [{ "width": 4096, "height": 4096, "bands": 1, "bits_per_sample": 8, "format": "tiff", "compression": "none" }]
+      }
+    },
+    {
+      "case_id": "holdout-small",
+      "estimator_key": "example-imagery-v1",
+      "partition": "holdout",
+      "config": "fixtures/workflow.json",
+      "input": "/external/corpus/holdout-small",
+      "features": {
+        "file_count": 1,
+        "input_bytes": 1572864,
+        "decoded_bytes": 6291456,
+        "rasters": [{ "width": 3072, "height": 2048, "bands": 1, "bits_per_sample": 8, "format": "tiff", "compression": "none" }]
+      }
+    },
+    {
+      "case_id": "holdout-large",
+      "estimator_key": "example-imagery-v1",
+      "partition": "holdout",
+      "config": "fixtures/workflow.json",
+      "input": "/external/corpus/holdout-large",
+      "features": {
+        "file_count": 1,
+        "input_bytes": 3145728,
+        "decoded_bytes": 12582912,
+        "rasters": [{ "width": 3072, "height": 4096, "bands": 1, "bits_per_sample": 8, "format": "tiff", "compression": "none" }]
+      }
+    }
+  ],
+  "mixes": [
+    {
+      "mix_id": "holdout-mixed",
+      "estimator_key": "example-imagery-v1",
+      "partition": "holdout",
+      "case_ids": ["holdout-small", "holdout-large"]
+    }
+  ]
+}

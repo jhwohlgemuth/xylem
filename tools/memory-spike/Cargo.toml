@@ -1,0 +1,18 @@
+[package]
+name = "xylem-memory-spike"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Research harness for Xylem memory-aware scheduling"
+default-run = "xylem-memory-spike"
+edition = "2021"
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+exitcode = { workspace = true }
+serde = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true
