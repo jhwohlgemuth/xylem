@@ -17,10 +17,11 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Next execution phase
 
-The next dependency-ready runtime item is
-[lossless process execution](refactors/process-execution-contract.md), followed
-by workflow environment and concurrency. Secure acquisition may proceed in its
-separate configuration/acquisition lane.
+The next dependency-ready runtime item is the upstream
+[`acorn-cmd` process execution contract](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/process-execution-contract.md),
+followed by [workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md).
+Secure acquisition may proceed in its separate configuration/acquisition lane
+after the same published ACORN contract is available.
 
 Memory-aware scheduling remains gated on a successful measurement spike. The [hermetic workflow test suite](testing/hermetic-workflow-tests.md) may continue establishing host-independent fixtures alongside it.
 

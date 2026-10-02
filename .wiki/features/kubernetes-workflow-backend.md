@@ -79,8 +79,9 @@ monitoring changes.
   only local acquisition, module commands, local container operations, resume,
   and the in-progress GPU monitor. It has no execution-target evidence.
 - The current worktree advances execution-plan and journal/report schemas to
-  version 5 for GPU monitoring. Kubernetes must use new version-6 artifacts
-  rather than modifying the v5 schema files.
+  version 5 for GPU monitoring. Environment/concurrency owns version 6;
+  Kubernetes must use new version-7 artifacts rather than modifying earlier
+  schema files.
 - `RunJournal` is append-only, flushed at every transition, and recovered into
   `RunSummary`. It is the correct authoritative worker result once its path is
   placed on durable shared storage.
@@ -471,7 +472,7 @@ writing the canonical configuration, or contacting the cluster.
 
 # Plan, journal, and result schemas
 
-## Execution-plan version 6
+## Execution-plan version 7
 
 Add a required `target` object to every plan.
 
@@ -514,9 +515,9 @@ live server observations so repeated planning remains deterministic.
 Retain the existing containers array. Kubernetes validation requires it to be
 empty for every selected module and emits a module-qualified error otherwise.
 
-Create `execution-plan-v6.schema.json`; never rewrite v1-v5 schemas.
+Create `execution-plan-v7.schema.json`; never rewrite v1-v6 schemas.
 
-## Journal and run-summary version 6
+## Journal and run-summary version 7
 
 Extend run metadata and recovered summary with target evidence:
 
@@ -535,9 +536,9 @@ events remain ordinary module, input, container, completion, and GPU events;
 do not duplicate Kubernetes watch events into the append-only workflow
 journal. Controller observations belong in `submission.json`.
 
-Create `run-summary-v6.schema.json` and advance the journal version only after
-the current v5 GPU schema work lands. Preserve bounded error behavior and never
-record kubeconfig content, access tokens, registry credentials, or
+Create `run-summary-v7.schema.json` and advance the journal version only after
+the environment/concurrency v6 contract lands. Preserve bounded error behavior
+and never record kubeconfig content, access tokens, registry credentials, or
 credential-bearing URLs.
 
 # Controller architecture
@@ -726,7 +727,7 @@ The winning worker:
    static-plan digest;
 3. verifies its downward-API Job/Pod identity matches the request labels;
 4. sets its explicit run/work/journal paths from the request;
-5. creates the v6 journal with Kubernetes target evidence;
+5. creates the v7 journal with Kubernetes target evidence;
 6. verifies requirements inside the runner image;
 7. acquires and prepares selected modules inside the shared work directory;
 8. starts GPU monitoring when requested;
@@ -895,7 +896,7 @@ untracked Pod; incompatibility fails in the versioned worker handshake.
   orchestration.
 - Configuration/planning types and semantic validation needed for target
   selection, mapped plans, and module-container rejection.
-- Journal metadata, recovery, reporters, and versioned v6 schemas.
+- Journal metadata, recovery, reporters, and versioned v7 schemas.
 - Workspace and CLI manifests, lockfile, dependency policy, Makefile, and
   GitLab CI.
 - Architecture, CLI, configuration, module, examples, release, and operator
@@ -909,7 +910,7 @@ untracked Pod; incompatibility fails in the versioned worker handshake.
   request/result, and plan-evidence modules in `xylem-lib`.
 - Native Kubernetes adapter and controller lifecycle modules in `xylem-cli`.
 - Fake Kubernetes client and API fixtures.
-- Version-6 execution-plan and run-summary schemas.
+- Version-7 execution-plan and run-summary schemas.
 - Reference runner Containerfile/build scripts and multi-architecture release
   metadata.
 - Kind fixtures for shared storage, namespace, Role/RoleBinding, PVC, success,
@@ -925,8 +926,8 @@ remain supported on their current path.
 
 ## Prerequisites
 
-- Land the in-progress GPU monitoring and version-5 schema work first;
-  Kubernetes owns the next schema generation.
+- Land the in-progress GPU monitoring version-5 work and the
+  environment/concurrency version-6 contract first; Kubernetes owns version 7.
 - Complete the lossless process result, timeout, cancellation, and child-reaping
   contract before claiming graceful Pod termination.
 - Complete immutable workflow environment/run-context work before serializing
@@ -1001,12 +1002,12 @@ workflow state.
 - Add `ExecutionTarget`, strict profile types, pure validation, canonical
   hashing, and component-safe path mapping.
 - Add the v1 request, submission, and result protocols with atomic persistence.
-- Add version-6 plan/journal/summary target evidence.
+- Add version-7 plan/journal/summary target evidence.
 - Add deterministic Job construction as a pure conversion from validated
   profile plus request metadata.
 - Reject module containers and unsupported controller inputs during planning.
 
-Exit gate: dry-run renders a deterministic v6 Kubernetes plan without writes
+Exit gate: dry-run renders a deterministic v7 Kubernetes plan without writes
 or API access, and all profile/path/protocol/Job tests pass without a cluster.
 
 ## Phase 3: native controller and worker
@@ -1059,7 +1060,7 @@ on both supported image architectures.
   wrong run ID, partial files, truncation, and atomic replacement.
 - Duplicate-worker winner, waiter, matching result, winner disappearance, and
   timeout cases.
-- Version-6 schemas for both local and Kubernetes runs.
+- Version-7 schemas for both local and Kubernetes runs.
 
 ## Fake-client tests
 
@@ -1155,7 +1156,7 @@ and a workflow rooted entirely beneath the shared workspace.
   their behavior.
 - An explicit Kubernetes run submits exactly one stable-API Job for the whole
   workflow and never invokes `kubectl`.
-- Dry-run performs no write or cluster call and includes deterministic v6
+- Dry-run performs no write or cluster call and includes deterministic v7
   target/path evidence.
 - A real run validates Kubernetes 1.31+, namespace, PVC, RBAC, profile, paths,
   image digest, and module compatibility before Job creation.
@@ -1185,7 +1186,7 @@ and a workflow rooted entirely beneath the shared workspace.
 
 # Related plans
 
-- [Process execution contract](../refactors/process-execution-contract.md)
+- [ACORN process execution contract](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/process-execution-contract.md)
 - [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
 - [Sandboxed workflow execution](../refactors/sandboxed-workflow-execution.md)
 - [CI and release pipeline](../refactors/ci-release-pipeline.md)

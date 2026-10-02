@@ -33,7 +33,7 @@ redaction, and offline handling are the baseline. The remaining gaps are:
 # Dependencies and ordering
 
 Builds on the existing ACORN, typed-error, and validated-planning contracts,
-and follows [process execution](process-execution-contract.md).
+and follows the upstream [`acorn-cmd` process execution contract](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/process-execution-contract.md).
 
 # Recommendation
 

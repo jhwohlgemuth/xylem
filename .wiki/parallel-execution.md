@@ -12,7 +12,7 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 |---|---|---|
 | Manifest lock | `Cargo.toml`, `Cargo.lock`, `xylem-*/Cargo.toml`, `deny.toml` | One remaining migration or dependency-gate owner at a time. |
 | Configuration lock | `xylem-lib/src/config/mod.rs` and its future extracted modules | Preserve typed errors, validation, `options.batch`, and resume while acquisition, Kubernetes targeting, sandboxing, or memory work extends them. |
-| Process lock | `xylem-lib/src/script/mod.rs` and process fixtures | Build the process contract on contextual errors before environment, Kubernetes worker, or sandbox integration. |
+| Process adapter lock | `xylem-lib/src/script/mod.rs` and process fixtures | Environment/concurrency owns Xylem's adapter to the published `acorn-cmd` contract; later Kubernetes worker and sandbox work consume it. |
 | Scheduler lock | `xylem-lib/src/execution.rs`, input admission in `xylem-cli/src/commands/run/mod.rs` | Preserve fixed batching and resume; environment, Kubernetes, sandbox, and memory work consume the boundary serially rather than adding competing admission loops. |
 | Sandbox lock | `xylem-lib/src/sandbox/`, sandbox policy and conformance fixtures | Sandboxed execution owns policy resolution, capability negotiation, session lifecycle, and provider adapters. |
 | Kubernetes target lock | target/profile/protocol modules, native client adapter, Job fixtures, and runner image | Kubernetes execution owns the outer controller/worker and shared-PVC contracts; it may not redefine sandbox or module-container semantics. |
@@ -33,12 +33,11 @@ Secure acquisition owns generic transport behavior.
 
 ### Lane B: execution runtime
 
-1. [Process execution contract](refactors/process-execution-contract.md)
-2. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), after the process contract lands
-3. [CEL workflow input](features/cel-workflow-input.md), after interpreter qualification and the fixed input contract
-4. [Kubernetes workflow execution backend](features/kubernetes-workflow-backend.md), after process and immutable environment contracts land
-5. [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md), after process and immutable environment contracts land
-6. [Memory-aware scheduling](features/memory-aware-scheduling.md), after its spike and the fixed scheduler contract
+1. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), after the published [`acorn-cmd` process contract](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/process-execution-contract.md)
+2. [CEL workflow input](features/cel-workflow-input.md), after interpreter qualification and the fixed input contract
+3. [Kubernetes workflow execution backend](features/kubernetes-workflow-backend.md), after process and immutable environment contracts land
+4. [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md), after process and immutable environment contracts land
+5. [Memory-aware scheduling](features/memory-aware-scheduling.md), after its spike and the fixed scheduler contract
 
 The `options.batch` rolling input ceiling is the baseline these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Advanced orchestration preserves both limits and consumes the process result contract. Kubernetes and sandbox integration both need the CLI, run-state, and scheduler locks, so their integration phases land serially even though pure target/profile and policy/fake-provider work may proceed independently. CEL input can proceed independently of the sandbox lock after the interpreter dependency and immutable input boundary are accepted.
 

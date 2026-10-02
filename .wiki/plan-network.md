@@ -4,14 +4,14 @@ okf_version: "0.1"
 
 # Plan dependency network
 
-This map records implementation dependencies rechecked on 2026-09-30. An arrow means the left plan establishes a contract or baseline required by the right plan. Topical links alone do not imply an execution dependency.
+This map records implementation dependencies rechecked on 2026-10-02. An arrow means the left plan establishes a contract or baseline required by the right plan. Topical links alone do not imply an execution dependency.
 
 ## Correctness and execution path
 
 ```text
-lossless process ----+----> secure module acquisition
-                     |
-                     v
+ACORN process contract ----+----> secure module acquisition
+                           |
+                           v
         environment/concurrency -+-> kubernetes workflow backend
                      |            |
                      |            +-> sandboxed workflow execution
@@ -40,7 +40,7 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 
 ## Direct dependency edges
 
-- [Process execution](refactors/process-execution-contract.md) precedes [environment and concurrency](refactors/workflow-environment-and-concurrency.md): per-invocation environment and cancellation attach to a structured child-process result, while scheduling builds on the existing typed thread budget.
+- The upstream [`acorn-cmd` process execution contract](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/process-execution-contract.md) precedes [environment and concurrency](refactors/workflow-environment-and-concurrency.md): Xylem attaches per-command environments, timeout, and workflow cancellation to the generic structured child-process result.
 - [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) follows the process and immutable-environment contracts. It owns the outer local-controller/in-cluster-worker target, shared-PVC protocol, Kubernetes lifecycle commands, and runner-image contract; it does not implement sandbox policy or module-container translation.
 - [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md) follows the process and immutable-environment contracts and coordinates with secure acquisition. It owns policy resolution, provider capability negotiation, session lifecycle, and the rule that workflow-controlled subprocesses cannot bypass the sandbox.
 - [CEL workflow input](features/cel-workflow-input.md) follows the immutable input-scheduling contract and coordinates with dependency gates for interpreter qualification. It does not depend on sandboxed execution because evaluation has no process or I/O capability.
@@ -55,9 +55,9 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 
 | Shared boundary | Plans that overlap | Coordination rule |
 |---|---|---|
-| `Cargo.toml`, crate manifests, `Cargo.lock` | Dependency gates, process parsing, Kubernetes client, testing tools | One manifest owner at a time; regenerate and audit the lockfile after manifest changes. |
+| `Cargo.toml`, crate manifests, `Cargo.lock` | Dependency gates, published `acorn-cmd` upgrade, Kubernetes client, testing tools | One manifest owner at a time; regenerate and audit the lockfile after manifest changes. |
 | `xylem-lib/src/config/mod.rs` | Environments, acquisition, Kubernetes targeting, sandboxing, CEL input, memory scheduling | Preserve the typed-error, validated-planning, batching, and resume contracts. |
-| `xylem-lib/src/script/mod.rs` | Process execution, environments, acquisition, sandboxing | Process execution owns `Script` and child-result contracts; sandboxing consumes that result and removes direct workflow spawn paths. |
+| `xylem-lib/src/script/mod.rs` | ACORN process adaptation, environments, acquisition, sandboxing | Environment/concurrency owns the `Script` adapter to `acorn-cmd`; sandboxing consumes that result and removes direct workflow spawn paths. |
 | `xylem-lib/src/execution.rs` and input scheduling in `commands/run/mod.rs` | Environment/concurrency, Kubernetes targeting, sandboxing, memory scheduling | Preserve the batching and resume scheduler seam; later plans do not introduce competing admission loops. |
 | `xylem-lib/src/sandbox/` and sandbox conformance fixtures | Sandboxed execution | Sandboxed execution owns policy, capability, session, and provider contracts; consumers may not add provider-specific bypasses. |
 | Kubernetes target/profile/protocol modules and fixtures | Kubernetes targeting, sandboxing | Kubernetes owns outer Job execution and shared-PVC transport; sandboxing owns inner policy and neither may reinterpret the other's contract. |
@@ -69,7 +69,7 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 
 | Package | Boundary | Plans |
 |---|---|---|
-| `xylem-lib` | Configuration, planning, process execution, acquisition, execution-target and sandbox policy/session types, workflow outcomes, scheduling, journal state | Process, environment, acquisition, Kubernetes targeting, sandboxing, CEL input, memory scheduling |
+| `xylem-lib` | Configuration, planning, ACORN process adaptation, acquisition, execution-target and sandbox policy/session types, workflow outcomes, scheduling, journal state | Environment, acquisition, Kubernetes targeting, sandboxing, CEL input, memory scheduling |
 | `xylem-cli` | Argument precedence, trusted target/policy selection, orchestration, presentation, exit status, Kubernetes control, sandbox and temporary workspace lifetime | Environment, Kubernetes targeting, sandboxing, CEL input, memory scheduling, tests |
 | `workspace` | Dependency graph, CI, releases, runner images, package exports, docs, examples | Dependency gates, Kubernetes targeting, CI/release, Homebrew export, documentation, hermetic tests |
 
