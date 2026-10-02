@@ -1,7 +1,6 @@
 extern crate alloc;
 
 use acorn_cmd::args;
-use acorn_core::util::alloc::StringConversion;
 use acorn_core::util::{Checksum, MimeType, SemanticVersion};
 use acorn_core::{Location, Scheme};
 use acorn_host::fs::{file_checksum, make_executable};
@@ -32,6 +31,7 @@ use crate::plan::PlanError;
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
 use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
+use crate::util::absolute_path;
 
 mod validation;
 /// Supported workflow configuration serialization formats.
@@ -512,11 +512,11 @@ impl Config {
                                         .clone()
                                         .ok_or_else(|| "root directory is not configured".to_string())
                                         .and_then(|root| {
-                                            let root = root.to_absolute_path();
+                                            let root = absolute_path(root);
                                             let working_dir = match ModuleUri::from(uri) {
                                                 | ModuleUri::File(path) => path
                                                     .parent()
-                                                    .map(|path| path.to_absolute_path())
+                                                    .map(absolute_path)
                                                     .ok_or_else(|| format!("binary module URI has no parent directory: {uri}")),
                                                 | ModuleUri::Url(_) => Ok(root.clone()),
                                                 | ModuleUri::Unknown(_) => Err(format!("module URI is invalid: {uri}")),
@@ -1289,7 +1289,7 @@ impl Module {
                                     .as_ref()
                                     .ok_or_else(|| format!("module {} has no run root directory", self.name))
                                     .and_then(|root| {
-                                        let current_dir = root.to_absolute_path();
+                                        let current_dir = absolute_path(root);
                                         module_working_directory(uri, Some(root))
                                             .ok_or_else(|| format!("module {} has invalid URI: {}", self.name, redact_url(uri)))
                                             .map(|module_root| (current_dir, module_root))
@@ -1320,7 +1320,7 @@ impl Module {
             | ModuleUri::Url(_) => Err(format!("module {} uses unsupported remote script URI {}", self.name, redact_url(uri))),
             | ModuleUri::File(path) => match path.try_exists() {
                 | Ok(true) => {
-                    let path = path.to_absolute_path();
+                    let path = absolute_path(path);
                     debug!(module = self.name, path, "=> {} Local script repository", Label::found());
                     match python {
                         | true => self.prepare_python_environment(path, options),

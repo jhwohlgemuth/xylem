@@ -130,6 +130,26 @@ fn test_omitted_marker_uses_the_first_output_literal_prefix() {
     assert_eq!(completion.marker, root.join(".xylem/probe.json"));
 }
 #[test]
+fn test_paths_are_normalized_lexically() {
+    let root = root("normalize");
+    let declared = root.join("nested/..");
+    let (module, variables) = fixture(&declared);
+    let completion = CompletionPlan::resolve(&module, &variables, None)
+        .expect("resolve completion")
+        .expect("completion");
+    assert_eq!(completion.marker, root.join(".xylem/probe.json"));
+    assert_eq!(completion.outputs, [root.join("*.txt")]);
+}
+#[cfg(unix)]
+#[test]
+fn test_paths_cannot_escape_the_filesystem_root() {
+    let root = root("root-escape");
+    let (mut module, variables) = fixture(&root);
+    module.completion.as_mut().expect("completion").marker = Some("/../outside.json".to_string());
+    let error = CompletionPlan::resolve(&module, &variables, None).expect_err("root escape must fail");
+    assert!(error.to_string().contains("cannot be lexically normalized without escaping its root"));
+}
+#[test]
 fn test_paths_outside_declared_roots_are_rejected() {
     let root = root("containment");
     let (mut module, variables) = fixture(&root);

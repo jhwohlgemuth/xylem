@@ -25,12 +25,16 @@ make test
 make doctest
 make book
 make doc
+make audit
 ```
 
 `make lint` runs `cargo fmt` and Clippy fixes, so review its changes before
 committing. `make test-ci` runs the test command used by the main CI test job.
 `make book-write` serves the mdBook locally, and generated `docs/book` output is
 ignored. `make cover` writes `lcov.info`, which is also ignored.
+
+Dependency changes must satisfy the package-count, source, license, and
+advisory gates described in [`DEPENDENCY_POLICY.md`](./DEPENDENCY_POLICY.md).
 
 Changes to public configuration or CLI behavior must update the relevant book
 page and regenerate the checked-in help snapshots:

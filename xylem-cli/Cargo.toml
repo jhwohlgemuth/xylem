@@ -15,32 +15,28 @@ rust-version.workspace = true
 name = "xylem"
 path = "src/main.rs"
 
+[lib]
+doctest = false
+
 [dependencies]
-xylem-lib = { version = "1.0.3", path = "../xylem-lib" }
-clap = { version = "4.4.2", features = ["derive", "unstable-doc"] }
-console = { version = "0.15.7", default-features = false, features = ["ansi-parsing"] }
-indicatif = "0.17.6"
-nanoid = "0.4.0"
 acorn-host = { workspace = true }
 acorn-schema = { workspace = true }
+clap = { workspace = true, features = ["color", "derive", "error-context", "help", "std", "suggestions", "unstable-doc", "usage"] }
 clap-verbosity-flag = { workspace = true }
 color-eyre = { workspace = true }
 dotenvy = { workspace = true }
 exitcode = { workspace = true }
+indicatif = { version = "0.18.6", features = ["unicode-width"], default-features = false }
+nanoid = { version = "0.5.0", default-features = false }
 owo-colors = { workspace = true }
-rayon = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-log = { workspace = true }
 tracing-subscriber = { workspace = true }
-uriparse = { workspace = true }
-
-[target.'cfg(target_env = "musl")'.dependencies]
-openssl-sys = { version = "0.9.117", features = ["vendored"] }
+xylem-lib = { version = "1.0.3", path = "../xylem-lib" }
 
 [dev-dependencies]
-assert_cmd = "2.0.16"
+assert_cmd = "2.1.1"
 
 [lints]
 workspace = true

@@ -2,7 +2,6 @@
 extern crate alloc;
 
 use crate::script::{EnvironmentValue, Module, StringTemplate};
-use acorn::io::PathConversion;
 use acorn_core::validation::ValidationError;
 use acorn_schema::validation::{Validate, ValidationReport};
 use alloc::collections::BTreeMap;
@@ -14,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{create_dir_all, read_to_string, remove_file, rename, OpenOptions};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Resume decision for one module and input.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -424,8 +423,21 @@ fn resolve_path(value: &str) -> Result<PathBuf, CompletionError> {
         | false => std::env::current_dir().unwrap_or_default().join(path),
     };
     absolute
-        .lexically_normalized()
-        .map_err(|error| CompletionError::invalid(error.to_string()))
+        .components()
+        .try_fold(PathBuf::new(), |mut normalized, component| match component {
+            | Component::CurDir => Ok(normalized),
+            | Component::ParentDir => match normalized.pop() {
+                | true => Ok(normalized),
+                | false => Err(CompletionError::invalid(format!(
+                    "path cannot be lexically normalized without escaping its root: {}",
+                    absolute.display()
+                ))),
+            },
+            | value => {
+                normalized.push(value.as_os_str());
+                Ok(normalized)
+            }
+        })
 }
 fn unprefixed_variables(variables: &HashMap<String, String>) -> Vec<(String, String)> {
     let prefix = format!("_{}_", EnvironmentValue::PREFIX.to_uppercase());

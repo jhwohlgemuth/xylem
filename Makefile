@@ -5,14 +5,10 @@ setup:
 	@cargo install $(DEV_DEPENDENCIES)
 
 audit:
-	@cargo udeps
+	@./scripts/check-dependency-policy.sh
+	@cargo shear --locked
 	@cargo deny check
-	@cargo audit \
-		--ignore RUSTSEC-2020-0071 \
-		--ignore RUSTSEC-2025-0055 \
-		--ignore RUSTSEC-2025-0056 \
-		--ignore RUSTSEC-2024-0388 \
-		--ignore RUSTSEC-2024-0436
+	@cargo audit `awk -F '\t' 'NR > 1 { printf "--ignore %s ", $$1 }' security/advisory-exceptions.tsv`
 
 book:
 	@mdbook clean docs
@@ -85,14 +81,11 @@ VERSION = `awk -F ' = ' '$$1 == "version" { gsub(/["\r]/, "", $$2); print $$2; e
 DEFAULT_TARGET = `awk -F ' = ' '$$1 ~ /default-target/ { gsub(/["]/, "", $$2); printf("%s",$$2) }' Cargo.toml | tr . _`
 DEFAULT_WINDOWS_TARGET = x86_64-pc-windows-gnu
 DEV_DEPENDENCIES = \
-	cargo-audit \
-	cargo-auditable \
-	cargo-deny \
-	cargo-insta \
+	cargo-audit@0.22.2 \
+	cargo-deny@0.20.2 \
 	cargo-nextest \
-	cargo-shear \
+	cargo-shear@1.14.0 \
 	cargo-tarpaulin \
-	cargo-udeps \
 	mdbook \
 	mdbook-mermaid \
 	mdbook-pikchr

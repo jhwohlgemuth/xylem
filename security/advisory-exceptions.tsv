@@ -1,0 +1,5 @@
+advisory	owner	review_by	rationale
+RUSTSEC-2026-0097	@o9w	2026-10-28	rand is transitive through retained runtime dependencies
+RUSTSEC-2026-0173	@o9w	2026-10-28	proc-macro-error2 is transitive through ACORN validator support
+RUSTSEC-2026-0194	@o9w	2026-10-28	ACORN revision 5d29344660334e2f0fd09b96a6f84b4510e57286 pins quick-xml below 0.41
+RUSTSEC-2026-0195	@o9w	2026-10-28	ACORN revision 5d29344660334e2f0fd09b96a6f84b4510e57286 pins quick-xml below 0.41

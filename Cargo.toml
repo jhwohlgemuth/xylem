@@ -29,12 +29,12 @@ std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
 
 [workspace.dependencies]
-acorn-cmd = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", default-features = false }
-acorn-core = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", features = ["alloc"], default-features = false }
-acorn-host = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", features = ["fs", "terminal"], default-features = false }
-acorn-lib = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", features = ["analysis"], default-features = false }
-acorn-macros = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", default-features = false }
-acorn-schema = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", features = ["alloc"], default-features = false }
+acorn-cmd = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", default-features = false }
+acorn-core = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", features = ["alloc"], default-features = false }
+acorn-host = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", features = ["fs", "terminal"], default-features = false }
+acorn-macros = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", default-features = false }
+acorn-schema = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", features = ["alloc"], default-features = false }
+clap = { version = "4.5.51", default-features = false }
 clap-verbosity-flag = { version = "3.0.4", features = ["log"], default-features = false }
 color-eyre = { version = "0.6.5", default-features = false }
 convert_case = { version = "0.11.0", default-features = false }
