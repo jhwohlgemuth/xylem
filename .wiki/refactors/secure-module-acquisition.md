@@ -74,7 +74,3 @@ and follows [process execution](process-execution-contract.md).
 - Dry-run performs no acquisition side effect.
 - Outcomes retain sufficient provenance to reproduce or audit the selected module bytes.
 - Unsupported remote module types fail validation instead of panicking.
-
-# Related plans
-
-- [Dependency surface and security gates](dependency-surface-and-security-gates.md)

@@ -17,6 +17,10 @@ Run the complete gate with:
 make audit
 ```
 
+Use `make audit OFFLINE=1` when the advisory databases have already been
+fetched and network access is unavailable. Required CI uses the default mode
+and refreshes advisory data.
+
 The gate checks the dependency baseline without rewriting manifests or the
 lockfile, reports unused direct dependencies, enforces license and source
 policy, and scans RustSec advisories. CI uses `cargo-shear` 1.14.0,
@@ -25,10 +29,11 @@ policy, and scans RustSec advisories. CI uses `cargo-shear` 1.14.0,
 ## Advisory exceptions
 
 Exceptions live in both `deny.toml` and
-`security/advisory-exceptions.tsv`. Each exception must have an owner, a short
-rationale, and a review date. The policy check fails when the two files drift
-or a review date expires. Exceptions are Xylem-owned and do not imply an
-upstream ACORN work item.
+`security/advisory-exceptions.tsv`. Each exception records reachability, an
+owner, a review date, upstream tracking, an exact removal condition, and a
+rationale. The policy check fails when the two files drift or a review date
+expires. These are Xylem-owned exceptions; the ledger links the RustSec
+advisories but, by project decision, does not create ACORN issues.
 
 Current exceptions are limited to dependencies required by the retained ACORN
 integration and runtime stack. They are owned by `@o9w` and must be reviewed by
@@ -40,3 +45,17 @@ Review `Cargo.lock`, run `make audit`, and update
 `security/dependency-baseline.env` only when the increase is justified. A
 decrease does not require lowering the limits immediately, though doing so in
 the same change preserves the strongest gate.
+
+## Recorded baseline
+
+The implementation worktree based on commit
+`eebf30428dc6db55454fe72b5460845a9397de3c` was measured on 2026-10-01 with
+Rust 1.98.1 on arm64 macOS 26.7. Both commands used an empty target directory,
+`--locked`, and `--offline`:
+
+- `cargo check --workspace --all-targets`: 296.63 seconds.
+- `cargo build --release --package xylem-cli`: 371.78 seconds and a 5,054,272-byte arm64 Mach-O binary.
+
+These platform-specific timings are comparison evidence, not cross-platform
+limits. The portable enforced baselines are 376 locked packages and 23 names
+with duplicate versions. The previous graph contained 844 packages.

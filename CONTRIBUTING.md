@@ -34,7 +34,10 @@ committing. `make test-ci` runs the test command used by the main CI test job.
 ignored. `make cover` writes `lcov.info`, which is also ignored.
 
 Dependency changes must satisfy the package-count, source, license, and
-advisory gates described in [`DEPENDENCY_POLICY.md`](./DEPENDENCY_POLICY.md).
+advisory gates described in
+[`security/DEPENDENCY_POLICY.md`](./security/DEPENDENCY_POLICY.md). Repository
+security, dependency, and release helpers are implemented in the `xtask` crate;
+run `cargo xtask` to see its commands.
 
 Changes to public configuration or CLI behavior must update the relevant book
 page and regenerate the checked-in help snapshots:

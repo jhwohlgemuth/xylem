@@ -30,7 +30,7 @@ Ensure every proposed code or dependency change is tested before merge, and ensu
 
 # Dependencies and ordering
 
-Consumes commands from [dependency and security gates](dependency-surface-and-security-gates.md) and the [hermetic test suite](../testing/hermetic-workflow-tests.md). Release changes must update the public installation and contributor documentation directly.
+Consumes the implemented dependency and security commands and the [hermetic test suite](../testing/hermetic-workflow-tests.md). Release changes must update the public installation and contributor documentation directly.
 
 # Recommendation
 
@@ -74,5 +74,4 @@ Consumes commands from [dependency and security gates](dependency-surface-and-se
 
 # Related plans
 
-- [Dependency surface and security gates](dependency-surface-and-security-gates.md)
 - [Hermetic workflow tests](../testing/hermetic-workflow-tests.md)

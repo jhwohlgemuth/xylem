@@ -194,8 +194,8 @@ equivalent JSON and YAML fixtures plus compiled-CLI integration coverage.
 
 # Dependencies
 
-- Coordinates with [dependency and security gates](../refactors/dependency-surface-and-security-gates.md)
-  for interpreter selection, pinning, licensing, and advisory policy.
+- Interpreter selection, pinning, licensing, and advisory policy must satisfy
+  the required dependency and security checks.
 - Preserves the input scheduling contract established by
   [workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md).
 - Does not depend on [sandboxed workflow execution](../refactors/sandboxed-workflow-execution.md)

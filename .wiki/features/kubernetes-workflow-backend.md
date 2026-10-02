@@ -1188,6 +1188,5 @@ and a workflow rooted entirely beneath the shared workspace.
 - [Process execution contract](../refactors/process-execution-contract.md)
 - [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
 - [Sandboxed workflow execution](../refactors/sandboxed-workflow-execution.md)
-- [Dependency surface and security gates](../refactors/dependency-surface-and-security-gates.md)
 - [CI and release pipeline](../refactors/ci-release-pipeline.md)
 - [Hermetic workflow tests](../testing/hermetic-workflow-tests.md)

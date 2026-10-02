@@ -7,7 +7,7 @@ CI configuration owns Homebrew validation.
 ## Generate a formula locally
 
 ```shell
-./scripts/homebrew/generate-formula.sh 1.0.0 ./Formula/xylem.rb
+cargo xtask homebrew-formula 1.0.0 ./Formula/xylem.rb
 ```
 
 The version must match the workspace version in `Cargo.toml`. The generator
@@ -16,12 +16,12 @@ digest, and renders `formula.template.rb`. For deterministic offline generation
 from explicit release metadata, use:
 
 ```shell
-./scripts/homebrew/generate-formula.sh 1.0.0 ./Formula/xylem.rb <sha256>
+cargo xtask homebrew-formula 1.0.0 ./Formula/xylem.rb <sha256>
 ```
 
-The `test-homebrew-formula` GitLab job checks deterministic output, immutable
-URLs, Ruby syntax, invalid versions and checksums, and formula drift directly;
-there is no separate Homebrew test program.
+The `test-homebrew-formula` GitLab job checks the `xtask` generator's
+deterministic output, immutable URLs, Ruby syntax, invalid versions and
+checksums, and formula drift.
 
 ## CI publication
 

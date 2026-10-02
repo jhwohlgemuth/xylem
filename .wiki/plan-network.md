@@ -46,7 +46,7 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 - [CEL workflow input](features/cel-workflow-input.md) follows the immutable input-scheduling contract and coordinates with dependency gates for interpreter qualification. It does not depend on sandboxed execution because evaluation has no process or I/O capability.
 - [Memory-aware scheduling](features/memory-aware-scheduling.md) builds on the fixed scheduler boundary and journal telemetry. Only its measurement spike may proceed before an estimator is accepted.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) consumes the error, process, configuration, and ACORN migration contracts.
-- [Dependency and security gates](refactors/dependency-surface-and-security-gates.md) owns the accepted dependency graph and advisory policy.
+- Required CI owns enforcement of the accepted dependency graph and advisory policy.
 - [Hermetic tests](testing/hermetic-workflow-tests.md) provides the regression gate required by the CI plan and validates every correctness plan as its contracts land.
 - [CI and release pipeline](refactors/ci-release-pipeline.md) consumes the hermetic suite and dependency gates.
 - [Homebrew release export](features/homebrew-export.md) consumes immutable tagged artifacts and checksums from the CI/release pipeline.

@@ -5,10 +5,7 @@ setup:
 	@cargo install $(DEV_DEPENDENCIES)
 
 audit:
-	@./scripts/check-dependency-policy.sh
-	@cargo shear --locked
-	@cargo deny check
-	@cargo audit `awk -F '\t' 'NR > 1 { printf "--ignore %s ", $$1 }' security/advisory-exceptions.tsv`
+	@cargo xtask audit $(if $(OFFLINE),--offline,)
 
 book:
 	@mdbook clean docs
@@ -58,13 +55,16 @@ doc:
 doctest:
 	@cargo test --doc
 
+dependency-policy:
+	@cargo xtask dependency-policy
+
 help:
 	@mkdir -p docs/src/generated
 	@cargo run --quiet --package xylem-cli -- --help | sed 's/[[:space:]]*$$//' > docs/src/generated/xylem-help.txt
 	@cargo run --quiet --package xylem-cli -- run --help | sed 's/[[:space:]]*$$//' > docs/src/generated/xylem-run-help.txt
 
 homebrew-formula:
-	@./scripts/homebrew/generate-formula.sh $(VERSION) ./Formula/xylem.rb
+	@cargo xtask homebrew-formula $(VERSION) ./Formula/xylem.rb
 
 publish-book: book
 	@git clone "https://user:${ACCESS_TOKEN}@code-int.ornl.gov/sites/xylem.git" site
@@ -72,8 +72,11 @@ publish-book: book
 	@mv docs/book ./site/html
 	@cd ./site && git add html && (git diff --cached --quiet || (git commit -m "Publish Xylem Book" && git push))
 
+publish-crates:
+	@cargo xtask publish-crates
+
 version: 
-	@echo $(VERSION)
+	@cargo xtask version
 #
 # Variables
 #
@@ -108,12 +111,14 @@ TASKS = \
 	clean \
 	cover \
 	coverage \
+	dependency-policy \
 	doc \
 	doctest \
 	help \
 	homebrew-formula \
 	lint \
 	publish-book \
+	publish-crates \
 	setup \
 	test \
 	test-ci \

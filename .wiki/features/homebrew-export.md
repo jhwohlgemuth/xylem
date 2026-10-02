@@ -254,5 +254,4 @@ After the runner has completed a job successfully, remove `when: manual` and
 # Related plans
 
 - [CI and release pipeline](../refactors/ci-release-pipeline.md)
-- [Dependency surface and security gates](../refactors/dependency-surface-and-security-gates.md)
 - [Hermetic workflow tests](../testing/hermetic-workflow-tests.md)

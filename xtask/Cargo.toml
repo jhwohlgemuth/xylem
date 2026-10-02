@@ -1,0 +1,10 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Repository security, dependency, and release tasks"
+license.workspace = true
+
+[lints]
+workspace = true

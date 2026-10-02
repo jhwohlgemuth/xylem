@@ -25,19 +25,13 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 
 The lanes below contain only remaining work.
 
-### Lane A: dependency migrations
-
-1. [Dependency and security gates](refactors/dependency-surface-and-security-gates.md)
-
-The dependency-gate work owns the manifest lock.
-
-### Lane B: configuration and acquisition
+### Lane A: configuration and acquisition
 
 1. [Secure module acquisition](refactors/secure-module-acquisition.md), consuming the validation contract
 
 Secure acquisition owns generic transport behavior.
 
-### Lane C: execution runtime
+### Lane B: execution runtime
 
 1. [Process execution contract](refactors/process-execution-contract.md)
 2. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), after the process contract lands
@@ -48,14 +42,14 @@ Secure acquisition owns generic transport behavior.
 
 The `options.batch` rolling input ceiling is the baseline these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Advanced orchestration preserves both limits and consumes the process result contract. Kubernetes and sandbox integration both need the CLI, run-state, and scheduler locks, so their integration phases land serially even though pure target/profile and policy/fake-provider work may proceed independently. CEL input can proceed independently of the sandbox lock after the interpreter dependency and immutable input boundary are accepted.
 
-### Lane D: CLI and verification
+### Lane C: CLI and verification
 
 1. [Hermetic workflow tests](testing/hermetic-workflow-tests.md), fixture/helper slice only
 
 Fixture cleanup and fake-command helpers can proceed without the CLI lock until
 they need a new runtime contract.
 
-### Lane E: delivery and communication
+### Lane D: delivery and communication
 
 1. CI/release analysis and isolated script prototypes
 2. [CI and release pipeline](refactors/ci-release-pipeline.md) after required checks exist

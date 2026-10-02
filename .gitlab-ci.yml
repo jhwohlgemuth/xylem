@@ -107,16 +107,24 @@ test-homebrew-formula:
     - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
+        - .cargo/**/*
         - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
         - Makefile
         - scripts/homebrew/**/*
+        - xtask/**/*
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
+        - .cargo/**/*
         - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
         - Makefile
         - scripts/homebrew/**/*
+        - xtask/**/*
   before_script:
-    - apk add --no-cache bash make ruby
+    - apk add --no-cache cargo make ruby
   script:
     - |
       set -eu
@@ -131,17 +139,17 @@ test-homebrew-formula:
           exit 1
         fi
       }
-      ./scripts/homebrew/generate-formula.sh "${version}" "${test_directory}/first.rb" "${sha256}"
-      ./scripts/homebrew/generate-formula.sh "${version}" "${test_directory}/second.rb" "${sha256}"
+      cargo xtask homebrew-formula "${version}" "${test_directory}/first.rb" "${sha256}"
+      cargo xtask homebrew-formula "${version}" "${test_directory}/second.rb" "${sha256}"
       cmp "${test_directory}/first.rb" "${test_directory}/second.rb"
       grep -Fq "static.crates.io/crates/xylem-cli/xylem-cli-${version}.crate" "${test_directory}/first.rb"
       grep -Fq "sha256 \"${sha256}\"" "${test_directory}/first.rb"
       ! grep -Fq 'depends_on "pkgconf" => :build' "${test_directory}/first.rb"
       ! grep -Fq 'depends_on "openssl@3"' "${test_directory}/first.rb"
       ruby -c "${test_directory}/first.rb"
-      expect_failure ./scripts/homebrew/generate-formula.sh "v${version}" "${test_directory}/invalid.rb" "${sha256}"
-      expect_failure ./scripts/homebrew/generate-formula.sh "9.9.9" "${test_directory}/invalid.rb" "${sha256}"
-      expect_failure ./scripts/homebrew/generate-formula.sh "${version}" "${test_directory}/invalid.rb" missing
+      expect_failure cargo xtask homebrew-formula "v${version}" "${test_directory}/invalid.rb" "${sha256}"
+      expect_failure cargo xtask homebrew-formula "9.9.9" "${test_directory}/invalid.rb" "${sha256}"
+      expect_failure cargo xtask homebrew-formula "${version}" "${test_directory}/invalid.rb" missing
       printf '\n# drift\n' >> "${test_directory}/second.rb"
       expect_failure cmp "${test_directory}/first.rb" "${test_directory}/second.rb"
 
@@ -237,7 +245,7 @@ publish-crates:
   rules:
     - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
   script:
-    - bash scripts/publish-crates.sh
+    - cargo xtask publish-crates
 
 publish-homebrew-formula:
   stage: release
@@ -258,7 +266,7 @@ publish-homebrew-formula:
   rules:
     - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
   before_script:
-    - apk add --no-cache bash curl git
+    - apk add --no-cache cargo curl git
   script:
     - |
       set -eu
@@ -266,7 +274,7 @@ publish-homebrew-formula:
       test -n "${HOMEBREW_TAP_ACCESS_TOKEN:-}" || { echo "HOMEBREW_TAP_ACCESS_TOKEN is required" >&2; exit 1; }
       version="${CI_COMMIT_TAG#v}"
       test "${version}" = "${PKG_VERSION}"
-      ./scripts/homebrew/generate-formula.sh "${version}" Formula/xylem.rb
+      cargo xtask homebrew-formula "${version}" Formula/xylem.rb
       curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --range 0-0 --output /dev/null --retry 5 --retry-all-errors -LsSf "${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${version}/${BINARY_NAME}"
       curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --range 0-0 --output /dev/null --retry 5 --retry-all-errors -LsSf "${PKG_REGISTRY_URL}/${DEFAULT_WINDOWS_TARGET}/v${version}/${BINARY_NAME}.exe"
 
