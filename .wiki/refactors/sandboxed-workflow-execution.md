@@ -70,9 +70,9 @@ Rechecked against `fa07c39`.
 - `ExecutionLimits` bounds Xylem's Rayon workers only. It does not bound child
   CPU, memory, PIDs, disk, output, network bandwidth, or wall time.
 - `InputAttribute::ShellScript` is deserialized but rejected by validation and
-  planning. The CEL workflow-input plan replaces this reserved variant with
-  side-effect-free expression evaluation and does not require an isolation
-  provider.
+  planning. The scripted input-selection plan replaces this reserved variant
+  with side-effect-free expression evaluation and does not require an
+  isolation provider.
 - `ContainerEnvironment` wraps a module command in `docker exec`, `podman
   exec`, or `apptainer exec`. It names an application environment and is not a
   Xylem security boundary. Passing the host Docker socket into a workflow
@@ -326,13 +326,15 @@ class, session ID, image digest, requested and effective policy digests,
 resource-limit termination, artifact publication, and cleanup/retention state.
 Never journal raw credentials or credential-bearing URLs.
 
-# CEL workflow inputs
+# Scripted workflow input selection
 
-The CEL workflow-input feature evaluates a bounded, side-effect-free expression
-inside the trusted planning process. It exposes no filesystem, process,
+The scripted input-selection feature builds a bounded local candidate inventory
+in the trusted planning process, then evaluates a side-effect-free expression
+over that immutable data. The evaluator exposes no filesystem, process,
 network, environment, clock, or random functions, so it does not consume this
-sandbox boundary. Strings produced by CEL remain ordinary workflow inputs and
-receive the same execution-time path capabilities as configured list inputs.
+sandbox boundary. The selected engine may return only paths present in the
+inventory. Selected paths remain ordinary workflow inputs and receive the same
+execution-time path capabilities as configured list inputs.
 
 # Interaction with module containers
 
@@ -467,8 +469,9 @@ normal supported installations do not execute workflow code on the host.
 - Coordinates with [secure module acquisition](secure-module-acquisition.md):
   acquisition owns provenance and atomic materialization; this plan owns where
   external helpers execute and how verified bytes enter a session.
-- Does not gate [CEL workflow input](../features/cel-workflow-input.md), whose
-  evaluator has no process or I/O capability.
+- Does not gate [scripted input discovery and filtering](../features/cel-workflow-input.md),
+  whose evaluator has no process, network, or filesystem capability. Its local
+  discovery is bounded trusted planning work.
 - Preserves the validation, deterministic plan, resume, journal,
   reporter, and batching contracts.
 

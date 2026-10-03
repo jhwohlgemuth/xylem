@@ -36,13 +36,13 @@ Secure acquisition owns generic transport behavior.
 ### Lane B: execution runtime
 
 1. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), after the published [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md)
-2. [CEL workflow input](features/cel-workflow-input.md), after interpreter qualification and the fixed input contract
+2. [Scripted input discovery and filtering](features/cel-workflow-input.md), after selection-engine qualification and the fixed input and path contracts
 3. [Kubernetes workflow execution backend](features/kubernetes-workflow-backend.md), after process and immutable environment contracts land
 4. [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md), after process and immutable environment contracts land
 5. [Memory-aware scheduling](features/memory-aware-scheduling.md), after its spike and the fixed scheduler contract
 6. [Workflow dashboard and durable run history](features/workflow-dashboard.md), after the shared runner and memory scheduler contracts
 
-The `options.batch` rolling input ceiling is the baseline these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Advanced orchestration preserves both limits and consumes the process result contract. Kubernetes and sandbox integration both need the CLI, run-state, and scheduler locks, so their integration phases land serially even though pure target/profile and policy/fake-provider work may proceed independently. CEL input can proceed independently of the sandbox lock after the interpreter dependency and immutable input boundary are accepted. The dashboard takes the run-store and TUI locks only after memory scheduling exposes events and simulation; it never owns admission policy.
+The `options.batch` rolling input ceiling is the baseline these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Advanced orchestration preserves both limits and consumes the process result contract. Kubernetes and sandbox integration both need the CLI, run-state, and scheduler locks, so their integration phases land serially even though pure target/profile and policy/fake-provider work may proceed independently. Scripted input selection can proceed independently of the sandbox lock after the engine dependency and immutable input and configuration-owned path boundaries are accepted. Its filesystem inventory remains in trusted, bounded planning code rather than the evaluator. The dashboard takes the run-store and TUI locks only after memory scheduling exposes events and simulation; it never owns admission policy.
 
 ### Lane C: CLI and verification
 
