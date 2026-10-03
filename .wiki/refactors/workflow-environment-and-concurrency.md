@@ -13,17 +13,20 @@ status: planned
 
 Give each workflow run and input an immutable execution context containing its variables, owned paths, limits, failure policy, and cancellation state. Run inputs through one bounded scheduler, preserve configured result order, and keep every module's acquisition, environment preparation, and command execution inside that input's workspace.
 
-Xylem owns workflow policy. Generic child-process mechanics belong to ACORN's [`acorn-cmd` process execution contract](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/process-execution-contract.md).
+Xylem owns workflow policy. Generic child-process mechanics come from ACORN's
+[Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md).
 
 # Current evidence
 
+- `ExecutionContext` already owns a run-local Rayon pool, `InputBatch` is a positive concurrency ceiling, and `dispatch_inputs_fail_fast` provides rolling admission with result slots in configured input order. The dispatch methods still construct a second Rayon pool instead of using one run-level admission mechanism.
+- The current fail-fast dispatcher stops new admission but allows already-active inputs to settle. It has no cancellation token, no `continue` policy, and no structured dispatch report describing never-admitted work.
+- Module acquisition and environment preparation still run once for the shared `Config` before input dispatch, through a separate Rayon phase. The configured batch ceiling therefore does not bound the complete input lifecycle.
 - `Config::get_environment_variables` merges workflow and module values into a mutable `HashMap`, expands them, and emits `_XYLEM_*` names before an immutable run context exists.
 - `EnvironmentValue::{set_variable,set_variables,set_namespaced_variables}` can mutate the parent process environment. Tests also mutate `_XYLEM_*` variables and depend on process-wide cleanup.
-- `Script` now carries per-command environment overrides, but it still returns combined text lines rather than the structured, bounded process result needed for timeout and cancellation policy.
+- `Script` carries per-command environment overrides and uses `acorn_cmd::CommandSpec`, but it still converts output lossily, combines stdout and stderr into `Vec<String>`, and has no timeout or cancellation input.
 - `Instruction::ShellFormat` still loses quoted and empty argument boundaries through whitespace splitting.
-- `options.batch` provides rolling admission and ordered outcomes through `ExecutionContext`, while the CLI separately creates a Rayon pool from `--threads`. Preparation and command execution do not yet share one explicit admission contract.
-- Configuration resolution, module acquisition, virtual-environment preparation, and execution can reuse host paths across inputs. Duplicate inputs can therefore collide even when their variable maps differ.
-- The CLI creates a random temporary root without an explicit layout, retention policy, or cleanup owner. The execution journal is durable run evidence and must not share that disposable lifetime.
+- Configuration resolution uses a process-wide temporary source root, while module acquisition, virtual-environment preparation, and execution reuse run-level paths across inputs. Duplicate inputs can therefore collide even when their variable maps differ.
+- The CLI creates `${TMPDIR}/xylem/<random-id>` directly, stores the default journal in that tree, and has no RAII cleanup or retention owner. Successful and failed runs can leave both disposable module state and durable evidence behind indefinitely.
 - Execution-plan, journal, and summary schemas are at version 5. Cancellation is not a durable terminal state.
 
 # Ownership boundary
@@ -44,8 +47,8 @@ Xylem adapts `Script` to the ACORN API and owns configuration, variable preceden
 
 # Dependencies and landing order
 
-1. Land and publish the additive ACORN process contract as `acorn-cmd` 0.3.3. Preserve its current APIs so ACORN consumers can migrate separately.
-2. Update Xylem's version and Git revision together. Published Xylem crates must resolve the same `acorn-cmd` contract from crates.io; a Git-only prerequisite is insufficient.
+1. Land and publish the additive ACORN process contract. Preserve its current APIs so ACORN consumers can migrate separately. The exact release must be rechecked at implementation time; Xylem currently pins `acorn-cmd` 0.3.2 plus Git revision `5d293446`.
+2. Update Xylem's ACORN versions and Git revisions together. Published Xylem crates must resolve the same process contract from crates.io; a Git-only prerequisite is insufficient.
 3. Land the Xylem context, workspace, scheduler, journal, and CLI changes as one coordinated runtime boundary. `xylem-lib/src/script/mod.rs`, run-state files, manifests, and `xylem-cli/src/commands/run/mod.rs` remain single-writer integration surfaces.
 4. Move Kubernetes plan, journal, and summary changes to version 7 so this plan exclusively owns version 6.
 
@@ -57,7 +60,7 @@ This plan follows the typed workflow-outcome contract and preserves the existing
 - Add `--failure-policy <fail-fast|continue>` as a CLI override. CLI spelling uses kebab case; serialized configuration uses snake case.
 - Add positive `timeout_seconds` to each executable module. Omission means no timeout. Expose a lower-level library execution option so callers that do not deserialize a module can still supply a timeout.
 - Add CLI-only `--retain-workspace`. Do not add retention to reusable workflow configuration because it is an operator diagnostic choice, not workflow behavior.
-- Keep existing journal-path configuration or CLI selection. When no path is supplied, use `${TMPDIR}/xylem/journals/<run-id>.journal.jsonl`, separate from the workspace tree.
+- Keep `--report-output` as the operator-selected directory for journals and file-based reports. When it is absent, use `${TMPDIR}/xylem/journals/<run-id>.journal.jsonl`, separate from the workspace tree.
 - Reject zero timeouts, unknown policies, and attempts to configure retained workspaces in workflow files.
 
 # Context contracts
@@ -66,7 +69,11 @@ This plan follows the typed workflow-outcome contract and preserves the existing
 
 `WorkflowContext` is immutable and input-specific. It owns the input index and value, resolved variables, input workspace paths, and references to immutable run-level policy. A new context is built even for a zero-input workflow and for each repeated input value.
 
-`DispatchReport<T>` returns one ordered slot per configured input, plus whether admission stopped early and the cancellation reason. Completion order must never determine result order.
+`DispatchReport<T>` extends the current ordered optional-slot behavior. It
+returns one slot per configured input, the effective ceiling, whether admission
+stopped early, and the cancellation reason. Completion order must never
+determine result order, and a missing slot must have an explicit
+`not_started` or `cancelled` disposition rather than relying on `None` alone.
 
 # Variable and path resolution
 
@@ -98,7 +105,12 @@ ${TMPDIR}/xylem/workspaces/<run-id>/
       scratch/
 ```
 
-Resolve remote configuration sources once under `configuration/`. Materialize every executable module separately for every input under that input's `modules/` directory, even when repeated work costs more. Correct isolation takes precedence over sharing clones, copied trees, or prepared environments in this phase.
+Resolve remote configuration sources once under `configuration/`. The secure
+acquisition layer may reuse immutable, verified cache entries, but every input
+receives a separately materialized module tree under its `modules/` directory.
+Never share a mutable checkout, copied tree, environment prefix, scratch path,
+or completion state between inputs, even when the source identity or input
+value repeats.
 
 For local modules, copy the tree into the input workspace. Canonicalize the source root and every symlink target, reject dangling or escaping links and special files, avoid cycles, and preserve regular-file executable permissions. Materialize accepted internal links as workspace-owned content so later command execution cannot escape through them.
 
@@ -108,7 +120,12 @@ Remove the workspace after every terminal path, including success, failure, canc
 
 # Scheduling, failure, and cancellation
 
-Use one admission ceiling equal to `min(--threads, options.batch)`. A slot covers acquisition, local copying, environment preparation, sequential module execution, and completion observation for one input. Do not create a separate unbounded preparation pool.
+Use one admission ceiling equal to `min(--threads, options.batch)`. Extend or
+replace the current dispatcher so one slot covers input-local acquisition,
+local copying, environment preparation, sequential module execution, and
+completion observation. Run-level configuration resolution and immutable cache
+lookup may occur before dispatch; mutable preparation may not. Do not create a
+second preparation or input worker pool.
 
 Modules within one input remain sequential. Independent inputs may run concurrently, but the returned report and journal summary remain in configuration order.
 
@@ -130,7 +147,11 @@ The caller applies workflow failure policy. `Script` never logs an error and ret
 
 # Journal and schema version 6
 
-Add `cancelled` to the durable input and module state vocabulary. Advance execution plan, journal, recovered summary, and their JSON schemas to version 6 together. Preserve readers and immutable schema files for versions 1 through 5; normalize version-5 records in memory without rewriting them.
+Add `cancelled` to the durable input and module state vocabulary. Advance
+execution plan, journal, recovered summary, and their JSON schemas to version
+6 together. Make version 6 the only readable schema: delete readers,
+normalizers, schemas, and successful compatibility fixtures for versions 1
+through 5. Reject any non-current version without attempting migration.
 
 Version 6 records the effective failure policy, timeout, run and input workspace identities without persisting disposable absolute paths as reusable configuration, ordered input disposition, cancellation reason, process termination metadata, duration, and output truncation counts. Never persist captured output beyond the journal's existing bounded diagnostic policy.
 
@@ -138,10 +159,10 @@ Dry-run validates and renders the effective policy, timeout, reserved variables,
 
 # Implementation phases
 
-1. Upgrade `acorn-cmd`, add Xylem result adaptation, and remove lossy parsing and output conversion.
+1. Upgrade the published `acorn-cmd` contract, add Xylem result adaptation, and remove lossy parsing and output conversion.
 2. Add configuration and CLI policy, pure variable resolution, owned path resolution, and immutable contexts.
-3. Add the RAII workspace and per-input acquisition/preparation layout.
-4. Move all preparation and execution behind the single bounded scheduler and implement fail-fast, continue, and external cancellation.
+3. Add the RAII workspace and per-input acquisition/preparation layout, with durable journals outside the disposable tree.
+4. Replace the current optional-slot fail-fast result with `DispatchReport`, move mutable preparation behind the single bounded scheduler, and implement fail-fast sibling cancellation, continue, and external cancellation.
 5. Advance plan, journal, recovery, summary, schemas, reporters, and dry-run to version 6.
 6. Remove global environment mutation and obsolete helpers, then update documentation and examples.
 
@@ -149,11 +170,13 @@ Dry-run validates and renders the effective policy, timeout, reserved variables,
 
 - Test precedence, reserved-name rejection, zero-input behavior, non-Unicode paths, duplicate inputs, configuration-relative paths, and invocation-relative CLI paths.
 - Run conflicting variables through many concurrent inputs and prove each child observes only its own `_XYLEM_*` environment while the parent environment remains byte-for-byte unchanged.
-- Measure peak work across acquisition, preparation, and execution; it must never exceed `min(--threads, options.batch)`.
+- Preserve the existing rolling-admission and ordered-slot tests, then measure peak work across input-local acquisition, preparation, and execution; it must never exceed `min(--threads, options.batch)`.
 - Test deterministic ordering, sequential modules, fail-fast admission, continue behavior, external cancellation, exit 130, module timeout, and process-tree cleanup.
+- Prove fail-fast cancels already-active siblings rather than merely waiting for them, and distinguish the triggering failure, cancelled active work, and never-admitted work.
 - Test input-local local trees, Git modules, Conda/Mamba prefixes, Pixi projects, symlink containment, executable-bit preservation, duplicate inputs, and cleanup after success, failure, cancellation, and panic unwind.
 - Verify `--retain-workspace` reports a usable path while normal runs remove the workspace and retain the journal.
-- Round-trip version-6 plans, journals, and summaries; read version-5 fixtures; assert explicit `cancelled`, `failed`, and `not_started` states.
+- Round-trip version-6 plans, journals, and summaries; reject non-version-6
+  fixtures; assert explicit `cancelled`, `failed`, and `not_started` states.
 - Prove dry-run performs no filesystem writes, process spawn, network access, environment mutation, or random identifier generation.
 - Run focused library and CLI tests on Linux, macOS, and Windows, then run the workspace lint and test gates.
 
@@ -162,15 +185,16 @@ Dry-run validates and renders the effective policy, timeout, reserved variables,
 - Production workflow execution never mutates the parent process environment.
 - Every input, including a repeated or zero-input case, has a complete immutable context and isolated owned paths.
 - Configuration and CLI precedence, reserved variables, failure policy, timeout, and path ownership are explicit and tested.
-- One ceiling bounds the complete input lifecycle, modules remain sequential, and reports are ordered deterministically.
+- One ceiling and one worker/admission mechanism bound the complete input lifecycle, modules remain sequential, and reports are ordered deterministically.
+- Immutable verified acquisition cache entries may be shared, but mutable module trees, environment prefixes, scratch paths, and completion state are isolated per input.
 - Fail-fast, continue, timeout, and external cancellation have distinct durable outcomes; external cancellation exits 130.
 - Xylem delegates process supervision to the published ACORN contract and preserves separate bounded stdout/stderr evidence.
 - Workspaces clean up on every terminal path unless the CLI explicitly retains them; journals have an independent lifetime.
-- Version-6 schemas represent cancellation and policy while version-5 artifacts remain readable.
+- Version-6 schemas represent cancellation and policy, and every older schema
+  is rejected without normalization or migration.
 - Dry-run creates no workspace or journal and performs no execution-side mutation.
 
 # Related plans
 
-- [ACORN process execution contract](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/process-execution-contract.md)
+- [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md)
 - [Memory-aware scheduling](../features/memory-aware-scheduling.md)
-- [Hermetic workflow tests](../testing/hermetic-workflow-tests.md)

@@ -17,7 +17,9 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 | Sandbox lock | `xylem-lib/src/sandbox/`, sandbox policy and conformance fixtures | Sandboxed execution owns policy resolution, capability negotiation, session lifecycle, and provider adapters. |
 | Kubernetes target lock | target/profile/protocol modules, native client adapter, Job fixtures, and runner image | Kubernetes execution owns the outer controller/worker and shared-PVC contracts; it may not redefine sandbox or module-container semantics. |
 | Run-state lock | `xylem-lib/src/progress.rs`, journal/outcome modules, reporter adapters | Preserve the journal, reporter, resume, and execution-target vocabulary without redefining durable states. |
+| Run-store lock | runner, run-store, telemetry, task-log, and projection modules plus current schemas | The dashboard takes this lock after environment/concurrency and memory scheduling land. Other targets consume the resulting bundle and event contracts. |
 | CLI lock | `xylem-cli/src/{main,cli}.rs`, `xylem-cli/src/commands/run/mod.rs` | One owner for argument registration, pool/scheduler setup, journal lifecycle, CLI-owned exit mapping, and generated help. |
+| TUI lock | `xylem-tui/` and dashboard snapshots | One dashboard owner at a time; rendering work may split by tab only after the app state and shared widget contracts land. |
 | Delivery lock | `Makefile`, `.gitlab-ci.yml`, release exporters | Security commands land before CI/release wiring; package and Kubernetes image export consume the immutable release contract. |
 | Documentation lock | top-level Markdown and `examples/` | Final updates occur after behavior and command names are stable. |
 
@@ -33,17 +35,17 @@ Secure acquisition owns generic transport behavior.
 
 ### Lane B: execution runtime
 
-1. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), after the published [`acorn-cmd` process contract](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/process-execution-contract.md)
+1. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), after the published [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md)
 2. [CEL workflow input](features/cel-workflow-input.md), after interpreter qualification and the fixed input contract
 3. [Kubernetes workflow execution backend](features/kubernetes-workflow-backend.md), after process and immutable environment contracts land
 4. [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md), after process and immutable environment contracts land
 5. [Memory-aware scheduling](features/memory-aware-scheduling.md), after its spike and the fixed scheduler contract
+6. [Workflow dashboard and durable run history](features/workflow-dashboard.md), after the shared runner and memory scheduler contracts
 
-The `options.batch` rolling input ceiling is the baseline these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Advanced orchestration preserves both limits and consumes the process result contract. Kubernetes and sandbox integration both need the CLI, run-state, and scheduler locks, so their integration phases land serially even though pure target/profile and policy/fake-provider work may proceed independently. CEL input can proceed independently of the sandbox lock after the interpreter dependency and immutable input boundary are accepted.
+The `options.batch` rolling input ceiling is the baseline these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Advanced orchestration preserves both limits and consumes the process result contract. Kubernetes and sandbox integration both need the CLI, run-state, and scheduler locks, so their integration phases land serially even though pure target/profile and policy/fake-provider work may proceed independently. CEL input can proceed independently of the sandbox lock after the interpreter dependency and immutable input boundary are accepted. The dashboard takes the run-store and TUI locks only after memory scheduling exposes events and simulation; it never owns admission policy.
 
 ### Lane C: CLI and verification
 
-1. [Hermetic workflow tests](testing/hermetic-workflow-tests.md), fixture/helper slice only
 
 Fixture cleanup and fake-command helpers can proceed without the CLI lock until
 they need a new runtime contract.
@@ -51,8 +53,7 @@ they need a new runtime contract.
 ### Lane D: delivery and communication
 
 1. CI/release analysis and isolated script prototypes
-2. [CI and release pipeline](refactors/ci-release-pipeline.md) after required checks exist
-3. [Homebrew release export](features/homebrew-export.md) after immutable release artifacts and checksums exist
+2. [Homebrew release export](features/homebrew-export.md) after immutable release artifacts and checksums exist
 
 ## Safe initial batch
 

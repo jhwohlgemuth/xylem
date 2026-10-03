@@ -13,17 +13,20 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 - [Feature plans](features/) - User-facing behavior that completes an existing public interface.
 - [Refactor plans](refactors/) - Correctness, security, maintainability, delivery, and documentation work.
 - [Migration plans](migrations/) - Dependency and format migrations.
-- [Testing plans](testing/) - Hermetic unit, integration, and CLI coverage.
+- [Testing plans](testing/) - Unit, integration, and CLI coverage.
 
 ## Next execution phase
 
 The next dependency-ready runtime item is the upstream
-[`acorn-cmd` process execution contract](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/process-execution-contract.md),
+[ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md),
 followed by [workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md).
 Secure acquisition may proceed in its separate configuration/acquisition lane
 after the same published ACORN contract is available.
 
-Memory-aware scheduling remains gated on a successful measurement spike. The [hermetic workflow test suite](testing/hermetic-workflow-tests.md) may continue establishing host-independent fixtures alongside it.
+Memory-aware scheduling is authorized for its measured workflow boundary and
+remains in progress. The [workflow dashboard](features/workflow-dashboard.md)
+follows the immutable runtime and memory scheduler. Host-independent fixtures
+may continue alongside them.
 
 ## Adding a plan
 

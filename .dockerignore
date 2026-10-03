@@ -1,0 +1,16 @@
+.codegraph
+.env
+.git
+.pixi
+.pytest_cache
+.vscode
+bin
+docs/book
+htmlcov
+lcov.info
+site
+target
+**/.pixi
+**/__pycache__
+**/*.pyc
+**/*.pyo

@@ -30,7 +30,7 @@ Linux users can install and upgrade Xylem through the official tap.
 
 # Dependencies and ordering
 
-The [CI and release pipeline](../refactors/ci-release-pipeline.md) produced the immutable v1.0.3 tag and artifacts. The tap merge request must pass both platform jobs before merge. Update the public installation documentation with the verified command after activation.
+The immutable v1.0.3 tag and artifacts were produced from the release workflow. The tap merge request must pass both platform jobs before merge. Update the public installation documentation with the verified command after activation.
 
 # Recommendation
 
@@ -252,6 +252,3 @@ After the runner has completed a job successfully, remove `when: manual` and
 - The publication credential is protected and scoped only to the tap update operation.
 
 # Related plans
-
-- [CI and release pipeline](../refactors/ci-release-pipeline.md)
-- [Hermetic workflow tests](../testing/hermetic-workflow-tests.md)

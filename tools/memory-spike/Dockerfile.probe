@@ -1,0 +1,13 @@
+FROM rust:1.96.0-bookworm AS builder
+
+WORKDIR /workspace
+COPY . .
+RUN cargo build --locked --release --package xylem-memory-spike --bins
+
+FROM debian:bookworm-slim
+
+COPY --from=builder /workspace/target/release/xylem-memory-probe /usr/local/bin/xylem-memory-probe
+COPY --from=builder /workspace/target/release/xylem-memory-spike /usr/local/bin/xylem-memory-spike
+COPY tools/memory-spike/docker-probe-entrypoint.sh /usr/local/bin/xylem-memory-docker-probe
+
+ENTRYPOINT ["/usr/local/bin/xylem-memory-docker-probe"]

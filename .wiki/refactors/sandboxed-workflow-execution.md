@@ -462,7 +462,7 @@ normal supported installations do not execute workflow code on the host.
 
 # Dependencies and ordering
 
-- Follows the upstream [`acorn-cmd` process execution contract](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/process-execution-contract.md) and
+- Follows the upstream [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md) and
   [workflow environment and concurrency](workflow-environment-and-concurrency.md).
 - Coordinates with [secure module acquisition](secure-module-acquisition.md):
   acquisition owns provenance and atomic materialization; this plan owns where

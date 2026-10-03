@@ -80,8 +80,8 @@ monitoring changes.
   and the in-progress GPU monitor. It has no execution-target evidence.
 - The current worktree advances execution-plan and journal/report schemas to
   version 5 for GPU monitoring. Environment/concurrency owns version 6;
-  Kubernetes must use new version-7 artifacts rather than modifying earlier
-  schema files.
+  Kubernetes must advance the current contract to version 7 rather than
+  modifying version-6 artifacts in place.
 - `RunJournal` is append-only, flushed at every transition, and recovered into
   `RunSummary`. It is the correct authoritative worker result once its path is
   placed on durable shared storage.
@@ -515,7 +515,9 @@ live server observations so repeated planning remains deterministic.
 Retain the existing containers array. Kubernetes validation requires it to be
 empty for every selected module and emits a module-qualified error otherwise.
 
-Create `execution-plan-v7.schema.json`; never rewrite v1-v6 schemas.
+Create `execution-plan-v7.schema.json` and make it the only supported execution
+plan schema. Remove the superseded version-6 schema and reader when version 7
+becomes current.
 
 ## Journal and run-summary version 7
 
@@ -919,8 +921,11 @@ untracked Pod; incompatibility fails in the versioned worker handshake.
 
 ## Delete
 
-None in the initial feature. Local execution and existing container runtimes
-remain supported on their current path.
+- Superseded version-6 execution-plan, journal, and summary schemas, readers,
+  and successful compatibility fixtures when version 7 becomes current.
+
+Local execution and existing container runtimes remain supported on their
+current path.
 
 # Dependencies and coordination
 
@@ -1186,8 +1191,6 @@ and a workflow rooted entirely beneath the shared workspace.
 
 # Related plans
 
-- [ACORN process execution contract](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/process-execution-contract.md)
+- [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md)
 - [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
 - [Sandboxed workflow execution](../refactors/sandboxed-workflow-execution.md)
-- [CI and release pipeline](../refactors/ci-release-pipeline.md)
-- [Hermetic workflow tests](../testing/hermetic-workflow-tests.md)

@@ -64,6 +64,62 @@ Use `xylem-memory-probe PARENT_MIB CHILD_MIB HOLD_MILLIS` as a synthetic module
 command to confirm that overlapping parent and child allocations are both
 charged to the measurement cgroup.
 
+### Verify an Ubuntu Docker host
+
+The tracked Docker probe validates cgroup-v2 process-tree accounting before a
+real corpus is staged. It uses the `vergil` Docker context by default; the
+context must already exist, and its SSH endpoint must resolve from the client.
+
+```shell
+tools/memory-spike/docker-probe.sh > /tmp/xylem-memory-probe.json
+jq -e '.peak_bytes >= .expected_minimum_bytes and .expected_minimum_bytes == 67108864' \
+  /tmp/xylem-memory-probe.json
+```
+
+Set `DOCKER_CONTEXT` to target another arm64 or amd64 Ubuntu Docker host. The
+script selects the native image platform, builds the probe on that host, and
+emits only the resulting JSON on standard output. Build and preflight progress
+is written to standard error.
+
+The probe container is privileged because it must create nested cgroups. It
+uses a private cgroup namespace, disables networking, mounts no host paths,
+uses a read-only root filesystem, limits memory and process count, and is
+removed after the run. A successful synthetic probe validates the measurement
+harness only; it does not support a production estimator decision.
+
+### Measure the pinned imagery corpus on Oklahoma
+
+`real/manifest.json` records the four current projects in the private
+`GSED/common/imagery-processing/test-cases` group and pins the Module A and
+Module P revisions used by the workflow. The corpus must be materialized
+without Git metadata or `expected_a.tiff` under
+`/home/o9w/xylem-memory/corpus`, and the pinned module checkouts must be under
+`/home/o9w/xylem-memory/modules`. An empty `modules/data` directory is the
+mountpoint for the shared DEM and atmospheric-data cache.
+
+```shell
+tools/memory-spike/docker-measure.sh
+```
+
+The script builds the amd64/arm64 measurement image on the selected Ubuntu
+Docker context, uses `oklahoma` by default, and retains outputs and evidence in
+`/home/o9w/xylem-memory/results` on the host. Override `DOCKER_CONTEXT`,
+`WORKLOAD_ROOT`, `CACHE_VOLUME`, or `MEMORY_LIMIT` when needed. It refuses to
+overwrite a results directory containing `observations.jsonl`. A host bind is
+used so automated Docker image and volume cleanup cannot discard the evidence.
+
+Only four approved cases currently exist, so the manifest provides the minimum
+three training cases and one holdout case but cannot define a two-case holdout
+mix. Module O is excluded from this run because its DEM acquisition requires
+owner-supplied Earthdata/ASTER credentials. Its current process-pool boundary
+also fails to propagate worker errors, so a missing DEM can otherwise appear
+as a successful module command without an orthorectified raster.
+
+The accepted 2026-10-03 Oklahoma run, sanitized observations, generated
+analysis, and operator scope are retained in
+`evidence/oklahoma-2026-10-03/`. The GO decision applies only to the pinned
+Module A plus Module P sequence and measured input-byte range.
+
 ## Analyze
 
 ```shell

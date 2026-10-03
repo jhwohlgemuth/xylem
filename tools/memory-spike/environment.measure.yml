@@ -1,0 +1,24 @@
+name: base
+channels:
+  - conda-forge
+channel_priority: strict
+dependencies:
+  - boto3==1.39.17
+  - gdal=3.8.4
+  - netcdf4
+  - numba==0.61.2
+  - numpy=1.26.*
+  - pandas
+  - pip=22.2.2
+  - polars
+  - proj-data
+  - py6s
+  - pyproj=3.6
+  - python=3.11
+  - requests
+  - scikit-learn
+  - tqdm=4.64.*
+  - typing_extensions
+  - pip:
+      - pyhdf
+      - python-dotenv

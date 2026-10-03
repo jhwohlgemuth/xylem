@@ -1,0 +1,8 @@
+{
+  "version": "1.0.3",
+  "id": "memory-spike-baseline",
+  "description": "Input-free Xylem process baseline for the A-P memory spike",
+  "requirements": [],
+  "keywords": ["memory-spike"],
+  "modules": []
+}

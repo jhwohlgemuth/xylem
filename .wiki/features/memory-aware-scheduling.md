@@ -40,6 +40,15 @@ configuration, plan, journal, or report contracts.
 - Measurements require Linux cgroup v2 with an explicitly delegated writable
   subtree and collect exact process-tree `memory.peak` plus sampled anonymous,
   file-backed, and current memory.
+- `tools/memory-spike/docker-probe.sh` provides a tracked arm64/amd64 Ubuntu
+  Docker preflight for the process-tree probe. Passing it validates host
+  accounting only and does not affect the estimator decision.
+- On 2026-10-02, Vergil (Ubuntu 24.04.5 LTS, aarch64, cgroup v2) passed the
+  32 MiB parent plus 32 MiB child probe: exact `memory.peak` was 68,096,000
+  bytes against a 67,108,864-byte minimum.
+- On 2026-10-02, Oklahoma (Ubuntu 22.04.5 LTS, x86_64, cgroup v2) passed the
+  same probe: exact `memory.peak` was 68,165,632 bytes against the same
+  67,108,864-byte minimum.
 - The versioned manifest records opaque case IDs, exact ordered module
   identities, explicit training/holdout assignments, input bytes, and checked
   raster dimensions, bands, bit depths, formats, and compression modes.
@@ -53,10 +62,35 @@ configuration, plan, journal, or report contracts.
   observed fixed worst case. Synthetic observations validate the harness but
   never affect the decision.
 
-The current production decision remains **pending** and therefore does not
-authorize memory-aware admission. A workload owner must supply the approved
-real corpus and module revisions, run the spike on the production-class Linux
-host, sanitize the observations, and record the generated evidence here.
+The four current test-case projects and the Module A/P/O repositories were
+located in `GSED/common/imagery-processing` and pinned on 2026-10-02. Oklahoma
+now has clean, Git-free copies of the four inputs. This is enough for three
+training cases and one holdout case, but not a two-case holdout mix. The first
+real run is therefore scoped to Module A plus Module P. Module O remains
+blocked on owner-supplied Earthdata/ASTER DEM credentials; its current worker
+pool also does not propagate a failed DEM worker to the module exit status.
+
+On 2026-10-03, the scoped Module A plus Module P run completed on Oklahoma with
+five recorded repetitions per case. The sanitized artifacts and operator
+sign-off are retained under
+`tools/memory-spike/evidence/oklahoma-2026-10-03/`.
+
+- The gate decision is **GO** for the pinned, ordered Module A plus Module P
+  workflow and the measured 529,854,516–1,143,813,163 input-byte range.
+- The selected input-byte estimator uses a 3,754,352,537.535-byte intercept,
+  29.680 bytes per input byte, and a 1.10 safety multiplier.
+- It produced zero training or held-out underpredictions, no extrapolations,
+  and a 27.6% median reservation reduction versus the 36,276,289,536-byte
+  fixed worst case.
+- Non-baseline five-run peak ranges were 0.004%–0.012% of each case median.
+
+This decision authorizes implementing the scheduler and telemetry behind an
+explicit configuration boundary for the measured estimator. It does not
+authorize applying the model to Module O, different module revisions,
+out-of-range inputs, or arbitrary workflows. Those cases retain fixed batching.
+Because the approved corpus cannot form a two-case holdout mix, keep production
+input concurrency at one until a concurrent holdout mix validates additive
+reservations; the synthetic scheduler and configuration work can proceed now.
 
 # Recommendation
 
@@ -104,4 +138,3 @@ Record estimator identity, estimated bytes, configured budget, safety reserve, a
 # Related plans
 
 - [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
-- [Hermetic workflow tests](../testing/hermetic-workflow-tests.md)
