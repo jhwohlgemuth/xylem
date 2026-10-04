@@ -4,6 +4,7 @@ use super::{
     InputSource, ResolvedInputs, ResolvedSelectionOptions, ScriptingEngine, ScriptingEngineMetadata, SelectionError, SelectionItem, SelectionLimits,
     SelectionOptions, SelectionRequest,
 };
+use acorn_schema::hardware::Memory;
 use alloc::collections::{BTreeMap, BTreeSet};
 use cel::common::ast::{EntryExpr, Expr, IdedExpr, LiteralValue};
 use cel::{Context, Program, Value as CelValue};
@@ -25,7 +26,7 @@ trait ExpressionExt {
         scope: &BTreeMap<String, Estimate>,
         inventory: &Inventory,
         variables: &Map<String, Value>,
-        limits: SelectionLimits,
+        limits: &SelectionLimits,
     ) -> Result<Estimate, SelectionError>;
     #[allow(clippy::too_many_arguments)]
     fn estimate_comprehension(
@@ -39,7 +40,7 @@ trait ExpressionExt {
         scope: &BTreeMap<String, Estimate>,
         inventory: &Inventory,
         variables: &Map<String, Value>,
-        limits: SelectionLimits,
+        limits: &SelectionLimits,
     ) -> Result<Estimate, SelectionError>;
     fn lookup<'a>(&self, variables: &'a Map<String, Value>) -> Option<&'a Value>;
 }
@@ -122,7 +123,7 @@ struct Estimate {
 #[derive(Clone, Copy)]
 struct ExpressionValidation<'a> {
     depth: usize,
-    limits: SelectionLimits,
+    limits: &'a SelectionLimits,
     nodes: &'a Cell<usize>,
     scope: &'a BTreeSet<String>,
 }
@@ -148,7 +149,7 @@ impl ScriptingEngine for Cel {
         script: &str,
         inventory: &Self::Context,
         variables: &Map<String, Value>,
-        limits: SelectionLimits,
+        limits: &SelectionLimits,
     ) -> Result<Self::CompiledScript, SelectionError> {
         validate_variable_bindings(variables, limits).and_then(|()| {
             Program::compile(script)
@@ -176,7 +177,7 @@ impl ScriptingEngine for Cel {
         script: &Self::CompiledScript,
         inventory: &Self::Context,
         variables: &Map<String, Value>,
-        limits: SelectionLimits,
+        limits: &SelectionLimits,
     ) -> Result<Vec<Option<String>>, SelectionError> {
         evaluate(script, inventory, variables, limits)
     }
@@ -197,7 +198,7 @@ impl DiscoveryAccumulator {
         relative_parent: &str,
         parent_depth: usize,
         recursive: bool,
-        limits: SelectionLimits,
+        limits: &SelectionLimits,
     ) -> Result<Self, SelectionError> {
         read_entries(directory, self.visited_entries, limits.visited_entries).and_then(|entries| {
             entries.into_iter().try_fold(self, |state, (name, entry)| {
@@ -209,13 +210,13 @@ impl DiscoveryAccumulator {
             })
         })
     }
-    fn add_candidate(mut self, item: SelectionItem, limits: SelectionLimits) -> Result<Self, SelectionError> {
+    fn add_candidate(mut self, item: SelectionItem, limits: &SelectionLimits) -> Result<Self, SelectionError> {
         match self.seen.insert(item.path.clone()) {
             | false => Ok(self),
             | true => {
                 let path_bytes = item.path.len().saturating_add(item.relative_path.len());
                 let next_path_bytes = self.path_bytes.saturating_add(path_bytes);
-                check_limit("path_bytes", next_path_bytes, limits.path_bytes)
+                check_memory_limit("path", next_path_bytes as u64, &limits.path)
                     .and_then(|()| check_limit("candidates", self.items.len().saturating_add(1), limits.candidates))
                     .map(|()| {
                         self.path_bytes = next_path_bytes;
@@ -268,10 +269,10 @@ impl Estimate {
             | _ => Err(SelectionError::Check("addition requires two operands".to_string())),
         }
     }
-    fn enforce(self, limits: SelectionLimits) -> Result<Self, SelectionError> {
+    fn enforce(self, limits: &SelectionLimits) -> Result<Self, SelectionError> {
         check_limit_u64("evaluation_cost", self.cost, limits.evaluation_cost)
             .and_then(|()| check_limit_u64("intermediate_records", self.records, limits.intermediate_records as u64))
-            .and_then(|()| check_limit_u64("intermediate_bytes", self.bytes, limits.intermediate_bytes as u64))
+            .and_then(|()| check_memory_limit("intermediate", self.bytes, &limits.intermediate))
             .map(|()| self)
     }
     fn json_value(value: &Value) -> Self {
@@ -518,7 +519,7 @@ impl ExpressionExt for IdedExpr {
         scope: &BTreeMap<String, Estimate>,
         inventory: &Inventory,
         variables: &Map<String, Value>,
-        limits: SelectionLimits,
+        limits: &SelectionLimits,
     ) -> Result<Estimate, SelectionError> {
         let estimated = match &self.expr {
             | Expr::Call(call) => call
@@ -558,7 +559,12 @@ impl ExpressionExt for IdedExpr {
                                 nested.insert(comprehension.iter_var.clone(), iter);
                                 nested.insert(comprehension.accu_var.clone(), accumulator);
                                 comprehension.iter_var2.iter().for_each(|name| {
-                                    nested.insert(name.clone(), Estimate::scalar(ValueKind::Unknown, limits.variable_scalar_bytes));
+                                    let bytes = limits
+                                        .variable_scalar
+                                        .checked_bytes()
+                                        .and_then(|value| usize::try_from(value).ok())
+                                        .unwrap_or_default();
+                                    nested.insert(name.clone(), Estimate::scalar(ValueKind::Unknown, bytes));
                                 });
                                 comprehension
                                     .loop_cond
@@ -655,7 +661,7 @@ impl ExpressionExt for IdedExpr {
         scope: &BTreeMap<String, Estimate>,
         inventory: &Inventory,
         variables: &Map<String, Value>,
-        limits: SelectionLimits,
+        limits: &SelectionLimits,
     ) -> Result<Estimate, SelectionError> {
         let iterations = range.length;
         let cost = range
@@ -789,7 +795,7 @@ impl Validate<ExpressionValidation<'_>> for IdedExpr {
     }
 }
 impl Inventory {
-    fn discover(options: &SelectionOptions, configuration_path: &Path, limits: SelectionLimits) -> Result<Self, SelectionError> {
+    fn discover(options: &SelectionOptions, configuration_path: &Path, limits: &SelectionLimits) -> Result<Self, SelectionError> {
         let base = configuration_path
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
@@ -843,12 +849,12 @@ impl Inventory {
         ])
     }
 }
-impl Validate<SelectionLimits> for SelectionRequest {
-    fn validate(&self, limits: SelectionLimits) -> Result<(), SelectionError> {
+impl Validate<&SelectionLimits> for SelectionRequest {
+    fn validate(&self, limits: &SelectionLimits) -> Result<(), SelectionError> {
         match (self.options.roots.is_empty(), self.script.trim().is_empty()) {
             | (true, _) => Err(SelectionError::Request("options.roots must not be empty".to_string())),
             | (_, true) => Err(SelectionError::Request("script must not be empty".to_string())),
-            | (false, false) => check_limit("script_bytes", self.script.len(), limits.script_bytes)
+            | (false, false) => check_memory_limit("script", self.script.len() as u64, &limits.script)
                 .and_then(|()| check_limit("roots", self.options.roots.len(), limits.roots)),
         }
     }
@@ -862,6 +868,9 @@ fn check_limit_u64(resource: &'static str, actual: u64, limit: u64) -> Result<()
         | false => Ok(()),
     }
 }
+fn check_memory_limit(resource: &'static str, actual: u64, limit: &Memory) -> Result<(), SelectionError> {
+    check_limit_u64(resource, actual, limit.checked_bytes().unwrap_or_default())
+}
 fn digest_bytes(value: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(value);
@@ -871,7 +880,7 @@ fn evaluate(
     program: &Program,
     inventory: &Inventory,
     variables: &Map<String, Value>,
-    limits: SelectionLimits,
+    limits: &SelectionLimits,
 ) -> Result<Vec<Option<String>>, SelectionError> {
     cel::to_value(&inventory.items)
         .map_err(|error| SelectionError::Binding(error.to_string()))
@@ -909,7 +918,7 @@ fn inspect_entry(
     relative_path: String,
     depth: usize,
     recursive: bool,
-    limits: SelectionLimits,
+    limits: &SelectionLimits,
 ) -> Result<DiscoveryAccumulator, SelectionError> {
     increment_limit(&mut state.visited_entries, "visited_entries", limits.visited_entries)
         .and_then(|()| increment_limit(&mut state.metadata_operations, "metadata_operations", limits.metadata_operations))
@@ -976,7 +985,7 @@ fn inventory_digest(items: &[SelectionItem]) -> String {
     format!("sha256:{:x}", hasher.finalize())
 }
 
-fn normalize_result(result: CelValue, items: &[SelectionItem], limits: SelectionLimits) -> Result<Vec<Option<String>>, SelectionError> {
+fn normalize_result(result: CelValue, items: &[SelectionItem], limits: &SelectionLimits) -> Result<Vec<Option<String>>, SelectionError> {
     match result {
         | CelValue::List(values) => check_limit("result_records", values.len(), limits.intermediate_records).and_then(|()| {
             let candidates = items.iter().map(|item| item.path.as_str()).collect::<BTreeSet<_>>();
@@ -990,7 +999,7 @@ fn normalize_result(result: CelValue, items: &[SelectionItem], limits: Selection
                         | CelValue::String(value) if !candidates.contains(value.as_str()) => Err(SelectionError::UnknownCandidate(value.to_string())),
                         | CelValue::String(value) => {
                             let next_bytes = bytes.saturating_add(value.len());
-                            check_limit("result_bytes", next_bytes, limits.intermediate_bytes).map(|()| {
+                            check_memory_limit("result_bytes", next_bytes as u64, &limits.intermediate).map(|()| {
                                 if seen.insert(value.to_string()) {
                                     selected.push(value.to_string());
                                 }
@@ -1053,12 +1062,12 @@ pub(super) fn resolve(
 ) -> Result<ResolvedInputs, SelectionError> {
     let limits = SelectionLimits::default();
     request
-        .validate(limits)
-        .and_then(|()| Inventory::discover(&request.options, configuration_path, limits))
+        .validate(&limits)
+        .and_then(|()| Inventory::discover(&request.options, configuration_path, &limits))
         .and_then(|inventory| {
             let variables = variables.cloned().unwrap_or_default();
-            Cel.compile(&request.script, &inventory, &variables, limits)
-                .and_then(|script| Cel.evaluate(&script, &inventory, &variables, limits))
+            Cel.compile(&request.script, &inventory, &variables, &limits)
+                .and_then(|script| Cel.evaluate(&script, &inventory, &variables, &limits))
                 .map(|values| {
                     let metadata = Cel.metadata();
                     ResolvedInputs {
@@ -1086,7 +1095,7 @@ fn resolve_root(
     configured: &str,
     index: usize,
     recursive: bool,
-    limits: SelectionLimits,
+    limits: &SelectionLimits,
 ) -> Result<(DiscoveryAccumulator, String), SelectionError> {
     match (
         configured.trim().is_empty(),
@@ -1124,7 +1133,7 @@ fn resolve_root(
         }
     }
 }
-fn validate_json(value: &Value, depth: usize, counter: &mut VariableCounter, limits: SelectionLimits) -> Result<(), SelectionError> {
+fn validate_json(value: &Value, depth: usize, counter: &mut VariableCounter, limits: &SelectionLimits) -> Result<(), SelectionError> {
     increment_limit(&mut counter.nodes, "variable_nodes", limits.variable_nodes)
         .and_then(|()| check_limit("variable_depth", depth, limits.variable_depth))
         .and_then(|()| match value {
@@ -1132,17 +1141,17 @@ fn validate_json(value: &Value, depth: usize, counter: &mut VariableCounter, lim
                 .iter()
                 .try_for_each(|value| validate_json(value, depth.saturating_add(1), counter, limits)),
             | Value::Object(values) => values.iter().try_for_each(|(key, value)| {
-                check_limit("variable_scalar_bytes", key.len(), limits.variable_scalar_bytes)
+                check_memory_limit("variable_scalar", key.len() as u64, &limits.variable_scalar)
                     .and_then(|()| validate_json(value, depth.saturating_add(1), counter, limits))
             }),
             | Value::String(value) => {
                 counter.bytes = counter.bytes.saturating_add(value.len());
-                check_limit("variable_scalar_bytes", value.len(), limits.variable_scalar_bytes)
+                check_memory_limit("variable_scalar", value.len() as u64, &limits.variable_scalar)
             }
             | Value::Bool(_) | Value::Null | Value::Number(_) => Ok(()),
         })
 }
-fn validate_variable_bindings(variables: &Map<String, Value>, limits: SelectionLimits) -> Result<(), SelectionError> {
+fn validate_variable_bindings(variables: &Map<String, Value>, limits: &SelectionLimits) -> Result<(), SelectionError> {
     let mut counter = VariableCounter::default();
     validate_json(&Value::Object(variables.clone()), 0, &mut counter, limits)
 }

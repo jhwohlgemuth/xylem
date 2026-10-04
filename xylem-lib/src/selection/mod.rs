@@ -1,4 +1,5 @@
 //! Bounded workflow input discovery and scripted selection.
+use acorn_schema::hardware::Memory;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
@@ -17,7 +18,7 @@ trait ScriptingEngine {
         script: &str,
         context: &Self::Context,
         variables: &Map<String, Value>,
-        limits: SelectionLimits,
+        limits: &SelectionLimits,
     ) -> Result<Self::CompiledScript, SelectionError>;
     /// Evaluate a compiled script without granting external side-effect capabilities.
     fn evaluate(
@@ -25,13 +26,13 @@ trait ScriptingEngine {
         script: &Self::CompiledScript,
         context: &Self::Context,
         variables: &Map<String, Value>,
-        limits: SelectionLimits,
+        limits: &SelectionLimits,
     ) -> Result<Vec<Option<String>>, SelectionError>;
     /// Report the language and interpreter identity recorded in plan provenance.
     fn metadata(&self) -> ScriptingEngineMetadata;
 }
 /// Provenance for the values selected for one workflow invocation.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum InputSource {
     /// Explicit command-line values.
@@ -127,7 +128,7 @@ pub struct InputSelection {
     pub select: SelectionRequest,
 }
 /// Ordered normalized inputs and their planning provenance.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ResolvedInputs {
     /// Input source and selection evidence.
     pub source: InputSource,
@@ -170,7 +171,7 @@ pub struct SelectionItem {
     pub size: u64,
 }
 /// Fixed resource limits for discovery and CEL evaluation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SelectionLimits {
     /// Maximum parsed expression depth.
     pub ast_depth: usize,
@@ -180,22 +181,22 @@ pub struct SelectionLimits {
     pub candidates: usize,
     /// Maximum estimated CEL evaluation cost.
     pub evaluation_cost: u64,
-    /// Maximum intermediate or result bytes.
-    pub intermediate_bytes: usize,
+    /// Maximum intermediate or result memory.
+    pub intermediate: Memory,
     /// Maximum intermediate or result records.
     pub intermediate_records: usize,
     /// Maximum metadata operations.
     pub metadata_operations: usize,
-    /// Maximum aggregate candidate path bytes.
-    pub path_bytes: usize,
+    /// Maximum aggregate candidate path memory.
+    pub path: Memory,
     /// Maximum configured roots.
     pub roots: usize,
-    /// Maximum script bytes.
-    pub script_bytes: usize,
+    /// Maximum script memory.
+    pub script: Memory,
     /// Maximum traversal depth beneath a root.
     pub traversal_depth: usize,
-    /// Maximum scalar bytes in one configured variable.
-    pub variable_scalar_bytes: usize,
+    /// Maximum scalar memory in one configured variable.
+    pub variable_scalar: Memory,
     /// Maximum configured variable depth.
     pub variable_depth: usize,
     /// Maximum configured variable nodes.
@@ -245,16 +246,16 @@ impl Default for SelectionLimits {
             ast_nodes: 1_024,
             candidates: 50_000,
             evaluation_cost: 10_000_000,
-            intermediate_bytes: 16 * 1_024 * 1_024,
+            intermediate: Memory::mb(16.0),
             intermediate_records: 50_000,
             metadata_operations: 250_000,
-            path_bytes: 16 * 1_024 * 1_024,
+            path: Memory::mb(16.0),
             roots: 16,
-            script_bytes: 16 * 1_024,
+            script: Memory::kb(16.0),
             traversal_depth: 32,
             variable_depth: 32,
             variable_nodes: 10_000,
-            variable_scalar_bytes: 1_024 * 1_024,
+            variable_scalar: Memory::mb(1.0),
             visited_entries: 100_000,
         }
     }

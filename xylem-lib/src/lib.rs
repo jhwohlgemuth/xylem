@@ -42,7 +42,6 @@ pub enum ReporterType {
     /// Machine-readable JSON output.
     Json,
 }
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 /// Relevant fields read from a Python `pyproject.toml` document.
 pub struct PyProjectToml {
@@ -50,21 +49,18 @@ pub struct PyProjectToml {
     inner: pyproject_toml::PyProjectToml,
     tool: Option<PyProjectTool>,
 }
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Tool-specific section of a Python project manifest.
 pub struct PyProjectTool {
     xylem: Option<ToolXylem>,
 }
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Xylem settings embedded in a Python project manifest.
 pub struct ToolXylem {
     module_name: String,
 }
-
 impl core::ops::Deref for PyProjectToml {
     type Target = pyproject_toml::PyProjectToml;
 
@@ -72,7 +68,6 @@ impl core::ops::Deref for PyProjectToml {
         &self.inner
     }
 }
-
 impl PyProjectToml {
     /// Read and parse a Python project manifest.
     pub fn read(path: PathBuf) -> Result<Self, PyProjectError> {

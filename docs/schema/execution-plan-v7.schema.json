@@ -81,22 +81,22 @@
                 "limits": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["ast_depth", "ast_nodes", "candidates", "evaluation_cost", "intermediate_bytes", "intermediate_records", "metadata_operations", "path_bytes", "roots", "script_bytes", "traversal_depth", "variable_depth", "variable_nodes", "variable_scalar_bytes", "visited_entries"],
+                  "required": ["ast_depth", "ast_nodes", "candidates", "evaluation_cost", "intermediate", "intermediate_records", "metadata_operations", "path", "roots", "script", "traversal_depth", "variable_depth", "variable_nodes", "variable_scalar", "visited_entries"],
                   "properties": {
                     "ast_depth": { "const": 64 },
                     "ast_nodes": { "const": 1024 },
                     "candidates": { "const": 50000 },
                     "evaluation_cost": { "const": 10000000 },
-                    "intermediate_bytes": { "const": 16777216 },
+                    "intermediate": { "const": "16MB" },
                     "intermediate_records": { "const": 50000 },
                     "metadata_operations": { "const": 250000 },
-                    "path_bytes": { "const": 16777216 },
+                    "path": { "const": "16MB" },
                     "roots": { "const": 16 },
-                    "script_bytes": { "const": 16384 },
+                    "script": { "const": "16KB" },
                     "traversal_depth": { "const": 32 },
                     "variable_depth": { "const": 32 },
                     "variable_nodes": { "const": 10000 },
-                    "variable_scalar_bytes": { "const": 1048576 },
+                    "variable_scalar": { "const": "1MB" },
                     "visited_entries": { "const": 100000 }
                   }
                 },

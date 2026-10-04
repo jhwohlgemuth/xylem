@@ -1,5 +1,6 @@
 use super::*;
 use crate::selection::{InputSelection, SelectionEngine};
+use acorn_schema::hardware::Memory;
 use std::fs::{create_dir_all, remove_dir_all, write};
 use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "linux")]
@@ -19,7 +20,7 @@ fn compile_with_limits(
     script: &str,
     inventory: &Inventory,
     variables: &Map<String, Value>,
-    limits: SelectionLimits,
+    limits: &SelectionLimits,
 ) -> Result<Program, SelectionError> {
     Cel.compile(script, inventory, variables, limits)
 }
@@ -32,12 +33,12 @@ fn resolve_with_limits(
 ) -> Result<Vec<Option<String>>, SelectionError> {
     input
         .select
-        .validate(limits)
-        .and_then(|()| Inventory::discover(&input.select.options, configuration_path, limits))
+        .validate(&limits)
+        .and_then(|()| Inventory::discover(&input.select.options, configuration_path, &limits))
         .and_then(|inventory| {
             let variables = variables.cloned().unwrap_or_default();
-            compile_with_limits(&input.select.script, &inventory, &variables, limits)
-                .and_then(|program| Cel.evaluate(&program, &inventory, &variables, limits))
+            compile_with_limits(&input.select.script, &inventory, &variables, &limits)
+                .and_then(|program| Cel.evaluate(&program, &inventory, &variables, &limits))
         })
 }
 
@@ -303,9 +304,9 @@ fn discovery_enforces_every_limit_resource() {
             selection("inputs", false, "[]"),
         ),
         (
-            "path_bytes",
+            "path",
             SelectionLimits {
-                path_bytes: 0,
+                path: Memory::kb(0.0),
                 ..SelectionLimits::default()
             },
             selection("inputs", false, "[]"),
@@ -349,7 +350,7 @@ fn discovery_preserves_root_order_deduplicates_and_exposes_metadata() {
         recursive: false,
         roots: vec!["first".to_string(), second_string.clone(), second_string],
     };
-    let inventory = Inventory::discover(&options, &fixture.join("config.json"), SelectionLimits::default()).expect("discover ordered roots");
+    let inventory = Inventory::discover(&options, &fixture.join("config.json"), &SelectionLimits::default()).expect("discover ordered roots");
     assert_eq!(inventory.items.len(), 2);
     assert_eq!(inventory.items[0].index, 0);
     assert_eq!(inventory.items[0].relative_path, "z.bin");
@@ -481,29 +482,29 @@ fn evaluation_cost_is_deterministic_and_enforced_at_the_boundary() {
     write(inputs.join("b.txt"), "b").expect("write b");
     let request = selection("inputs", false, "items.filter(item, item.size > 0).map(item, item.path)");
     let inventory =
-        Inventory::discover(&request.select.options, &fixture.join("config.json"), SelectionLimits::default()).expect("discover inventory");
+        Inventory::discover(&request.select.options, &fixture.join("config.json"), &SelectionLimits::default()).expect("discover inventory");
     let variables = Map::new();
     let program = Program::compile(&request.select.script).expect("parse cost expression");
     let scope = inventory.root_estimates(&variables);
     let first = program
         .expression()
-        .estimate(&scope, &inventory, &variables, SelectionLimits::default())
+        .estimate(&scope, &inventory, &variables, &SelectionLimits::default())
         .expect("estimate first cost");
     let second = program
         .expression()
-        .estimate(&scope, &inventory, &variables, SelectionLimits::default())
+        .estimate(&scope, &inventory, &variables, &SelectionLimits::default())
         .expect("estimate second cost");
     assert_eq!(first.cost, second.cost);
     let exact = SelectionLimits {
         evaluation_cost: first.cost,
         ..SelectionLimits::default()
     };
-    assert!(compile_with_limits(&request.select.script, &inventory, &variables, exact).is_ok());
+    assert!(compile_with_limits(&request.select.script, &inventory, &variables, &exact).is_ok());
     let below = SelectionLimits {
         evaluation_cost: first.cost.saturating_sub(1),
         ..SelectionLimits::default()
     };
-    let error = compile_with_limits(&request.select.script, &inventory, &variables, below).expect_err("reject expression above cost boundary");
+    let error = compile_with_limits(&request.select.script, &inventory, &variables, &below).expect_err("reject expression above cost boundary");
     assert_limit(error, "evaluation_cost");
     remove_dir_all(fixture).expect("remove fixture");
 }
@@ -538,9 +539,9 @@ fn evaluation_enforces_ast_cost_and_intermediate_limits() {
             },
         ),
         (
-            "intermediate_bytes",
+            "intermediate",
             SelectionLimits {
-                intermediate_bytes: 1,
+                intermediate: Memory::kb(1.0 / 1_024.0),
                 ..SelectionLimits::default()
             },
         ),
@@ -576,7 +577,7 @@ fn evaluation_enforces_result_and_variable_limits() {
     let records = normalize_result(
         result.clone(),
         core::slice::from_ref(&item),
-        SelectionLimits {
+        &SelectionLimits {
             intermediate_records: 0,
             ..SelectionLimits::default()
         },
@@ -586,8 +587,8 @@ fn evaluation_enforces_result_and_variable_limits() {
     let bytes = normalize_result(
         result,
         core::slice::from_ref(&item),
-        SelectionLimits {
-            intermediate_bytes: 1,
+        &SelectionLimits {
+            intermediate: Memory::kb(1.0 / 1_024.0),
             ..SelectionLimits::default()
         },
     )
@@ -613,16 +614,16 @@ fn evaluation_enforces_result_and_variable_limits() {
             },
         ),
         (
-            "variable_scalar_bytes",
+            "variable_scalar",
             SelectionLimits {
-                variable_scalar_bytes: 0,
+                variable_scalar: Memory::kb(0.0),
                 ..SelectionLimits::default()
             },
         ),
     ]
     .into_iter()
     .for_each(|(resource, limits)| {
-        let error = validate_variable_bindings(&variables, limits).expect_err("enforce variable limit");
+        let error = validate_variable_bindings(&variables, &limits).expect_err("enforce variable limit");
         assert_limit(error, resource);
     });
 }
@@ -703,7 +704,7 @@ fn normalization_properties_hold_for_generated_sequences() {
         let normalized = normalize_result(
             cel::to_value(&sequence).expect("serialize generated result"),
             &items,
-            SelectionLimits::default(),
+            &SelectionLimits::default(),
         )
         .expect("normalize generated result");
         assert_eq!(normalized, expected.iter().cloned().map(Some).collect::<Vec<_>>());
@@ -711,7 +712,7 @@ fn normalization_properties_hold_for_generated_sequences() {
         let repeated = normalize_result(
             cel::to_value(normalized_strings).expect("serialize normalized result"),
             &items,
-            SelectionLimits::default(),
+            &SelectionLimits::default(),
         )
         .expect("renormalize generated result");
         assert_eq!(repeated, normalized);
@@ -753,7 +754,7 @@ fn recursive_traversal_never_emits_a_path_outside_its_root() {
             roots: vec![inputs.display().to_string()],
         },
         &fixture.join("config.json"),
-        SelectionLimits::default(),
+        &SelectionLimits::default(),
     )
     .expect("discover generated tree");
     let canonical_root = canonicalize(inputs).expect("canonical input root");
@@ -772,17 +773,16 @@ fn result_must_reference_inventory_candidates() {
     remove_dir_all(fixture).expect("remove fixture");
 }
 #[test]
-fn script_bytes_are_bounded_before_discovery() {
+fn script_is_bounded_before_discovery() {
     let fixture = root("script-limit");
-    let request = selection("missing", false, &format!("'{}'", "x".repeat(SelectionLimits::default().script_bytes)));
+    let limit = SelectionLimits::default()
+        .script
+        .checked_bytes()
+        .and_then(|bytes| usize::try_from(bytes).ok())
+        .unwrap_or_default();
+    let request = selection("missing", false, &format!("'{}'", "x".repeat(limit)));
     let error = InputSelection::resolve(&request, None, &fixture.join("config.json")).expect_err("reject oversized script");
-    assert!(matches!(
-        error,
-        SelectionError::Limit {
-            resource: "script_bytes",
-            ..
-        }
-    ));
+    assert!(matches!(error, SelectionError::Limit { resource: "script", .. }));
 }
 #[test]
 fn script_result_order_is_preserved() {

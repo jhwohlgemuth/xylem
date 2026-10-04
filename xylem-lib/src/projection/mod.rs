@@ -2,6 +2,7 @@
 extern crate alloc;
 
 use crate::journal::{ExecutionState, RunStatus, RunSummary};
+use acorn_core::time::Milliseconds;
 use alloc::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
@@ -14,13 +15,11 @@ pub enum ProjectionConfidence {
     /// Successful matching module histories covered all remaining work.
     Historical,
 }
-
 /// Successful per-module duration observations, capped newest first.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DurationHistory {
     samples: BTreeMap<Vec<String>, Vec<u64>>,
 }
-
 /// Fixed-concurrency estimate for unfinished module-input work.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ProgressProjection {
@@ -29,15 +28,14 @@ pub struct ProgressProjection {
     /// Source quality for the projection.
     pub confidence: ProjectionConfidence,
     /// Median remaining duration.
-    pub eta_ms: u64,
+    pub eta: Milliseconds,
     /// Optimistic remaining duration.
-    pub p10_ms: u64,
+    pub p10: Milliseconds,
     /// Conservative remaining duration.
-    pub p90_ms: u64,
+    pub p90: Milliseconds,
     /// Total number of module-input steps.
     pub total_steps: usize,
 }
-
 impl DurationHistory {
     /// Build history from up to fifty newest successful matching summaries.
     pub fn from_summaries<'a>(summaries: impl IntoIterator<Item = &'a RunSummary>) -> Self {
@@ -86,9 +84,9 @@ impl DurationHistory {
                             ProgressProjection {
                                 completed_steps,
                                 confidence: ProjectionConfidence::Low,
-                                eta_ms: eta,
-                                p10_ms: eta,
-                                p90_ms: eta,
+                                eta: Milliseconds::new(eta),
+                                p10: Milliseconds::new(eta),
+                                p90: Milliseconds::new(eta),
                                 total_steps,
                             }
                         })
@@ -110,9 +108,9 @@ impl DurationHistory {
                         Some(ProgressProjection {
                             completed_steps,
                             confidence: ProjectionConfidence::Historical,
-                            eta_ms: estimate(50),
-                            p10_ms: estimate(10),
-                            p90_ms: estimate(90),
+                            eta: Milliseconds::new(estimate(50)),
+                            p10: Milliseconds::new(estimate(10)),
+                            p90: Milliseconds::new(estimate(90)),
                             total_steps,
                         })
                     },

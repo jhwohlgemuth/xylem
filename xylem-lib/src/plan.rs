@@ -33,7 +33,7 @@ pub enum PlanError {
 }
 
 /// Versioned dry-run plan rendered without mutating the host.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ExecutionPlan {
     /// Configuration used to build the plan.
     pub configuration: PlanConfiguration,

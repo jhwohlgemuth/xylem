@@ -24,7 +24,6 @@ use xylem_lib::projection::DurationHistory;
 use xylem_lib::run::store::{Manifest, MetricSample, Store, StoreError, StoredRun, TaskLogRecord};
 
 const TICK: Duration = Duration::from_millis(200);
-
 /// Failure while initializing or running the dashboard.
 #[derive(Debug, Error)]
 pub enum DashboardError {
@@ -35,7 +34,6 @@ pub enum DashboardError {
     #[error(transparent)]
     Store(#[from] StoreError),
 }
-
 /// Dashboard tab identifiers in keyboard order.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Tab {
@@ -50,7 +48,6 @@ pub enum Tab {
     /// Retained run history.
     Runs,
 }
-
 struct Dashboard {
     active: Option<LaunchHandle>,
     config: Option<PathBuf>,
@@ -64,15 +61,12 @@ struct Dashboard {
     store: Store,
     tab: Tab,
 }
-
 /// Handle returned by a caller-owned workflow launcher.
 pub struct LaunchHandle {
     cancel: Arc<dyn Fn() + Send + Sync>,
     completion: mpsc::Receiver<Result<(), String>>,
 }
-
 struct TerminalGuard;
-
 impl Dashboard {
     fn new(config: Option<PathBuf>, store: Store) -> Result<Self, StoreError> {
         store.list().map(|runs| Self {
@@ -167,7 +161,6 @@ impl Dashboard {
         }
     }
 }
-
 impl LaunchHandle {
     /// Construct a launch handle from completion and cancellation callbacks.
     pub fn new(completion: mpsc::Receiver<Result<(), String>>, cancel: impl Fn() + Send + Sync + 'static) -> Self {
@@ -177,7 +170,6 @@ impl LaunchHandle {
         }
     }
 }
-
 impl Tab {
     fn index(self) -> usize {
         match self {
@@ -189,7 +181,6 @@ impl Tab {
         }
     }
 }
-
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
@@ -203,7 +194,6 @@ fn accent_color() -> Color {
         | None => Color::Cyan,
     }
 }
-
 fn collect_files(root: &Path, files: &mut Vec<PathBuf>) {
     if let Ok(entries) = read_dir(root) {
         entries.flatten().for_each(|entry| match entry.path().is_dir() {
@@ -212,7 +202,6 @@ fn collect_files(root: &Path, files: &mut Vec<PathBuf>) {
         });
     }
 }
-
 fn log_lines(run: Option<&StoredRun>, follow: bool) -> Vec<Line<'static>> {
     run.map_or_else(
         || vec![Line::from("No retained run selected")],
@@ -246,7 +235,6 @@ fn log_lines(run: Option<&StoredRun>, follow: bool) -> Vec<Line<'static>> {
         },
     )
 }
-
 fn metric_lines(run: Option<&StoredRun>) -> Vec<Line<'static>> {
     run.and_then(|run| read_to_string(run.path.join("metrics.jsonl")).ok()).map_or_else(
         || vec![Line::from("No metrics recorded")],
@@ -318,7 +306,7 @@ fn projection_text(dashboard: &Dashboard) -> String {
                         |projection| {
                             format!(
                                 "{}s · {:?} · {} of {} steps",
-                                projection.eta_ms / 1000,
+                                projection.eta.get() / 1000,
                                 projection.confidence,
                                 projection.completed_steps,
                                 projection.total_steps
@@ -330,7 +318,6 @@ fn projection_text(dashboard: &Dashboard) -> String {
         },
     )
 }
-
 fn render(frame: &mut Frame<'_>, dashboard: &Dashboard) {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
@@ -369,7 +356,6 @@ fn render(frame: &mut Frame<'_>, dashboard: &Dashboard) {
     };
     frame.render_widget(Paragraph::new(status).style(Style::default().fg(Color::DarkGray)), vertical[2]);
 }
-
 fn render_lines(frame: &mut Frame<'_>, area: Rect, title: &str, lines: Vec<Line<'static>>) {
     frame.render_widget(
         Paragraph::new(lines)
@@ -378,7 +364,6 @@ fn render_lines(frame: &mut Frame<'_>, area: Rect, title: &str, lines: Vec<Line<
         area,
     );
 }
-
 fn render_overview(frame: &mut Frame<'_>, area: Rect, dashboard: &Dashboard) {
     let run = dashboard.active_run();
     let status = run.map_or_else(|| "No retained runs".to_string(), |run| format!("{:?}", run.status).to_lowercase());
@@ -403,7 +388,6 @@ fn render_overview(frame: &mut Frame<'_>, area: Rect, dashboard: &Dashboard) {
     ];
     render_lines(frame, area, "Overview", lines);
 }
-
 fn render_runs(frame: &mut Frame<'_>, area: Rect, dashboard: &Dashboard) {
     let items = dashboard
         .runs
@@ -419,7 +403,6 @@ fn render_runs(frame: &mut Frame<'_>, area: Rect, dashboard: &Dashboard) {
         area,
     );
 }
-
 fn render_workflow(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>) {
     let lines = run.map_or_else(
         || vec![Line::from("No retained run selected")],
@@ -444,7 +427,6 @@ fn render_workflow(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>) {
     );
     render_lines(frame, area, "Workflow", lines);
 }
-
 /// Open the dashboard and delegate workflow launches to the caller.
 pub fn run<F>(config: Option<PathBuf>, launcher: F) -> Result<(), DashboardError>
 where
@@ -497,7 +479,6 @@ mod tests {
         assert_eq!(calls.load(Ordering::Acquire), 1);
         let _ = std::fs::remove_dir_all(root);
     }
-
     #[test]
     fn test_every_tab_renders_at_compact_size() {
         let root = std::env::temp_dir().join(format!("xylem-tui-test-{}", std::process::id()));

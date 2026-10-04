@@ -46,5 +46,5 @@ fn test_history_projects_remaining_module_duration() {
     let pending = summary(ExecutionState::Pending, 0, 0);
     let projection = history.project(&pending, 50, 1).expect("history should project");
     assert_eq!(projection.confidence, ProjectionConfidence::Historical);
-    assert_eq!(projection.eta_ms, 100);
+    assert_eq!(projection.eta, Milliseconds::new(100));
 }
