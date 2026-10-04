@@ -18,6 +18,7 @@ acorn-host = { workspace = true }
 acorn-macros = { workspace = true }
 acorn-schema = { workspace = true }
 bon = { version = "3.8.1", default-features = false }
+cel = { workspace = true }
 clap = { workspace = true, features = ["derive", "std"] }
 convert_case = { workspace = true }
 csv = { workspace = true }
@@ -32,6 +33,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_norway = { workspace = true }
 serde_with = { workspace = true }
+sha2 = { workspace = true }
 strum = { workspace = true }
 thiserror = { workspace = true }
 toml = { version = "0.9.8", default-features = false }

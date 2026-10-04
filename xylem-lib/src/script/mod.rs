@@ -491,7 +491,7 @@ impl EnvironmentValue {
                 | Value::String(val) => val.to_string(),
                 | Value::Number(val) => val.to_string(),
                 | Value::Bool(val) => val.to_string(),
-                | _ => String::new(),
+                | value => value.to_string(),
             };
             lookup.insert(prefixed, coerced);
         });
@@ -538,6 +538,22 @@ impl EnvironmentValue {
         values.into_iter().for_each(|(key, value)| set_var(key, value));
     }
 }
+impl Module {
+    /// Resolve the module's explicitly configured or auto-detected virtual environment.
+    pub fn resolve_virtual_environment(&self, working_dir: &str) -> Result<Option<VirtualEnvironment>, TemplateError> {
+        match &self.template {
+            | Some(TemplateAttribute::Path(value)) => {
+                let template_path = PathBuf::from(working_dir).join(value);
+                match template_path.is_file() {
+                    | true => ScriptTemplate::from_path(template_path).map(|template| template.virtual_environment),
+                    | false => Ok(None),
+                }
+            }
+            | Some(TemplateAttribute::Template(value)) => Ok(value.virtual_environment.clone()),
+            | None => ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(working_dir)),
+        }
+    }
+}
 impl<'de> Deserialize<'de> for Module {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -579,22 +595,6 @@ impl<'de> Deserialize<'de> for Module {
                 })
             },
         )
-    }
-}
-impl Module {
-    /// Resolve the module's explicitly configured or auto-detected virtual environment.
-    pub fn resolve_virtual_environment(&self, working_dir: &str) -> Result<Option<VirtualEnvironment>, TemplateError> {
-        match &self.template {
-            | Some(TemplateAttribute::Path(value)) => {
-                let template_path = PathBuf::from(working_dir).join(value);
-                match template_path.is_file() {
-                    | true => ScriptTemplate::from_path(template_path).map(|template| template.virtual_environment),
-                    | false => Ok(None),
-                }
-            }
-            | Some(TemplateAttribute::Template(value)) => Ok(value.virtual_environment.clone()),
-            | None => ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(working_dir)),
-        }
     }
 }
 impl ModuleLanguage {

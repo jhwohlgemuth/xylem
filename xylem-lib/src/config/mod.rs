@@ -31,6 +31,7 @@ use crate::plan::PlanError;
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
 use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
+pub use crate::selection::{InputSelection, SelectionEngine, SelectionOptions, SelectionRequest};
 use crate::util::absolute_path;
 
 mod validation;
@@ -113,7 +114,7 @@ enum ConfigurationSource {
 pub enum InputAttribute {
     Path(String),
     List(Vec<String>),
-    ShellScript(ScriptTemplate),
+    Select(InputSelection),
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -157,7 +158,7 @@ pub struct Config {
     /// Can be:
     /// - a list of paths
     /// - a path to a folder that contains files (or folders)
-    /// - a script that returns a list of file (or folder) paths (executed in the current working directory)
+    /// - a bounded CEL selection request over explicit local roots
     ///
     /// If input is not provided, the workflow will run similar to a 0-adic function.
     pub input: Option<InputAttribute>,
@@ -296,8 +297,8 @@ impl Config {
     /// See [InputAttribute] for more details.
     ///
     pub fn get_inputs(self) -> Result<Option<Vec<String>>, PlanError> {
-        self.resolve_inputs(None).map(|inputs| {
-            let values = inputs.into_iter().flatten().collect::<Vec<_>>();
+        self.resolve_inputs(None, Path::new(".")).map(|inputs| {
+            let values = inputs.values.into_iter().flatten().collect::<Vec<_>>();
             match values.is_empty() {
                 | true => None,
                 | false => Some(values),

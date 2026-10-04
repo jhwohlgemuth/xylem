@@ -469,9 +469,9 @@ normal supported installations do not execute workflow code on the host.
 - Coordinates with [secure module acquisition](secure-module-acquisition.md):
   acquisition owns provenance and atomic materialization; this plan owns where
   external helpers execute and how verified bytes enter a session.
-- Does not gate [scripted input discovery and filtering](../features/cel-workflow-input.md),
-  whose evaluator has no process, network, or filesystem capability. Its local
-  discovery is bounded trusted planning work.
+- Does not gate CEL input selection, whose evaluator has no process, network,
+  or filesystem capability. Its local discovery is bounded trusted planning
+  work.
 - Preserves the validation, deterministic plan, resume, journal,
   reporter, and batching contracts.
 

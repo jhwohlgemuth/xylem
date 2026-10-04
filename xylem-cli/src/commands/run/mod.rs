@@ -49,9 +49,19 @@ impl From<RunFailure> for FinalStatus {
         Self::Failed
     }
 }
+impl core::error::Error for RunFailure {}
 impl fmt::Display for RunFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.message.fmt(formatter)
+    }
+}
+impl From<GpuMonitorError> for RunFailure {
+    fn from(error: GpuMonitorError) -> Self {
+        match error {
+            | GpuMonitorError::Journal(error) => Self::new(exitcode::IOERR, error.to_string()),
+            | GpuMonitorError::Runtime(message) => Self::new(exitcode::UNAVAILABLE, message),
+            | GpuMonitorError::Thread(message) => Self::new(exitcode::OSERR, message),
+        }
     }
 }
 impl RunFailure {
@@ -68,16 +78,6 @@ impl RunFailure {
     /// Return the process exit code owned by the CLI boundary.
     pub fn exit_code(&self) -> i32 {
         self.exit_code
-    }
-}
-impl core::error::Error for RunFailure {}
-impl From<GpuMonitorError> for RunFailure {
-    fn from(error: GpuMonitorError) -> Self {
-        match error {
-            | GpuMonitorError::Journal(error) => Self::new(exitcode::IOERR, error.to_string()),
-            | GpuMonitorError::Runtime(message) => Self::new(exitcode::UNAVAILABLE, message),
-            | GpuMonitorError::Thread(message) => Self::new(exitcode::OSERR, message),
-        }
     }
 }
 impl ProgressObserver for WorkflowProgress {
@@ -267,7 +267,7 @@ pub fn run(
         })
         .and_then(|preview| {
             preview
-                .resolve_inputs(cli_input.as_deref())
+                .resolve_inputs(cli_input.as_deref(), &config_path)
                 .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
                 .map(|inputs| (preview, inputs))
         })
@@ -292,9 +292,9 @@ pub fn run(
         })
         .and_then(|(preview, inputs)| {
             let resume = preview.options.as_ref().and_then(|options| options.resume).unwrap_or_default();
-            ExecutionPlan::build(&preview, config_path.display().to_string(), &inputs, resume)
+            ExecutionPlan::build_resolved(&preview, config_path.display().to_string(), &inputs, resume)
                 .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
-                .map(|plan| (preview, inputs, plan))
+                .map(|plan| (preview, inputs.values, plan))
         });
     match prepared {
         | Ok((preview, _, plan)) if preview.options.as_ref().and_then(|options| options.dry_run).unwrap_or_default() => match report_output {

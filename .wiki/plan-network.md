@@ -9,17 +9,12 @@ This map records implementation dependencies rechecked on 2026-10-03. An arrow m
 ## Correctness and execution path
 
 ```text
-ACORN Xylem prerequisites --+----> secure module acquisition
-                            |
-                            v
-         environment/concurrency -+-> kubernetes workflow backend
-                      |            |
-                      |            +-> sandboxed workflow execution
-                      |
-                      +------------+-> scripted input discovery and filtering
-                      |
-                      v
-        memory-aware scheduling ------> workflow dashboard
+ACORN Xylem prerequisites --+----> environment/concurrency -+-> kubernetes workflow backend
+                            |                    |           |
+                            |                    |           +-> sandboxed workflow execution
+                            |                    |
+                            |                    +-> memory-aware scheduling -> workflow dashboard
+                            +----> secure module acquisition
 ```
 
 Secure acquisition still waits for its acquisition-location APIs. Memory-aware
@@ -44,7 +39,6 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 - The upstream [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md) precede [environment and concurrency](refactors/workflow-environment-and-concurrency.md): Xylem consumes the published managed process contract without adding another supervisor.
 - [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) follows the process and immutable-environment contracts. It owns the outer local-controller/in-cluster-worker target, shared-PVC protocol, Kubernetes lifecycle commands, and runner-image contract; it does not implement sandbox policy or module-container translation.
 - [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md) follows the process and immutable-environment contracts and coordinates with secure acquisition. It owns policy resolution, provider capability negotiation, session lifecycle, and the rule that workflow-controlled subprocesses cannot bypass the sandbox.
-- [Scripted input discovery and filtering](features/cel-workflow-input.md) follows the immutable input-scheduling and configuration-owned path contracts and coordinates with dependency gates for selection-engine qualification. Xylem performs bounded local discovery during trusted planning; the evaluator has no process, network, or filesystem capability and does not depend on sandboxed execution. CEL is the initial closed engine value rather than the abstraction boundary.
 - [Memory-aware scheduling](features/memory-aware-scheduling.md) builds on the fixed scheduler boundary and journal telemetry. Only its measurement spike may proceed before an estimator is accepted.
 - The [workflow dashboard](features/workflow-dashboard.md) follows environment/concurrency and memory-aware scheduling. It consumes ACORN's JSONC, config discovery, project-cache, and managed process contracts, then owns the canonical run store, runner event stream, live telemetry, projections, and TUI.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) consumes the error, process, configuration, and ACORN migration contracts.

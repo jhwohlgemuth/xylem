@@ -8,6 +8,7 @@ use crate::script::{
     module_working_directory, ContainerCleanup, ContainerEnvironment, ContainerRuntime, ContainerStartup, Module, ModuleType, ModuleUri, Script,
     TemplateAttribute,
 };
+use crate::selection::{InputSource, ResolvedInputs, SelectionError};
 use acorn_core::time::Milliseconds;
 use acorn_schema::validation::ValidationReport;
 use alloc::collections::BTreeMap;
@@ -15,7 +16,7 @@ use bon::Builder;
 use core::fmt;
 use serde::Serialize;
 use std::fs::read_dir;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::debug;
 
 /// Failure to validate or render an execution plan.
@@ -25,6 +26,8 @@ pub enum PlanError {
     Completion(CompletionError),
     /// Input discovery could not produce a deterministic input set.
     Input(String),
+    /// Scripted input selection failed.
+    Selection(SelectionError),
     /// Semantic configuration validation failed.
     Validation(ValidationReport),
 }
@@ -37,20 +40,14 @@ pub struct ExecutionPlan {
     pub containers: Vec<PlannedContainer>,
     /// GPU monitoring that would run during execution.
     pub gpu_monitoring: Option<PlannedGpuMonitoring>,
+    /// Ordered resolved input values and their source provenance.
+    pub inputs: ResolvedInputs,
     /// Ordered module decisions for every input.
     pub modules: Vec<PlannedModule>,
     /// Whether resume observations influenced decisions.
     pub resume: bool,
     /// Execution-plan schema version.
     pub schema_version: u32,
-}
-/// GPU monitoring selected for a planned run.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct PlannedGpuMonitoring {
-    /// Fixed sampling interval in milliseconds.
-    pub interval: Milliseconds,
-    /// Telemetry provider executable.
-    pub source: String,
 }
 /// Configuration identity embedded in an execution plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -114,6 +111,14 @@ pub struct PlannedContainer {
     /// Startup strategy for a managed container, or null for an external container.
     pub startup: Option<ContainerStartup>,
 }
+/// GPU monitoring selected for a planned run.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PlannedGpuMonitoring {
+    /// Fixed sampling interval in milliseconds.
+    pub interval: Milliseconds,
+    /// Telemetry provider executable.
+    pub source: String,
+}
 /// One planned module decision.
 #[derive(Builder, Clone, Debug, Eq, PartialEq, Serialize)]
 #[builder(on(String, into), start_fn(name = init))]
@@ -153,12 +158,12 @@ pub struct PlannedMount {
 }
 /// Resolve CLI-over-configuration input precedence with deterministic duplicate handling.
 impl Config {
-    /// Resolve CLI-over-configuration input precedence with deterministic duplicate handling.
-    pub fn resolve_inputs(&self, cli_inputs: Option<&[String]>) -> Result<Vec<Option<String>>, PlanError> {
-        let values = match cli_inputs.filter(|values| !values.is_empty()) {
-            | Some(values) => Ok(values.to_vec()),
+    /// Resolve inputs and retain deterministic source provenance for planning.
+    pub fn resolve_inputs(&self, cli_inputs: Option<&[String]>, configuration_path: &Path) -> Result<ResolvedInputs, PlanError> {
+        match cli_inputs.filter(|values| !values.is_empty()) {
+            | Some(values) => Ok(ResolvedInputs::configured(InputSource::Cli, normalize_inputs(values.to_vec()))),
             | None => match &self.input {
-                | Some(InputAttribute::List(values)) => Ok(values.clone()),
+                | Some(InputAttribute::List(values)) => Ok(ResolvedInputs::configured(InputSource::List, normalize_inputs(values.clone()))),
                 | Some(InputAttribute::Path(value)) => read_dir(value)
                     .map_err(|error| PlanError::Input(format!("inspect input directory {value}: {error}")))
                     .and_then(|entries| {
@@ -173,26 +178,15 @@ impl Config {
                                     })
                             })
                             .collect::<Result<Vec<_>, _>>()
+                    })
+                    .map(|mut values| {
+                        values.sort();
+                        ResolvedInputs::configured(InputSource::Directory, normalize_inputs(values))
                     }),
-                | Some(InputAttribute::ShellScript(_)) => Err(PlanError::Input("shell input is not supported".to_string())),
-                | None => Ok(Vec::new()),
+                | Some(InputAttribute::Select(selection)) => selection.resolve(self.variables.as_ref(), configuration_path).map_err(PlanError::from),
+                | None => Ok(ResolvedInputs::configured(InputSource::None, vec![None])),
             },
-        };
-        values.map(|mut values| {
-            if matches!(self.input, Some(InputAttribute::Path(_))) && cli_inputs.filter(|values| !values.is_empty()).is_none() {
-                values.sort();
-            }
-            let values = values.into_iter().fold(Vec::new(), |mut unique, value| {
-                if !unique.contains(&value) {
-                    unique.push(value);
-                }
-                unique
-            });
-            match values.is_empty() {
-                | true => vec![None],
-                | false => values.into_iter().map(Some).collect(),
-            }
-        })
+        }
     }
 }
 impl ContainerEnvironment {
@@ -225,8 +219,23 @@ impl ContainerEnvironment {
 impl ExecutionPlan {
     /// Build a plan using only configuration and explicitly labeled read-only completion observations.
     pub fn build(config: &Config, path: String, inputs: &[Option<String>], resume: bool) -> Result<Self, PlanError> {
-        config.validate_for_inputs(inputs).map_err(PlanError::from).and_then(|()| {
+        let source = match config.input.clone() {
+            | Some(InputAttribute::Select(_)) => Err(PlanError::Input(
+                "selection inputs must be resolved with provenance before building a plan".to_string(),
+            )),
+            | Some(input) => Ok(InputSource::from(input)),
+            | None => Ok(InputSource::None),
+        };
+        source.and_then(|source| {
+            let inputs = ResolvedInputs::configured(source, inputs.to_vec());
+            Self::build_resolved(config, path, &inputs, resume)
+        })
+    }
+    /// Build a plan from inputs resolved by the provenance-aware planning boundary.
+    pub fn build_resolved(config: &Config, path: String, inputs: &ResolvedInputs, resume: bool) -> Result<Self, PlanError> {
+        config.validate_for_inputs(&inputs.values).map_err(PlanError::from).and_then(|()| {
             inputs
+                .values
                 .iter()
                 .enumerate()
                 .try_fold(Vec::new(), |modules, (input_index, input)| {
@@ -258,11 +267,21 @@ impl ExecutionPlan {
                             interval: GPU_SAMPLE_INTERVAL_MS,
                             source: "nvidia-smi".to_string(),
                         }),
+                    inputs: inputs.clone(),
                     modules,
                     resume,
-                    schema_version: 5,
+                    schema_version: 6,
                 })
         })
+    }
+}
+impl From<InputAttribute> for InputSource {
+    fn from(input: InputAttribute) -> Self {
+        match input {
+            | InputAttribute::List(_) => Self::List,
+            | InputAttribute::Path(_) => Self::Directory,
+            | InputAttribute::Select(_) => unreachable!("selection input provenance is produced by selection resolution"),
+        }
     }
 }
 impl Module {
@@ -360,6 +379,7 @@ impl core::error::Error for PlanError {
         match self {
             | Self::Completion(error) => Some(error),
             | Self::Input(_) => None,
+            | Self::Selection(error) => Some(error),
             | Self::Validation(error) => Some(error),
         }
     }
@@ -369,6 +389,7 @@ impl fmt::Display for PlanError {
         match self {
             | Self::Completion(error) => error.fmt(formatter),
             | Self::Input(error) => formatter.write_str(error),
+            | Self::Selection(error) => error.fmt(formatter),
             | Self::Validation(error) => error.fmt(formatter),
         }
     }
@@ -376,6 +397,11 @@ impl fmt::Display for PlanError {
 impl From<CompletionError> for PlanError {
     fn from(error: CompletionError) -> Self {
         Self::Completion(error)
+    }
+}
+impl From<SelectionError> for PlanError {
+    fn from(error: SelectionError) -> Self {
+        Self::Selection(error)
     }
 }
 impl From<ValidationReport> for PlanError {
@@ -437,5 +463,17 @@ impl PlannedContainer {
             )
             .into_values()
             .collect()
+    }
+}
+fn normalize_inputs(values: Vec<String>) -> Vec<Option<String>> {
+    let values = values.into_iter().fold(Vec::new(), |mut unique, value| {
+        if !unique.contains(&value) {
+            unique.push(value);
+        }
+        unique
+    });
+    match values.is_empty() {
+        | true => vec![None],
+        | false => values.into_iter().map(Some).collect(),
     }
 }

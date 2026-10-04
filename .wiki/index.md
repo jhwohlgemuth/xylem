@@ -34,11 +34,10 @@ effort.
 | [Memory-aware adaptive scheduling](features/memory-aware-scheduling.md) | 5/5 | High | Medium | High | The measurement evidence is strong. The scoped estimator passed its gate, but only for the pinned A+P workflow and measured size range. Production concurrency must remain one until a real concurrent holdout mix validates additive reservations. |
 | [Workflow dashboard and durable run history](features/workflow-dashboard.md) | 3/5 | High | Very high | Medium | The plan combines runner extraction, configuration changes, storage, logs, telemetry, forecasting, history, and a TUI. Land the headless runner and run store first; telemetry and the TUI need independent exit gates before the CLI-breaking configuration change is accepted. |
 | [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) | 4/5 | Critical | Very high | Conditional high | The plan specifies the controller/worker, PVC, protocol, and failure contracts in detail. Delivery depends on shared-filesystem semantics, cluster runners, release images, and confirmed operator demand. Keep it separate from sandboxing and validate those deployment assumptions before implementation. |
-| [Scripted workflow input discovery and filtering](features/cel-workflow-input.md) | 4/5 | Medium | Medium | Medium | Bounded Xylem-owned discovery keeps the selection evaluator pure while supporting file selection. CEL is the initial engine behind a replaceable boundary. Engine, traversal, and schema costs are justified only by demonstrated discovery demand. |
 
 ## Consolidated and ranked portfolio
 
-The eight source plans reduce to five portfolio-level plans. Existing pages
+The seven source plans reduce to four portfolio-level plans. Existing pages
 remain the detailed implementation chapters; physically merging their bodies
 would recreate oversized plans and obscure the integration locks. Ranking uses
 dependency readiness and value relative to remaining effort, while retaining
@@ -50,7 +49,6 @@ impact and difficulty explicitly.
 | 2 | Trusted local execution | Environment/concurrency + secure acquisition + sandboxing | Critical | Very high | Very high. These plans share the process, environment, workspace, configuration, CLI, and schema boundaries. Sequence the immutable runtime first, secure materialization second, then fake and OCI sandbox enforcement; defer the stronger provider to a later approval gate. |
 | 3 | Adaptive runtime operations | Memory-aware scheduling + dashboard/run history | High | Very high | High. Treat scheduler events, simulation, and the canonical run store as one observability contract. Deliver the measured scheduler and headless run evidence before forecasts or TUI work. |
 | 4 | Kubernetes execution target | Kubernetes workflow execution | Critical | Very high | Conditional high. It remains an orthogonal execution target with its own approval gate. Start after the shared runner lands and only when a supported cluster, shared PVC semantics, image pipeline, and user demand are confirmed. |
-| 5 | Scripted input discovery and filtering | Scripted workflow input discovery and filtering | Medium | Medium | Medium. Keep it outside the critical runtime path; proceed after selection-engine qualification and the immutable input and path boundaries, or earlier only when user demand exceeds the dependency cost. |
 
 ## Recommended execution order
 
@@ -60,7 +58,6 @@ impact and difficulty explicitly.
 4. Implement the already-authorized memory estimator, telemetry, and admission seam for its measured boundary. Keep concurrency at one until the concurrent holdout gate passes.
 5. Add the fake and rootless OCI sandbox backends plus artifact and lifecycle hardening. Reassess stronger-provider work separately.
 6. Decide between Kubernetes and the headless dashboard foundation using confirmed deployment demand. Both consume the shared runner and durable evidence contracts; neither should redefine them.
-7. Add scripted discovery and filtering when selection-engine qualification and user demand justify its medium-impact dependency and traversal surface.
 
 ## Planning gaps
 

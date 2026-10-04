@@ -34,6 +34,7 @@ acorn-core = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev 
 acorn-host = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", features = ["fs", "terminal"], default-features = false }
 acorn-macros = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", default-features = false }
 acorn-schema = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", features = ["alloc"], default-features = false }
+cel = { version = "=0.14.5", default-features = false }
 clap = { version = "4.5.51", default-features = false }
 clap-verbosity-flag = { version = "3.0.4", features = ["log"], default-features = false }
 color-eyre = { version = "0.6.5", default-features = false }
@@ -49,6 +50,7 @@ serde = { version = "1.0.228", features = ["derive"], default-features = false }
 serde_json = { version = "1.0.149", default-features = false }
 serde_norway = { version = "0.9.42", default-features = false }
 serde_with = { version = "=3.16.1", features = ["macros"], default-features = false }
+sha2 = { version = "=0.10.9", default-features = false }
 strum = { version = "0.28.0", features = ["derive"], default-features = false }
 thiserror = { version = "2.0.18", default-features = false }
 tracing = { version = "0.1.44", features = ["attributes"], default-features = false }

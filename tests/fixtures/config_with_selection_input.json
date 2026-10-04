@@ -1,0 +1,23 @@
+{
+  "id": "selection-fixture",
+  "input": {
+    "select": {
+      "engine": "cel",
+      "options": {
+        "recursive": true,
+        "roots": ["selection-inputs/images", "selection-inputs/archive"]
+      },
+      "script": "items.filter(item, item.kind == 'file' && item.extension in variables.selection.extensions && item.size >= variables.selection.minimum_size && (options.recursive || item.depth == 1)).map(item, item.path)"
+    }
+  },
+  "modules": [],
+  "output": "selection-results",
+  "requirements": ["image-metadata"],
+  "variables": {
+    "selection": {
+      "extensions": [".png", ".tif"],
+      "minimum_size": 1024
+    }
+  },
+  "version": "1.2.3"
+}

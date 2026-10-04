@@ -314,7 +314,7 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
         .expect("run dry-run plan");
     assert!(output.status.success(), "dry run failed: {}", String::from_utf8_lossy(&output.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid dry-run plan");
-    assert_eq!(plan["schema_version"], 5);
+    assert_eq!(plan["schema_version"], 6);
     assert_eq!(plan["gpu_monitoring"]["interval"], 1000);
     assert_eq!(plan["gpu_monitoring"]["source"], "nvidia-smi");
     assert_eq!(plan["configuration"]["output"], output_directory.display().to_string());
@@ -324,6 +324,170 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
         output_directory.display().to_string()
     );
     assert!(!output_directory.exists());
+}
+#[test]
+fn test_dry_run_resolves_cel_selection_relative_to_configuration() {
+    let test_root = std::env::temp_dir().join(format!("xylem-cel-dry-run-{}", std::process::id()));
+    let empty_path = test_root.join("empty-path");
+    let inputs = test_root.join("inputs");
+    let output_directory = test_root.join("artifacts");
+    create_dir_all(&empty_path).expect("create empty PATH");
+    create_dir_all(&inputs).expect("create selection inputs");
+    write(inputs.join("b.txt"), "b").expect("write b");
+    write(inputs.join("a.tif"), "a").expect("write a");
+    write(test_root.join("outside.tif"), "outside").expect("write outside candidate");
+    let config_path = test_root.join("config.yaml");
+    write(
+        &config_path,
+        r#"requirements: []
+modules: []
+output: artifacts
+input:
+  select:
+    engine: cel
+    options:
+      roots: [inputs]
+      recursive: false
+    script: items.filter(item, item.extension == '.tif').map(item, item.path)
+"#,
+    )
+    .expect("write selection configuration");
+    let run = || {
+        let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+        command
+            .env("PATH", &empty_path)
+            .args([
+                "run",
+                "--config",
+                config_path.to_str().expect("UTF-8 config path"),
+                "--dry-run",
+                "--reporter",
+                "json",
+            ])
+            .output()
+            .expect("run selection dry run")
+    };
+    let output = run();
+    assert!(
+        output.status.success(),
+        "selection dry run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let repeated = run();
+    assert!(repeated.status.success(), "repeated selection dry run failed");
+    assert_eq!(repeated.stdout, output.stdout);
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid selection plan");
+    let inputs = std::fs::canonicalize(inputs).expect("canonical selection inputs");
+    assert_eq!(plan["schema_version"], 6);
+    assert_eq!(plan["inputs"]["source"]["kind"], "selection");
+    assert_eq!(plan["inputs"]["source"]["engine"], "cel");
+    assert_eq!(plan["inputs"]["source"]["candidate_count"], 2);
+    assert_eq!(plan["inputs"]["values"][0], inputs.join("a.tif").display().to_string());
+    assert!(plan["inputs"]["source"]["script_digest"]
+        .as_str()
+        .is_some_and(|digest| digest.starts_with("sha256:")));
+    assert!(!output_directory.exists());
+    let mut entries = std::fs::read_dir(&test_root)
+        .expect("read dry-run fixture")
+        .map(|entry| entry.expect("read fixture entry").file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(entries, ["config.yaml", "empty-path", "inputs", "outside.tif"]);
+    remove_dir_all(test_root).expect("remove selection fixture");
+}
+#[test]
+fn test_explicit_cli_input_bypasses_cel_discovery_and_evaluation() {
+    let test_root = std::env::temp_dir().join(format!("xylem-cel-cli-override-{}", std::process::id()));
+    create_dir_all(&test_root).expect("create CLI override fixture");
+    let config_path = test_root.join("config.yaml");
+    write(
+        &config_path,
+        r#"requirements: []
+modules: []
+input:
+  select:
+    engine: cel
+    options:
+      roots: [missing]
+    script: "["
+"#,
+    )
+    .expect("write invalid unused selection");
+    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let output = command
+        .args([
+            "run",
+            "--config",
+            config_path.to_str().expect("UTF-8 config path"),
+            "--input",
+            "explicit",
+            "--dry-run",
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("run CLI override dry run");
+    assert!(
+        output.status.success(),
+        "CLI override failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid override plan");
+    assert_eq!(plan["inputs"]["source"]["kind"], "cli");
+    assert_eq!(plan["inputs"]["values"], serde_json::json!(["explicit"]));
+    remove_dir_all(test_root).expect("remove CLI override fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!("xylem-durable-failure-{}", std::process::id()));
+    let output_directory = test_root.join("reports");
+    create_dir_all(&output_directory).expect("create durable failure directory");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "version": "1.0.0",
+        "requirements": ["sh"],
+        "input": ["one", "two", "three"],
+        "options": { "batch": 1 },
+        "modules": [{
+            "name": "Failure Probe",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:./tests/e2e/modules/failure-probe"
+        }]
+    });
+    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize failure config")).expect("write failure config");
+    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    command
+        .current_dir(workspace)
+        .args([
+            "run",
+            "--config",
+            config_path.to_str().expect("UTF-8 config path"),
+            "--reporter",
+            "json",
+            "--output",
+            output_directory.to_str().expect("UTF-8 output path"),
+        ])
+        .assert()
+        .failure()
+        .code(exitcode::SOFTWARE);
+
+    let report_path = read_dir(&output_directory)
+        .expect("read output directory")
+        .map(|entry| entry.expect("directory entry").path())
+        .find(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .expect("failure JSON report");
+    let report: xylem_lib::journal::RunSummary =
+        serde_json::from_slice(&read(report_path).expect("read failure report")).expect("valid failure report");
+    assert_eq!(report.status, xylem_lib::journal::RunStatus::Failed);
+    assert_eq!(report.inputs[0].state, xylem_lib::journal::ExecutionState::Failed);
+    assert_eq!(report.inputs[1].state, xylem_lib::journal::ExecutionState::NotStarted);
+    assert_eq!(report.inputs[2].state, xylem_lib::journal::ExecutionState::NotStarted);
+    remove_dir_all(test_root).expect("remove durable failure directory");
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
@@ -406,119 +570,6 @@ fn test_gpu_monitoring_journals_samples_and_reports_aggregates() {
     assert_eq!(monitoring.devices[0].utilization_percent.as_ref().map(|metric| metric.average), Some(50));
     assert!(read_to_string(journal).expect("read GPU journal").contains("\"event\":\"gpu_sample\""));
     remove_dir_all(test_root).expect("remove GPU monitoring fixture");
-}
-#[cfg(not(target_os = "windows"))]
-#[test]
-fn test_offline_smoke_example_runs_from_a_clean_directory() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("CLI crate should be inside the workspace");
-    let test_root = std::env::temp_dir().join(format!(
-        "xylem-offline-smoke-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should follow the Unix epoch")
-            .as_nanos()
-    ));
-    let source = workspace.join("examples/offline-smoke");
-    let example = test_root.join("examples/offline-smoke");
-    create_dir_all(example.join("module")).expect("create clean smoke example");
-    write(
-        example.join("config.json"),
-        read(source.join("config.json")).expect("read smoke configuration"),
-    )
-    .expect("copy smoke configuration");
-    write(
-        example.join("module/run.sh"),
-        read(source.join("module/run.sh")).expect("read smoke module"),
-    )
-    .expect("copy smoke module");
-
-    let mut dry_run = assert_cmd::cargo::cargo_bin_cmd!("xylem");
-    let dry_run = dry_run
-        .current_dir(&test_root)
-        .args([
-            "run",
-            "--config",
-            "examples/offline-smoke/config.json",
-            "--offline",
-            "--dry-run",
-            "--reporter",
-            "json",
-        ])
-        .output()
-        .expect("run smoke dry run");
-    assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
-    serde_json::from_slice::<serde_json::Value>(&dry_run.stdout).expect("valid smoke execution plan");
-    assert!(!example.join("output").exists());
-
-    let mut run = assert_cmd::cargo::cargo_bin_cmd!("xylem");
-    run.current_dir(&test_root)
-        .args(["run", "--config", "examples/offline-smoke/config.json", "--offline", "--no-progress"])
-        .assert()
-        .success();
-    assert_eq!(
-        read_to_string(example.join("output/greeting-Ada.txt")).expect("Ada greeting"),
-        "Hello, Ada!\n"
-    );
-    assert_eq!(
-        read_to_string(example.join("output/greeting-Grace.txt")).expect("Grace greeting"),
-        "Hello, Grace!\n"
-    );
-    remove_dir_all(test_root).expect("remove smoke example");
-}
-#[cfg(not(target_os = "windows"))]
-#[test]
-fn test_fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("CLI crate should be inside the workspace");
-    let test_root = std::env::temp_dir().join(format!("xylem-durable-failure-{}", std::process::id()));
-    let output_directory = test_root.join("reports");
-    create_dir_all(&output_directory).expect("create durable failure directory");
-    let config_path = test_root.join("config.json");
-    let config = serde_json::json!({
-        "version": "1.0.0",
-        "requirements": ["sh"],
-        "input": ["one", "two", "three"],
-        "options": { "batch": 1 },
-        "modules": [{
-            "name": "Failure Probe",
-            "type": "script",
-            "programmingLanguage": "generic",
-            "uri": "file:./tests/e2e/modules/failure-probe"
-        }]
-    });
-    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize failure config")).expect("write failure config");
-    let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
-    command
-        .current_dir(workspace)
-        .args([
-            "run",
-            "--config",
-            config_path.to_str().expect("UTF-8 config path"),
-            "--reporter",
-            "json",
-            "--output",
-            output_directory.to_str().expect("UTF-8 output path"),
-        ])
-        .assert()
-        .failure()
-        .code(exitcode::SOFTWARE);
-
-    let report_path = read_dir(&output_directory)
-        .expect("read output directory")
-        .map(|entry| entry.expect("directory entry").path())
-        .find(|path| path.extension().is_some_and(|extension| extension == "json"))
-        .expect("failure JSON report");
-    let report: xylem_lib::journal::RunSummary =
-        serde_json::from_slice(&read(report_path).expect("read failure report")).expect("valid failure report");
-    assert_eq!(report.status, xylem_lib::journal::RunStatus::Failed);
-    assert_eq!(report.inputs[0].state, xylem_lib::journal::ExecutionState::Failed);
-    assert_eq!(report.inputs[1].state, xylem_lib::journal::ExecutionState::NotStarted);
-    assert_eq!(report.inputs[2].state, xylem_lib::journal::ExecutionState::NotStarted);
-    remove_dir_all(test_root).expect("remove durable failure directory");
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
@@ -739,6 +790,67 @@ fn test_offline_dry_run_skips_reachability_but_still_enforces_allowlist() {
         .assert()
         .failure()
         .code(exitcode::UNAVAILABLE);
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_offline_smoke_example_runs_from_a_clean_directory() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!(
+        "xylem-offline-smoke-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should follow the Unix epoch")
+            .as_nanos()
+    ));
+    let source = workspace.join("examples/offline-smoke");
+    let example = test_root.join("examples/offline-smoke");
+    create_dir_all(example.join("module")).expect("create clean smoke example");
+    write(
+        example.join("config.json"),
+        read(source.join("config.json")).expect("read smoke configuration"),
+    )
+    .expect("copy smoke configuration");
+    write(
+        example.join("module/run.sh"),
+        read(source.join("module/run.sh")).expect("read smoke module"),
+    )
+    .expect("copy smoke module");
+
+    let mut dry_run = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    let dry_run = dry_run
+        .current_dir(&test_root)
+        .args([
+            "run",
+            "--config",
+            "examples/offline-smoke/config.json",
+            "--offline",
+            "--dry-run",
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("run smoke dry run");
+    assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
+    serde_json::from_slice::<serde_json::Value>(&dry_run.stdout).expect("valid smoke execution plan");
+    assert!(!example.join("output").exists());
+
+    let mut run = assert_cmd::cargo::cargo_bin_cmd!("xylem");
+    run.current_dir(&test_root)
+        .args(["run", "--config", "examples/offline-smoke/config.json", "--offline", "--no-progress"])
+        .assert()
+        .success();
+    assert_eq!(
+        read_to_string(example.join("output/greeting-Ada.txt")).expect("Ada greeting"),
+        "Hello, Ada!\n"
+    );
+    assert_eq!(
+        read_to_string(example.join("output/greeting-Grace.txt")).expect("Grace greeting"),
+        "Hello, Grace!\n"
+    );
+    remove_dir_all(test_root).expect("remove smoke example");
 }
 #[cfg(not(target_os = "windows"))]
 #[test]

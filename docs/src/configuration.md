@@ -35,6 +35,73 @@ Explicit input lists preserve their declared order and duplicate values keep
 their first occurrence. Directory-derived inputs are sorted by path. CLI
 `--input` replaces configured input values rather than appending to them.
 
+## CEL input selection
+
+A workflow can discover local files and directories beneath explicit roots and
+select inputs with a CEL expression:
+
+```yaml
+input:
+  select:
+    engine: cel
+    options:
+      roots:
+        - ./scenes
+      recursive: true
+    script: >-
+      items
+        .filter(item,
+          item.kind == "file" &&
+          item.size > 0 &&
+          (item.extension == ".tif" || item.extension == ".tiff"))
+        .map(item, item.path)
+```
+
+Relative roots resolve from the declaring configuration's directory. Roots
+must be existing local directories and cannot be symlinks. Discovery never
+follows symlinks, does not read file contents, and skips symlinks and special
+files. Candidates retain configured root order and are sorted by `/`-separated
+relative path within each root. Overlapping roots keep the first occurrence.
+
+CEL receives only three immutable bindings:
+
+- `items`, an ordered list of candidate records;
+- `options`, containing canonical `roots` and the effective `recursive` value;
+- `variables`, the configured workflow variables without reading the process
+  environment.
+
+Each item provides `index`, `path`, `relative_path`, `name`, `extension`,
+`kind`, `size`, and `depth`. JSON/YAML null, boolean, number, string, list, and
+map variable values map recursively to the corresponding CEL values. Nested
+values passed to child processes are encoded as compact JSON strings.
+
+The supported CEL subset includes literals, field selection, indexing,
+conditionals, core comparison/arithmetic/logical operators, the list macros
+`has`, `all`, `exists`, `exists_one`, `filter`, and `map`, and the pure
+functions `size`, `contains`, `startsWith`, `endsWith`, `int`, `uint`,
+`double`, and `string`. Macros may iterate over lists only. Bytes, regular
+expressions, time, optional values, custom functions, and filesystem, process,
+network, environment, clock, random, or locale access are unavailable.
+
+The result must be `list<string>`, and every string must exactly equal a
+discovered item's `path`. Result order is preserved and later duplicates are
+removed. An empty result runs the workflow once without an input, matching the
+existing zero-input behavior.
+
+Discovery and evaluation use fixed limits: 16 roots, depth 32, 100,000 visited
+entries, 50,000 candidates, 16 MiB of candidate paths, 250,000 metadata
+operations, a 16 KiB script, 64 AST levels, 1,024 AST nodes, 10,000,000 units
+of statically estimated evaluation cost, and 50,000/16 MiB intermediate and
+result records/bytes. Variables are limited to depth 32, 10,000 nodes, and 1
+MiB per scalar. Exceeding any limit fails before workflow execution.
+
+A non-empty CLI `--input` list has precedence and bypasses selection request
+validation, root access, discovery, compilation, and evaluation. Dry-run uses
+the same read-only selection snapshot as execution. Execution-plan schema v6
+records canonical options, limits, engine/interpreter identity, counts, and
+SHA-256 script and inventory digests without recording the script, configured
+variable values, or unselected inventory.
+
 ## Reusable configuration modules
 
 Use a `configuration` module to expand another workflow in place:

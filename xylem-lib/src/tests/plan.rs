@@ -1,6 +1,7 @@
 use crate::config::{Config, InputAttribute};
 use crate::plan::ExecutionPlan;
 use crate::script::ContainerStartup;
+use crate::selection::InputSource;
 use std::fs::{create_dir_all, remove_dir_all, write};
 
 #[cfg(target_os = "linux")]
@@ -27,17 +28,43 @@ fn config(output: &str) -> Config {
     }))
     .expect("plan fixture")
 }
+#[test]
+fn test_cli_inputs_bypass_unused_selection_validation() {
+    let mut config = config("/tmp/xylem-plan-output");
+    config.input = Some(
+        serde_json::from_value(serde_json::json!({
+            "select": {
+                "engine": "cel",
+                "options": {"roots": []},
+                "script": ""
+            }
+        }))
+        .expect("selection fixture"),
+    );
+    let cli = ["explicit".to_string()];
+    let resolved = config
+        .resolve_inputs(Some(&cli), std::path::Path::new("missing/config.json"))
+        .expect("CLI inputs bypass selection");
+    assert_eq!(resolved.values, [Some("explicit".to_string())]);
+    assert_eq!(resolved.source, InputSource::Cli);
+}
 
 #[test]
 fn test_cli_inputs_override_configuration_and_duplicates_keep_first_occurrence() {
     let config = config("/tmp/xylem-plan-output");
     let cli = ["second".to_string(), "first".to_string(), "second".to_string()];
     assert_eq!(
-        config.resolve_inputs(Some(&cli)).expect("resolve CLI inputs"),
+        config
+            .resolve_inputs(Some(&cli), std::path::Path::new("."))
+            .expect("resolve CLI inputs")
+            .values,
         [Some("second".to_string()), Some("first".to_string())]
     );
     assert_eq!(
-        config.resolve_inputs(None).expect("resolve configured inputs"),
+        config
+            .resolve_inputs(None, std::path::Path::new("."))
+            .expect("resolve configured inputs")
+            .values,
         [Some("configured".to_string())]
     );
 }
@@ -50,10 +77,49 @@ fn test_directory_inputs_are_sorted_deterministically() {
     let mut config = config("/tmp/xylem-plan-output");
     config.input = Some(InputAttribute::Path(root.display().to_string()));
     assert_eq!(
-        config.resolve_inputs(None).expect("resolve directory inputs"),
+        config
+            .resolve_inputs(None, std::path::Path::new("."))
+            .expect("resolve directory inputs")
+            .values,
         [Some(root.join("a").display().to_string()), Some(root.join("z").display().to_string())]
     );
     remove_dir_all(root).expect("remove input root");
+}
+#[test]
+fn test_execution_plan_changes_when_selection_inventory_drifts() {
+    let root = std::env::temp_dir().join(format!("xylem-plan-selection-drift-{}", std::process::id()));
+    let inputs = root.join("inputs");
+    create_dir_all(&inputs).expect("create selection root");
+    let candidate = inputs.join("a.txt");
+    write(&candidate, "a").expect("write candidate");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [],
+        "input": {
+            "select": {
+                "engine": "cel",
+                "options": {"roots": ["inputs"], "recursive": false},
+                "script": "items.map(item, item.path)"
+            }
+        }
+    }))
+    .expect("selection configuration");
+    let configuration_path = root.join("config.json");
+    let first_inputs = config.resolve_inputs(None, &configuration_path).expect("resolve first inventory");
+    let first = ExecutionPlan::build_resolved(&config, configuration_path.display().to_string(), &first_inputs, false).expect("build first plan");
+    write(&candidate, "changed").expect("change candidate metadata");
+    let second_inputs = config.resolve_inputs(None, &configuration_path).expect("resolve second inventory");
+    let second = ExecutionPlan::build_resolved(&config, configuration_path.display().to_string(), &second_inputs, false).expect("build second plan");
+    let digest = |source: &InputSource| match source {
+        | InputSource::Selection { inventory_digest, .. } => inventory_digest.clone(),
+        | _ => panic!("selection provenance"),
+    };
+    assert_ne!(digest(&first.inputs.source), digest(&second.inputs.source));
+    assert_ne!(
+        serde_json::to_vec(&first).expect("serialize first plan"),
+        serde_json::to_vec(&second).expect("serialize second plan")
+    );
+    remove_dir_all(root).expect("remove selection root");
 }
 #[test]
 fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
@@ -63,6 +129,8 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
     let first = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("build plan");
     let second = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("rebuild plan");
     assert_eq!(first, second);
+    assert_eq!(first.schema_version, 6);
+    assert_eq!(first.inputs.source, InputSource::List);
     let yaml = serde_norway::to_string(&config).expect("serialize YAML configuration");
     let yaml: Config = serde_norway::from_str(&yaml).expect("deserialize YAML configuration");
     let yaml_plan = ExecutionPlan::build(&yaml, "config.yaml".to_string(), &inputs, false).expect("build YAML plan");
@@ -137,7 +205,7 @@ fn test_execution_plan_reports_container_startup_strategies() {
             .find(|container| container.name == name)
             .and_then(|container| container.startup)
     };
-    assert_eq!(plan.schema_version, 5);
+    assert_eq!(plan.schema_version, 6);
     assert_eq!(startup("explicit"), Some(ContainerStartup::ExplicitCommand));
     assert_eq!(startup("external"), None);
     assert_eq!(startup("image-default"), Some(ContainerStartup::ImageDefault));
@@ -160,7 +228,9 @@ fn test_non_unicode_directory_input_is_rejected_with_context() {
     write(root.join(OsString::from_vec(vec![b'i', b'n', 0x80])), "input").expect("write non-Unicode input");
     let mut config = config("/tmp/xylem-plan-output");
     config.input = Some(InputAttribute::Path(root.display().to_string()));
-    let error = config.resolve_inputs(None).expect_err("non-Unicode input must be rejected");
+    let error = config
+        .resolve_inputs(None, std::path::Path::new("."))
+        .expect_err("non-Unicode input must be rejected");
     assert!(error.to_string().contains("input directory entry is not valid UTF-8"));
     remove_dir_all(root).expect("remove input root");
 }

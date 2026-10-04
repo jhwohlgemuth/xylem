@@ -60,9 +60,6 @@ impl Config {
 impl Validate for Config {
     fn validate(&self) -> Result<(), ValidationReport> {
         let mut report = ValidationReport::new();
-        if matches!(self.input, Some(InputAttribute::ShellScript(_))) {
-            report.add("input", validation_error("unsupported", "shell input is not supported"));
-        }
         if self.check.is_some() {
             report.add(
                 "check",
@@ -332,17 +329,11 @@ impl Validate for TemplateAttribute {
     }
 }
 fn validate_variables(variables: Option<&Map<String, Value>>, path: &str, report: &mut ValidationReport) {
-    variables.into_iter().flat_map(|values| values.iter()).for_each(|(name, value)| {
+    variables.into_iter().flat_map(|values| values.iter()).for_each(|(name, _)| {
         if matches!(name.as_str(), "INPUT" | "MODULE_LIST" | "PARENT_DIRECTORY") {
             report.add(
                 format!("{path}.{name}"),
                 validation_error("reserved", "reserved variable cannot be configured"),
-            );
-        }
-        if !value.is_string() && !value.is_boolean() && !value.is_number() {
-            report.add(
-                format!("{path}.{name}"),
-                validation_error("type", "value must be a string, boolean, or number"),
             );
         }
     });

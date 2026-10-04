@@ -11,23 +11,6 @@ use std::sync::Mutex;
 use std::thread;
 
 const FIXTURES: &str = "../tests/fixtures";
-
-fn configuration_files(root: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(root)
-        .unwrap_or_else(|error| panic!("read {}: {error}", root.display()))
-        .map(|entry| entry.expect("configuration entry").path())
-        .flat_map(|path| match path.is_dir() {
-            | true => configuration_files(&path),
-            | false => vec![path],
-        })
-        .filter(|path| {
-            matches!(
-                path.file_name().and_then(|name| name.to_str()),
-                Some("config.json" | "config.yaml" | "config.yml")
-            )
-        })
-        .collect()
-}
 #[derive(Default)]
 struct RecordingProgress {
     updates: Mutex<Vec<ProgressUpdate>>,
@@ -44,6 +27,23 @@ fn bind_local_server() -> Option<TcpListener> {
         | Err(why) if why.kind() == std::io::ErrorKind::PermissionDenied => None,
         | Err(why) => panic!("bind local server: {why}"),
     }
+}
+
+fn configuration_files(root: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(root)
+        .unwrap_or_else(|error| panic!("read {}: {error}", root.display()))
+        .map(|entry| entry.expect("configuration entry").path())
+        .flat_map(|path| match path.is_dir() {
+            | true => configuration_files(&path),
+            | false => vec![path],
+        })
+        .filter(|path| {
+            matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some("config.json" | "config.yaml" | "config.yml")
+            )
+        })
+        .collect()
 }
 #[test]
 fn test_all_module_locations_round_trip_scalar_and_structured_forms() {
@@ -789,6 +789,19 @@ fn test_json_and_yaml_reject_unknown_fields() {
         assert!(parse_json_configuration(json).is_err(), "JSON should reject {json}");
         assert!(parse_yaml_configuration(yaml).is_err(), "YAML should reject {yaml}");
     }
+}
+#[test]
+fn test_json_and_yaml_selection_fixtures_deserialize_equally() {
+    let json = Config::read_json(PathBuf::from(format!("{FIXTURES}/config_with_selection_input.json"))).expect("read selection JSON fixture");
+    let yaml = Config::read_yaml(PathBuf::from(format!("{FIXTURES}/config_with_selection_input.yaml"))).expect("read selection YAML fixture");
+    let json_value = serde_json::to_value(json).expect("normalize selection JSON fixture");
+    let yaml_value = serde_json::to_value(yaml).expect("normalize selection YAML fixture");
+    assert_eq!(json_value, yaml_value);
+    assert_eq!(json_value["id"], "selection-fixture");
+    assert_eq!(json_value["input"]["select"]["engine"], "cel");
+    assert_eq!(json_value["input"]["select"]["options"]["roots"].as_array().map(Vec::len), Some(2));
+    assert_eq!(json_value["variables"]["selection"]["extensions"][1], ".tif");
+    assert_eq!(json_value["variables"]["selection"]["minimum_size"], 1024);
 }
 #[test]
 fn test_managed_container_keep_alive_round_trips_and_validates() {

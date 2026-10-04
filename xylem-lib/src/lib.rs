@@ -28,6 +28,7 @@ pub mod progress;
 pub mod remote;
 #[allow(missing_docs)]
 pub mod script;
+pub mod selection;
 #[allow(missing_docs)]
 pub mod util;
 

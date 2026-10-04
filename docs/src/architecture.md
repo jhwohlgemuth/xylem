@@ -64,9 +64,10 @@ classification to a process exit code and renders the terminal diagnostic.
 Resume decisions are made before module preparation from explicit completion
 declarations. The runtime requires both non-empty declared outputs and an exact
 canonical marker identity, and records skips as `skipped_existing` in journal
-schema version 5. Journal events and recovered summaries carry both the leaf
-display name and its qualified `module_path`. Dry-run uses a separate in-memory
-execution plan and performs no filesystem writes.
+schema version 5. Execution plans use schema version 6, while journals and
+recovered summaries remain at version 5. Journal evidence carries both the
+leaf display name and its qualified `module_path`. Dry-run uses a separate
+in-memory execution plan and performs no filesystem writes.
 
 See
 [ARCHITECTURE.md](https://code.ornl.gov/research-enablement/xylem/-/blob/main/ARCHITECTURE.md)
