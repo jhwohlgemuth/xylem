@@ -22,6 +22,7 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 | TUI lock | `xylem-tui/` and dashboard state | One dashboard owner at a time; rendering work may split by tab only after the app-state and shared-widget contracts land. |
 | Delivery lock | `Makefile`, `.gitlab-ci.yml`, release exporters | Security commands land before CI/release wiring; package and Kubernetes image export consume the immutable release contract. |
 | Documentation lock | top-level Markdown and `examples/` | Final updates occur after behavior and command names are stable. |
+| MCP integration lock | MCP configuration, ACORN client adapter, tool fixtures, and plan/journal evidence | MCP tenant tools own the allowlist and policy bridge; they may not bypass the runner, sandbox, or durable evidence contracts. |
 
 ## Work lanes
 
@@ -30,6 +31,7 @@ The lanes below contain only remaining work.
 ### Lane A: configuration and acquisition
 
 1. [Secure module acquisition](refactors/secure-module-acquisition.md), consuming the validation contract
+2. [MCP-enabled tenant tools](features/mcp-tenant-tools.md), after the upstream ACORN revision is qualified
 
 Secure acquisition owns generic transport behavior.
 
@@ -39,9 +41,7 @@ Secure acquisition owns generic transport behavior.
 2. [Kubernetes workflow execution backend](features/kubernetes-workflow-backend.md), after process and immutable environment contracts land
 3. [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md), after process and immutable environment contracts land
 4. [Memory-aware scheduling](features/memory-aware-scheduling.md), after its spike and the fixed scheduler contract
-5. [Workflow dashboard and durable run history](features/workflow-dashboard.md), delivered over current fixed concurrency
-
-The `options.batch` rolling input ceiling and landed CEL selection snapshot are baselines these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. The dashboard has released the CLI integration lock and preserves the existing admission policy. Memory-aware scheduling later extends its durable state without replacing its runner path or store.
+The `options.batch` rolling input ceiling and landed CEL selection snapshot are baselines these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Memory-aware scheduling later extends durable state without replacing the runner path or store.
 
 ### Lane C: CLI and verification
 

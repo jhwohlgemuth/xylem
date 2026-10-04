@@ -7,7 +7,11 @@ input:
       roots:
         - selection-inputs/images
         - selection-inputs/archive
-    script: items.filter(item, item.kind == 'file' && item.extension in variables.selection.extensions && item.size >= variables.selection.minimum_size && (options.recursive || item.depth == 1)).map(item, item.path)
+    script: >-
+      items.filter(item, item.kind == 'file' &&
+      item.extension in variables.selection.extensions &&
+      item.size >= variables.selection.minimum_size &&
+      (options.recursive || item.depth == 1)).map(item, item.path)
 modules: []
 output: selection-results
 requirements:

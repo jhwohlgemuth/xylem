@@ -17,8 +17,8 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Portfolio review
 
-Rechecked on 2026-10-03 against the current worktree, dependency network, and
-the live Homebrew tap merge request. Quality measures whether a plan has
+Rechecked on 2026-10-04 against the current worktree, dependency network, the
+live Homebrew tap merge request, and upstream ACORN MCP-client support. Quality measures whether a plan has
 current evidence, a bounded contract, explicit dependencies, phased delivery,
 and verifiable acceptance criteria. Difficulty is remaining delivery effort;
 `very high` identifies multi-release or infrastructure-heavy work. Value
@@ -32,7 +32,7 @@ effort.
 | [Secure module acquisition](refactors/secure-module-acquisition.md) | 5/5 | Critical | High | Very high | The scope is focused, with a clear threat boundary, typed failure behavior, offline semantics, and adversarial validation. Implement planner and cache primitives independently, then serialize integration across the shared configuration and process locks. |
 | [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md) | 4/5 | Critical | Very high | High | The threat model and capability negotiation are well specified. The plan spans fake, OCI, separate-kernel, and default-on rollout horizons; deliver through OCI and lifecycle hardening first, then require a new decision before the stronger-provider rollout. |
 | [Memory-aware adaptive scheduling](features/memory-aware-scheduling.md) | 5/5 | High | Medium | High | The measurement evidence is strong. The scoped estimator passed its gate, but only for the pinned A+P workflow and measured size range. Production concurrency must remain one until a real concurrent holdout mix validates additive reservations. |
-| [Workflow dashboard and durable run history](features/workflow-dashboard.md) | 5/5 | High | Complete | Delivered | The initial dashboard capability is implemented first: ACORN v0.3.4, positional config, canonical evidence, live and historical TUI views, metrics, logs, projections, and cancellation over current fixed concurrency. |
+| [MCP-enabled tenant tools](features/mcp-tenant-tools.md) | 3/5 | High | High | High | Upstream ACORN now provides an explicitly configured, policy-checked MCP client over child-process and Streamable HTTP transports. Xylem is still pinned before that revision; define the workflow-facing contract before upgrading or exposing remote tools. |
 | [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) | 4/5 | Critical | Very high | Conditional high | The plan specifies the controller/worker, PVC, protocol, and failure contracts in detail. Delivery depends on shared-filesystem semantics, cluster runners, release images, and confirmed operator demand. Keep it separate from sandboxing and validate those deployment assumptions before implementation. |
 
 ## Consolidated and ranked portfolio
@@ -45,16 +45,16 @@ impact and difficulty explicitly.
 
 | Rank | Consolidated plan | Source plans | Impact | Difficulty | Value and decision |
 |---:|---|---|---:|---:|---|
-| 1 | Workflow dashboard MVP | Workflow dashboard and durable run history | High | Complete | Delivered first. The initial dashboard, canonical evidence, logs, metrics, cancellation, and history now run over current fixed concurrency. |
-| 2 | Release activation | Homebrew release activation | High | Low | Very high. Resume the nearly complete tap activation after dashboard acceptance. |
-| 3 | Trusted local execution | Environment/concurrency + secure acquisition + sandboxing | Critical | Very high | High. These remain independent hardening plans and no longer block the dashboard. Sequence their integrations after preserving the dashboard contracts. |
+| 1 | Release activation | Homebrew release activation | High | Low | Very high. Resume the nearly complete tap activation. |
+| 2 | MCP-enabled tenant tools | MCP-enabled tenant tools | High | High | High. Upstream support removes the protocol implementation risk, but Xylem still needs an allowlisted workflow contract, plan/journal evidence, and policy tests. |
+| 3 | Trusted local execution | Environment/concurrency + secure acquisition + sandboxing | Critical | Very high | High. These remain independent hardening plans. Sequence their integrations after preserving the landed runtime contracts. |
 | 4 | Kubernetes execution target | Kubernetes workflow execution | Critical | Very high | Conditional high. It remains an orthogonal execution target with its own approval gate. Start from the landed execution boundary only when a supported cluster, shared PVC semantics, image pipeline, and user demand are confirmed. |
 
 ## Recommended execution order
 
-1. Treat the delivered [workflow dashboard MVP](features/workflow-dashboard.md) as the fixed user-facing baseline and address only acceptance defects before expanding it.
-2. Resume Homebrew activation and publish the verified installation path.
-3. Resume memory-aware scheduling when its external block clears; integrate it through the durable dashboard state rather than making it a prerequisite.
+1. Resume Homebrew activation and publish the verified installation path.
+2. Define and prototype MCP-enabled tenant tools against the upstream ACORN client, with no remote-tool execution in Xylem until the policy and evidence contract is accepted.
+3. Resume memory-aware scheduling when its external block clears; integrate it through the durable run state rather than making it a prerequisite.
 4. Reassess environment/concurrency, secure acquisition, sandboxing, and Kubernetes against demonstrated operator demand and the landed execution boundary.
 
 ## Planning gaps

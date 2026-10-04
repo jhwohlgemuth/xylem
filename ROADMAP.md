@@ -10,6 +10,7 @@ support claims.
 
 ## v1.x interoperability and portability
 
+- [ ] Integrate allowlisted MCP tenant tools through the upstream ACORN client
 - [ ] Publish rigorously tested macOS and Windows binaries
 - [ ] Export configurations to CWL
 - [ ] Provide a built-in API server for tenant modules

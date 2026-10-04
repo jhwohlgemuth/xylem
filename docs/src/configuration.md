@@ -59,6 +59,10 @@ input:
         .map(item, item.path)
 ```
 
+For readable multiline YAML expressions, `>-` folds ordinary line breaks into
+spaces and removes the final newline. Use `|-` when the expression's newline
+characters should be preserved; CEL accepts them as whitespace.
+
 Relative roots resolve from the declaring configuration's directory. Roots
 must be existing local directories and cannot be symlinks. Discovery never
 follows symlinks, does not read file contents, and skips symlinks and special

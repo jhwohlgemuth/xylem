@@ -361,7 +361,13 @@ input:
     options:
       roots: [inputs]
       recursive: false
-    script: items.filter(item, item.extension == '.tif').map(item, item.path)
+    script: |-
+      items
+        .filter(
+          item,
+          item.extension == '.tif'
+        )
+        .map(item, item.path)
 "#,
     )
     .expect("write selection configuration");
