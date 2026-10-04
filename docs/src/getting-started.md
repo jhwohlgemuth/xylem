@@ -47,20 +47,20 @@ xylem --version
 Run a configuration with informational logging:
 
 ```shell
-xylem -vv run --config path/to/config.json
+xylem -vv run path/to/config.json
 ```
 
 Add one or more inputs at the command line when the configuration does not
 declare them:
 
 ```shell
-xylem --threads 4 -vv run --config path/to/config.json --input first,second
+xylem --threads 4 -vv run path/to/config.json --input first,second
 ```
 
 Keep a crash-recoverable execution journal and a final JSON summary together:
 
 ```shell
-xylem run --config path/to/config.json \
+xylem run path/to/config.json \
   --reporter console,json \
   --output ./xylem-run
 ```

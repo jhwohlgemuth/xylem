@@ -14,18 +14,19 @@ cargo run --example python-with-pixi
 The equivalent command using the CLI directly is:
 
 ```shell
-cargo run --package xylem-cli -- -vvvv run --config examples/python-with-pixi/config.json
+cd examples/python-with-pixi
+xylem -vvvv run
 ```
 
 With an installed `xylem` binary, the shorter equivalent is:
 
 ```shell
-xylem -vvvv run --config examples/python-with-pixi/config.json
+xylem -vvvv run
 ```
 
-The CLI forms must be run from the repository root, because relative module
-URIs resolve against the working directory. The example target changes into the
-workspace root on its own, so it works from any directory.
+The CLI forms must be run from the example directory because relative module
+URIs resolve against the working directory. The example target changes into
+that directory on its own, so it works from any directory.
 
 On the first run, Xylem creates the `default` environment from `pixi.toml`.
 Later runs reuse it. The module prints a [Polars](https://pola.rs/) DataFrame

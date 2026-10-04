@@ -4,7 +4,7 @@
     "description": "Exercise Mamba, Pixi, Docker, generic script, binary, inputs, variables, completion, and resume",
     "requirements": ["mamba", "pixi", "podman"],
     "input": ["alpha", "bravo"],
-    "output": "./examples/kitchensink/output",
+    "output": "./output",
     "variables": {
         "GREETING": "Hello",
         "MESSAGE": "{{ GREETING }} from Xylem"
@@ -19,7 +19,7 @@
             "name": "Mamba Module",
             "type": "script",
             "programmingLanguage": "python",
-            "uri": "file:./examples/kitchensink/mamba",
+            "uri": "file:./mamba",
             "variables": {
                 "MESSAGE": "{{ GREETING }} from the kitchensink"
             },
@@ -50,7 +50,7 @@
             "name": "Pixi Module",
             "type": "script",
             "language": "python",
-            "uri": "file:./examples/kitchensink/pixi",
+            "uri": "file:./pixi",
             "template": {
                 "environment": {
                     "name": "default",
@@ -76,7 +76,7 @@
             "name": "Script Module",
             "type": "script",
             "programmingLanguage": "generic",
-            "uri": "file:./examples/kitchensink/script",
+            "uri": "file:./script",
             "template": "template.json",
             "completion": {
                 "outputs": [
@@ -87,7 +87,7 @@
         {
             "name": "Binary Module",
             "type": "binary",
-            "uri": "file:./examples/kitchensink/binary/finalize",
+            "uri": "file:./binary/finalize",
             "template": {
                 "command": "finalize",
                 "arguments": [
@@ -105,7 +105,7 @@
             "name": "Podman Module",
             "type": "script",
             "programmingLanguage": "generic",
-            "uri": "file:./examples/kitchensink/docker",
+            "uri": "file:./docker",
             "template": {
                 "container": {
                     "cleanup": "always",

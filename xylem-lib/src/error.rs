@@ -1,4 +1,5 @@
 //! Owned errors returned by reusable Xylem operations
+use acorn_cmd::CommandError;
 use core::fmt;
 use std::io;
 use std::path::PathBuf;
@@ -11,6 +12,7 @@ pub enum AcquisitionError {
     /// The configured remote-host policy is invalid.
     Policy { source: io::Error },
 }
+
 /// Failure while resolving a configured module into an executable script.
 #[derive(Debug)]
 pub enum ModuleLoadError {
@@ -23,9 +25,22 @@ pub enum ModuleLoadError {
     /// A template could not be loaded.
     Template { module: String, source: TemplateError },
 }
+
 /// Failure while executing a child process.
 #[derive(Debug)]
 pub enum ProcessError {
+    /// Managed execution failed after process construction.
+    Managed {
+        script: String,
+        working_directory: PathBuf,
+        source: CommandError,
+    },
+    /// Durable process output could not be written.
+    Output {
+        script: String,
+        working_directory: PathBuf,
+        source: io::Error,
+    },
     /// The child could not be created or observed.
     Spawn {
         script: String,
@@ -40,6 +55,7 @@ pub enum ProcessError {
         stderr: String,
     },
 }
+
 /// Failure while loading a Python project manifest.
 #[derive(Debug)]
 pub enum PyProjectError {
@@ -50,6 +66,7 @@ pub enum PyProjectError {
     /// The manifest could not be read.
     Read { path: PathBuf, source: io::Error },
 }
+
 /// Failure while reading or parsing a module command template.
 #[derive(Debug)]
 pub enum TemplateError {
@@ -58,12 +75,14 @@ pub enum TemplateError {
     /// The template could not be read.
     Read { path: PathBuf, source: io::Error },
 }
+
 /// Failure while checking a declared host requirement.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RequirementError {
     /// Executable name that was not found.
     pub command: String,
 }
+
 impl core::error::Error for AcquisitionError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
@@ -71,6 +90,7 @@ impl core::error::Error for AcquisitionError {
         }
     }
 }
+
 impl fmt::Display for AcquisitionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -79,6 +99,7 @@ impl fmt::Display for AcquisitionError {
         }
     }
 }
+
 impl core::error::Error for ModuleLoadError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
@@ -88,6 +109,7 @@ impl core::error::Error for ModuleLoadError {
         }
     }
 }
+
 impl fmt::Display for ModuleLoadError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -100,17 +122,31 @@ impl fmt::Display for ModuleLoadError {
         }
     }
 }
+
 impl core::error::Error for ProcessError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
+            | Self::Managed { source, .. } => Some(source),
+            | Self::Output { source, .. } => Some(source),
             | Self::Spawn { source, .. } => Some(source),
             | Self::Unsuccessful { .. } => None,
         }
     }
 }
+
 impl fmt::Display for ProcessError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            | Self::Managed {
+                script,
+                working_directory,
+                source,
+            } => write!(formatter, "run {script} in {}: {source}", working_directory.display()),
+            | Self::Output {
+                script,
+                working_directory,
+                source,
+            } => write!(formatter, "write output for {script} in {}: {source}", working_directory.display()),
             | Self::Spawn {
                 script,
                 working_directory,
@@ -136,6 +172,7 @@ impl fmt::Display for ProcessError {
         }
     }
 }
+
 impl core::error::Error for PyProjectError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
@@ -145,6 +182,7 @@ impl core::error::Error for PyProjectError {
         }
     }
 }
+
 impl fmt::Display for PyProjectError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -154,12 +192,15 @@ impl fmt::Display for PyProjectError {
         }
     }
 }
+
 impl core::error::Error for RequirementError {}
+
 impl fmt::Display for RequirementError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "required command was not found: {}", self.command)
     }
 }
+
 impl core::error::Error for TemplateError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
@@ -168,6 +209,7 @@ impl core::error::Error for TemplateError {
         }
     }
 }
+
 impl fmt::Display for TemplateError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

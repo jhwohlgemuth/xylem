@@ -2,5 +2,5 @@
 //!
 //!     cargo run --example python-with-pixi
 fn main() -> xylem_cli::Void {
-    xylem_cli::run_example("examples/python-with-pixi/config.json")
+    xylem_cli::run_example("examples/python-with-pixi/.xylem.json")
 }

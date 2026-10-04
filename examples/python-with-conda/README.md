@@ -15,7 +15,8 @@ cargo run --example python-with-conda
 The equivalent command using the CLI directly is:
 
 ```shell
-cargo run --package xylem-cli -- -vvvv run --config examples/python-with-conda/config.json
+cd examples/python-with-conda
+xylem -vvvv run
 ```
 
 On the first run, Xylem creates the `example` environment from

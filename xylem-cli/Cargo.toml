@@ -11,6 +11,10 @@ readme = "../README.md"
 edition = "2021"
 rust-version.workspace = true
 
+[features]
+default = ["tui"]
+tui = ["dep:xylem-tui"]
+
 [[bin]]
 name = "xylem"
 path = "src/main.rs"
@@ -19,6 +23,7 @@ path = "src/main.rs"
 doctest = false
 
 [dependencies]
+acorn-cmd = { workspace = true }
 acorn-host = { workspace = true }
 acorn-schema = { workspace = true }
 clap = { workspace = true, features = ["color", "derive", "error-context", "help", "std", "suggestions", "unstable-doc", "usage"] }
@@ -34,6 +39,7 @@ tracing = { workspace = true }
 tracing-log = { workspace = true }
 tracing-subscriber = { workspace = true }
 xylem-lib = { version = "1.0.3", path = "../xylem-lib" }
+xylem-tui = { version = "1.0.3", path = "../xylem-tui", optional = true }
 
 [dev-dependencies]
 assert_cmd = "2.1.1"

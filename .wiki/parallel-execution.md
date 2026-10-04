@@ -17,9 +17,9 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 | Sandbox lock | `xylem-lib/src/sandbox/`, sandbox policy and conformance fixtures | Sandboxed execution owns policy resolution, capability negotiation, session lifecycle, and provider adapters. |
 | Kubernetes target lock | target/profile/protocol modules, native client adapter, Job fixtures, and runner image | Kubernetes execution owns the outer controller/worker and shared-PVC contracts; it may not redefine sandbox or module-container semantics. |
 | Run-state lock | `xylem-lib/src/progress.rs`, journal/outcome modules, reporter adapters | Preserve the journal, reporter, resume, and execution-target vocabulary without redefining durable states. |
-| Run-store lock | runner, run-store, telemetry, task-log, and projection modules plus current schemas | The dashboard takes this lock after environment/concurrency and memory scheduling land. Other targets consume the resulting bundle and event contracts. |
+| Run-store lock | runner, run-store, telemetry, task-log, and projection modules plus current schemas | The dashboard baseline has landed. Later runtime and scheduler plans must preserve or explicitly version its bundle contracts. |
 | CLI lock | `xylem-cli/src/{main,cli}.rs`, `xylem-cli/src/commands/run/mod.rs` | One owner for argument registration, pool/scheduler setup, journal lifecycle, CLI-owned exit mapping, and generated help. |
-| TUI lock | `xylem-tui/` and dashboard snapshots | One dashboard owner at a time; rendering work may split by tab only after the app state and shared widget contracts land. |
+| TUI lock | `xylem-tui/` and dashboard state | One dashboard owner at a time; rendering work may split by tab only after the app-state and shared-widget contracts land. |
 | Delivery lock | `Makefile`, `.gitlab-ci.yml`, release exporters | Security commands land before CI/release wiring; package and Kubernetes image export consume the immutable release contract. |
 | Documentation lock | top-level Markdown and `examples/` | Final updates occur after behavior and command names are stable. |
 
@@ -39,9 +39,9 @@ Secure acquisition owns generic transport behavior.
 2. [Kubernetes workflow execution backend](features/kubernetes-workflow-backend.md), after process and immutable environment contracts land
 3. [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md), after process and immutable environment contracts land
 4. [Memory-aware scheduling](features/memory-aware-scheduling.md), after its spike and the fixed scheduler contract
-5. [Workflow dashboard and durable run history](features/workflow-dashboard.md), after the shared runner and memory scheduler contracts
+5. [Workflow dashboard and durable run history](features/workflow-dashboard.md), delivered over current fixed concurrency
 
-The `options.batch` rolling input ceiling and the landed CEL selection snapshot are baselines these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Advanced orchestration preserves both limits and consumes the process result contract. Kubernetes and sandbox integration both need the CLI, run-state, and scheduler locks, so their integration phases land serially even though pure target/profile and policy/fake-provider work may proceed independently. The filesystem inventory remains in trusted, bounded planning code rather than the evaluator. The dashboard takes the run-store and TUI locks only after memory scheduling exposes events and simulation; it never owns admission policy.
+The `options.batch` rolling input ceiling and landed CEL selection snapshot are baselines these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. The dashboard has released the CLI integration lock and preserves the existing admission policy. Memory-aware scheduling later extends its durable state without replacing its runner path or store.
 
 ### Lane C: CLI and verification
 

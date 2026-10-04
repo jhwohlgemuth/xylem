@@ -2,10 +2,9 @@ use crate::config::{Config, InputAttribute};
 use crate::plan::ExecutionPlan;
 use crate::script::ContainerStartup;
 use crate::selection::InputSource;
-use std::fs::{create_dir_all, remove_dir_all, write};
-
 #[cfg(target_os = "linux")]
 use std::ffi::OsString;
+use std::fs::{create_dir_all, remove_dir_all, write};
 #[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStringExt;
 
@@ -28,6 +27,7 @@ fn config(output: &str) -> Config {
     }))
     .expect("plan fixture")
 }
+
 #[test]
 fn test_cli_inputs_bypass_unused_selection_validation() {
     let mut config = config("/tmp/xylem-plan-output");
@@ -68,6 +68,7 @@ fn test_cli_inputs_override_configuration_and_duplicates_keep_first_occurrence()
         [Some("configured".to_string())]
     );
 }
+
 #[test]
 fn test_directory_inputs_are_sorted_deterministically() {
     let root = std::env::temp_dir().join(format!("xylem-plan-inputs-{}", std::process::id()));
@@ -85,6 +86,7 @@ fn test_directory_inputs_are_sorted_deterministically() {
     );
     remove_dir_all(root).expect("remove input root");
 }
+
 #[test]
 fn test_execution_plan_changes_when_selection_inventory_drifts() {
     let root = std::env::temp_dir().join(format!("xylem-plan-selection-drift-{}", std::process::id()));
@@ -121,6 +123,7 @@ fn test_execution_plan_changes_when_selection_inventory_drifts() {
     );
     remove_dir_all(root).expect("remove selection root");
 }
+
 #[test]
 fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
     let output = std::env::temp_dir().join(format!("xylem-plan-output-{}", std::process::id()));
@@ -129,7 +132,7 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
     let first = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("build plan");
     let second = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("rebuild plan");
     assert_eq!(first, second);
-    assert_eq!(first.schema_version, 6);
+    assert_eq!(first.schema_version, 7);
     assert_eq!(first.inputs.source, InputSource::List);
     let yaml = serde_norway::to_string(&config).expect("serialize YAML configuration");
     let yaml: Config = serde_norway::from_str(&yaml).expect("deserialize YAML configuration");
@@ -149,6 +152,7 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
     );
     assert!(!output.exists());
 }
+
 #[test]
 fn test_execution_plan_reports_container_startup_strategies() {
     let config: Config = serde_json::from_value(serde_json::json!({
@@ -205,12 +209,13 @@ fn test_execution_plan_reports_container_startup_strategies() {
             .find(|container| container.name == name)
             .and_then(|container| container.startup)
     };
-    assert_eq!(plan.schema_version, 6);
+    assert_eq!(plan.schema_version, 7);
     assert_eq!(startup("explicit"), Some(ContainerStartup::ExplicitCommand));
     assert_eq!(startup("external"), None);
     assert_eq!(startup("image-default"), Some(ContainerStartup::ImageDefault));
     assert_eq!(startup("keep-alive"), Some(ContainerStartup::KeepAlive));
 }
+
 #[test]
 fn test_execution_plan_reports_gpu_monitoring_without_host_queries() {
     let mut config = config("/tmp/xylem-plan-output");
@@ -220,6 +225,7 @@ fn test_execution_plan_reports_gpu_monitoring_without_host_queries() {
     assert_eq!(monitoring.interval, crate::gpu::GPU_SAMPLE_INTERVAL_MS);
     assert_eq!(monitoring.source, "nvidia-smi");
 }
+
 #[cfg(target_os = "linux")]
 #[test]
 fn test_non_unicode_directory_input_is_rejected_with_context() {

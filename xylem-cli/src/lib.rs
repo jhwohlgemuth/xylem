@@ -21,16 +21,24 @@ pub mod commands;
 
 // Environment variables
 const DISPLAY_LEVEL: bool = true;
+
 const DISPLAY_LINE_NUMBER: bool = false;
+
 const DISPLAY_TARGET: bool = false;
+
 const DISPLAY_THREAD_ID: bool = false;
+
 const DISPLAY_THREAD_NAME: bool = true;
+
 /// Show module output at TRACE while pinning verbose configuration dumps to INFO,
 /// so examples read as a workflow narrative instead of a debug dump.
 const EXAMPLE_LOG: &str = "trace,xylem_lib::config=info,xylem_cli::commands::run=info";
+
 const LOG_LEVEL: &str = "XYLEM_LOG_LEVEL";
+
 /// Result returned by CLI entry points.
 pub type Void = color_eyre::Result<()>;
+
 /// Install the global tracing subscriber, preferring `XYLEM_LOG_LEVEL` from a dotenv file over `verbose`.
 ///
 /// `filter` is an optional [EnvFilter] directive. When set it takes precedence
@@ -81,6 +89,7 @@ pub fn init_tracing(env: Option<&PathBuf>, verbose: &Verbosity, filter: Option<&
     }
     Ok(())
 }
+
 fn load_dotenv(path: Option<&PathBuf>) -> Result<bool> {
     match path {
         | Some(path) => dotenvy::from_path(path)
@@ -89,12 +98,13 @@ fn load_dotenv(path: Option<&PathBuf>) -> Result<bool> {
         | None => Ok(dotenvy::dotenv().is_ok()),
     }
 }
-/// Run the workflow configuration at a path relative to the workspace root.
+
+/// Run a discoverable example configuration at a path relative to the workspace root.
 ///
 /// Relative module URIs resolve against the process working directory, so this
-/// changes into the workspace root before the configuration is read. Progress
-/// bars are disabled so the workflow output stays readable. Set `XYLEM_LOG_LEVEL`
-/// to override the default log filter.
+/// changes into the configuration's directory before it is read. Progress bars
+/// are disabled so the workflow output stays readable. Set `XYLEM_LOG_LEVEL` to
+/// override the default log filter.
 pub fn run_example(config: &str) -> Void {
     color_eyre::install()?;
     let filter = match dotenvy::var(LOG_LEVEL) {
@@ -104,10 +114,18 @@ pub fn run_example(config: &str) -> Void {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .ok_or_else(|| eyre!("the CLI crate should be a member of the workspace"))?;
-    set_current_dir(workspace).map_err(|why| eyre!("use workspace directory {}: {why}", workspace.display()))?;
+    let configuration = workspace.join(config);
+    let directory = configuration
+        .parent()
+        .ok_or_else(|| eyre!("example configuration should have a parent directory"))?;
+    let config = configuration
+        .file_name()
+        .map(PathBuf::from)
+        .ok_or_else(|| eyre!("example configuration should have a file name"))?;
+    set_current_dir(directory).map_err(|why| eyre!("use example directory {}: {why}", directory.display()))?;
     init_tracing(None, &Verbosity::default(), Some(filter.as_str()), false)?;
     match commands::run::run(
-        &Some(PathBuf::from(config)),
+        &Some(config),
         &[ReporterType::Console],
         &None,
         &None,
@@ -124,6 +142,7 @@ pub fn run_example(config: &str) -> Void {
         Verbosity::default(),
         ExecutionLimits::default(),
         true,
+        None,
     ) {
         | Ok(()) => Ok(()),
         | Err(failure) => {

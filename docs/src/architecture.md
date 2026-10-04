@@ -5,7 +5,7 @@ process exit boundary. The library owns configuration parsing, module
 preparation, variable resolution, command construction, and workflow
 execution.
 
-Configuration follows a five-stage contract: parse the named JSON or YAML
+Configuration follows a five-stage contract: parse the named JSON, strict JSONC, or YAML
 document, resolve reachable configuration modules, validate all declared
 capabilities, build an immutable execution plan, then execute that accepted
 plan. Resolution flattens nested workflows depth-first while retaining stable
@@ -20,7 +20,7 @@ the immutable plan is built. Remote configuration resolution is disabled in
 dry-run mode.
 
 ```text
-configuration (JSON or YAML)
+configuration (JSON, JSONC, or YAML)
             |
             v
         xylem-cli
@@ -63,11 +63,11 @@ classification to a process exit code and renders the terminal diagnostic.
 
 Resume decisions are made before module preparation from explicit completion
 declarations. The runtime requires both non-empty declared outputs and an exact
-canonical marker identity, and records skips as `skipped_existing` in journal
-schema version 5. Execution plans use schema version 6, while journals and
-recovered summaries remain at version 5. Journal evidence carries both the
-leaf display name and its qualified `module_path`. Dry-run uses a separate
-in-memory execution plan and performs no filesystem writes.
+canonical marker identity, and records skips as `skipped_existing`. Execution
+plans, journals, and recovered summaries use schema version 7, including the
+durable `cancelled` state. Journal evidence carries both the leaf display name
+and its qualified `module_path`. Dry-run uses a separate in-memory execution
+plan and performs no filesystem writes.
 
 See
 [ARCHITECTURE.md](https://code.ornl.gov/research-enablement/xylem/-/blob/main/ARCHITECTURE.md)

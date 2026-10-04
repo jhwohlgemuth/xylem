@@ -2,7 +2,7 @@ use crate::completion::Completion;
 use crate::error::{ModuleLoadError, ProcessError, TemplateError};
 use crate::util::absolute_path;
 use crate::util::constants::{RE_HANDLEBARS, RE_TEMPLATE_SPACES};
-use acorn_cmd::{args, CommandSpec};
+use acorn_cmd::{args, CommandError, CommandSpec, ExecutionOptions, ExecutionResult};
 use acorn_core::{Location, Scheme};
 use acorn_host::fs::read_text;
 use acorn_host::terminal::Label;
@@ -41,6 +41,7 @@ pub enum ContainerCleanup {
     #[display("never")]
     Never,
 }
+
 #[derive(Clone, Copy, Debug, Display, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainerRuntime {
@@ -56,6 +57,7 @@ pub enum ContainerRuntime {
     #[display("unknown")]
     Unknown,
 }
+
 /// Startup strategy for a container created by Xylem.
 #[derive(Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -70,6 +72,7 @@ pub enum ContainerStartup {
     #[display("keep_alive")]
     KeepAlive,
 }
+
 /// Values that from Serde that can be set as environment variables
 #[derive(Clone, Debug, Display)]
 pub enum EnvironmentValue {
@@ -78,6 +81,7 @@ pub enum EnvironmentValue {
     Bool(bool),
     Unknown,
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Instruction {
@@ -99,6 +103,7 @@ pub enum Instruction {
     /// ```
     ExecFormat(Vec<String>),
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize, Display, EnumIs)]
 #[serde(rename_all = "lowercase")]
 pub enum ModuleLanguage {
@@ -110,6 +115,7 @@ pub enum ModuleLanguage {
     Python,
     Rust,
 }
+
 /// Designates module type which specifies necessary attributes
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -127,6 +133,7 @@ pub enum ModuleType {
         uri: Location,
     },
 }
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModuleUri<'a> {
     /// File URIs can be absolute or relative.
@@ -168,6 +175,7 @@ pub enum ModuleUri<'a> {
     Url(Box<URI<'a>>),
     Unknown(String),
 }
+
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum RawModuleType {
@@ -177,12 +185,14 @@ enum RawModuleType {
     Configuration,
     Script,
 }
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum TemplateAttribute {
     Path(String),
     Template(Box<ScriptTemplate>),
 }
+
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub enum TemplateType {
     /// Example: `"some <%= value %>"`
@@ -199,6 +209,7 @@ pub enum TemplateType {
     Mustache,
     Unknown,
 }
+
 #[derive(Clone, Debug, Deserialize, Display, FromStr, PartialEq, Serialize)]
 pub enum VirtualEnvironmentManager {
     /// [Conda package manager](https://github.com/conda/conda)
@@ -228,6 +239,7 @@ pub enum VirtualEnvironmentManager {
     #[display("unknown")]
     Unknown,
 }
+
 #[derive(Builder, Clone, Debug, Display)]
 #[display("{}", name)]
 #[builder(start_fn(name = init))]
@@ -240,6 +252,7 @@ pub struct Command {
     /// Container struct that contains details about the associated containerized environment
     pub container: Option<ContainerEnvironment>,
 }
+
 /// Struct for using and sharing containerized environments
 ///
 /// Examples:
@@ -283,6 +296,7 @@ pub struct ContainerEnvironment {
     /// Maximum number of seconds to wait for readiness.
     pub startup_timeout_seconds: Option<u64>,
 }
+
 /// Explicit bind mount for a managed container.
 #[derive(Builder, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[builder(start_fn(name = init))]
@@ -297,6 +311,7 @@ pub struct ContainerMount {
     #[serde(default = "default_true")]
     pub read_only: bool,
 }
+
 #[derive(Clone, Debug, Display, Serialize)]
 #[display("{name}")]
 pub struct Module {
@@ -313,6 +328,7 @@ pub struct Module {
     pub template: Option<TemplateAttribute>,
     pub completion: Option<Completion>,
 }
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawModule {
@@ -330,6 +346,7 @@ struct RawModule {
     uri: Location,
     variables: Option<Map<String, Value>>,
 }
+
 /// Script struct
 ///
 /// Uses [bon](https://elastio.github.io/bon/) crate to implement builder pattern.
@@ -365,6 +382,7 @@ pub struct Script {
     #[builder(default = true)]
     pub forward_container_env: bool,
 }
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScriptTemplate {
@@ -374,12 +392,14 @@ pub struct ScriptTemplate {
     pub virtual_environment: Option<VirtualEnvironment>,
     pub arguments: Instruction,
 }
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StringTemplate {
     pub value: String,
     pub template_type: TemplateType,
 }
+
 #[derive(Builder, Clone, Debug, Deserialize, Display, PartialEq, Serialize)]
 #[display("{name}")]
 #[builder(start_fn(name = init))]
@@ -390,6 +410,7 @@ pub struct VirtualEnvironment {
     #[builder(default=VirtualEnvironmentManager::Conda)]
     pub manager: VirtualEnvironmentManager,
 }
+
 impl Command {
     /// Check if a command exists in current command line context
     ///
@@ -424,6 +445,7 @@ impl Command {
         }
     }
 }
+
 impl ContainerEnvironment {
     pub(crate) fn resolved_startup(&self) -> (ContainerStartup, Vec<OsString>) {
         match (self.keep_alive, &self.command) {
@@ -433,6 +455,7 @@ impl ContainerEnvironment {
         }
     }
 }
+
 impl EnvironmentValue {
     pub const PREFIX: &'static str = "xylem";
     /// Resolve `{{ VARIABLE }}` references in namespaced environment values.
@@ -538,6 +561,7 @@ impl EnvironmentValue {
         values.into_iter().for_each(|(key, value)| set_var(key, value));
     }
 }
+
 impl Module {
     /// Resolve the module's explicitly configured or auto-detected virtual environment.
     pub fn resolve_virtual_environment(&self, working_dir: &str) -> Result<Option<VirtualEnvironment>, TemplateError> {
@@ -554,6 +578,7 @@ impl Module {
         }
     }
 }
+
 impl<'de> Deserialize<'de> for Module {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -597,11 +622,13 @@ impl<'de> Deserialize<'de> for Module {
         )
     }
 }
+
 impl ModuleLanguage {
     pub const fn is_supported(&self) -> bool {
         self.is_generic() || self.is_python()
     }
 }
+
 impl ModuleUri<'_> {
     pub fn absolutize(self, source: &Path) -> Option<Location> {
         match self {
@@ -631,6 +658,7 @@ impl ModuleUri<'_> {
         }
     }
 }
+
 impl Script {
     pub fn ensure_relative(mut self) -> Script {
         let path = PathBuf::from(self.command.name);
@@ -952,6 +980,68 @@ impl Script {
         ];
         Script::init().command(command).arguments(arguments).build()
     }
+    fn command_spec(&self) -> CommandSpec {
+        let envs = match (&self.command.container, self.forward_container_env) {
+            | (Some(_), false) => HashMap::new(),
+            | _ => self.envs.clone().unwrap_or_default(),
+        };
+        let init = CommandSpec::new(self.get_command())
+            .args(self.get_arguments())
+            .current_dir(PathBuf::from(&self.current_dir));
+        envs.into_iter().fold(init, |specification, (key, value)| specification.env(key, value))
+    }
+    /// Execute this script with ACORN's managed process lifecycle.
+    pub fn execute(&self, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError> {
+        let working_directory = PathBuf::from(&self.current_dir);
+        warn!(cwd = %working_directory.display(), script = self.to_string(), "=> {}", Label::run());
+        self.command_spec().execute(options).map_err(|source| match source {
+            | CommandError::Spawn { source } => ProcessError::Spawn {
+                script: self.to_string(),
+                working_directory,
+                source,
+            },
+            | source => ProcessError::Managed {
+                script: self.to_string(),
+                working_directory,
+                source,
+            },
+        })
+    }
+    /// Execute this script and require a successful managed outcome.
+    pub fn execute_checked(&self, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError> {
+        let working_directory = PathBuf::from(&self.current_dir);
+        warn!(cwd = %working_directory.display(), script = self.to_string(), "=> {}", Label::run());
+        self.command_spec().checked_execute(options).map_err(|source| match source {
+            | CommandError::NonZeroExit(result) => {
+                let details = String::from_utf8_lossy(result.stderr().bytes()).into_owned();
+                let status = result.status().map_or_else(
+                    || "unknown".to_string(),
+                    |status| {
+                        status.code().map_or_else(
+                            || status.signal().map_or_else(|| "unknown".to_string(), |signal| format!("signal {signal}")),
+                            |code| code.to_string(),
+                        )
+                    },
+                );
+                ProcessError::Unsuccessful {
+                    script: self.to_string(),
+                    working_directory,
+                    status,
+                    stderr: details,
+                }
+            }
+            | CommandError::Spawn { source } => ProcessError::Spawn {
+                script: self.to_string(),
+                working_directory,
+                source,
+            },
+            | source => ProcessError::Managed {
+                script: self.to_string(),
+                working_directory,
+                source,
+            },
+        })
+    }
     /// Execute a script and return its combined standard output and standard error.
     ///
     /// Execute a script and return failures to the caller.
@@ -960,57 +1050,20 @@ impl Script {
     }
     /// Execute a script and preserve command failures for the caller.
     pub fn run_checked(&self) -> Result<Vec<String>, ProcessError> {
-        let command = &self.get_command();
-        let arguments = self.get_arguments();
-        let current_dir = PathBuf::from(&self.current_dir);
-        let envs = self.envs.clone().unwrap_or_default();
-        warn!(cwd = %current_dir.display(), script = self.to_string(), "=> {}", Label::run());
-        let envs = match (&self.command.container, self.forward_container_env) {
-            | (Some(_), false) => HashMap::new(),
-            | _ => envs,
-        };
-        let specification = envs.into_iter().fold(
-            CommandSpec::new(command).args(arguments).current_dir(&current_dir),
-            |specification, (key, value)| specification.env(key, value),
-        );
-        match specification.output() {
-            | Ok(result) => {
-                let stdout = String::from_utf8_lossy(&result.stdout).lines().map(String::from).collect::<Vec<_>>();
-                let stderr = String::from_utf8_lossy(&result.stderr).lines().map(String::from).collect::<Vec<_>>();
-                let mut output = stdout;
-                output.extend(stderr.clone());
-                match result.status.success() {
-                    | true => {
-                        trace!("=> {} {:#?}", Label::output(), result.dimmed());
-                        trace!("=> {} {:#?}", Label::output(), output.dimmed());
-                        Ok(output)
-                    }
-                    | false => {
-                        let details = stderr.join("\n");
-                        error!(script = self.to_string(), status = %result.status, details, "=> {}", Label::fail());
-                        Err(ProcessError::Unsuccessful {
-                            script: self.to_string(),
-                            working_directory: current_dir,
-                            status: result.status.to_string(),
-                            stderr: details,
-                        })
-                    }
-                }
-            }
-            | Err(error) => {
-                error!(
-                    error = error.to_string(),
-                    script = self.to_string(),
-                    "=> {} Failed to run child process",
-                    Label::fail()
-                );
-                Err(ProcessError::Spawn {
-                    script: self.to_string(),
-                    working_directory: current_dir,
-                    source: error,
-                })
-            }
-        }
+        self.execute_checked(&ExecutionOptions::new()).map(|result| {
+            let stdout = String::from_utf8_lossy(result.stdout().bytes())
+                .lines()
+                .map(String::from)
+                .collect::<Vec<_>>();
+            let stderr = String::from_utf8_lossy(result.stderr().bytes())
+                .lines()
+                .map(String::from)
+                .collect::<Vec<_>>();
+            let output = stdout.into_iter().chain(stderr).collect::<Vec<_>>();
+            trace!("=> {} {:#?}", Label::output(), result.dimmed());
+            trace!("=> {} {:#?}", Label::output(), output.dimmed());
+            output
+        })
     }
     pub fn with_container(mut self, container: ContainerEnvironment) -> Self {
         self.command.container.clone_from(&Some(container));
@@ -1084,6 +1137,7 @@ impl Script {
         self
     }
 }
+
 impl ScriptTemplate {
     pub fn from_path(path: PathBuf) -> Result<ScriptTemplate, TemplateError> {
         read_to_string(&path)
@@ -1134,6 +1188,7 @@ impl ScriptTemplate {
         })
     }
 }
+
 impl StringTemplate {
     pub fn new(value: &str) -> StringTemplate {
         Self {
@@ -1224,6 +1279,7 @@ impl StringTemplate {
         self
     }
 }
+
 /// Add forward slash to end of folder path
 fn add_dot_slash(path: PathBuf) -> PathBuf {
     if path.starts_with("./") {
@@ -1232,9 +1288,11 @@ fn add_dot_slash(path: PathBuf) -> PathBuf {
         PathBuf::from(format!("./{}", path.display()))
     }
 }
+
 fn create_conda_environment_script(current_dir: String) -> Option<Script> {
     create_environment_script(current_dir, "conda", get_conda_environment_list())
 }
+
 fn create_environment_script(current_dir: String, manager: &str, environments: Vec<String>) -> Option<Script> {
     let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
     match manifest_path.try_exists() {
@@ -1270,9 +1328,11 @@ fn create_environment_script(current_dir: String, manager: &str, environments: V
         }
     }
 }
+
 fn create_mamba_environment_script(current_dir: String) -> Option<Script> {
     create_environment_script(current_dir, "mamba", get_mamba_environment_list())
 }
+
 fn create_pixi_environment_script(current_dir: String, environment: VirtualEnvironment) -> Option<Script> {
     match find_pixi_manifest(PathBuf::from(&current_dir)) {
         | Some(manifest_path) => {
@@ -1290,12 +1350,15 @@ fn create_pixi_environment_script(current_dir: String, environment: VirtualEnvir
         }
     }
 }
+
 fn default_container_runtime() -> ContainerRuntime {
     ContainerRuntime::Docker
 }
+
 fn default_true() -> bool {
     true
 }
+
 fn find_pixi_manifest(path: PathBuf) -> Option<PathBuf> {
     let pixi_toml = path.join("pixi.toml");
     match pixi_toml.is_file() {
@@ -1315,10 +1378,12 @@ fn find_pixi_manifest(path: PathBuf) -> Option<PathBuf> {
         }
     }
 }
+
 /// Get list of Conda virtual environments through Conda.
 pub fn get_conda_environment_list() -> Vec<String> {
     get_environment_list("conda")
 }
+
 /// Get name of Conda virtual environment from manifest file
 ///
 /// Not super sophisticated. "name" needs to be first line in environment.yml
@@ -1352,6 +1417,7 @@ pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
         | _ => None,
     }
 }
+
 fn get_environment_list(manager: &str) -> Vec<String> {
     let command = Command::init().name(manager.to_string()).build();
     let arguments = vec!["env".to_string(), "list".to_string()];
@@ -1376,14 +1442,17 @@ fn get_environment_list(manager: &str) -> Vec<String> {
         vec![]
     }
 }
+
 /// Get list of Conda-format virtual environments through Mamba.
 pub fn get_mamba_environment_list() -> Vec<String> {
     get_environment_list("mamba")
 }
+
 /// Return the deterministic runtime name for a managed container.
 pub fn managed_container_name(logical_name: &str, run_id: &str) -> String {
     format!("xylem-{logical_name}-{run_id}")
 }
+
 pub(crate) fn module_working_directory(uri: &str, root: Option<&PathBuf>) -> Option<String> {
     let location = Location::from(uri);
     match ModuleUri::from(&location) {
@@ -1392,5 +1461,6 @@ pub(crate) fn module_working_directory(uri: &str, root: Option<&PathBuf>) -> Opt
         | ModuleUri::Unknown(_) => None,
     }
 }
+
 #[cfg(test)]
 mod tests;

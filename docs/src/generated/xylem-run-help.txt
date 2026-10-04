@@ -1,19 +1,20 @@
 Run workflow using configuration file
 
 ```text
-    Run with INFO logging level, loads config.json from current directory
+    Run with INFO logging level, discovers a .xylem.* config in the current directory
     $> xylem run -vv
 
     Perform dry run using configuration file at /path/to/config.json
-    $> xylem run --config /path/to/config --dry-run
+    $> xylem run /path/to/config.json --dry-run
 ```
 
-Usage: xylem run [OPTIONS]
+Usage: xylem run [OPTIONS] [CONFIG]
 
-Options:
-  -c, --config <PATH>
+Arguments:
+  [CONFIG]
           Path to configuration file
 
+Options:
   -r, --reporter <REPORTER>...
           Reporter(s) used for the final durable summary
 
@@ -26,11 +27,6 @@ Options:
       --artifact-output <PATH>
           Workflow artifact root; overrides configuration output
 
-  -t, --threads <N>
-          Maximum number of Rayon workers used by Xylem (does not limit child tools)
-
-          [default: 10]
-
       --container-cleanup <CONTAINER_CLEANUP>
           Override cleanup policy for containers created by Xylem
 
@@ -39,11 +35,13 @@ Options:
           - on-success: Remove the container only after a successful run
           - never:      Retain the container after the run
 
+  -t, --threads <N>
+          Maximum number of Rayon workers used by Xylem (does not limit child tools)
+
+          [default: 10]
+
       --env <PATH>
           Load environment variables from a specific dotenv file
-
-      --no-progress
-          Disable interactive workflow progress indicators
 
   -o, --report-output <PATH>
           Directory for the durable journal and file-based reports
@@ -52,6 +50,9 @@ Options:
 
   -i, --input <LIST>
           Value(s) to use as INPUT variable in workflow
+
+      --no-progress
+          Disable interactive workflow progress indicators
 
   -d, --dry-run
           Execute workflow dry run (do not actually make changes to environment)

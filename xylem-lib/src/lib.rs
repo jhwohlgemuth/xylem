@@ -1,13 +1,13 @@
 #![cfg_attr(not(test), deny(clippy::exit, clippy::expect_used, clippy::panic, clippy::unwrap_used))]
 //! Xylem Library
 //! > Digital xylem that transports data through workflows with structure and support
+use crate::error::PyProjectError;
 use clap::ValueEnum;
+pub use config::*;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use std::fs::read_to_string;
 use std::path::PathBuf;
-
-use crate::error::PyProjectError;
 
 pub mod completion;
 // These legacy API modules predate the workspace documentation gate. Keep the
@@ -24,15 +24,15 @@ pub mod journal;
 pub mod outcome;
 pub mod plan;
 pub mod progress;
+pub mod projection;
 #[allow(missing_docs)]
 pub mod remote;
+pub mod run;
 #[allow(missing_docs)]
 pub mod script;
 pub mod selection;
 #[allow(missing_docs)]
 pub mod util;
-
-pub use config::*;
 
 #[derive(ValueEnum, Copy, Clone, Debug, Display, PartialEq, Eq)]
 /// Output format for a completed run or dry-run plan.
@@ -42,6 +42,7 @@ pub enum ReporterType {
     /// Machine-readable JSON output.
     Json,
 }
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 /// Relevant fields read from a Python `pyproject.toml` document.
 pub struct PyProjectToml {
@@ -49,18 +50,21 @@ pub struct PyProjectToml {
     inner: pyproject_toml::PyProjectToml,
     tool: Option<PyProjectTool>,
 }
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Tool-specific section of a Python project manifest.
 pub struct PyProjectTool {
     xylem: Option<ToolXylem>,
 }
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Xylem settings embedded in a Python project manifest.
 pub struct ToolXylem {
     module_name: String,
 }
+
 impl core::ops::Deref for PyProjectToml {
     type Target = pyproject_toml::PyProjectToml;
 
@@ -68,6 +72,7 @@ impl core::ops::Deref for PyProjectToml {
         &self.inner
     }
 }
+
 impl PyProjectToml {
     /// Read and parse a Python project manifest.
     pub fn read(path: PathBuf) -> Result<Self, PyProjectError> {

@@ -1,3 +1,6 @@
+use crate::cli::DEFAULT_CONFIG_NAMES;
+use acorn_cmd::ExecutionOptions;
+use acorn_host::config::resolve_config_path;
 use acorn_host::terminal::Label;
 use acorn_schema::validation::Validate;
 use alloc::collections::BTreeSet;
@@ -9,11 +12,11 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use nanoid::nanoid;
 use owo_colors::OwoColorize;
 use std::env;
-use std::fs::create_dir_all;
+use std::fs::{copy, create_dir_all};
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use tracing::{debug, info};
-use xylem_lib::config::{Config, ConfigOptions, ConfigReadError};
+use xylem_lib::config::{Config, ConfigOptions, ConfigReadError, ModuleExecutor};
 use xylem_lib::container::ContainerLifecycle;
 use xylem_lib::execution::{ExecutionContext, ExecutionLimits};
 use xylem_lib::gpu::{GpuMonitor, GpuMonitorError};
@@ -24,37 +27,85 @@ use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::ExecutionPlan;
 use xylem_lib::progress::{ProgressObserver, ProgressPhase, ProgressState, ProgressUpdate};
 use xylem_lib::remote::RemotePolicy;
-use xylem_lib::script::{managed_container_name, ContainerCleanup, EnvironmentValue, ModuleType, ModuleUri};
+use xylem_lib::run::store::{Bundle, Manifest, Store, TaskLogSink};
+use xylem_lib::run::telemetry::SystemMonitor;
+use xylem_lib::run::RunCancellation;
+use xylem_lib::script::{managed_container_name, ContainerCleanup, EnvironmentValue, ModuleType, ModuleUri, Script};
 use xylem_lib::util::deduplicate;
 use xylem_lib::ReporterType;
 
-const DEFAULT_CONFIG_NAME: &str = "config.json";
+const CANCELLED_EXIT_CODE: i32 = 130;
+
+struct LoggedModuleExecutor {
+    bundle: Bundle,
+    cancellation: RunCancellation,
+}
+
 /// Failure returned to the executable boundary with a stable exit code.
 #[derive(Debug)]
 pub struct RunFailure {
     exit_code: i32,
     message: String,
 }
+
 struct WorkflowProgress {
     preparation: ProgressBar,
     execution: ProgressBar,
 }
+
 impl From<&RunFailure> for FinalStatus {
     fn from(_: &RunFailure) -> Self {
         Self::Failed
     }
 }
+
 impl From<RunFailure> for FinalStatus {
     fn from(_: RunFailure) -> Self {
         Self::Failed
     }
 }
+
+impl ModuleExecutor for LoggedModuleExecutor {
+    fn execute(&self, script: &Script, input_index: usize, module_index: usize) -> Result<(), xylem_lib::error::ProcessError> {
+        let sink = TaskLogSink::module(self.bundle.clone(), input_index, module_index);
+        let options = ExecutionOptions::new()
+            .with_cancellation(self.cancellation.token())
+            .with_sink(sink.clone());
+        let result = script.execute_checked(&options).map(|execution| {
+            let stdout = String::from_utf8_lossy(execution.stdout().bytes());
+            let stderr = String::from_utf8_lossy(execution.stderr().bytes());
+            if !stdout.is_empty() {
+                tracing::trace!("=> {} {}", Label::output(), stdout.trim_end());
+            }
+            if !stderr.is_empty() {
+                tracing::trace!("=> {} {}", Label::output(), stderr.trim_end());
+            }
+        });
+        let flushed = sink.flush().map_err(|source| xylem_lib::error::ProcessError::Output {
+            script: script.to_string(),
+            working_directory: PathBuf::from(&script.current_dir),
+            source: io::Error::other(source),
+        });
+        match (result, flushed) {
+            | (Ok(()), Ok(())) => Ok(()),
+            | (Err(primary), _) => Err(primary),
+            | (Ok(()), Err(output)) => Err(output),
+        }
+    }
+
+    fn is_cancellation_requested(&self) -> bool {
+        self.cancellation.is_requested()
+    }
+}
+
 impl core::error::Error for RunFailure {}
+
 impl fmt::Display for RunFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.message.fmt(formatter)
     }
 }
+
 impl From<GpuMonitorError> for RunFailure {
     fn from(error: GpuMonitorError) -> Self {
         match error {
@@ -64,6 +115,7 @@ impl From<GpuMonitorError> for RunFailure {
         }
     }
 }
+
 impl RunFailure {
     fn new(exit_code: i32, message: impl Into<String>) -> Self {
         Self {
@@ -80,6 +132,7 @@ impl RunFailure {
         self.exit_code
     }
 }
+
 impl ProgressObserver for WorkflowProgress {
     fn update(&self, update: ProgressUpdate) {
         let bar = match update.phase {
@@ -87,6 +140,10 @@ impl ProgressObserver for WorkflowProgress {
             | ProgressPhase::Execution => &self.execution,
         };
         match update.state {
+            | ProgressState::Cancelled => {
+                bar.set_position(bar.position().saturating_add(1));
+                bar.set_message(format!("{} cancelled", update.module_path.join("::")));
+            }
             | ProgressState::Started => {
                 let module = update.module_path.join("::");
                 let message = match update.input {
@@ -95,14 +152,17 @@ impl ProgressObserver for WorkflowProgress {
                 };
                 bar.set_message(message);
             }
-            | ProgressState::Finished | ProgressState::Skipped | ProgressState::SkippedExisting => bar.inc(1),
+            | ProgressState::Finished | ProgressState::Skipped | ProgressState::SkippedExisting => {
+                bar.set_position(bar.position().saturating_add(1));
+            }
             | ProgressState::Failed => {
-                bar.inc(1);
+                bar.set_position(bar.position().saturating_add(1));
                 bar.set_message(format!("{} failed", update.module_path.join("::")));
             }
         }
     }
 }
+
 impl WorkflowProgress {
     fn new(preparation_total: u64, execution_total: u64, disabled: bool) -> Self {
         match disabled {
@@ -140,6 +200,7 @@ impl WorkflowProgress {
         }
     }
 }
+
 #[allow(clippy::too_many_arguments)]
 /// Resolve, validate, plan, execute, journal, and report one workflow run.
 pub fn run(
@@ -160,14 +221,18 @@ pub fn run(
     _verbose: Verbosity,
     limits: ExecutionLimits,
     no_progress: bool,
+    cancellation: Option<RunCancellation>,
 ) -> Result<(), RunFailure> {
-    let default_config = env::current_dir()
-        .map(|path| path.join(DEFAULT_CONFIG_NAME))
-        .unwrap_or_else(|_| PathBuf::from(DEFAULT_CONFIG_NAME));
-    let config_path = match config {
-        | Some(value) => value.to_path_buf(),
-        | None => default_config,
-    };
+    let config_path = env::current_dir()
+        .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, format!("resolve current directory — {why}")))
+        .and_then(|directory| {
+            resolve_config_path(config.as_deref(), &directory, &DEFAULT_CONFIG_NAMES).ok_or_else(|| {
+                RunFailure::new(
+                    exitcode::USAGE,
+                    format!("no workflow configuration found; expected one of {}", DEFAULT_CONFIG_NAMES.join(", ")),
+                )
+            })
+        })?;
     let prepared = Config::try_from(config_path.as_path())
         .map_err(|why| {
             let exit_code = match &why {
@@ -362,18 +427,18 @@ pub fn run(
                                                     .filter(|module| module.decision == "would_run")
                                                     .map(|module| module.module_index)
                                                     .collect::<BTreeSet<_>>());
-                                                let journal_directory = report_output.as_ref().unwrap_or(&root);
                                                 let modules = required_modules.and_then(|required_modules| {
-                                                    create_dir_all(journal_directory).map(|()| required_modules).map_err(|why| {
-                                                        RunFailure::new(
-                                                            exitcode::CANTCREAT,
-                                                            format!("create output directory {} — {why}", journal_directory.display()),
-                                                        )
-                                                    })
+                                                    Store::system()
+                                                        .and_then(|store| {
+                                                            Manifest::from_config(id.clone(), &config_path, execution.limits().threads())
+                                                                .and_then(|manifest| store.start(&manifest))
+                                                        })
+                                                        .map(|bundle| (required_modules, bundle))
+                                                        .map_err(|why| RunFailure::new(exitcode::CANTCREAT, why.to_string()))
                                                 });
                                                 match modules {
-                                                    | Ok(required_modules) => {
-                                                        let journal_path = journal_directory.join(format!("{id}.journal.jsonl"));
+                                                    | Ok((required_modules, bundle)) => {
+                                                        let journal_path = bundle.journal_path();
                                                         let journal_inputs = inputs
                                                             .iter()
                                                             .cloned()
@@ -423,6 +488,11 @@ pub fn run(
                                                         match create_journal_result {
                                                             | Ok(journal) => {
                                                                 let journal = Arc::new(journal);
+                                                                let system_monitor = SystemMonitor::start(bundle.clone());
+                                                                let module_executor = LoggedModuleExecutor {
+                                                                    bundle: bundle.clone(),
+                                                                    cancellation: cancellation.clone().unwrap_or_default(),
+                                                                };
                                                                 info!(path = %journal_path.display(), run_id = id, "=> {} Execution journal", Label::using());
                                                                 let progress_disabled =
                                                                     no_progress || !io::stderr().is_terminal() || env::var_os("CI").is_some();
@@ -495,6 +565,15 @@ pub fn run(
                                                                                 let _ = journal.transition_container(container.index, state, None);
                                                                             });
                                                                             let operation = |index, input: &Option<String>| {
+                                                                                if module_executor.cancellation.is_requested() {
+                                                                                    let message = "workflow cancellation requested";
+                                                                                    let _ = journal.transition_input(
+                                                                                        index,
+                                                                                        ExecutionState::Cancelled,
+                                                                                        Some(message),
+                                                                                    );
+                                                                                    return WorkflowOutcome::cancelled(input.clone(), message);
+                                                                                }
                                                                                 match input {
                                                                                     | Some(value) => info!(
                                                                                         value,
@@ -530,6 +609,7 @@ pub fn run(
                                                                                             input.clone(),
                                                                                             &options,
                                                                                             Some(&progress),
+                                                                                            Some(&module_executor),
                                                                                             Some(&journal),
                                                                                             index,
                                                                                         );
@@ -629,6 +709,15 @@ pub fn run(
                                                                     .transpose()
                                                                     .map(|_| ())
                                                                     .map_err(RunFailure::from);
+                                                                let system_monitoring = system_monitor
+                                                                    .stop()
+                                                                    .map_err(|why| RunFailure::new(exitcode::IOERR, why.to_string()));
+                                                                let monitoring = match (monitoring, system_monitoring) {
+                                                                    | (Ok(()), Ok(())) => Ok(()),
+                                                                    | (Err(primary), Ok(())) => Err(primary),
+                                                                    | (Ok(()), Err(system)) => Err(system),
+                                                                    | (Err(primary), Err(system)) => Err(primary.with_secondary(system)),
+                                                                };
                                                                 let dispatched = match (dispatched, monitoring) {
                                                                     | (Ok(outcomes), Ok(())) => Ok(outcomes),
                                                                     | (Err(primary), Ok(())) => Err(primary),
@@ -639,8 +728,12 @@ pub fn run(
                                                                     | Ok(outcomes) => {
                                                                         outcomes.iter().flatten().find(|outcome| !outcome.is_success()).map(
                                                                             |outcome| {
+                                                                                let exit_code = match outcome.state.is_cancelled() {
+                                                                                    | true => CANCELLED_EXIT_CODE,
+                                                                                    | false => exitcode::SOFTWARE,
+                                                                                };
                                                                                 RunFailure::new(
-                                                                                    exitcode::SOFTWARE,
+                                                                                    exit_code,
                                                                                     outcome
                                                                                         .error
                                                                                         .clone()
@@ -652,8 +745,14 @@ pub fn run(
                                                                     | Err(why) => Some(RunFailure::new(why.exit_code(), why.to_string())),
                                                                 };
                                                                 progress.finish_execution(primary_failure.is_none());
-                                                                let final_status =
-                                                                    primary_failure.as_ref().map_or(FinalStatus::Succeeded, FinalStatus::from);
+                                                                let cancelled = dispatched.as_ref().is_ok_and(|outcomes| {
+                                                                    outcomes.iter().flatten().any(|outcome| outcome.state.is_cancelled())
+                                                                });
+                                                                let final_status = match (cancelled, primary_failure.as_ref()) {
+                                                                    | (true, _) => FinalStatus::Cancelled,
+                                                                    | (false, Some(failure)) => FinalStatus::from(failure),
+                                                                    | (false, None) => FinalStatus::Succeeded,
+                                                                };
                                                                 let final_error = primary_failure.as_ref().map(ToString::to_string);
                                                                 if let Err(why) = journal.finish(final_status, final_error.as_deref()) {
                                                                     primary_failure = Some(match primary_failure {
@@ -682,7 +781,35 @@ pub fn run(
                                                                     }
                                                                 };
                                                                 if let Some(summary) = summary {
+                                                                    if let Err(why) = bundle.write_summary(&summary) {
+                                                                        primary_failure = Some(match primary_failure {
+                                                                            | Some(failure) => {
+                                                                                failure.with_secondary(format!("write canonical run summary — {why}"))
+                                                                            }
+                                                                            | None => RunFailure::new(
+                                                                                exitcode::IOERR,
+                                                                                format!("write canonical run summary — {why}"),
+                                                                            ),
+                                                                        });
+                                                                    }
                                                                     let selected = deduplicate(reporter);
+                                                                    if let Some(directory) = report_output {
+                                                                        let copied = create_dir_all(directory)
+                                                                            .and_then(|()| {
+                                                                                copy(&journal_path, directory.join(format!("{id}.journal.jsonl")))
+                                                                            })
+                                                                            .map(|_| ());
+                                                                        if let Err(why) = copied {
+                                                                            primary_failure = Some(match primary_failure {
+                                                                                | Some(failure) => failure
+                                                                                    .with_secondary(format!("export execution journal — {why}")),
+                                                                                | None => RunFailure::new(
+                                                                                    exitcode::IOERR,
+                                                                                    format!("export execution journal — {why}"),
+                                                                                ),
+                                                                            });
+                                                                        }
+                                                                    }
                                                                     if !selected.contains(&ReporterType::Console) {
                                                                         let stderr = io::stderr();
                                                                         if let Err(why) =

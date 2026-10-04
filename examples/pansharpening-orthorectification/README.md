@@ -3,7 +3,7 @@
 ## Breaking Down the Configuration
 - Specify the input directory or series of directories:
     - Use the `input` value to parse through imagery in parallel. 
-        - In the associated `config.json`, there is a single directory listed. Xylem will parse through this main directory and concurrently process all available subdirectories.
+        - In the associated `.xylem.json`, there is a single directory listed. Xylem will parse through this main directory and concurrently process all available subdirectories.
         ```json
         "input": 
             "/data/test-cases"
@@ -57,7 +57,7 @@ For more thorough discussions on variables and overall structure, along with a l
 - `source_directory`: the directory containing the raw, Level 1B Maxar imagery (or the output of Module A, if the images have been previously processed through Module A).
 - `output_directory`: the directory in which to store the output of Module P processing.
 - `method`: specification for users to define a pansharpening method. Currently, only `nn_diffuse` is supported.
-- `module_list`: specification for users to identify all modules used in the given configuration. The presence, or absence, of the string `MODA` in this argument determines how the input directories are processed. In this example `config.json`, users would specify Modules P and O, assuming the imagery was not previously processing with Module A. Options for this argument are: 'MODP', 'MODP, MODO', 'MODA, MODP', 'MODA, MODP, MODO'.
+- `module_list`: specification for users to identify all modules used in the given configuration. The presence, or absence, of the string `MODA` in this argument determines how the input directories are processed. In this example `.xylem.json`, users would specify Modules P and O, assuming the imagery was not previously processing with Module A. Options for this argument are: 'MODP', 'MODP, MODO', 'MODA, MODP', 'MODA, MODP, MODO'.
 
 ### Module O: ***O***rthorectification
 - 'source_directory': the directory containing the output of Module P. This argument should match the `output_directory` of Module P.
@@ -68,7 +68,7 @@ For more thorough discussions on variables and overall structure, along with a l
     ```bash
     make run
     ```
-- To run the module with Xylem, at maximum verbosity, using the `config.json`:
+- To run the module with Xylem, at maximum verbosity, using the automatically discovered `.xylem.json`:
     ```bash
     xylem run -vvvv
     ```

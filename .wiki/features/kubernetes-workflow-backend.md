@@ -78,8 +78,8 @@ monitoring changes.
 - `ExecutionPlan` is deterministic and write-free, but it currently describes
   only local acquisition, module commands, local container operations, resume,
   and the in-progress GPU monitor. It has no execution-target evidence.
-- The current worktree uses execution-plan version 6 for CEL selection
-  provenance and journal/report version 5. Environment/concurrency owns the
+- The current worktree uses execution-plan, journal, and report version 7 for
+  CEL selection provenance and durable dashboard state. The dashboard owns the
   coordinated version-7 runtime contract; Kubernetes must advance that
   contract to version 8 rather than modifying version-7 artifacts in place.
 - `RunJournal` is append-only, flushed at every transition, and recovered into

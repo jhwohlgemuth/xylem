@@ -13,7 +13,7 @@
       "name": "Prepare",
       "type": "script",
       "programmingLanguage": "generic",
-      "uri": "file:./examples/failure-logging/module",
+      "uri": "file:./module",
       "template": {
         "command": "sh",
         "arguments": ["run.sh", "prepare", "{{ INPUT }}"]
@@ -23,7 +23,7 @@
       "name": "Validate",
       "type": "script",
       "programmingLanguage": "generic",
-      "uri": "file:./examples/failure-logging/module",
+      "uri": "file:./module",
       "template": {
         "command": "sh",
         "arguments": ["run.sh", "validate", "{{ INPUT }}"]
@@ -33,7 +33,7 @@
       "name": "Publish",
       "type": "script",
       "programmingLanguage": "generic",
-      "uri": "file:./examples/failure-logging/module",
+      "uri": "file:./module",
       "template": {
         "command": "sh",
         "arguments": ["run.sh", "publish", "{{ INPUT }}"]

@@ -4,7 +4,7 @@
   "description": "Run a local shell module without network access or external environment managers",
   "requirements": ["sh"],
   "input": ["Ada", "Grace"],
-  "output": "./examples/offline-smoke/output",
+  "output": "./output",
   "options": {
     "offline": true
   },
@@ -13,7 +13,7 @@
       "name": "Greeting",
       "type": "script",
       "programmingLanguage": "generic",
-      "uri": "file:./examples/offline-smoke/module",
+      "uri": "file:./module",
       "template": {
         "command": "sh",
         "arguments": [

@@ -24,7 +24,8 @@ cargo run --example multi-module
 The equivalent CLI command is:
 
 ```shell
-cargo run --package xylem-cli -- -vvvv run --config examples/multi-module/config.json
+cd examples/multi-module
+xylem -vvvv run
 ```
 
 On success, `output/final.txt` contains:

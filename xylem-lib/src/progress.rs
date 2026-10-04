@@ -1,5 +1,4 @@
 //! Progress events emitted by module preparation and workflow execution.
-
 use crate::journal::ExecutionState;
 
 /// Receives progress updates without coupling the library to a terminal UI.
@@ -7,6 +6,7 @@ pub trait ProgressObserver: Send + Sync {
     /// Observe a progress update.
     fn update(&self, update: ProgressUpdate);
 }
+
 /// A workflow phase that can report progress.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProgressPhase {
@@ -15,9 +15,12 @@ pub enum ProgressPhase {
     /// Running a module for a workflow input.
     Execution,
 }
+
 /// The state of one progress item.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProgressState {
+    /// Work on the item was cancelled.
+    Cancelled,
     /// Work on the item has started.
     Started,
     /// Work on the item completed successfully.
@@ -29,6 +32,7 @@ pub enum ProgressState {
     /// Work on the item was skipped because declared outputs already exist.
     SkippedExisting,
 }
+
 /// A progress update for one module operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProgressUpdate {
@@ -43,6 +47,7 @@ pub struct ProgressUpdate {
     /// Current state of the item.
     pub state: ProgressState,
 }
+
 impl ProgressPhase {
     /// Emit a progress update for this phase when an observer is present.
     pub fn emit(self, state: ProgressState, module: &str, module_path: &[String], observer: Option<&dyn ProgressObserver>, input: Option<&str>) {
@@ -57,10 +62,12 @@ impl ProgressPhase {
         }
     }
 }
+
 impl From<ExecutionState> for ProgressState {
     fn from(state: ExecutionState) -> Self {
         match state {
             | ExecutionState::NotStarted | ExecutionState::Pending | ExecutionState::Running => Self::Started,
+            | ExecutionState::Cancelled => Self::Cancelled,
             | ExecutionState::Succeeded => Self::Finished,
             | ExecutionState::Failed => Self::Failed,
             | ExecutionState::Skipped => Self::Skipped,
@@ -78,6 +85,7 @@ mod tests {
         assert_eq!(ProgressState::from(ExecutionState::NotStarted), ProgressState::Started);
         assert_eq!(ProgressState::from(ExecutionState::Pending), ProgressState::Started);
         assert_eq!(ProgressState::from(ExecutionState::Running), ProgressState::Started);
+        assert_eq!(ProgressState::from(ExecutionState::Cancelled), ProgressState::Cancelled);
         assert_eq!(ProgressState::from(ExecutionState::Succeeded), ProgressState::Finished);
         assert_eq!(ProgressState::from(ExecutionState::Failed), ProgressState::Failed);
         assert_eq!(ProgressState::from(ExecutionState::Skipped), ProgressState::Skipped);

@@ -1,0 +1,22 @@
+[package]
+name = "xylem-tui"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme = "../README.md"
+edition = "2021"
+rust-version.workspace = true
+
+[dependencies]
+crossterm = { workspace = true }
+ratatui = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+xylem-lib = { version = "1.0.3", path = "../xylem-lib" }
+
+[lints]
+workspace = true

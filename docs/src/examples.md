@@ -7,8 +7,14 @@ Start with the offline smoke workflow. It uses only a checked-in POSIX shell
 script and requires no environment manager, container runtime, or network:
 
 ```shell
-cargo run --package xylem-cli -- run \
-  --config examples/offline-smoke/config.json \
+cargo run --example offline-smoke
+```
+
+The equivalent CLI invocation uses automatic configuration discovery:
+
+```shell
+cd examples/offline-smoke
+xylem run \
   --offline \
   --no-progress
 ```
@@ -53,7 +59,8 @@ from the preceding stage and writes the next one. Install Mamba and Pixi, then
 run:
 
 ```shell
-cargo run --package xylem-cli -- -vvvv run --config examples/multi-module/config.json
+cd examples/multi-module
+xylem -vvvv run
 ```
 
 ## Kitchensink
@@ -66,7 +73,8 @@ mount; see the [kitchensink README](https://code.ornl.gov/research-enablement/xy
 for setup.
 
 ```shell
-cargo run --package xylem-cli -- -vvvv run --config examples/kitchensink/config.json
+cd examples/kitchensink
+xylem -vvvv run
 ```
 
 ## Python with Pixi
@@ -76,13 +84,14 @@ interpolation, and runs a Python module that prints a Polars DataFrame. Install
 [Pixi](https://pixi.sh), then run it from the repository root:
 
 ```shell
-cargo run --package xylem-cli -- -vvvv run --config examples/python-with-pixi/config.json
+cd examples/python-with-pixi
+xylem -vvvv run
 ```
 
 With Xylem installed:
 
 ```shell
-xylem -vvvv run --config examples/python-with-pixi/config.json
+xylem -vvvv run
 ```
 
 The first execution creates the declared Pixi environment. Later executions
@@ -96,7 +105,8 @@ runs the same interpolated module. Install
 then run it from the repository root:
 
 ```shell
-cargo run --package xylem-cli -- -vvvv run --config examples/python-with-conda/config.json
+cd examples/python-with-conda
+xylem -vvvv run
 ```
 
 ## Geospatial pipelines

@@ -57,8 +57,8 @@ cargo run --package xylem-cli -- run --help
 The smallest end-to-end check is the local offline example:
 
 ```shell
-cargo run --package xylem-cli -- run \
-  --config examples/offline-smoke/config.json \
+cd examples/offline-smoke
+cargo run --manifest-path ../../Cargo.toml --package xylem-cli -- run \
   --offline \
   --no-progress
 ```

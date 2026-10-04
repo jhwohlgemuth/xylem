@@ -1,92 +1,73 @@
 ---
 type: Plan
 title: "Add a workflow dashboard and durable run history"
-description: "Add a Ratatui dashboard that launches workflows, renders live scheduler and system state, projects completion, and reads canonical run bundles from the system cache."
+description: "Add a Ratatui dashboard over the existing fixed-concurrency workflow runtime, with live execution, logs, system metrics, cancellation, and retained history."
 difficulty: high
 impact: high
 package: [xylem-lib, xylem-cli, xylem-tui, workspace]
-tags: [feature, tui, dashboard, observability, history, telemetry, scheduler, config]
-status: planned
+tags: [feature, tui, dashboard, observability, history, telemetry, config]
+status: complete
 ---
 
 # Goal
 
-Add an engaging terminal dashboard for launching Xylem workflows, following
-their live progress, and inspecting retained runs. The TUI and headless CLI
-must execute through one runner and write the same durable evidence.
+Make the initial workflow dashboard Xylem's first implementation priority.
+Deliver one local terminal interface that launches workflows, follows live
+progress, supports cancellation, and inspects retained runs. The TUI and
+headless CLI execute through the same command runner and write the same durable
+evidence.
 
-The dashboard reports workflow, scheduler, process, host, log, and projection
-state. It reads run bundles from Xylem's platform cache directory so a later
-session can inspect the same data without a separate database.
+This first release includes live workflow state, attributed module logs,
+one-second system metrics, run history, and duration-based completion
+projections. It preserves the current `--threads` and `options.batch`
+execution semantics. The dashboard reads the canonical files on each refresh,
+so those files remain the sole source of truth for live and historical views.
 
 # Non-goals
 
-The first version does not add a web server, background daemon, remote
-attachment, pause, task retry, workflow editing, or automatic run pruning. It
-does not build a second process supervisor, memory admission loop, or JSONC
-parser inside Xylem.
+This plan does not implement memory-aware admission, scheduler reservations,
+oversized-input policy, or estimator-backed forecasting. It does not implement
+the broader workflow environment/concurrency refactor, including immutable
+per-input contexts, isolated workspaces, configurable failure policy, or a new
+admission algorithm.
 
-# Current evidence
+The first version also excludes a web server, background daemon, remote
+attachment, detached execution, pause, task retry, workflow editing, automatic
+run pruning, interactive log queries, historical filters, and chart widgets.
+Those presentation refinements do not block the initial operational dashboard.
 
-- The CLI has one `run` subcommand. Its optional `--config` flag falls back to
-  `config.json` in the current directory.
-- `Config` reads JSON, YAML, and YML. It does not read JSONC or discover the
-  canonical hidden Xylem filenames.
-- `xylem-cli::commands::run` owns configuration selection, preparation,
-  workspace and journal creation, container lifecycle, input dispatch,
-  reporting, and exit mapping in one function. A TUI cannot reuse that
-  orchestration without invoking CLI presentation code.
-- `ProgressObserver` exposes preparation and module state, but it does not
-  provide scheduler reservations, process output, host metrics, projections,
-  or a complete run lifecycle.
-- `RunJournal` is append-only and recoverable, but journals currently follow
-  report or temporary paths rather than one system run store. Child stdout and
-  stderr are buffered through `CommandSpec::output()` until exit.
-- The in-progress [memory-aware scheduler](memory-aware-scheduling.md) owns
-  memory estimation and admission. Its event and simulation seams are the
-  source of truth for dashboard memory state and projected admission.
-- The adjacent ACORN worktree provides design examples through `acorn-tui`,
-  but its reusable widgets and runtime are private. ACORN's public command,
-  host, color, and GPU schema types are the useful dependency boundary.
+# Delivered baseline
 
-# Project code boundaries
+- All five ACORN crates are pinned to v0.3.4 revision
+  `36cd74041eaa4669636b7743071f3c334cdb3b7d`.
+- `xylem-cli::commands::run` remains the single orchestration path used by both
+  the headless command and the dashboard launcher.
+- ACORN managed commands stream stdout and stderr into per-module durable logs
+  and provide forced process-group cancellation.
+- `RunJournal` and the canonical run store retain workflow state, summaries,
+  logs, and metrics independently of report exports and temporary workspaces.
+- Ratatui provides five live and historical views behind the default-enabled
+  `tui` feature; the headless build remains available without default features.
+- Memory-aware scheduling is separately blocked. The dashboard reports
+  ordinary system memory without consuming its estimator or admission model.
 
-- **Update:** workspace and crate manifests, CLI argument and dispatch types,
-  run orchestration, configuration reading, script execution adaptation,
-  progress and journal events, reports, schemas, help, documentation, and
-  workflow tests.
-- **Create:** the `xylem-tui` crate; reusable runner, run-store, task-log,
-  system-sampling, history, and projection modules in `xylem-lib`; the current
-  run-bundle schemas; dashboard tests and deterministic telemetry fixtures.
-- **Delete:** the `--config` flag, `config.json` fallback, older journal and
-  summary readers and fixtures, direct CLI-owned workflow orchestration, and
-  Xylem-local process capture or cancellation code superseded by ACORN.
+# Dependencies and priority
 
-# Dependencies and landing order
+ACORN v0.3.4 is the only runtime prerequisite. Upgrade all ACORN versions and
+Git revisions together; do not add sibling path dependencies.
 
-1. Land and publish ACORN's
-   [Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md).
-   Update ACORN versions and Git revisions together; do not use sibling path
-   dependencies.
-2. Land [workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
-   so execution has immutable contexts, isolated workspaces, managed process
-   results, and shared cancellation.
-3. Land [memory-aware scheduling](memory-aware-scheduling.md), including a
-   read-only scheduler snapshot/event contract and a pure simulation function.
-   The dashboard consumes these interfaces and cannot supply its own admission
-   policy.
-4. Implement the shared runner and canonical run store before the TUI. Keep
-   the existing CLI progress display as the first event-stream adapter.
-5. Add telemetry, history, projections, and the TUI after CLI parity and run
-   bundle recovery tests pass.
+The dashboard does not wait for workflow environment/concurrency or
+memory-aware scheduling. Those plans must later preserve the runner path and
+versioned run-store contracts established here. Homebrew activation and
+unrelated execution targets resume after dashboard acceptance.
 
-Configuration discovery can land after the ACORN host prerequisite without
-waiting for memory scheduling. Runner, journal, scheduler, CLI, manifest, and
-generated-help changes remain serialized with their existing plan owners.
+The dashboard owned the manifest, CLI, run-state, run-store, and TUI
+integration locks during implementation; those locks are released now that
+the plan is complete.
 
 # User-facing CLI contract
 
-Replace the config flag with an optional first positional argument:
+Use an optional first positional configuration argument:
 
 ```text
 xylem run [CONFIG] [OPTIONS]
@@ -95,10 +76,9 @@ xylem tui [CONFIG] [OPTIONS]
 
 Remove `--config` without a compatibility alias. Both subcommands accept an
 explicit `.json`, `.jsonc`, `.yaml`, or `.yml` path. An explicit path always
-wins and a missing explicit path reports that path; discovery never masks the
-error.
+wins, and a missing explicit path reports that path.
 
-When `CONFIG` is omitted, pass these names to ACORN's generic ordered resolver:
+When `CONFIG` is omitted, pass these names to ACORN's ordered resolver:
 
 1. `.xylem.json`
 2. `.xylem.jsonc`
@@ -106,61 +86,45 @@ When `CONFIG` is omitted, pass these names to ACORN's generic ordered resolver:
 4. `.xylem.yml`
 
 `xylem run` returns a usage error listing the four names when none exists.
-`xylem tui` still opens the run browser; if a default exists, the New Run form
-preselects it. Supplying `CONFIG` to the TUI preloads the launch form and still
-requires confirmation.
+`xylem tui` still opens the run browser; a discovered default preselects the
+New Run action. Supplying `CONFIG` to the TUI preloads that action and still
+requires `n` confirmation.
 
-JSONC uses ACORN's strict parser. It accepts line comments, block comments,
-and trailing commas. It rejects loose property names, missing commas, single
-quotes, hexadecimal numbers, and unary-plus numbers. Preserve Xylem's YAML
-merge behavior. Default discovery applies only to the top-level omitted
-`CONFIG`; nested configuration modules retain their existing location rules
-and gain JSONC only when their explicit extension identifies it.
+JSONC uses ACORN's strict parser. Preserve Xylem's YAML merge behavior. Default
+discovery applies only to an omitted top-level `CONFIG`; nested configuration
+modules retain their location rules and gain JSONC only for an explicit JSONC
+extension.
 
-Factor workflow launch flags into shared Clap types. The TUI accepts inputs,
-offline and resume behavior, GPU monitoring, container policy, artifact
-output, allowlists, and verification overrides. Reporter selection and
-`--report-output` remain headless `run` options because the dashboard renders
-its own summary from the canonical store.
+# Shared runner path
 
-# Shared runner contract
+Keep preparation, batching, workspace, container, failure, and ordering
+behavior in the existing command runner. Both the headless command and the TUI
+launcher invoke that exact entry point. `RunCancellation` is the shared control
+handle: its first request stops new admission after active work settles, and a
+repeated request activates ACORN's process-group cancellation token.
 
-Move run orchestration into `xylem-lib` behind these public concepts:
+The Indicatif CLI observes in-process progress. The dashboard tails the same
+journal, metrics, summary, and log files used for history. This avoids a second
+execution implementation or a live-only state channel that could disagree
+with recovered evidence. Reporter selection and `--report-output` remain
+headless-only because the dashboard renders canonical stored evidence.
 
-- `RunRequest` contains the selected configuration path, inputs, execution
-  limits, scheduler settings, and launch options.
-- `RunEngine::execute` owns planning, preparation, container lifecycle,
-  scheduling, module execution, finalization, and terminal outcome.
-- `RunEventSink` receives preparation, scheduler, input, module, output,
-  container, metric, projection, and terminal events.
-- `RunCancellation` exposes graceful cancellation and an internal forced child
-  cancellation path.
-- `RunResult` and `RunError` retain stable outcome and exit classifications.
-
-Represent runner state as events reduced into immutable snapshots. The CLI's
-Indicatif progress display and the TUI are adapters over the same event
-stream. No adapter may call a separate workflow execution path.
-
-Run every long-lived child through ACORN's managed command API. Bridge the
+Run long-lived children through ACORN's managed command API. Bridge the
 byte-oriented `OutputSink` to durable task logs while preserving stdout and
-stderr attribution. Retain bounded output tails and ACORN truncation metadata
-in memory. Do not decode or sanitize bytes until a presentation or log-writing
-boundary requires text.
+stderr attribution. Decode and sanitize at the log boundary.
 
-The first cancellation request stops new admissions and lets active modules
-finish. It marks queued work cancelled and releases scheduler reservations as
-inputs reach terminal states. A second process signal or unrecoverable shutdown
-uses ACORN's cancellation token to terminate and reap active process groups.
+A graceful cancellation stops new input admission and lets active work settle.
+Forced cancellation uses ACORN's token to terminate and reap active process
+groups. Cancellation is a durable input, module, and run state.
 
 # Canonical run store
 
-Resolve the platform cache directory with ACORN's generic host helper using
-qualifier `org`, organization `ornl`, application `xylem`, and namespace
-`runs`. Failure to resolve or create this directory is a run startup error;
-there is no temporary fallback. Tests inject an isolated store root through
-the library constructor rather than changing production CLI precedence.
+Resolve the platform cache directory with ACORN's host helper using qualifier
+`org`, organization `ornl`, application `xylem`, and namespace `runs`.
+Failure to resolve or create it is a startup error. Tests inject an isolated
+root through the library constructor or `XYLEM_RUN_STORE`.
 
-Each run owns this layout:
+Each run owns:
 
 ```text
 runs/<run-id>/
@@ -168,219 +132,151 @@ runs/<run-id>/
   journal.jsonl
   metrics.jsonl
   summary.json
-  logs/run.jsonl
   logs/input-<index>/module-<index>.jsonl
 ```
 
-The manifest records immutable identity, start time, selected config path and
-digest, sanitized launch options, scheduler and estimator identity, and file
-schema versions. Never persist resolved environment values, credentials, or
-credential-bearing URLs.
+The manifest records immutable identity, start time, configuration path and
+digest, process ID, thread ceiling, and schema versions. It never persists
+resolved environment values or credentials.
 
-The journal remains the authoritative workflow and scheduler event stream.
-`metrics.jsonl` stores one sample per second. Task log records contain a
-timestamp, monotonic sequence, stream, and sanitized UTF-8 text. Maintain a
-partial-line buffer per stream and flush remaining fragments when the command
-ends. Run-level preparation and infrastructure output goes to `logs/run.jsonl`.
+The journal remains authoritative workflow state. `metrics.jsonl` stores one
+sample per second. Log records contain timestamp, monotonic sequence, stream,
+and sanitized UTF-8 text. Maintain partial-line buffers per stream and flush
+fragments when a command ends.
 
-Write the manifest and summary atomically. Append and flush journal, metric,
-and log records as they occur. Independent run directories avoid a shared
-mutable index; history scans manifests and sorts by recorded start time. Keep
-all runs until a later retention plan defines deletion.
+Write manifests and summaries atomically. Append and flush journal, metric,
+and log records as they occur. History scans independent run directories and
+sorts by recorded start time; no shared mutable index is created. Keep all runs
+until a later retention plan defines deletion.
 
-Canonical data always goes to the system run store. `--report-output` writes
+Canonical evidence always goes to the configured run store, which is the
+system cache unless `XYLEM_RUN_STORE` is set. `--report-output` writes
 additional requested reports and a journal copy; it cannot relocate the
 canonical bundle. Artifact output semantics remain unchanged.
 
 A bundle without a terminal summary is `running` while owned by a live local
 process and `interrupted` afterward. Readers may ignore one incomplete final
-JSONL line while its writer is live. A malformed complete record marks the
+JSONL record while the writer is live. A malformed complete record marks the
 bundle corrupt.
 
-# Journal and run-bundle compatibility
+# Schemas and compatibility
 
-Make a clean break at the schema current when this plan lands. Keep one
-`CURRENT_JOURNAL_SCHEMA` and one current run-bundle version. Delete older
-readers, normalization code, schemas, and compatibility fixtures. Do not add a
-migration command.
+Advance the execution-plan, journal, and summary formats to schema version 7
+and add run-bundle version 1. These are the only readable schemas after the
+plan lands. Delete older readers, normalizers, schemas, and successful
+compatibility fixtures. Do not add a migration command.
 
 The history browser may list an incompatible directory as `unsupported` from
-its outer manifest, but it must not replay, normalize, or infer state from an
-older journal. Every execution-plan, journal, summary, metric, and manifest
-test targets the current schema only.
+its outer manifest, but it must not replay or infer state from older data.
 
-# Scheduler telemetry and projections
-
-Consume scheduler events containing:
-
-- scheduler mode and estimator identity;
-- configured budget, headroom, reserved bytes, and available bytes;
-- batch ceiling, active inputs, and waiting inputs;
-- each input's estimate, observed peak, queue position, admission, release,
-  cancellation, oversized state, and memory-wait reason.
-
-Use the landed scheduler's pure simulator to forecast future admissions. The
-TUI and projection code never duplicate its budget, fairness, batch, or
-oversized-input rules.
-
-Build duration history from the latest 50 successful runs with the same
-normalized configuration fingerprint. Use at most the latest 20 successful
-samples per module. Exclude failed, cancelled, skipped, corrupt, and
-unsupported-schema observations.
-
-The live progress chart uses cumulative terminal module-input steps. Solid
-points show observed completions. Future completion points come from the
-scheduler simulator using P50 module durations; P10 and P90 histories provide
-the displayed confidence bounds. Show ETA, projected finish time, sample
-count, and confidence. A cold start uses completed work from the current run
-and equal-weight remaining tasks, labeled `low confidence`.
-
-# System telemetry
+# Metrics and duration projections
 
 Sample once per second and persist:
 
-- host CPU and load, memory, swap, network totals and rates, disk I/O, and
-  filesystem capacity;
-- CPU, RSS, I/O, and process count for Xylem and its descendants;
-- scheduler reservations, estimates, and observed memory peaks;
+- host CPU and one-minute load, memory, swap, network deltas, disk I/O deltas,
+  and aggregate filesystem capacity;
+- CPU, RSS, I/O deltas, and process count for Xylem and its descendants;
 - existing NVIDIA GPU utilization and memory readings when GPU monitoring was
   explicitly enabled and `nvidia-smi` is available.
 
-Keep live sampling in Xylem because ACORN's diagnostic snapshot is not a
-continuous process-tree monitor. Reuse ACORN schema GPU inventory and reading
-types where they match the existing Xylem monitor. Missing GPU support is an
-ordinary unavailable state and does not fail a run.
+Ordinary memory observations do not imply memory admission.
+When GPU monitoring is explicitly requested, a missing initial probe fails
+before module execution; a later probe failure degrades monitoring without
+changing an otherwise successful workflow result.
+
+Build duration history from the latest 50 successful runs with the same
+configuration path. Use at most the latest 20 successful samples per module.
+Exclude failed, cancelled, skipped, corrupt, and unsupported observations.
+
+Project remaining work with the current fixed batch/thread ceiling and P50
+module durations. P10 and P90 histories provide confidence bounds. A cold
+start with completed work uses current-run throughput and is labeled `low
+confidence`; otherwise the overview reports that it is collecting samples.
+This projection must not duplicate or predict the deferred memory-aware
+scheduler.
 
 # Dashboard design
 
-Use Ratatui 0.30 and Crossterm in a default-enabled `tui` feature. A
-`--no-default-features` build retains the headless CLI. Use ACORN's public ORNL
-color constants for the default theme, honor `NO_COLOR`, and pair every color
-state with text or a symbol.
-
-The layout draws from the dense live metrics in
-[Zenith](https://github.com/bvaisvil/zenith) and
-[bottom](https://github.com/ClementTsang/bottom), Grafana's
-[overview and drill-down guidance](https://grafana.com/docs/grafana/latest/visualizations/dashboards/build-dashboards/best-practices/),
-Airflow's [grid and task-instance views](https://airflow.apache.org/docs/apache-airflow/stable/ui.html),
-and the local ACORN TUI's compact controls and TestBackend coverage.
+Use Ratatui 0.30 and Crossterm behind a default-enabled `tui` feature. A
+`--no-default-features` build retains the headless CLI. Honor `NO_COLOR`, and
+pair every color state with text or a symbol.
 
 Provide five tabs:
 
-1. `Overview` shows run status, elapsed time, ETA and confidence, the live
-   progress projection, throughput, memory admission, host and process
-   sparklines, optional GPU state, and recent activity.
-2. `Workflow` renders input rows by module columns. Each cell shows pending,
-   memory-waiting, running, succeeded, failed, skipped, or cancelled state.
-   The selected cell shows duration, estimate, observed peak, queue reason,
-   and dependencies.
-3. `System` renders rolling host, process-tree, scheduler, disk, network, and
-   optional GPU charts from persisted metric samples.
-4. `Logs` selects run-level or module logs and supports stream filtering,
-   search, follow mode, truncation notices, and historical viewing.
-5. `Runs` lists every bundle newest first with status, configuration, and time
-   filters, then opens a read-only historical detail view.
+1. `Overview` shows run status, retained count, active state, configuration,
+   and fixed-concurrency ETA with its confidence.
+2. `Workflow` renders each input and its ordered modules with pending, running,
+   succeeded, failed, skipped, skipped-existing, or cancelled state.
+3. `System` renders recent persisted host, process-tree, disk, network, and
+   filesystem samples.
+4. `Logs` combines recent attributed module stdout and stderr for live or
+   historical viewing.
+5. `Runs` lists every bundle newest first with status and configuration;
+   selection drives the other read-only views.
 
-At 80 by 24, show the selected primary panel and a compact status bar. At 120
-by 36, show the standard two-column overview. Wider terminals add details and
-longer charts without changing navigation.
+At 80 by 24 and above, show the selected primary panel and a compact status
+bar. Text wrapping and bounded recent samples keep every view usable in the
+compact layout.
 
 Controls are `1` through `5` for tabs, arrows or `j` and `k` for navigation,
-`Enter` for details, `/` for filter or search, `f` for log follow, `n` for New
-Run, `c` for confirmed graceful cancellation, `?` for help, and `q` to exit.
+`f` for the log-follow preference, `n` for New Run, `c` twice for confirmed
+cancellation, `?` for help, and `q` to exit. `/` reserves the future search
+entry point and explains its current selected-run scope.
 Exiting during a live run requires staying open or cancelling and waiting for
 cleanup because the first release has no detached runner.
 
 # Implementation phases
 
-1. Pin the published ACORN prerequisite, add positional config discovery and
-   JSONC, and update CLI help and examples.
-2. Extract `RunEngine`, preserve headless behavior through the event adapter,
-   and create the canonical run store with the clean current schema.
-3. Move child execution to ACORN managed commands and add durable logs,
-   one-second host/process metrics, and scheduler event persistence.
-4. Add deterministic historical duration statistics and scheduler-backed
-   projections.
-5. Add `xylem-tui`, responsive tabs, launch and cancellation dialogs, run
+1. Reconcile portfolio order and dependency edges; pin ACORN v0.3.4.
+2. Add positional discovery and strict JSONC, then adapt `Script` to managed
+   ACORN execution.
+3. Reuse the existing command runner from both adapters and add shared
+   two-stage cancellation.
+4. Add the canonical run store, version-7 state, version-1 bundle, logs,
+   metrics, recovery, and duration projections.
+5. Add `xylem-tui`, five responsive tabs, launch and cancellation controls,
    history, and terminal restoration.
-6. Remove superseded CLI orchestration and legacy readers, then update user and
-   architecture documentation.
+6. Remove superseded readers, then update user and architecture documentation.
 
 # Validation
 
-## ACORN and configuration
-
-- Compile against the published ACORN revision and prove no sibling path
-  dependency is present.
-- Test positional config before and after flags, rejection of `--config`, all
-  default-name combinations and exact precedence, explicit missing paths,
-  `run` with no default, and history-only TUI startup.
-- Test JSON, strict JSONC, YAML/YML merge behavior, empty files, unsupported
-  extensions, and explicitly referenced nested JSONC.
-
-## Runner and storage
-
-- Feed identical requests through CLI and TUI adapters and compare plans,
-  scheduler decisions, journals, summaries, exit classifications, and
-  cancellation results.
-- Test concurrent run writers, atomic manifest and summary replacement,
-  live trailing records, interrupted and corrupt runs, secret omission,
-  report copies, and all-run retention.
-- Reject every non-current journal and bundle schema. Keep no legacy fixture
-  that is expected to deserialize successfully.
-- Use deterministic child probes for interleaved streams, partial lines,
-  non-UTF-8 bytes, large output, bounded tails, sink failures, timeouts,
-  non-zero exits, graceful cancellation, forced cleanup, and descendants.
-
-## Scheduler, telemetry, and projection
-
-- Compare every displayed scheduler snapshot and forecast with the landed
-  scheduler's event stream and pure simulator.
-- With deterministic clocks and histories, verify percentile selection,
-  exclusions, sample limits, confidence labels, ETA, and progress chart
-  points.
-- Test one-second samples with missing processes, short commands, process-tree
-  changes, counter resets, unavailable filesystems, and absent or failing GPU
-  probes.
-
-## TUI and end-to-end behavior
-
-- Use Ratatui `TestBackend` for every tab at compact, standard, and wide sizes,
-  including monochrome, loading, empty, corrupt, unsupported, and long
-  untrusted-log states.
-- Test all navigation, launch, help, search, follow, cancellation, and exit
-  dialogs with a pure application-state reducer.
-- Launch a multi-input workflow, observe live state within one second, cancel
-  it gracefully, reopen the TUI, and recover the same result from the run
-  bundle.
-- Verify terminal raw mode, alternate screen, cursor, and signal handlers are
-  restored after success, errors, cancellation, and panic unwinding.
-- Run workspace tests and lint on Linux, macOS, and Windows; exercise optional
-  NVIDIA telemetry on a supported Linux host.
+- Compile the workspace against the pinned ACORN v0.3.4 revision with every
+  feature, and compile the headless configuration without default features.
+- Test positional configuration parsing, rejection of `--config`, strict
+  JSONC, YAML merging, and generated help.
+- Preserve the existing workflow integration suite for ordering, batching,
+  reporting, containers, resume, selection, and failure behavior.
+- Test exclusive bundle creation, running/interrupted/corrupt history states,
+  stream attribution, partial-line flushing, duration projections, and
+  two-stage cancellation.
+- Render all five tabs at 80 by 24 with Ratatui `TestBackend` and verify the
+  terminal guard restores raw mode and the alternate screen by construction.
+- Run formatting, Clippy with warnings denied, workspace tests, documentation,
+  dependency policy, and diff hygiene before handoff.
 
 # Acceptance criteria
 
-- `xylem run [CONFIG]` and `xylem tui [CONFIG]` implement the documented
-  positional and four-name discovery contract, including strict JSONC.
-- Every started run writes a canonical bundle beneath the Xylem system cache
-  `runs` directory, independent of report export and temporary workspaces.
+- `xylem run [CONFIG]` and `xylem tui [CONFIG]` implement positional discovery
+  and strict JSONC.
+- Every started run writes a canonical configured-store bundle independent of
+  report exports and temporary workspaces.
 - CLI and TUI use one runner and produce equivalent durable outcomes.
-- The dashboard updates live workflow, scheduler, log, and system state within
-  one second and displays scheduler-backed ETA with a stated confidence.
-- The progress chart distinguishes observed work from projected P50 and P10 to
-  P90 completion bounds.
-- Xylem reuses ACORN managed execution, JSONC policy, config discovery, cache
-  resolution, ORNL colors, and GPU schema types where applicable.
-- Xylem contains no second process supervisor, JSONC policy literal, or memory
-  admission model.
-- Only the current journal and run-bundle schema is readable. There is no
-  migration or old-version normalization path.
-- The TUI remains usable at 80 by 24, supports monochrome terminals, restores
-  terminal state on every exit path, and can inspect all retained runs.
+- The dashboard updates live workflow, logs, and system state within one
+  second and shows fixed-concurrency ETA with stated confidence.
+- Xylem reuses ACORN managed execution, JSONC, config discovery, cache
+  resolution, and cancellation.
+- The current batching, preparation, workspace, container, ordering, and
+  failure behavior remains unchanged except for explicit cancellation.
+- Only schema 7 and run-bundle version 1 are readable.
+- The TUI works at 80 by 24, supports monochrome terminals, restores terminal
+  state, and inspects all retained runs.
 
-# Related plans
+# Deferred integration
 
-- [ACORN runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md)
-- [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
-- [Memory-aware scheduling](memory-aware-scheduling.md)
-- [Kubernetes workflow execution](kubernetes-workflow-backend.md)
+When memory-aware scheduling is unblocked, it adds reservation and admission
+records to the durable journal or metrics stream and adds optional dashboard
+fields. It may not replace the runner, store, or TUI execution path.
+
+The workflow environment/concurrency refactor may later change runner
+internals, but it must preserve cancellation, journal, summary, and bundle
+behavior or version those contracts explicitly.

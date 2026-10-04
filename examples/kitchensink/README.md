@@ -43,7 +43,8 @@ To run the CLI directly, build the native binary first:
 
 ```shell
 rustc --edition=2024 -O examples/kitchensink/binary/finalize.rs -o examples/kitchensink/binary/finalize
-cargo run --package xylem-cli -- -vvvv run --config examples/kitchensink/config.json
+cd examples/kitchensink
+xylem -vvvv run
 ```
 
 The output files are written below `output/alpha/` and `output/bravo/`. Re-run

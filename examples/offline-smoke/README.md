@@ -7,8 +7,15 @@ files under `output/`.
 From a clean checkout, run:
 
 ```shell
-cargo run --package xylem-cli -- run \
-  --config examples/offline-smoke/config.json \
+cargo run --example offline-smoke
+```
+
+With Xylem installed, the configuration is discovered from the example
+directory:
+
+```shell
+cd examples/offline-smoke
+xylem run \
   --offline \
   --no-progress
 ```
@@ -16,8 +23,7 @@ cargo run --package xylem-cli -- run \
 Inspect the same workflow without executing it or writing files:
 
 ```shell
-cargo run --package xylem-cli -- run \
-  --config examples/offline-smoke/config.json \
+xylem run \
   --offline \
   --dry-run \
   --reporter json

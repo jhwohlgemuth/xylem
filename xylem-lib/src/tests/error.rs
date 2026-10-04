@@ -15,6 +15,7 @@ fn test_acquisition_error_preserves_module_and_source() {
     assert_eq!(error.to_string(), "prepare module imagery: missing checkout");
     assert!(error.source().is_some());
 }
+
 #[test]
 fn test_process_spawn_error_preserves_working_directory_and_source() {
     let script = Script::init()
@@ -29,10 +30,13 @@ fn test_process_spawn_error_preserves_working_directory_and_source() {
             assert!(script.contains("xylem-command-that-cannot-exist"));
             assert_eq!(working_directory, &std::path::PathBuf::from("missing-working-directory"));
         }
-        | ProcessError::Unsuccessful { .. } => panic!("expected spawn failure"),
+        | ProcessError::Managed { .. } | ProcessError::Output { .. } | ProcessError::Unsuccessful { .. } => {
+            panic!("expected spawn failure")
+        }
     }
     assert!(error.source().is_some());
 }
+
 #[test]
 fn test_pyproject_errors_preserve_path_and_source() {
     let path = std::env::temp_dir().join(format!("xylem-missing-pyproject-{}", std::process::id()));
@@ -40,6 +44,7 @@ fn test_pyproject_errors_preserve_path_and_source() {
     assert!(matches!(&error, PyProjectError::Read { path: error_path, .. } if error_path == &path));
     assert!(error.source().is_some());
 }
+
 #[test]
 fn test_remote_errors_preserve_safe_context_and_source() {
     let policy = RemotePolicy::default();
@@ -48,6 +53,7 @@ fn test_remote_errors_preserve_safe_context_and_source() {
     assert!(error.to_string().contains("[INVALID URL]"));
     assert!(error.source().is_some());
 }
+
 #[test]
 fn test_requirement_error_preserves_command() {
     let error = RequirementError {
@@ -56,6 +62,7 @@ fn test_requirement_error_preserves_command() {
     assert_eq!(error.to_string(), "required command was not found: missing-tool");
     assert!(error.source().is_none());
 }
+
 #[test]
 fn test_template_errors_preserve_path_and_source() {
     let root = std::env::temp_dir().join(format!("xylem-template-error-{}", std::process::id()));

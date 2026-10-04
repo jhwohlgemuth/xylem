@@ -17,6 +17,7 @@ pub struct ModuleOutcome {
     /// Failure detail, when present.
     pub error: Option<String>,
 }
+
 /// Result of executing one workflow input.
 #[derive(Builder, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[builder(start_fn(name = init))]
@@ -32,7 +33,16 @@ pub struct WorkflowOutcome {
     /// Failure detail, when present.
     pub error: Option<String>,
 }
+
 impl WorkflowOutcome {
+    /// Build a cancelled workflow outcome before any module reaches a terminal state.
+    pub fn cancelled(input: Option<String>, error: impl Into<String>) -> Self {
+        Self::init()
+            .maybe_input(input)
+            .state(ExecutionState::Cancelled)
+            .error(error.into())
+            .build()
+    }
     /// Build a failed workflow outcome before any module reaches a terminal state.
     pub fn failed(input: Option<String>, error: impl Into<String>) -> Self {
         Self::init().maybe_input(input).state(ExecutionState::Failed).error(error.into()).build()

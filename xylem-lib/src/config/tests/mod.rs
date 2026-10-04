@@ -3,7 +3,7 @@ use crate::execution::{ExecutionContext, ExecutionLimits, InputBatch};
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState, ProgressUpdate};
 use crate::remote::RemotePolicy;
 use acorn_schema::validation::Validate;
-use std::fs::{create_dir_all, remove_dir_all, remove_file, write};
+use std::fs::{create_dir_all, read_dir, remove_dir_all, remove_file, write};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::process::Command as ProcessCommand;
@@ -11,15 +11,33 @@ use std::sync::Mutex;
 use std::thread;
 
 const FIXTURES: &str = "../tests/fixtures";
+
+struct CancelledExecutor;
+
 #[derive(Default)]
 struct RecordingProgress {
     updates: Mutex<Vec<ProgressUpdate>>,
 }
+
+impl ModuleExecutor for CancelledExecutor {
+    fn execute(&self, script: &Script, _input_index: usize, _module_index: usize) -> Result<(), ProcessError> {
+        Err(ProcessError::Spawn {
+            script: script.to_string(),
+            working_directory: PathBuf::from(&script.current_dir),
+            source: std::io::Error::new(std::io::ErrorKind::Interrupted, "cancelled by test"),
+        })
+    }
+    fn is_cancellation_requested(&self) -> bool {
+        true
+    }
+}
+
 impl ProgressObserver for RecordingProgress {
     fn update(&self, update: ProgressUpdate) {
         self.updates.lock().expect("progress lock").push(update);
     }
 }
+
 #[allow(clippy::std_instead_of_core)]
 fn bind_local_server() -> Option<TcpListener> {
     match TcpListener::bind("127.0.0.1:0") {
@@ -30,7 +48,7 @@ fn bind_local_server() -> Option<TcpListener> {
 }
 
 fn configuration_files(root: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(root)
+    read_dir(root)
         .unwrap_or_else(|error| panic!("read {}: {error}", root.display()))
         .map(|entry| entry.expect("configuration entry").path())
         .flat_map(|path| match path.is_dir() {
@@ -40,11 +58,12 @@ fn configuration_files(root: &Path) -> Vec<PathBuf> {
         .filter(|path| {
             matches!(
                 path.file_name().and_then(|name| name.to_str()),
-                Some("config.json" | "config.yaml" | "config.yml")
+                Some(".xylem.json" | "config.json" | "config.yaml" | "config.yml")
             )
         })
         .collect()
 }
+
 #[test]
 fn test_all_module_locations_round_trip_scalar_and_structured_forms() {
     let document = serde_json::json!({
@@ -66,6 +85,7 @@ fn test_all_module_locations_round_trip_scalar_and_structured_forms() {
     assert_eq!(serialized["modules"][2]["uri"], "file:./script");
     serde_json::from_value::<Config>(serialized).expect("round trip module locations");
 }
+
 #[test]
 fn test_allowed_round_trips_in_configuration_options() {
     let config: Config = serde_json::from_value(serde_json::json!({
@@ -86,6 +106,7 @@ fn test_allowed_round_trips_in_configuration_options() {
         serde_json::json!(["example.com", "artifacts.example:8443"])
     );
 }
+
 #[test]
 fn test_batch_rejects_zero_negative_non_numeric_and_overflow_values() {
     let overflow = (usize::MAX as u128 + 1).to_string();
@@ -102,6 +123,7 @@ fn test_batch_rejects_zero_negative_non_numeric_and_overflow_values() {
     let yaml = "requirements: []\nmodules: []\noptions:\n  batch: 0\n";
     assert!(parse_yaml_configuration(yaml).is_err());
 }
+
 #[test]
 fn test_batch_round_trips_through_json_and_yaml() {
     let json = serde_json::json!({
@@ -117,6 +139,7 @@ fn test_batch_round_trips_through_json_and_yaml() {
     let round_trip = parse_yaml_configuration(&yaml).expect("deserialize YAML batch");
     assert_eq!(round_trip.options.and_then(|options| options.batch).map(InputBatch::get), Some(2));
 }
+
 #[test]
 fn test_completion_declarations_round_trip_through_json_and_yaml() {
     let config: Config = serde_json::from_value(serde_json::json!({
@@ -140,6 +163,7 @@ fn test_completion_declarations_round_trip_through_json_and_yaml() {
     let yaml: Config = parse_yaml_configuration(&yaml).expect("deserialize YAML");
     assert_eq!(json, serde_json::to_value(yaml).expect("normalize YAML"));
 }
+
 #[test]
 fn test_completion_planning_reports_invalid_glob_unresolved_variable_and_outside_root() {
     for (output, expected) in [
@@ -170,6 +194,7 @@ fn test_completion_planning_reports_invalid_glob_unresolved_variable_and_outside
         assert!(error.to_string().contains("inputs[0].modules[0].completion"), "{error}");
     }
 }
+
 #[test]
 fn test_configuration_errors_preserve_format_path_and_source() {
     let missing = std::env::temp_dir().join(format!("xylem-missing-config-{}.json", std::process::id()));
@@ -198,6 +223,7 @@ fn test_configuration_errors_preserve_format_path_and_source() {
     assert!(empty_error.to_string().contains("parse application/yaml configuration"));
     remove_file(empty).expect("remove empty YAML configuration");
 }
+
 #[test]
 fn test_configuration_modules_checkout_git_revision_and_resolve_relative_leaves() {
     if ProcessCommand::new("git").arg("--version").output().is_ok() {
@@ -270,6 +296,7 @@ fn test_configuration_modules_checkout_git_revision_and_resolve_relative_leaves(
         remove_dir_all(root).expect("remove Git configuration test directory");
     }
 }
+
 #[test]
 fn test_configuration_modules_child_policy_cannot_expand_remote_leaf_access() {
     let root = std::env::temp_dir().join(format!("xylem-configuration-policy-{}", std::process::id()));
@@ -303,6 +330,7 @@ fn test_configuration_modules_child_policy_cannot_expand_remote_leaf_access() {
     assert!(error.to_string().contains("Group::Leaf"));
     remove_dir_all(root).expect("remove configuration test directory");
 }
+
 #[test]
 fn test_configuration_modules_flatten_local_workflows() {
     let root = std::env::temp_dir().join(format!("xylem-configuration-modules-{}", std::process::id()));
@@ -359,6 +387,7 @@ fn test_configuration_modules_flatten_local_workflows() {
     assert_eq!(variables["LEAF"], "leaf");
     remove_dir_all(root).expect("remove configuration test directory");
 }
+
 #[test]
 fn test_configuration_modules_preserve_nested_context_with_policy() {
     let root = std::env::temp_dir().join(format!("xylem-configuration-context-{}", std::process::id()));
@@ -449,6 +478,7 @@ fn test_configuration_modules_preserve_nested_context_with_policy() {
     );
     remove_dir_all(root).expect("remove configuration test directory");
 }
+
 #[test]
 fn test_configuration_modules_reject_cycles() {
     let root = std::env::temp_dir().join(format!("xylem-configuration-cycle-{}", std::process::id()));
@@ -473,6 +503,7 @@ fn test_configuration_modules_reject_cycles() {
     assert!(error.to_string().contains("Second::First"));
     remove_dir_all(root).expect("remove configuration cycle directory");
 }
+
 #[test]
 fn test_configuration_modules_reject_excessive_depth() {
     let root = std::env::temp_dir().join(format!("xylem-configuration-depth-{}", std::process::id()));
@@ -497,6 +528,7 @@ fn test_configuration_modules_reject_excessive_depth() {
     assert!(matches!(error, ConfigurationModuleError::Depth { .. }));
     remove_dir_all(root).expect("remove configuration depth directory");
 }
+
 #[test]
 fn test_configuration_modules_reject_http_source_cycles_before_a_second_request() {
     if let Some(listener) = bind_local_server() {
@@ -533,6 +565,7 @@ fn test_configuration_modules_reject_http_source_cycles_before_a_second_request(
         assert!(error.to_string().contains("Outer::Again"));
     }
 }
+
 #[test]
 fn test_configuration_modules_reject_offline_remote_sources() {
     let config: Config = serde_json::from_value(serde_json::json!({
@@ -551,6 +584,7 @@ fn test_configuration_modules_reject_offline_remote_sources() {
     assert!(error.is_availability());
     assert!(error.to_string().contains("offline mode"));
 }
+
 #[test]
 fn test_configuration_modules_reject_revisions_for_http_documents() {
     let config: Config = serde_json::from_value(serde_json::json!({
@@ -571,6 +605,7 @@ fn test_configuration_modules_reject_revisions_for_http_documents() {
         .expect_err("direct document revision should fail");
     assert!(matches!(error, ConfigurationModuleError::Revision { .. }));
 }
+
 #[test]
 fn test_configuration_modules_reject_wrapper_fields_with_policy() {
     let root = std::env::temp_dir().join(format!("xylem-configuration-wrapper-{}", std::process::id()));
@@ -598,6 +633,7 @@ fn test_configuration_modules_reject_wrapper_fields_with_policy() {
     assert!(matches!(error, ConfigurationModuleError::Wrapper { .. }));
     remove_dir_all(root).expect("remove configuration test directory");
 }
+
 #[test]
 fn test_configuration_modules_remote_dry_run_is_request_free() {
     if let Some(listener) = bind_local_server() {
@@ -621,6 +657,7 @@ fn test_configuration_modules_remote_dry_run_is_request_free() {
         assert!(listener.accept().is_err(), "dry run must not connect to the remote source");
     }
 }
+
 #[test]
 fn test_configuration_modules_report_malformed_http_documents_with_context() {
     if let Some(listener) = bind_local_server() {
@@ -655,6 +692,7 @@ fn test_configuration_modules_report_malformed_http_documents_with_context() {
         assert!(error.to_string().contains("Remote"));
     }
 }
+
 #[test]
 fn test_configuration_modules_resolve_nested_http_documents() {
     if let Some(listener) = bind_local_server() {
@@ -714,6 +752,7 @@ fn test_configuration_modules_resolve_nested_http_documents() {
         remove_dir_all(root).expect("remove HTTP configuration test directory");
     }
 }
+
 #[test]
 fn test_configuration_try_from_uses_mime_type_for_yml_files() {
     let path = std::env::temp_dir().join(format!("xylem-config-mime-{}.yml", std::process::id()));
@@ -722,6 +761,7 @@ fn test_configuration_try_from_uses_mime_type_for_yml_files() {
     assert!(config.modules.is_empty());
     remove_file(path).expect("remove YAML configuration");
 }
+
 #[test]
 fn test_configuration_version_must_be_semantic() {
     for version in ["1", "1.2", "1.2.3"] {
@@ -742,6 +782,7 @@ fn test_configuration_version_must_be_semantic() {
         assert!(serde_json::from_value::<Config>(config).is_err(), "{version} should be invalid");
     }
 }
+
 #[test]
 fn test_every_example_configuration_passes_semantic_validation() {
     let mut configurations = configuration_files(Path::new("../examples"));
@@ -753,6 +794,7 @@ fn test_every_example_configuration_passes_semantic_validation() {
         config.validate().unwrap_or_else(|error| panic!("validate {}: {error}", path.display()));
     });
 }
+
 #[test]
 fn test_json_and_yaml_fixtures_deserialize_equally() {
     let json = Config::read_json(PathBuf::from(format!("{FIXTURES}/config-equivalent.json"))).expect("read equivalent JSON fixture");
@@ -766,6 +808,7 @@ fn test_json_and_yaml_fixtures_deserialize_equally() {
     assert_eq!(yaml_value["variables"]["NUMBER"], 42);
     assert_eq!(yaml_value["variables"]["QUOTED"], "true");
 }
+
 #[test]
 fn test_json_and_yaml_reject_unknown_fields() {
     for (json, yaml) in [
@@ -790,6 +833,7 @@ fn test_json_and_yaml_reject_unknown_fields() {
         assert!(parse_yaml_configuration(yaml).is_err(), "YAML should reject {yaml}");
     }
 }
+
 #[test]
 fn test_json_and_yaml_selection_fixtures_deserialize_equally() {
     let json = Config::read_json(PathBuf::from(format!("{FIXTURES}/config_with_selection_input.json"))).expect("read selection JSON fixture");
@@ -803,6 +847,35 @@ fn test_json_and_yaml_selection_fixtures_deserialize_equally() {
     assert_eq!(json_value["variables"]["selection"]["extensions"][1], ".tif");
     assert_eq!(json_value["variables"]["selection"]["minimum_size"], 1024);
 }
+
+#[test]
+fn test_jsonc_accepts_comments_and_trailing_commas_but_rejects_loose_json() {
+    let root = std::env::temp_dir().join(format!("xylem-jsonc-config-{}", std::process::id()));
+    create_dir_all(&root).expect("create JSONC test root");
+    let valid = root.join("workflow.jsonc");
+    write(
+        &valid,
+        r#"{
+            // strict JSONC supports comments
+            "requirements": [],
+            "modules": [],
+        }"#,
+    )
+    .expect("write valid JSONC");
+    let config = Config::try_from(valid.as_path()).expect("valid JSONC should load");
+    assert!(config.modules.is_empty());
+    for (name, content) in [
+        ("loose-name.jsonc", "{ requirements: [], \"modules\": [] }"),
+        ("single-quote.jsonc", "{ 'requirements': [], \"modules\": [] }"),
+        ("missing-comma.jsonc", "{ \"requirements\": [] \"modules\": [] }"),
+    ] {
+        let path = root.join(name);
+        write(&path, content).expect("write invalid JSONC");
+        assert!(Config::try_from(path.as_path()).is_err(), "{name} should fail");
+    }
+    remove_dir_all(root).expect("remove JSONC test root");
+}
+
 #[test]
 fn test_managed_container_keep_alive_round_trips_and_validates() {
     let document = serde_json::json!({
@@ -881,6 +954,7 @@ fn test_managed_container_keep_alive_round_trips_and_validates() {
         assert!(error.contains(message), "{error}");
     });
 }
+
 #[test]
 fn test_managed_container_validation_requires_owned_fields() {
     let managed: Config = serde_json::from_value(serde_json::json!({
@@ -920,6 +994,7 @@ fn test_managed_container_validation_requires_owned_fields() {
     .expect("external container configuration");
     assert!(external_with_image.validate().is_err());
 }
+
 #[test]
 fn test_preparation_and_execution_emit_progress_updates() {
     let config: Config = serde_json::from_value(serde_json::json!({
@@ -952,6 +1027,25 @@ fn test_preparation_and_execution_emit_progress_updates() {
     assert_eq!(updates[2].input.as_deref(), Some("input-a"));
     assert_eq!(updates[3].state, ProgressState::Skipped);
 }
+
+#[test]
+fn test_recorded_workflow_preserves_cancellation_state() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{
+            "name": "probe",
+            "type": "script",
+            "uri": "file:.",
+            "template": { "command": "true", "arguments": [] }
+        }]
+    }))
+    .expect("cancellation fixture should parse");
+    let options = ConfigOptions::init().root(std::env::temp_dir()).build();
+    let outcome = config.run_workflow_recorded(None, &options, None, Some(&CancelledExecutor), None, 0);
+    assert!(outcome.state.is_cancelled());
+    assert!(outcome.modules[0].state.is_cancelled());
+}
+
 #[test]
 fn test_semantic_validation_collects_path_qualified_errors() {
     let config: Config = serde_json::from_value(serde_json::json!({
@@ -994,6 +1088,7 @@ fn test_semantic_validation_collects_path_qualified_errors() {
         .to_string()
         .contains("modules[0].template.command: template command must not be empty"));
 }
+
 #[test]
 fn test_type_specific_module_fields_are_rejected_in_json_and_yaml() {
     for (json, yaml) in [
@@ -1010,6 +1105,7 @@ fn test_type_specific_module_fields_are_rejected_in_json_and_yaml() {
         assert!(parse_yaml_configuration(yaml).is_err());
     }
 }
+
 #[test]
 fn test_yaml_rejects_ambiguous_and_resource_exhausting_input() {
     for yaml in [
@@ -1029,6 +1125,7 @@ fn test_yaml_rejects_ambiguous_and_resource_exhausting_input() {
     let error = parse_yaml_configuration(repeated).expect_err("excessive alias expansion should fail");
     assert!(error.to_string().contains("repetition limit exceeded"), "{error}");
 }
+
 #[test]
 fn test_yaml_supports_merge_sequence_precedence() {
     let yaml = "requirements: []\nmodules:\n  - <<:\n      - &first {name: First, type: script, uri: 'file:./first'}\n      - &second {name: Second, type: script, uri: 'file:./second'}\n";

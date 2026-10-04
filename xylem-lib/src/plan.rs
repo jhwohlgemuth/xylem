@@ -31,6 +31,7 @@ pub enum PlanError {
     /// Semantic configuration validation failed.
     Validation(ValidationReport),
 }
+
 /// Versioned dry-run plan rendered without mutating the host.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ExecutionPlan {
@@ -49,6 +50,7 @@ pub struct ExecutionPlan {
     /// Execution-plan schema version.
     pub schema_version: u32,
 }
+
 /// Configuration identity embedded in an execution plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlanConfiguration {
@@ -61,6 +63,7 @@ pub struct PlanConfiguration {
     /// Optional configured workflow version.
     pub version: Option<String>,
 }
+
 /// Acquisition operation required before a module can execute.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedAcquisition {
@@ -69,6 +72,7 @@ pub struct PlannedAcquisition {
     /// Configured module source URI.
     pub source: String,
 }
+
 /// Command information known without acquiring or mutating the host.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedCommand {
@@ -81,6 +85,7 @@ pub struct PlannedCommand {
     /// Deterministic module working directory before a run root is allocated.
     pub working_directory: Option<String>,
 }
+
 /// Resolved completion declaration included in the plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedCompletion {
@@ -89,6 +94,7 @@ pub struct PlannedCompletion {
     /// Sorted output path or glob patterns.
     pub outputs: Vec<String>,
 }
+
 /// One container operation required by the plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedContainer {
@@ -111,6 +117,7 @@ pub struct PlannedContainer {
     /// Startup strategy for a managed container, or null for an external container.
     pub startup: Option<ContainerStartup>,
 }
+
 /// GPU monitoring selected for a planned run.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedGpuMonitoring {
@@ -119,6 +126,7 @@ pub struct PlannedGpuMonitoring {
     /// Telemetry provider executable.
     pub source: String,
 }
+
 /// One planned module decision.
 #[derive(Builder, Clone, Debug, Eq, PartialEq, Serialize)]
 #[builder(on(String, into), start_fn(name = init))]
@@ -146,6 +154,7 @@ pub struct PlannedModule {
     /// Effective variables after workflow, output-default, module, and input precedence.
     pub variables: BTreeMap<String, String>,
 }
+
 /// One bind mount shown in a dry-run plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedMount {
@@ -156,6 +165,7 @@ pub struct PlannedMount {
     /// Absolute guest target.
     pub target: String,
 }
+
 /// Resolve CLI-over-configuration input precedence with deterministic duplicate handling.
 impl Config {
     /// Resolve inputs and retain deterministic source provenance for planning.
@@ -189,6 +199,7 @@ impl Config {
         }
     }
 }
+
 impl ContainerEnvironment {
     fn planned(self, module_index: usize) -> PlannedContainer {
         let startup = self.create.then(|| self.resolved_startup().0);
@@ -216,6 +227,7 @@ impl ContainerEnvironment {
         }
     }
 }
+
 impl ExecutionPlan {
     /// Build a plan using only configuration and explicitly labeled read-only completion observations.
     pub fn build(config: &Config, path: String, inputs: &[Option<String>], resume: bool) -> Result<Self, PlanError> {
@@ -270,11 +282,12 @@ impl ExecutionPlan {
                     inputs: inputs.clone(),
                     modules,
                     resume,
-                    schema_version: 6,
+                    schema_version: 7,
                 })
         })
     }
 }
+
 impl From<InputAttribute> for InputSource {
     fn from(input: InputAttribute) -> Self {
         match input {
@@ -284,6 +297,7 @@ impl From<InputAttribute> for InputSource {
         }
     }
 }
+
 impl Module {
     fn command(&self, variables: &BTreeMap<String, String>) -> PlannedCommand {
         let uri = match &self.module_type {
@@ -374,6 +388,7 @@ impl Module {
             })
     }
 }
+
 impl core::error::Error for PlanError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
@@ -384,6 +399,7 @@ impl core::error::Error for PlanError {
         }
     }
 }
+
 impl fmt::Display for PlanError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -394,21 +410,25 @@ impl fmt::Display for PlanError {
         }
     }
 }
+
 impl From<CompletionError> for PlanError {
     fn from(error: CompletionError) -> Self {
         Self::Completion(error)
     }
 }
+
 impl From<SelectionError> for PlanError {
     fn from(error: SelectionError) -> Self {
         Self::Selection(error)
     }
 }
+
 impl From<ValidationReport> for PlanError {
     fn from(error: ValidationReport) -> Self {
         Self::Validation(error)
     }
 }
+
 impl From<Module> for PlannedAcquisition {
     fn from(module: Module) -> Self {
         let (action, source) = match module.module_type {
@@ -436,6 +456,7 @@ impl From<Module> for PlannedAcquisition {
         }
     }
 }
+
 impl PlannedContainer {
     fn from_modules(config: &Config, modules: &[PlannedModule]) -> Vec<Self> {
         modules
@@ -465,6 +486,7 @@ impl PlannedContainer {
             .collect()
     }
 }
+
 fn normalize_inputs(values: Vec<String>) -> Vec<Option<String>> {
     let values = values.into_iter().fold(Vec::new(), |mut unique, value| {
         if !unique.contains(&value) {

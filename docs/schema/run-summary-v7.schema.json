@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://xylem.ornl.gov/schema/run-summary-v4.schema.json",
-  "title": "Xylem run summary version 4",
+  "$id": "https://xylem.ornl.gov/schema/run-summary-v7.schema.json",
+  "title": "Xylem run summary version 7",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,19 +14,26 @@
     "duration_ms",
     "status",
     "error",
+    "gpu_monitoring",
     "containers",
     "inputs"
   ],
   "properties": {
-    "schema_version": { "const": 4 },
+    "schema_version": { "const": 7 },
     "run_id": { "type": "string", "minLength": 1 },
     "configuration": { "$ref": "#/$defs/configuration" },
     "dry_run": { "type": "boolean" },
     "started_at_ms": { "type": "integer", "minimum": 0 },
     "finished_at_ms": { "type": ["integer", "null"], "minimum": 0 },
     "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
-    "status": { "enum": ["succeeded", "failed", "interrupted"] },
+    "status": { "enum": ["cancelled", "succeeded", "failed", "interrupted"] },
     "error": { "type": ["string", "null"], "maxLength": 4096 },
+    "gpu_monitoring": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/gpu_monitoring" }
+      ]
+    },
     "containers": { "type": "array", "items": { "$ref": "#/$defs/container" } },
     "inputs": { "type": "array", "items": { "$ref": "#/$defs/input" } }
   },
@@ -34,7 +41,7 @@
     "configuration": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "id", "version"],
+      "required": ["path"],
       "properties": {
         "path": { "type": "string" },
         "id": { "type": ["string", "null"] },
@@ -53,6 +60,51 @@
         "state": { "enum": ["not_started", "ready", "removed", "retained", "external", "failed"] },
         "error": { "type": ["string", "null"], "maxLength": 4096 },
         "updated_at_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "gpu_device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "name", "memory_total_mib", "memory_used_mib", "samples", "utilization_percent", "uuid"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "name": { "type": "string", "minLength": 1 },
+        "memory_total_mib": { "type": ["integer", "null"], "minimum": 0 },
+        "memory_used_mib": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/gpu_metric" }
+          ]
+        },
+        "samples": { "type": "integer", "minimum": 0 },
+        "utilization_percent": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/gpu_metric" }
+          ]
+        },
+        "uuid": { "type": "string", "minLength": 1 }
+      }
+    },
+    "gpu_metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["average", "maximum", "samples"],
+      "properties": {
+        "average": { "type": "integer", "minimum": 0 },
+        "maximum": { "type": "integer", "minimum": 0 },
+        "samples": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "gpu_monitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error", "interval", "status", "devices"],
+      "properties": {
+        "error": { "type": ["string", "null"], "maxLength": 4096 },
+        "interval": { "const": 1000 },
+        "status": { "enum": ["complete", "degraded", "interrupted", "unavailable"] },
+        "devices": { "type": "array", "items": { "$ref": "#/$defs/gpu_device" } }
       }
     },
     "input": {
@@ -85,7 +137,7 @@
       }
     },
     "state": {
-      "enum": ["not_started", "pending", "running", "succeeded", "failed", "skipped", "skipped_existing"]
+      "enum": ["not_started", "pending", "running", "succeeded", "failed", "cancelled", "skipped", "skipped_existing"]
     }
   }
 }

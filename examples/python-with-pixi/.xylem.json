@@ -10,7 +10,7 @@
     "modules": [
         {
             "name": "Pixi Example",
-            "uri": "file:./examples/python-with-pixi",
+            "uri": "file:.",
             "type": "script",
             "programmingLanguage": "python",
             "template": {

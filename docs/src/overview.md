@@ -4,7 +4,7 @@
 
 Xylem is a workflow runner for composing command-line tools into repeatable,
 configuration-driven pipelines. A workflow declares ordered modules, inputs,
-variables, requirements, and execution options in JSON or YAML. Xylem prepares
+variables, requirements, and execution options in JSON, strict JSONC, or YAML. Xylem prepares
 the modules and runs the same ordered pipeline for each input.
 
 The workspace contains two Rust packages:
@@ -15,7 +15,7 @@ The workspace contains two Rust packages:
 
 ## Execution model
 
-1. Read a JSON or YAML workflow configuration.
+1. Read a JSON, strict JSONC, or YAML workflow configuration.
 2. Check declared host requirements.
 3. Prepare local or remote modules and their environments.
 4. Resolve workflow, module, and input variables.

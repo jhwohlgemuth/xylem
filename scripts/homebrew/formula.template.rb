@@ -23,7 +23,7 @@ class Xylem < Formula
       }
     JSON
 
-    output = shell_output("#{bin}/xylem -vv run --offline --config #{testpath}/config.json 2>&1")
+    output = shell_output("#{bin}/xylem -vv run #{testpath}/config.json --offline 2>&1")
     assert_match "NO INPUTS", output
   end
 end

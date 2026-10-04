@@ -10,7 +10,7 @@
     "modules": [
         {
             "name": "Conda Example",
-            "uri": "file:./examples/python-with-conda/",
+            "uri": "file:.",
             "type": "script",
             "programmingLanguage": "python",
             "template": {

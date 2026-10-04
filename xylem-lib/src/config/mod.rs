@@ -1,8 +1,20 @@
 extern crate alloc;
 
+use crate::completion::{CompletionDecision, CompletionPlan};
+use crate::error::{AcquisitionError, ProcessError, RequirementError};
+use crate::execution::{ExecutionContext, InputBatch};
+use crate::journal::{ExecutionState, RunJournal};
+use crate::outcome::{ModuleOutcome, WorkflowOutcome};
+use crate::plan::PlanError;
+use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
+use crate::remote::{redact_url, RemotePolicy};
+use crate::script::*;
+pub use crate::selection::{InputSelection, SelectionEngine, SelectionOptions, SelectionRequest};
+use crate::util::absolute_path;
 use acorn_cmd::args;
-use acorn_core::util::{Checksum, MimeType, SemanticVersion};
+use acorn_core::util::{Checksum, MimeType, ParseOptionsExt, SemanticVersion};
 use acorn_core::{Location, Scheme};
+use acorn_host::config::{read_jsonc, ConfigError as AcornConfigError};
 use acorn_host::fs::{file_checksum, make_executable};
 use acorn_host::terminal::Label;
 use acorn_macros::With;
@@ -11,6 +23,7 @@ use bon::Builder;
 use convert_case::{Case, Casing};
 use core::fmt;
 use core::iter::once;
+use jsonc_parser::{parse_to_serde_value, ParseOptions};
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
@@ -22,27 +35,30 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 use url::Url;
 
-use crate::completion::{CompletionDecision, CompletionPlan};
-use crate::error::{AcquisitionError, RequirementError};
-use crate::execution::{ExecutionContext, InputBatch};
-use crate::journal::{ExecutionState, RunJournal};
-use crate::outcome::{ModuleOutcome, WorkflowOutcome};
-use crate::plan::PlanError;
-use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
-use crate::remote::{redact_url, RemotePolicy};
-use crate::script::*;
-pub use crate::selection::{InputSelection, SelectionEngine, SelectionOptions, SelectionRequest};
-use crate::util::absolute_path;
-
 mod validation;
+
+/// Executes one resolved module command for an orchestration adapter.
+pub trait ModuleExecutor: Send + Sync {
+    /// Execute a script for the stable input and module positions.
+    fn execute(&self, script: &Script, input_index: usize, module_index: usize) -> Result<(), ProcessError>;
+
+    /// Return whether the caller has requested cancellation.
+    fn is_cancellation_requested(&self) -> bool {
+        false
+    }
+}
+
 /// Supported workflow configuration serialization formats.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConfigFormat {
     /// JavaScript Object Notation.
     Json,
+    /// JavaScript Object Notation with comments and trailing commas.
+    Jsonc,
     /// YAML Ain't Markup Language.
     Yaml,
 }
+
 /// Failure to select or deserialize a workflow configuration file.
 #[derive(Debug)]
 pub enum ConfigReadError {
@@ -67,6 +83,7 @@ pub enum ConfigReadError {
     /// The path does not use a supported configuration extension.
     UnsupportedExtension(PathBuf),
 }
+
 /// Failure while resolving nested configuration modules.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigurationModuleError {
@@ -102,12 +119,14 @@ pub enum ConfigurationModuleError {
     #[error("configuration module {module} cannot apply revision to direct document {uri}")]
     Revision { module: String, uri: String },
 }
+
 #[derive(Clone, Debug)]
 enum ConfigurationSource {
     File(PathBuf),
     Git { identity: String, path: PathBuf },
     Http(String),
 }
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -116,6 +135,7 @@ pub enum InputAttribute {
     List(Vec<String>),
     Select(InputSelection),
 }
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Check {
@@ -128,6 +148,7 @@ pub struct Check {
     /// Parent directory of the item being checked when not used within a workflow
     pub parent: Option<String>,
 }
+
 #[derive(Clone, Builder, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
 #[serde(deny_unknown_fields)]
@@ -169,6 +190,7 @@ pub struct Config {
     pub output: Option<String>,
     pub options: Option<ConfigOptions>,
 }
+
 #[derive(Builder, Clone, Debug, Deserialize, Serialize, With)]
 #[builder(start_fn(name = init))]
 #[serde(deny_unknown_fields)]
@@ -201,6 +223,7 @@ pub struct ConfigOptions {
     #[serde(skip)]
     pub container_run_id: Option<String>,
 }
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Parameters {
@@ -215,6 +238,7 @@ pub struct Parameters {
     /// Custom string data
     pub custom: Option<String>,
 }
+
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
 #[serde(deny_unknown_fields)]
@@ -226,6 +250,7 @@ pub struct Rule {
     /// Options to pass to the checker
     pub parameters: Option<Parameters>,
 }
+
 impl Config {
     /// Resolve local configuration modules into their executable leaf modules.
     pub fn resolve(self, source: &Path) -> Result<Self, ConfigurationModuleError> {
@@ -436,6 +461,27 @@ impl Config {
         debug!("=> {} Configuration = {:#?}", label, data.dimmed());
         data
     }
+    /// Import a strict JSON-with-comments Xylem configuration file.
+    pub fn read_jsonc(path: PathBuf) -> Result<Config, ConfigReadError> {
+        let data = read_jsonc(&path).map_err(|source| match source {
+            | AcornConfigError::Read { source, .. } => ConfigReadError::Read {
+                format: ConfigFormat::Jsonc,
+                path: path.clone(),
+                source,
+            },
+            | source => ConfigReadError::Invalid {
+                format: ConfigFormat::Jsonc,
+                path: path.clone(),
+                source: Box::new(source),
+            },
+        });
+        let label = match &data {
+            | Ok(_) => Label::using(),
+            | Err(_) => Label::invalid(),
+        };
+        debug!("=> {} Configuration = {:#?}", label, data.dimmed());
+        data
+    }
     /// Import Xylem configuration YAML file
     ///
     /// See the [Xylem configuration syntax wiki page](https://code.ornl.gov/groups/research-enablement/xylem/-/wikis/Xylem-Standards/Configuration-Syntax)
@@ -470,7 +516,7 @@ impl Config {
         options: &ConfigOptions,
         observer: Option<&dyn ProgressObserver>,
     ) -> WorkflowOutcome {
-        self.run_workflow_recorded(input, options, observer, None, 0)
+        self.run_workflow_recorded(input, options, observer, None, None, 0)
     }
     /// Run workflow modules while emitting progress updates and durable module transitions.
     pub fn run_workflow_recorded(
@@ -478,6 +524,7 @@ impl Config {
         input: Option<String>,
         options: &ConfigOptions,
         observer: Option<&dyn ProgressObserver>,
+        executor: Option<&dyn ModuleExecutor>,
         journal: Option<&RunJournal>,
         input_index: usize,
     ) -> WorkflowOutcome {
@@ -544,7 +591,12 @@ impl Config {
                                                                 );
                                                                 Ok(())
                                                             }
-                                                            | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
+                                                            | false => executor
+                                                                .map_or_else(
+                                                                    || script.run_checked().map(|_| ()),
+                                                                    |executor| executor.execute(&script, input_index, module_index),
+                                                                )
+                                                                .map_err(|why| why.to_string()),
                                                         }
                                                     })
                                             })
@@ -586,12 +638,21 @@ impl Config {
                                                                     );
                                                                     Ok(())
                                                                 }
-                                                                | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
+                                                                | false => executor
+                                                                    .map_or_else(
+                                                                        || script.run_checked().map(|_| ()),
+                                                                        |executor| executor.execute(&script, input_index, module_index),
+                                                                    )
+                                                                    .map_err(|why| why.to_string()),
                                                             })
                                                         })
                                                 })
                                         }),
                                     | ModuleType::Configuration { .. } => Err("configuration modules are not executable".to_string()),
+                                })
+                                .and_then(|()| match executor.is_some_and(ModuleExecutor::is_cancellation_requested) {
+                                    | true => Err("workflow cancellation requested".to_string()),
+                                    | false => Ok(()),
                                 })
                                 .and_then(|()| match (options.dry_run.unwrap_or_default(), completion.as_ref()) {
                                     | (false, Some(plan)) => plan.write().map_err(|why| why.to_string()),
@@ -625,19 +686,23 @@ impl Config {
                         Ok(outcomes)
                     }
                     | Err(why) => {
+                        let state = match executor.is_some_and(ModuleExecutor::is_cancellation_requested) {
+                            | true => ExecutionState::Cancelled,
+                            | false => ExecutionState::Failed,
+                        };
                         let error = match journal {
-                            | Some(journal) => match journal.transition_module(input_index, module_index, ExecutionState::Failed, Some(&why)) {
+                            | Some(journal) => match journal.transition_module(input_index, module_index, state, Some(&why)) {
                                 | Ok(()) => why,
-                                | Err(journal_error) => format!("{why}; additionally, record failed module state: {journal_error}"),
+                                | Err(journal_error) => format!("{why}; additionally, record terminal module state: {journal_error}"),
                             },
                             | None => why,
                         };
-                        ProgressPhase::Execution.emit(ProgressState::Failed, &module.name, &module.module_path, observer, input.as_deref());
+                        ProgressPhase::Execution.emit(ProgressState::from(state), &module.name, &module.module_path, observer, input.as_deref());
                         outcomes.push(ModuleOutcome {
                             index: module_index,
                             name: module.name.clone(),
                             module_path: module.module_path.clone(),
-                            state: ExecutionState::Failed,
+                            state,
                             error: Some(error.clone()),
                         });
                         Err((outcomes, error))
@@ -656,12 +721,18 @@ impl Config {
                 };
                 WorkflowOutcome::init().maybe_input(input).state(state).modules(outcomes).build()
             }
-            | Err((outcomes, error)) => WorkflowOutcome::init()
-                .maybe_input(input)
-                .state(ExecutionState::Failed)
-                .modules(outcomes)
-                .error(error)
-                .build(),
+            | Err((outcomes, error)) => {
+                let state = match outcomes.last().is_some_and(|outcome| outcome.state.is_cancelled()) {
+                    | true => ExecutionState::Cancelled,
+                    | false => ExecutionState::Failed,
+                };
+                WorkflowOutcome::init()
+                    .maybe_input(input)
+                    .state(state)
+                    .modules(outcomes)
+                    .error(error)
+                    .build()
+            }
         }
     }
     /// Set environment variables from Xylem configuration "variables" attribute
@@ -868,18 +939,21 @@ impl Config {
         }
     }
     fn is_remote_document(uri: &str) -> bool {
-        Url::parse(uri)
-            .ok()
-            .is_some_and(|url| matches!(MimeType::from(url.path()), MimeType::Json | MimeType::Yaml))
+        Url::parse(uri).ok().is_some_and(|url| {
+            let mime = MimeType::from(url.path());
+            mime.is_json() || mime.is_jsonc() || mime.is_yaml()
+        })
     }
     fn read_remote_document(content: &str, uri: &str, module: &str) -> Result<Self, ConfigurationModuleError> {
         let path = PathBuf::from(uri);
         let format = match Url::parse(uri).ok().map(|url| MimeType::from(url.path())) {
+            | Some(MimeType::Jsonc) => ConfigFormat::Jsonc,
             | Some(MimeType::Yaml) => ConfigFormat::Yaml,
             | _ => ConfigFormat::Json,
         };
         let parsed = match format {
             | ConfigFormat::Json => parse_json_configuration(content).map_err(|source| Box::new(source) as Box<dyn core::error::Error + Send + Sync>),
+            | ConfigFormat::Jsonc => parse_jsonc_configuration(content),
             | ConfigFormat::Yaml => parse_yaml_configuration(content).map_err(|source| Box::new(source) as Box<dyn core::error::Error + Send + Sync>),
         };
         parsed.map_err(|source| ConfigurationModuleError::Read {
@@ -1049,17 +1123,20 @@ impl Config {
         }
     }
 }
+
 impl TryFrom<&Path> for Config {
     type Error = ConfigReadError;
 
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
         match MimeType::from(path.to_string_lossy().as_ref()) {
             | MimeType::Json => Self::read_json(path.to_path_buf()),
+            | MimeType::Jsonc => Self::read_jsonc(path.to_path_buf()),
             | MimeType::Yaml => Self::read_yaml(path.to_path_buf()),
             | _ => Err(ConfigReadError::UnsupportedExtension(path.to_path_buf())),
         }
     }
 }
+
 impl TryFrom<PathBuf> for Config {
     type Error = ConfigReadError;
 
@@ -1067,11 +1144,13 @@ impl TryFrom<PathBuf> for Config {
         Self::try_from(path.as_path())
     }
 }
+
 impl fmt::Display for ConfigFormat {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         MimeType::from(*self).fmt(formatter)
     }
 }
+
 impl core::error::Error for ConfigReadError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
@@ -1081,6 +1160,7 @@ impl core::error::Error for ConfigReadError {
         }
     }
 }
+
 impl fmt::Display for ConfigReadError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1091,17 +1171,23 @@ impl fmt::Display for ConfigReadError {
                 write!(formatter, "read {format} configuration {}: {source}", path.display())
             }
             | Self::UnsupportedExtension(path) => {
-                write!(formatter, "configuration {} must use a .json, .yaml, or .yml extension", path.display())
+                write!(
+                    formatter,
+                    "configuration {} must use a .json, .jsonc, .yaml, or .yml extension",
+                    path.display()
+                )
             }
         }
     }
 }
+
 impl ConfigurationModuleError {
     /// Whether this failure represents unavailable remote acquisition rather than invalid configuration data.
     pub fn is_availability(&self) -> bool {
         matches!(self, Self::Remote { .. })
     }
 }
+
 impl ConfigurationSource {
     fn identity(&self) -> String {
         match self {
@@ -1117,14 +1203,17 @@ impl ConfigurationSource {
         }
     }
 }
+
 impl From<ConfigFormat> for MimeType {
     fn from(format: ConfigFormat) -> Self {
         match format {
             | ConfigFormat::Json => Self::Json,
+            | ConfigFormat::Jsonc => Self::Jsonc,
             | ConfigFormat::Yaml => Self::Yaml,
         }
     }
 }
+
 impl Module {
     fn prepare_binary(&self, uri: &str, checksum: Option<&str>, options: &ConfigOptions, policy: &RemotePolicy) -> Result<(), String> {
         match ModuleUri::from(&acorn_core::Location::from(uri)) {
@@ -1382,6 +1471,7 @@ impl Module {
         format!("module {} remote source {} failed: {why}", self.name, redact_url(url))
     }
 }
+
 impl Module {
     fn absolutize(&mut self, source: &Path) {
         let uri = match &mut self.module_type {
@@ -1397,9 +1487,11 @@ impl Module {
         }
     }
 }
+
 fn default_container_env() -> bool {
     true
 }
+
 fn deserialize_version<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -1410,14 +1502,23 @@ where
     }
     Ok(version)
 }
+
 fn parse_json_configuration(content: &str) -> serde_json::Result<Config> {
     serde_json::from_str::<Value>(content).and_then(serde_json::from_value)
 }
+
+fn parse_jsonc_configuration(content: &str) -> Result<Config, Box<dyn core::error::Error + Send + Sync>> {
+    parse_to_serde_value::<Value>(content, &ParseOptions::strict_jsonc())
+        .map_err(|source| Box::new(source) as Box<dyn core::error::Error + Send + Sync>)
+        .and_then(|value| serde_json::from_value(value).map_err(|source| Box::new(source) as Box<dyn core::error::Error + Send + Sync>))
+}
+
 fn parse_yaml_configuration(content: &str) -> serde_norway::Result<Config> {
     serde_norway::from_str::<serde_norway::Value>(content)
         .and_then(|mut value| value.apply_merge().map(|()| value))
         .and_then(serde_norway::from_value)
 }
+
 fn read_configuration_content(path: &Path, format: ConfigFormat) -> Result<String, ConfigReadError> {
     read_to_string(path)
         .map_err(|source| ConfigReadError::Read {
@@ -1434,5 +1535,6 @@ fn read_configuration_content(path: &Path, format: ConfigFormat) -> Result<Strin
             | false => Ok(content),
         })
 }
+
 #[cfg(test)]
 mod tests;

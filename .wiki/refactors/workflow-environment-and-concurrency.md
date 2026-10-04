@@ -23,11 +23,11 @@ Xylem owns workflow policy. Generic child-process mechanics come from ACORN's
 - Module acquisition and environment preparation still run once for the shared `Config` before input dispatch, through a separate Rayon phase. The configured batch ceiling therefore does not bound the complete input lifecycle.
 - `Config::get_environment_variables` merges workflow and module values into a mutable `HashMap`, expands them, and emits `_XYLEM_*` names before an immutable run context exists.
 - `EnvironmentValue::{set_variable,set_variables,set_namespaced_variables}` can mutate the parent process environment. Tests also mutate `_XYLEM_*` variables and depend on process-wide cleanup.
-- `Script` carries per-command environment overrides and uses `acorn_cmd::CommandSpec`, but it still converts output lossily, combines stdout and stderr into `Vec<String>`, and has no timeout or cancellation input.
+- `Script` carries per-command environment overrides and now uses ACORN managed execution, streaming sinks, and cancellation. Its legacy `run_checked` compatibility method still converts and combines output into `Vec<String>`, and module timeouts remain absent.
 - `Instruction::ShellFormat` still loses quoted and empty argument boundaries through whitespace splitting.
 - Configuration resolution uses a process-wide temporary source root, while module acquisition, virtual-environment preparation, and execution reuse run-level paths across inputs. Duplicate inputs can therefore collide even when their variable maps differ.
-- The CLI creates `${TMPDIR}/xylem/<random-id>` directly, stores the default journal in that tree, and has no RAII cleanup or retention owner. Successful and failed runs can leave both disposable module state and durable evidence behind indefinitely.
-- Execution plans are at version 6 for CEL input provenance; journals and summaries remain at version 5. Cancellation is not a durable terminal state.
+- The CLI creates `${TMPDIR}/xylem/<random-id>` directly for disposable work and has no RAII cleanup or workspace-retention owner. Durable evidence now lives in the canonical run store independently of that workspace.
+- Execution plans, journals, and summaries are at version 7. Cancellation is a durable terminal state owned by the dashboard baseline.
 
 # Ownership boundary
 
@@ -42,15 +42,15 @@ Xylem adapts `Script` to the ACORN API and owns configuration, variable preceden
 # Project code boundaries
 
 - **Update:** `Cargo.toml`, `Cargo.lock`, `xylem-lib/Cargo.toml`, configuration, plan, progress, outcome, execution, and script modules in `xylem-lib/src/`; run orchestration and CLI arguments in `xylem-cli/src/`; schemas, fixtures, tests, and user documentation.
-- **Create:** immutable `RunContext` and `WorkflowContext`; `FailurePolicy`, `CancellationReason`, `RunWorkspace`, and `DispatchReport<T>`; schema-v7 files; per-input workspace and fake-process fixtures.
+- **Create:** immutable `RunContext` and `WorkflowContext`; `FailurePolicy`, `CancellationReason`, `RunWorkspace`, and `DispatchReport<T>`; the next coordinated schema version; per-input workspace and fake-process fixtures.
 - **Delete:** production process-environment mutation APIs, the combined `Vec<String>` script result, whitespace-only shell-format parsing, leaked temporary roots, and any Xylem-local child-process lifecycle implementation superseded by `acorn-cmd`.
 
 # Dependencies and landing order
 
-1. Land and publish the additive ACORN process contract. Preserve its current APIs so ACORN consumers can migrate separately. The exact release must be rechecked at implementation time; Xylem currently pins `acorn-cmd` 0.3.2 plus Git revision `5d293446`.
-2. Update Xylem's ACORN versions and Git revisions together. Published Xylem crates must resolve the same process contract from crates.io; a Git-only prerequisite is insufficient.
+1. Preserve the landed ACORN v0.3.4 managed-process contract so ACORN consumers can migrate separately.
+2. Keep Xylem's ACORN versions and Git revisions together. Published Xylem crates must resolve the same process contract from crates.io; a Git-only prerequisite is insufficient.
 3. Land the Xylem context, workspace, scheduler, journal, and CLI changes as one coordinated runtime boundary. `xylem-lib/src/script/mod.rs`, run-state files, manifests, and `xylem-cli/src/commands/run/mod.rs` remain single-writer integration surfaces.
-4. Advance the coordinated runtime schemas to version 7, preserving CEL selection provenance from execution-plan version 6. Move Kubernetes plan, journal, and summary changes to version 8.
+4. Allocate a new coordinated runtime schema version above the dashboard's version 7, preserving CEL selection provenance, cancellation, and canonical run-store compatibility. Coordinate the next number with Kubernetes before implementation.
 
 This plan follows the typed workflow-outcome contract and preserves the existing `options.batch` rolling ceiling. Its durable outcomes feed the journal and reporters. Memory-aware scheduling remains a follow-on policy at the admission seam.
 
@@ -60,7 +60,7 @@ This plan follows the typed workflow-outcome contract and preserves the existing
 - Add `--failure-policy <fail-fast|continue>` as a CLI override. CLI spelling uses kebab case; serialized configuration uses snake case.
 - Add positive `timeout_seconds` to each executable module. Omission means no timeout. Expose a lower-level library execution option so callers that do not deserialize a module can still supply a timeout.
 - Add CLI-only `--retain-workspace`. Do not add retention to reusable workflow configuration because it is an operator diagnostic choice, not workflow behavior.
-- Keep `--report-output` as the operator-selected directory for journals and file-based reports. When it is absent, use `${TMPDIR}/xylem/journals/<run-id>.journal.jsonl`, separate from the workspace tree.
+- Keep `--report-output` as an additional report-export directory; canonical journals and summaries remain in the run store, separate from the workspace tree.
 - Reject zero timeouts, unknown policies, and attempts to configure retained workspaces in workflow files.
 
 # Context contracts

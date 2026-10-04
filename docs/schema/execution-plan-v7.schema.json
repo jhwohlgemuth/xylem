@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://xylem.ornl.gov/schema/execution-plan-v6.schema.json",
-  "title": "Xylem execution plan version 6",
+  "$id": "https://xylem.ornl.gov/schema/execution-plan-v7.schema.json",
+  "title": "Xylem execution plan version 7",
   "type": "object",
   "additionalProperties": false,
   "required": ["configuration", "containers", "gpu_monitoring", "inputs", "modules", "resume", "schema_version"],
@@ -140,6 +140,6 @@
       }
     },
     "resume": { "type": "boolean" },
-    "schema_version": { "const": 6 }
+    "schema_version": { "const": 7 }
   }
 }

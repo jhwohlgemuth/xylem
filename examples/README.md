@@ -16,7 +16,7 @@ Examples are grouped by the dependencies they require:
 - [`inception`](./inception/) demonstrates a pinned remote binary and therefore
   is not an offline example.
 
-Every `config.json`, `config.yaml`, and `config.yml` below this directory is
-parsed and semantically validated by the Rust test suite. The runnable smoke
-example is also executed in both dry-run and offline modes from a temporary
-clean directory.
+Every top-level `.xylem.json` and nested workflow configuration below this
+directory is parsed and semantically validated by the Rust test suite. The
+runnable smoke example is also executed in both dry-run and offline modes from
+a temporary clean directory using automatic configuration discovery.

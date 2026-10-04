@@ -17,9 +17,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use strum::EnumIs;
 
 /// Current on-disk journal schema version.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 5;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 7;
+
 /// Maximum number of UTF-8 bytes retained for one journal error detail.
 pub const MAX_ERROR_BYTES: usize = 4096;
+
 trait Summary {
     fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<u64>, &mut u64);
 
@@ -33,6 +35,7 @@ trait Summary {
         *updated_at_ms = timestamp_ms;
     }
 }
+
 /// Durable state of a container used by the run.
 #[derive(Clone, Copy, Debug, Deserialize, EnumIs, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -50,6 +53,7 @@ pub enum ContainerState {
     /// Lifecycle work failed.
     Failed,
 }
+
 /// State of a run input or module at one point in time.
 #[derive(Clone, Copy, Debug, Deserialize, EnumIs, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -64,20 +68,33 @@ pub enum ExecutionState {
     Succeeded,
     /// Work completed unsuccessfully.
     Failed,
+    /// Work was cancelled before successful completion.
+    Cancelled,
     /// Work was intentionally not executed, such as during a dry run.
     Skipped,
     /// Work was not executed because declared outputs were already complete.
     SkippedExisting,
 }
+
 /// Final state written by a normally completed run.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FinalStatus {
+    /// The run was cancelled by its caller.
+    Cancelled,
     /// All required work succeeded.
     Succeeded,
     /// At least one required operation failed.
     Failed,
 }
+
+#[derive(Clone, Debug)]
+enum GpuJournalState {
+    Disabled,
+    Finished,
+    Started { device_ids: Option<BTreeSet<String>> },
+}
+
 /// Recovered disposition of requested GPU monitoring.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -91,12 +108,7 @@ pub enum GpuMonitoringStatus {
     /// Monitoring could not collect its initial inventory and sample.
     Unavailable,
 }
-#[derive(Clone, Debug)]
-enum GpuJournalState {
-    Disabled,
-    Finished,
-    Started { device_ids: Option<BTreeSet<String>> },
-}
+
 /// Journal creation, persistence, validation, or recovery failure.
 #[derive(Debug)]
 pub enum JournalError {
@@ -109,6 +121,7 @@ pub enum JournalError {
     /// A concurrent writer panicked while owning the journal lock.
     Poisoned,
 }
+
 /// One append-only journal event.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -149,10 +162,13 @@ pub enum JournalEvent {
     /// Marks a normal run finalization.
     RunFinished { status: FinalStatus, error: Option<String> },
 }
+
 /// Overall state reconstructed from a journal.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RunStatus {
+    /// The journal has a cancelled finalization record.
+    Cancelled,
     /// The journal has a successful finalization record.
     Succeeded,
     /// The journal has a failed finalization record.
@@ -160,6 +176,7 @@ pub enum RunStatus {
     /// The journal has no finalization record.
     Interrupted,
 }
+
 /// Stable configuration identity recorded at run start.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -171,6 +188,7 @@ pub struct ConfigurationIdentity {
     /// Optional workflow version declared by the configuration.
     pub version: Option<String>,
 }
+
 /// Latest reconstructed lifecycle state for one container.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ContainerSummary {
@@ -189,6 +207,7 @@ pub struct ContainerSummary {
     /// Timestamp of the latest transition.
     pub updated_at_ms: u64,
 }
+
 /// Stable identity and capacity for one monitored GPU.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GpuDevice {
@@ -201,6 +220,7 @@ pub struct GpuDevice {
     /// Stable NVIDIA device UUID.
     pub uuid: String,
 }
+
 #[derive(Clone, Debug)]
 struct GpuDeviceAggregate {
     device: GpuDevice,
@@ -208,6 +228,7 @@ struct GpuDeviceAggregate {
     samples: u64,
     utilization_percent: MetricAggregate,
 }
+
 /// Aggregated telemetry for one monitored GPU.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GpuDeviceSummary {
@@ -226,6 +247,7 @@ pub struct GpuDeviceSummary {
     /// Stable NVIDIA device UUID.
     pub uuid: String,
 }
+
 /// Integer aggregate for one sampled GPU metric.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GpuMetricSummary {
@@ -236,6 +258,7 @@ pub struct GpuMetricSummary {
     /// Number of supported readings included in the aggregate.
     pub samples: u64,
 }
+
 /// Recovered run-wide GPU monitoring summary.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GpuMonitoringSummary {
@@ -248,13 +271,7 @@ pub struct GpuMonitoringSummary {
     /// Ordered monitored devices and their aggregates.
     pub devices: Vec<GpuDeviceSummary>,
 }
-#[derive(Clone, Debug)]
-struct GpuRecovery {
-    devices: BTreeMap<String, GpuDeviceAggregate>,
-    error: Option<String>,
-    finished: bool,
-    interval: Milliseconds,
-}
+
 /// One timestamped GPU reading stored in a journal sample event.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GpuReading {
@@ -265,6 +282,15 @@ pub struct GpuReading {
     /// Stable NVIDIA device UUID.
     pub uuid: String,
 }
+
+#[derive(Clone, Debug)]
+struct GpuRecovery {
+    devices: BTreeMap<String, GpuDeviceAggregate>,
+    error: Option<String>,
+    finished: bool,
+    interval: Milliseconds,
+}
+
 /// Latest reconstructed input state and its ordered modules.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct InputSummary {
@@ -285,6 +311,7 @@ pub struct InputSummary {
     /// Ordered module states.
     pub modules: Vec<ModuleSummary>,
 }
+
 /// Stable identity for a container in a run journal.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JournalContainer {
@@ -297,6 +324,7 @@ pub struct JournalContainer {
     /// Runtime executable name.
     pub runtime: String,
 }
+
 /// Stable identity and display value for one workflow input.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -308,6 +336,7 @@ pub struct JournalInput {
     /// User-facing input value. `None` represents a zero-input workflow.
     pub value: Option<String>,
 }
+
 /// Stable identity for one executable module in a run journal.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JournalModule {
@@ -318,6 +347,7 @@ pub struct JournalModule {
     /// Stable ancestry from the root workflow to the executable leaf.
     pub module_path: Vec<String>,
 }
+
 /// One versioned line in a journal file.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JournalRecord {
@@ -333,6 +363,7 @@ pub struct JournalRecord {
     #[serde(flatten)]
     pub event: JournalEvent,
 }
+
 #[derive(Debug)]
 struct JournalSink {
     writer: BufWriter<File>,
@@ -343,12 +374,14 @@ struct JournalSink {
     finalized: bool,
     gpu_monitoring: GpuJournalState,
 }
+
 #[derive(Clone, Debug, Default)]
 struct MetricAggregate {
     maximum: u64,
     samples: u64,
     sum: u128,
 }
+
 /// Latest reconstructed module state.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleSummary {
@@ -367,6 +400,7 @@ pub struct ModuleSummary {
     /// Timestamp of the latest transition.
     pub updated_at_ms: u64,
 }
+
 /// A serialized, flush-on-transition journal writer safe for concurrent callers.
 #[derive(Debug)]
 pub struct RunJournal {
@@ -377,6 +411,7 @@ pub struct RunJournal {
     containers: Vec<JournalContainer>,
     sink: Mutex<JournalSink>,
 }
+
 /// Run metadata written before any input begins.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RunMetadata {
@@ -389,6 +424,7 @@ pub struct RunMetadata {
     /// Unix timestamp in milliseconds.
     pub started_at_ms: u64,
 }
+
 /// Deterministic summary reconstructed from durable journal records.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RunSummary {
@@ -417,12 +453,18 @@ pub struct RunSummary {
     /// Ordered input summaries.
     pub inputs: Vec<InputSummary>,
 }
+
 impl ExecutionState {
     /// Whether this state represents completed work.
     pub fn is_complete(self) -> bool {
         self.is_succeeded() || self.is_skipped() || self.is_skipped_existing()
     }
+    /// Whether this state is terminal regardless of success.
+    pub fn is_terminal(self) -> bool {
+        self.is_complete() || self.is_failed() || self.is_cancelled()
+    }
 }
+
 impl fmt::Display for ExecutionState {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -431,11 +473,13 @@ impl fmt::Display for ExecutionState {
             | Self::Running => "running",
             | Self::Succeeded => "succeeded",
             | Self::Failed => "failed",
+            | Self::Cancelled => "cancelled",
             | Self::Skipped => "skipped",
             | Self::SkippedExisting => "skipped_existing",
         })
     }
 }
+
 impl Validate for GpuDevice {
     fn validate(&self) -> Result<(), ValidationReport> {
         let mut report = ValidationReport::new();
@@ -448,6 +492,7 @@ impl Validate for GpuDevice {
         report.finish()
     }
 }
+
 impl fmt::Display for GpuMonitoringStatus {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -458,45 +503,7 @@ impl fmt::Display for GpuMonitoringStatus {
         })
     }
 }
-impl Summary for InputSummary {
-    fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<u64>, &mut u64) {
-        (&mut self.state, &mut self.error, &mut self.started_at_ms, &mut self.updated_at_ms)
-    }
-}
-impl core::error::Error for JournalError {
-    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
-        match self {
-            | Self::Io(error) => Some(error),
-            | Self::Json(error) => Some(error),
-            | Self::Invalid(_) | Self::Poisoned => None,
-        }
-    }
-}
-impl fmt::Display for JournalError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            | Self::Io(error) => write!(formatter, "journal I/O failed: {error}"),
-            | Self::Json(error) => write!(formatter, "journal JSON failed: {error}"),
-            | Self::Invalid(message) => write!(formatter, "invalid journal: {message}"),
-            | Self::Poisoned => formatter.write_str("journal writer lock was poisoned"),
-        }
-    }
-}
-impl From<serde_json::Error> for JournalError {
-    fn from(error: serde_json::Error) -> Self {
-        Self::Json(error)
-    }
-}
-impl From<std::io::Error> for JournalError {
-    fn from(error: std::io::Error) -> Self {
-        Self::Io(error)
-    }
-}
-impl From<ValidationReport> for JournalError {
-    fn from(error: ValidationReport) -> Self {
-        Self::Invalid(error.to_string())
-    }
-}
+
 impl GpuRecovery {
     fn new(interval: Milliseconds) -> Result<Self, JournalError> {
         match interval.is_zero() {
@@ -595,6 +602,52 @@ impl GpuRecovery {
         }
     }
 }
+
+impl Summary for InputSummary {
+    fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<u64>, &mut u64) {
+        (&mut self.state, &mut self.error, &mut self.started_at_ms, &mut self.updated_at_ms)
+    }
+}
+
+impl core::error::Error for JournalError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            | Self::Io(error) => Some(error),
+            | Self::Json(error) => Some(error),
+            | Self::Invalid(_) | Self::Poisoned => None,
+        }
+    }
+}
+
+impl fmt::Display for JournalError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            | Self::Io(error) => write!(formatter, "journal I/O failed: {error}"),
+            | Self::Json(error) => write!(formatter, "journal JSON failed: {error}"),
+            | Self::Invalid(message) => write!(formatter, "invalid journal: {message}"),
+            | Self::Poisoned => formatter.write_str("journal writer lock was poisoned"),
+        }
+    }
+}
+
+impl From<serde_json::Error> for JournalError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
+    }
+}
+
+impl From<std::io::Error> for JournalError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+impl From<ValidationReport> for JournalError {
+    fn from(error: ValidationReport) -> Self {
+        Self::Invalid(error.to_string())
+    }
+}
+
 impl JournalInput {
     /// Create a deterministic input identity from its ordered position.
     pub fn new(index: usize, value: Option<String>) -> Self {
@@ -605,12 +658,14 @@ impl JournalInput {
         }
     }
 }
+
 impl JournalModule {
     /// Create a stable module identity from its ordered position, display name, and ancestry.
     pub fn new(index: usize, name: String, module_path: Vec<String>) -> Self {
         Self { index, name, module_path }
     }
 }
+
 impl JournalSink {
     /// Append one event with the next sequence number and durable flush.
     fn append_locked(&mut self, run_id: &str, event: JournalEvent) -> Result<(), JournalError> {
@@ -634,6 +689,7 @@ impl JournalSink {
         }
     }
 }
+
 impl MetricAggregate {
     fn summary(self) -> Option<GpuMetricSummary> {
         (self.samples > 0).then(|| GpuMetricSummary {
@@ -648,11 +704,13 @@ impl MetricAggregate {
         self.sum = self.sum.saturating_add(u128::from(value));
     }
 }
+
 impl Summary for ModuleSummary {
     fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<u64>, &mut u64) {
         (&mut self.state, &mut self.error, &mut self.started_at_ms, &mut self.updated_at_ms)
     }
 }
+
 impl RunJournal {
     /// Create a new journal and durably initialize every input and module.
     ///
@@ -947,6 +1005,7 @@ impl RunJournal {
             .and_then(|mut sink| sink.append_locked(&self.run_id, event))
     }
 }
+
 impl Validate for RunJournal {
     fn validate(&self) -> Result<(), ValidationReport> {
         let report = match self.run_id.is_empty() {
@@ -999,6 +1058,7 @@ impl Validate for RunJournal {
             .finish()
     }
 }
+
 impl RunMetadata {
     /// Build metadata with the current system time.
     pub fn now(run_id: String, configuration: ConfigurationIdentity, dry_run: bool) -> Self {
@@ -1010,6 +1070,7 @@ impl RunMetadata {
         }
     }
 }
+
 impl Validate for RunMetadata {
     fn validate(&self) -> Result<(), ValidationReport> {
         match self.run_id.is_empty() {
@@ -1021,15 +1082,18 @@ impl Validate for RunMetadata {
         }
     }
 }
+
 impl fmt::Display for RunStatus {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             | Self::Succeeded => "succeeded",
             | Self::Failed => "failed",
+            | Self::Cancelled => "cancelled",
             | Self::Interrupted => "interrupted",
         })
     }
 }
+
 impl RunSummary {
     /// Persist this summary as formatted JSON without overwriting an existing report.
     pub fn write_json_atomic(&self, directory: &Path) -> Result<PathBuf, JournalError> {
@@ -1083,6 +1147,7 @@ impl RunSummary {
     /// Render the human-readable console summary to standard output.
     fn render_console(&self, journal_path: &Path) -> Result<(), JournalError> {
         let mut succeeded = 0usize;
+        let mut cancelled = 0usize;
         let mut failed = 0usize;
         let mut skipped = 0usize;
         let mut skipped_existing = 0usize;
@@ -1090,6 +1155,7 @@ impl RunSummary {
         for input in &self.inputs {
             match input.state {
                 | ExecutionState::Succeeded => succeeded += 1,
+                | ExecutionState::Cancelled => cancelled += 1,
                 | ExecutionState::Failed => failed += 1,
                 | ExecutionState::Skipped => skipped += 1,
                 | ExecutionState::SkippedExisting => skipped_existing += 1,
@@ -1102,7 +1168,7 @@ impl RunSummary {
             .and_then(|()| {
                 writeln!(
                     output,
-                    "Inputs: {succeeded} succeeded, {failed} failed, {skipped} skipped, {skipped_existing} skipped existing, {unfinished} unfinished"
+                    "Inputs: {succeeded} succeeded, {cancelled} cancelled, {failed} failed, {skipped} skipped, {skipped_existing} skipped existing, {unfinished} unfinished"
                 )
             })
             .and_then(|()| {
@@ -1184,6 +1250,7 @@ impl RunSummary {
             .and_then(|()| output.flush().map_err(JournalError::from))
     }
 }
+
 impl TryFrom<&Path> for RunSummary {
     type Error = JournalError;
 
@@ -1222,6 +1289,7 @@ impl TryFrom<&Path> for RunSummary {
         })
     }
 }
+
 impl TryFrom<PathBuf> for RunSummary {
     type Error = JournalError;
 
@@ -1229,6 +1297,7 @@ impl TryFrom<PathBuf> for RunSummary {
         Self::try_from(path.as_path())
     }
 }
+
 impl TryFrom<Vec<JournalRecord>> for RunSummary {
     type Error = JournalError;
 
@@ -1425,6 +1494,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                     )),
                     | false => {
                         let (status, error, finished_at_ms) = match finalization {
+                            | Some((FinalStatus::Cancelled, error, finished_at_ms)) => (RunStatus::Cancelled, error, Some(finished_at_ms)),
                             | Some((FinalStatus::Succeeded, error, finished_at_ms)) => (RunStatus::Succeeded, error, Some(finished_at_ms)),
                             | Some((FinalStatus::Failed, error, finished_at_ms)) => (RunStatus::Failed, error, Some(finished_at_ms)),
                             | None => (RunStatus::Interrupted, None, None),
@@ -1449,6 +1519,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
             })
     }
 }
+
 fn bounded_error(value: &str) -> String {
     if value.len() <= MAX_ERROR_BYTES {
         value.to_string()
@@ -1461,6 +1532,32 @@ fn bounded_error(value: &str) -> String {
         format!("{}{}", &value[..end], SUFFIX)
     }
 }
+
+fn timestamp() -> Milliseconds {
+    Milliseconds::new(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
+    )
+}
+
+fn validate_container_transition(current: ContainerState, next: ContainerState) -> Result<(), JournalError> {
+    let valid = match current {
+        | ContainerState::NotStarted => next.is_ready() || next.is_external() || next.is_failed(),
+        | ContainerState::Ready => next.is_removed() || next.is_retained() || next.is_failed(),
+        | ContainerState::Removed | ContainerState::Retained | ContainerState::External | ContainerState::Failed => false,
+    };
+    match valid {
+        | true => Ok(()),
+        | false => Err(JournalError::Invalid(format!(
+            "invalid container transition from {current:?} to {next:?}"
+        ))),
+    }
+}
+
 fn validate_gpu_inventory(devices: &[GpuDevice]) -> Result<(), JournalError> {
     let (_, _, duplicate_index, duplicate_uuid) = devices.iter().fold(
         (BTreeSet::new(), BTreeSet::new(), false, false),
@@ -1477,6 +1574,7 @@ fn validate_gpu_inventory(devices: &[GpuDevice]) -> Result<(), JournalError> {
         | (false, false, false) => Ok(()),
     }
 }
+
 fn validate_gpu_readings<'a>(readings: &[GpuReading], device_ids: impl Iterator<Item = &'a String>) -> Result<(), JournalError> {
     let expected = device_ids.map(String::as_str).collect::<BTreeSet<_>>();
     let actual = readings.iter().map(|reading| reading.uuid.as_str()).collect::<BTreeSet<_>>();
@@ -1490,35 +1588,21 @@ fn validate_gpu_readings<'a>(readings: &[GpuReading], device_ids: impl Iterator<
         | (true, true, false) => Ok(()),
     }
 }
-fn timestamp() -> Milliseconds {
-    Milliseconds::new(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-            .try_into()
-            .unwrap_or(u64::MAX),
-    )
-}
-fn validate_container_transition(current: ContainerState, next: ContainerState) -> Result<(), JournalError> {
-    let valid = match current {
-        | ContainerState::NotStarted => next.is_ready() || next.is_external() || next.is_failed(),
-        | ContainerState::Ready => next.is_removed() || next.is_retained() || next.is_failed(),
-        | ContainerState::Removed | ContainerState::Retained | ContainerState::External | ContainerState::Failed => false,
-    };
-    match valid {
-        | true => Ok(()),
-        | false => Err(JournalError::Invalid(format!(
-            "invalid container transition from {current:?} to {next:?}"
-        ))),
-    }
-}
+
 fn validate_transition(current: ExecutionState, next: ExecutionState, kind: &str) -> Result<(), JournalError> {
     let valid = match current {
-        | ExecutionState::NotStarted => next.is_pending() || next.is_running() || next.is_failed() || next.is_skipped() || next.is_skipped_existing(),
-        | ExecutionState::Pending => next.is_running() || next.is_failed() || next.is_skipped() || next.is_skipped_existing(),
-        | ExecutionState::Running => next.is_succeeded() || next.is_failed() || next.is_skipped() || next.is_skipped_existing(),
-        | ExecutionState::Succeeded | ExecutionState::Failed | ExecutionState::Skipped | ExecutionState::SkippedExisting => false,
+        | ExecutionState::NotStarted => {
+            next.is_pending() || next.is_running() || next.is_failed() || next.is_cancelled() || next.is_skipped() || next.is_skipped_existing()
+        }
+        | ExecutionState::Pending => next.is_running() || next.is_failed() || next.is_cancelled() || next.is_skipped() || next.is_skipped_existing(),
+        | ExecutionState::Running => {
+            next.is_succeeded() || next.is_failed() || next.is_cancelled() || next.is_skipped() || next.is_skipped_existing()
+        }
+        | ExecutionState::Succeeded
+        | ExecutionState::Failed
+        | ExecutionState::Cancelled
+        | ExecutionState::Skipped
+        | ExecutionState::SkippedExisting => false,
     };
     match valid {
         | true => Ok(()),

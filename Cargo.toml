@@ -1,5 +1,5 @@
 [workspace]
-members = ["tools/memory-spike", "xtask", "xylem-cli", "xylem-lib"]
+members = ["tools/memory-spike", "xtask", "xylem-cli", "xylem-lib", "xylem-tui"]
 resolver = "2"
 
 [workspace.package]
@@ -29,22 +29,25 @@ std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
 
 [workspace.dependencies]
-acorn-cmd = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", default-features = false }
-acorn-core = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", features = ["alloc"], default-features = false }
-acorn-host = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", features = ["fs", "terminal"], default-features = false }
-acorn-macros = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", default-features = false }
-acorn-schema = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "5d29344660334e2f0fd09b96a6f84b4510e57286", version = "0.3.2", features = ["alloc"], default-features = false }
+acorn-cmd = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "36cd74041eaa4669636b7743071f3c334cdb3b7d", version = "0.3.4", default-features = false }
+acorn-core = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "36cd74041eaa4669636b7743071f3c334cdb3b7d", version = "0.3.4", features = ["alloc"], default-features = false }
+acorn-host = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "36cd74041eaa4669636b7743071f3c334cdb3b7d", version = "0.3.4", features = ["config", "fs", "terminal"], default-features = false }
+acorn-macros = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "36cd74041eaa4669636b7743071f3c334cdb3b7d", version = "0.3.4", default-features = false }
+acorn-schema = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "36cd74041eaa4669636b7743071f3c334cdb3b7d", version = "0.3.4", features = ["alloc"], default-features = false }
 cel = { version = "=0.14.5", default-features = false }
 clap = { version = "4.5.51", default-features = false }
 clap-verbosity-flag = { version = "3.0.4", features = ["log"], default-features = false }
 color-eyre = { version = "0.6.5", default-features = false }
 convert_case = { version = "0.11.0", default-features = false }
+crossterm = { version = "0.29.0", default-features = false, features = ["events"] }
 csv = { version = "1.4.0", default-features = false }
 dotenvy = { version = "0.15.7", default-features = false }
 exitcode = { version = "1.1.2", default-features = false }
 glob = { version = "0.3.1", default-features = false }
+jsonc-parser = { version = "0.33", features = ["serde", "serde_json"], default-features = false }
 owo-colors = { version = "4.2.3", default-features = false }
 rayon = { version = "1.12.0", default-features = false }
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
 reqwest = { version = "0.13.2", features = ["blocking", "rustls"], default-features = false }
 serde = { version = "1.0.228", features = ["derive"], default-features = false }
 serde_json = { version = "1.0.149", default-features = false }
@@ -52,6 +55,7 @@ serde_norway = { version = "0.9.42", default-features = false }
 serde_with = { version = "=3.16.1", features = ["macros"], default-features = false }
 sha2 = { version = "=0.10.9", default-features = false }
 strum = { version = "0.28.0", features = ["derive"], default-features = false }
+sysinfo = { version = "0.39.6", default-features = false, features = ["disk", "network", "system"] }
 thiserror = { version = "2.0.18", default-features = false }
 tracing = { version = "0.1.44", features = ["attributes"], default-features = false }
 tracing-log = { version = "0.2.0", default-features = false }

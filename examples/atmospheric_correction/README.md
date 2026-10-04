@@ -3,7 +3,7 @@
 ## Breaking Down the Configuration
 - Specify the input directory or series of directories:
     - Use the `input` value to parse through imagery in parallel. 
-        - In the associated `config.json`, there is a single directory listed. Xylem will parse through this main directory and concurrently process all available subdirectories.
+        - In the associated `.xylem.json`, there is a single directory listed. Xylem will parse through this main directory and concurrently process all available subdirectories.
         ```json
         "input": 
             "/data/test-cases"
@@ -64,7 +64,7 @@ For more thorough discussions on variables and overall structure, along with a l
     ```bash
     make run
     ```
-- To run the module with Xylem, at maximum verbosity, using the `config.json`:
+- To run the module with Xylem, at maximum verbosity, using the automatically discovered `.xylem.json`:
     ```bash
     xylem run -vvvv
     ```

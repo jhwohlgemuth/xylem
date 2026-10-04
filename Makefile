@@ -62,6 +62,7 @@ help:
 	@mkdir -p docs/src/generated
 	@cargo run --quiet --package xylem-cli -- --help | sed 's/[[:space:]]*$$//' > docs/src/generated/xylem-help.txt
 	@cargo run --quiet --package xylem-cli -- run --help | sed 's/[[:space:]]*$$//' > docs/src/generated/xylem-run-help.txt
+	@cargo run --quiet --package xylem-cli -- tui --help | sed 's/[[:space:]]*$$//' > docs/src/generated/xylem-tui-help.txt
 
 homebrew-formula:
 	@cargo xtask homebrew-formula $(VERSION) ./Formula/xylem.rb

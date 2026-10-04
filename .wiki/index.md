@@ -32,7 +32,7 @@ effort.
 | [Secure module acquisition](refactors/secure-module-acquisition.md) | 5/5 | Critical | High | Very high | The scope is focused, with a clear threat boundary, typed failure behavior, offline semantics, and adversarial validation. Implement planner and cache primitives independently, then serialize integration across the shared configuration and process locks. |
 | [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md) | 4/5 | Critical | Very high | High | The threat model and capability negotiation are well specified. The plan spans fake, OCI, separate-kernel, and default-on rollout horizons; deliver through OCI and lifecycle hardening first, then require a new decision before the stronger-provider rollout. |
 | [Memory-aware adaptive scheduling](features/memory-aware-scheduling.md) | 5/5 | High | Medium | High | The measurement evidence is strong. The scoped estimator passed its gate, but only for the pinned A+P workflow and measured size range. Production concurrency must remain one until a real concurrent holdout mix validates additive reservations. |
-| [Workflow dashboard and durable run history](features/workflow-dashboard.md) | 3/5 | High | Very high | Medium | The plan combines runner extraction, configuration changes, storage, logs, telemetry, forecasting, history, and a TUI. Land the headless runner and run store first; telemetry and the TUI need independent exit gates before the CLI-breaking configuration change is accepted. |
+| [Workflow dashboard and durable run history](features/workflow-dashboard.md) | 5/5 | High | Complete | Delivered | The initial dashboard capability is implemented first: ACORN v0.3.4, positional config, canonical evidence, live and historical TUI views, metrics, logs, projections, and cancellation over current fixed concurrency. |
 | [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) | 4/5 | Critical | Very high | Conditional high | The plan specifies the controller/worker, PVC, protocol, and failure contracts in detail. Delivery depends on shared-filesystem semantics, cluster runners, release images, and confirmed operator demand. Keep it separate from sandboxing and validate those deployment assumptions before implementation. |
 
 ## Consolidated and ranked portfolio
@@ -45,19 +45,17 @@ impact and difficulty explicitly.
 
 | Rank | Consolidated plan | Source plans | Impact | Difficulty | Value and decision |
 |---:|---|---|---:|---:|---|
-| 1 | Release activation | Homebrew release activation | High | Low | Very high. Finish the macOS runner, make both tap jobs required, merge, and publish the verified install command. This is the smallest path to immediate user value. |
-| 2 | Trusted local execution | Environment/concurrency + secure acquisition + sandboxing | Critical | Very high | Very high. These plans share the process, environment, workspace, configuration, CLI, and schema boundaries. Sequence the immutable runtime first, secure materialization second, then fake and OCI sandbox enforcement; defer the stronger provider to a later approval gate. |
-| 3 | Adaptive runtime operations | Memory-aware scheduling + dashboard/run history | High | Very high | High. Treat scheduler events, simulation, and the canonical run store as one observability contract. Deliver the measured scheduler and headless run evidence before forecasts or TUI work. |
-| 4 | Kubernetes execution target | Kubernetes workflow execution | Critical | Very high | Conditional high. It remains an orthogonal execution target with its own approval gate. Start after the shared runner lands and only when a supported cluster, shared PVC semantics, image pipeline, and user demand are confirmed. |
+| 1 | Workflow dashboard MVP | Workflow dashboard and durable run history | High | Complete | Delivered first. The initial dashboard, canonical evidence, logs, metrics, cancellation, and history now run over current fixed concurrency. |
+| 2 | Release activation | Homebrew release activation | High | Low | Very high. Resume the nearly complete tap activation after dashboard acceptance. |
+| 3 | Trusted local execution | Environment/concurrency + secure acquisition + sandboxing | Critical | Very high | High. These remain independent hardening plans and no longer block the dashboard. Sequence their integrations after preserving the dashboard contracts. |
+| 4 | Kubernetes execution target | Kubernetes workflow execution | Critical | Very high | Conditional high. It remains an orthogonal execution target with its own approval gate. Start from the landed execution boundary only when a supported cluster, shared PVC semantics, image pipeline, and user demand are confirmed. |
 
 ## Recommended execution order
 
-1. Complete Homebrew activation in the delivery lane.
-2. Publish the upstream [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md), then land the environment/concurrency phases through the reusable runner and immutable input boundary.
-3. Complete secure acquisition. Pure planner, policy, and cache work may overlap with the runtime foundation, but shared configuration and process integration remains serial.
-4. Implement the already-authorized memory estimator, telemetry, and admission seam for its measured boundary. Keep concurrency at one until the concurrent holdout gate passes.
-5. Add the fake and rootless OCI sandbox backends plus artifact and lifecycle hardening. Reassess stronger-provider work separately.
-6. Decide between Kubernetes and the headless dashboard foundation using confirmed deployment demand. Both consume the shared runner and durable evidence contracts; neither should redefine them.
+1. Treat the delivered [workflow dashboard MVP](features/workflow-dashboard.md) as the fixed user-facing baseline and address only acceptance defects before expanding it.
+2. Resume Homebrew activation and publish the verified installation path.
+3. Resume memory-aware scheduling when its external block clears; integrate it through the durable dashboard state rather than making it a prerequisite.
+4. Reassess environment/concurrency, secure acquisition, sandboxing, and Kubernetes against demonstrated operator demand and the landed execution boundary.
 
 ## Planning gaps
 

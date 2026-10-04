@@ -1,10 +1,11 @@
 # Command-line reference
 
-The `xylem` executable currently exposes the `run` command:
+The `xylem` executable exposes headless `run` and interactive `tui` commands:
 
 ```text
 xylem [OPTIONS] [COMMAND]
-xylem [OPTIONS] run [RUN OPTIONS]
+xylem [OPTIONS] run [CONFIG] [RUN OPTIONS]
+xylem [OPTIONS] tui [CONFIG]
 ```
 
 Global options include verbosity flags, `-t, --threads <N>`, `--env <PATH>`,
@@ -25,7 +26,7 @@ be disabled explicitly with `--no-progress`.
 
 The `run` command accepts:
 
-- `--config <PATH>` for a JSON or YAML configuration;
+- an optional positional `CONFIG` path using JSON, strict JSONC, YAML, or YML;
 - `--input <LIST>` for comma-delimited workflow inputs;
 - `--artifact-output <PATH>` to override the workflow artifact root and default
   `OUTPUT_DIRECTORY`;
@@ -38,25 +39,24 @@ The `run` command accepts:
 - `--skip-verify-checksum` and `--skip-verify-requirements` for explicit
   troubleshooting bypasses;
 - repeatable or comma-delimited `--reporter <console|json>` values; and
-- `--report-output <PATH>` to select a directory for the journal and file-based
-  reports.
+- `--report-output <PATH>` to export additional file-based reports.
 
 `console` is the default reporter. `json` writes the versioned final summary
 to standard output unless `--report-output` is present; with an output directory it
 is atomically written as `<run-id>.json`. Repeated reporter names are
 deduplicated while preserving their first occurrence.
 
-Every valid run configuration gets an append-only
-`<run-id>.journal.jsonl`. Xylem flushes each input and module transition before
-continuing, so a run that is terminated without a finalization record remains
-recoverable as `interrupted`. When `--report-output` is absent, the journal is kept in
-the run's temporary workspace and the default console report prints its path.
-When `--report-output` is present, both the durable journal and JSON report are kept
-in that directory. The configuration `output` field continues to describe
-workflow artifacts and does not override this CLI reporting destination. The
-legacy `--output` spelling remains an alias for `--report-output`.
+By default, every valid run gets a canonical bundle beneath Xylem's platform cache with a
+manifest, append-only journal, one-second metrics, terminal summary, and
+attributed task logs. Xylem flushes transitions and JSONL evidence while work
+runs, so a run terminated without a summary remains recoverable as
+`interrupted`. Tests and embedded deployments can set `XYLEM_RUN_STORE` to an
+isolated store root. `--report-output` exports additional requested reports without
+relocating canonical evidence. The configuration `output` field continues to
+describe workflow artifacts. The legacy `--output` spelling remains an alias
+for `--report-output`.
 
-The version 5 JSON summary includes the run and configuration identities,
+The version 7 JSON summary includes the run and configuration identities,
 timestamps and duration, dry-run flag, final status, and ordered input/module
 states. When GPU monitoring is enabled, the journal retains one raw sample per
 second and the summary includes per-device sample counts, average and peak
@@ -83,12 +83,15 @@ report, marker, or artifact. Consequently, `--report-output` is rejected with
 in-memory plan. `--gpu-monitor` is likewise represented in the plan without
 probing the host.
 
-When `--config` is omitted, Xylem looks for `config.json` in the current
-directory. Run the generated help for version-specific spelling and defaults:
+When `CONFIG` is omitted, Xylem checks `.xylem.json`, `.xylem.jsonc`,
+`.xylem.yaml`, and `.xylem.yml` in that order. `run` reports a usage error when
+none exists; `tui` still opens retained history. Run the generated help for
+version-specific spelling and defaults:
 
 ```shell
 xylem --help
 xylem run --help
+xylem tui --help
 ```
 
 The checked-in [`xylem --help`](./generated/xylem-help.txt) and

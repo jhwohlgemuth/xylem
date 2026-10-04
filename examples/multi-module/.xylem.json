@@ -2,7 +2,7 @@
     "version": "1.0.0",
     "description": "Pass a message through Conda, Pixi, script, and binary modules",
     "requirements": ["mamba", "pixi"],
-    "output": "./examples/multi-module/output",
+    "output": "./output",
     "variables": {
         "MESSAGE": "Hello from Xylem"
     },
@@ -11,7 +11,7 @@
             "name": "Conda Module",
             "type": "script",
             "programmingLanguage": "python",
-            "uri": "file:./examples/multi-module/conda",
+            "uri": "file:./conda",
             "template": {
                 "environment": {
                     "name": "xylem-multi-module-conda",
@@ -37,7 +37,7 @@
             "name": "Pixi Module",
             "type": "script",
             "programmingLanguage": "python",
-            "uri": "file:./examples/multi-module/pixi",
+            "uri": "file:./pixi",
             "template": {
                 "environment": {
                     "name": "default",
@@ -63,7 +63,7 @@
             "name": "Script Module",
             "type": "script",
             "programmingLanguage": "generic",
-            "uri": "file:./examples/multi-module/script",
+            "uri": "file:./script",
             "template": {
                 "command": "sh",
                 "arguments": [
@@ -81,7 +81,7 @@
         {
             "name": "Binary Module",
             "type": "binary",
-            "uri": "file:./examples/multi-module/binary/finalize",
+            "uri": "file:./binary/finalize",
             "template": {
                 "command": "finalize",
                 "arguments": [

@@ -2,5 +2,5 @@
 //!
 //!     cargo run --example offline-smoke
 fn main() -> xylem_cli::Void {
-    xylem_cli::run_example("examples/offline-smoke/config.json")
+    xylem_cli::run_example("examples/offline-smoke/.xylem.json")
 }

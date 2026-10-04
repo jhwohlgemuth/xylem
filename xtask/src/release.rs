@@ -3,7 +3,7 @@ use std::fs::read_to_string;
 use std::process::Command;
 use std::thread::sleep;
 
-const CRATES: [&str; 2] = ["xylem-lib", "xylem-cli"];
+const CRATES: [&str; 3] = ["xylem-lib", "xylem-tui", "xylem-cli"];
 
 pub(crate) fn canonical_version(version: &str) -> Result<String, String> {
     let valid = version.split('.').collect::<Vec<_>>();
@@ -36,22 +36,6 @@ pub(crate) fn publish_crates() -> Result<(), String> {
                 .and_then(|()| wait_until_published(name, &version))
             })
         })
-}
-
-pub(crate) fn workspace_version() -> Result<String, String> {
-    read_to_string("Cargo.toml")
-        .map_err(|error| format!("read Cargo.toml: {error}"))
-        .and_then(|manifest| {
-            manifest
-                .lines()
-                .skip_while(|line| line.trim() != "[workspace.package]")
-                .skip(1)
-                .take_while(|line| !line.trim_start().starts_with('['))
-                .find_map(|line| line.trim().strip_prefix("version = \"").and_then(|value| value.strip_suffix('"')))
-                .map(str::to_string)
-                .ok_or_else(|| "workspace version not found in Cargo.toml".to_string())
-        })
-        .and_then(|version| canonical_version(&version))
 }
 
 fn published(name: &str, version: &str) -> bool {
@@ -97,6 +81,22 @@ fn wait_until_published(name: &str, version: &str) -> Result<(), String> {
         })
         .map(|_| ())
         .ok_or_else(|| format!("{name} {version} was not available from crates.io after 5 minutes"))
+}
+
+pub(crate) fn workspace_version() -> Result<String, String> {
+    read_to_string("Cargo.toml")
+        .map_err(|error| format!("read Cargo.toml: {error}"))
+        .and_then(|manifest| {
+            manifest
+                .lines()
+                .skip_while(|line| line.trim() != "[workspace.package]")
+                .skip(1)
+                .take_while(|line| !line.trim_start().starts_with('['))
+                .find_map(|line| line.trim().strip_prefix("version = \"").and_then(|value| value.strip_suffix('"')))
+                .map(str::to_string)
+                .ok_or_else(|| "workspace version not found in Cargo.toml".to_string())
+        })
+        .and_then(|version| canonical_version(&version))
 }
 
 #[cfg(test)]

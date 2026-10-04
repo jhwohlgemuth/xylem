@@ -1,6 +1,8 @@
 # Workflow configuration
 
-Xylem reads JSON and YAML configurations. A workflow describes requirements,
+Xylem reads JSON, strict JSONC, YAML, and YML configurations. JSONC accepts
+line and block comments plus trailing commas while retaining strict JSON syntax.
+A workflow describes requirements,
 zero or more inputs, shared variables, ordered modules, and execution options.
 
 ```json
@@ -97,7 +99,7 @@ MiB per scalar. Exceeding any limit fails before workflow execution.
 
 A non-empty CLI `--input` list has precedence and bypasses selection request
 validation, root access, discovery, compilation, and evaluation. Dry-run uses
-the same read-only selection snapshot as execution. Execution-plan schema v6
+the same read-only selection snapshot as execution. Execution-plan schema v7
 records canonical options, limits, engine/interpreter identity, counts, and
 SHA-256 script and inventory digests without recording the script, configured
 variable values, or unselected inventory.

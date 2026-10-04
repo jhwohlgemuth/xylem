@@ -26,5 +26,5 @@ fn build_binary() -> xylem_cli::Void {
 }
 
 fn main() -> xylem_cli::Void {
-    build_binary().and_then(|()| xylem_cli::run_example("examples/kitchensink/config.json"))
+    build_binary().and_then(|()| xylem_cli::run_example("examples/kitchensink/.xylem.json"))
 }
