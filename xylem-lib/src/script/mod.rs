@@ -2,7 +2,7 @@ use crate::completion::Completion;
 use crate::error::{ModuleLoadError, ProcessError, TemplateError};
 use crate::util::absolute_path;
 use crate::util::constants::{RE_HANDLEBARS, RE_TEMPLATE_SPACES};
-use acorn_cmd::{args, CommandError, CommandSpec, ExecutionOptions, ExecutionResult};
+use acorn_cmd::{args, CommandError, CommandSpec, ExecutionOptions, ExecutionResult, OutputStream};
 use acorn_core::{Location, Scheme};
 use acorn_host::fs::read_text;
 use acorn_host::terminal::Label;
@@ -1050,7 +1050,17 @@ impl Script {
     }
     /// Execute a script and preserve command failures for the caller.
     pub fn run_checked(&self) -> Result<Vec<String>, ProcessError> {
-        self.execute_checked(&ExecutionOptions::new()).map(|result| {
+        let dispatcher = tracing::dispatcher::get_default(Clone::clone);
+        let options = ExecutionOptions::new().with_sink(move |_: OutputStream, bytes: &[u8]| {
+            tracing::dispatcher::with_default(&dispatcher, || {
+                String::from_utf8_lossy(bytes)
+                    .split(['\r', '\n'])
+                    .filter(|line| !line.is_empty())
+                    .for_each(|line| trace!("=> {} {}", Label::output(), line.dimmed()));
+            });
+            Ok(())
+        });
+        self.execute_checked(&options).map(|result| {
             let stdout = String::from_utf8_lossy(result.stdout().bytes())
                 .lines()
                 .map(String::from)
@@ -1059,9 +1069,7 @@ impl Script {
                 .lines()
                 .map(String::from)
                 .collect::<Vec<_>>();
-            let output = stdout.into_iter().chain(stderr).collect::<Vec<_>>();
-            output.iter().for_each(|line| trace!("=> {} {}", Label::output(), line.dimmed()));
-            output
+            stdout.into_iter().chain(stderr).collect::<Vec<_>>()
         })
     }
     pub fn with_container(mut self, container: ContainerEnvironment) -> Self {

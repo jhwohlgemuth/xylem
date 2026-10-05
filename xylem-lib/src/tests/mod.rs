@@ -9,6 +9,7 @@ use core::time::Duration;
 use pyproject_toml::Project;
 use std::collections::HashMap;
 use std::env::set_var;
+use std::fs::{remove_file, write};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
@@ -581,7 +582,6 @@ fn test_script_git_clone() {
             format!("git -c http.followRedirects=false clone {} code_ornl_gov_some_project", url.clone())
         );
     };
-
     let ssh = "ssh://git@code.ornl.gov/some/project".to_string();
     let script = Script::maybe_git_clone(ssh.clone(), ".".to_string()).expect("SSH is supported as a Git transport");
     assert_eq!(
@@ -618,8 +618,49 @@ fn test_script_run_checked_reports_failure() {
         let command = Command::init().name("sh".to_string()).build();
         let arguments = to_string(vec!["-c", "exit 7"]);
         let script = Script::init().command(command).arguments(arguments).build();
-
         assert!(script.run_checked().is_err());
+    }
+}
+#[test]
+fn test_script_run_checked_streams_output_before_exit() {
+    if !cfg!(target_os = "windows") {
+        let release = std::env::temp_dir().join(format!("xylem-stream-output-{}", std::process::id()));
+        let _ = remove_file(&release);
+        let command = Command::init().name("sh".to_string()).build();
+        let arguments = vec![
+            "-c".to_string(),
+            "printf 'streamed before exit\\n'; while [ ! -f \"$1\" ]; do sleep 0.01; done".to_string(),
+            "sh".to_string(),
+            release.display().to_string(),
+        ];
+        let script = Script::init().command(command).arguments(arguments).build();
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let writer = SharedWriter(captured.clone());
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_max_level(tracing::Level::TRACE)
+            .with_target(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+        let observed = captured.clone();
+        let release_signal = release.clone();
+        let watcher = thread::spawn(move || {
+            let streamed = (0..100).any(|_| {
+                let found = String::from_utf8_lossy(&observed.lock().expect("read captured log output")).contains("streamed before exit");
+                if !found {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                found
+            });
+            write(release_signal, b"release").expect("release script");
+            streamed
+        });
+        let result = tracing::subscriber::with_default(subscriber, || script.run_checked());
+        let streamed = watcher.join().expect("join output watcher");
+        let _ = remove_file(release);
+        assert!(streamed, "output should be logged while the script is running");
+        assert!(result.is_ok());
     }
 }
 #[test]
@@ -637,10 +678,8 @@ fn test_script_run_checked_traces_decoded_output() {
             .without_time()
             .with_writer(move || writer.clone())
             .finish();
-
         let output = tracing::subscriber::with_default(subscriber, || script.run_checked().expect("script should run"));
         let logs = String::from_utf8(captured.lock().expect("read captured log output").clone()).expect("log output should be UTF-8");
-
         assert_eq!(output, vec!["snowman ☃".to_string(), "check ✔".to_string()]);
         assert!(logs.contains("snowman ☃"));
         assert!(logs.contains("check ✔"));
