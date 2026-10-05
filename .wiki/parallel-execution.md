@@ -31,7 +31,7 @@ The lanes below contain only remaining work.
 ### Lane A: configuration and acquisition
 
 1. [Secure module acquisition](refactors/secure-module-acquisition.md), consuming the validation contract
-2. [MCP-enabled tenant tools](features/mcp-tenant-tools.md), after the upstream ACORN revision is qualified
+2. [MCP-enabled tenant tools](features/mcp-tenant-tools.md), after ACORN's narrow `mcp-client`, direct server-map constructor, and cancellation-aware operations are qualified
 
 Secure acquisition owns generic transport behavior.
 

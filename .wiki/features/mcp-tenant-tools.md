@@ -1,63 +1,333 @@
 ---
 type: Plan
 title: "Add MCP-enabled tenant tools"
-description: "Expose explicitly configured remote MCP tools to Xylem workflows through ACORN's policy-checked client boundary."
+description: "Run root-configured tenant MCP calls as policy-checked per-input postludes with deterministic plans and durable evidence."
 difficulty: high
 impact: high
-package: [xylem-lib, xylem-cli, workspace]
-tags: [feature, mcp, interoperability, policy, tenants]
+package: [xylem-lib, xylem-cli, xylem-tui, workspace]
+tags: [feature, mcp, interoperability, policy, tenants, run-store]
 status: planned
 priority: next
 ---
 
 # Goal
 
-Let a Xylem workflow call an explicitly configured tenant MCP tool through the
-upstream ACORN client, while preserving Xylem's deterministic planning,
-execution, cancellation, journaling, and reporting contracts.
+Let a Xylem workflow call explicitly configured tenant MCP tools through ACORN's
+outbound client. Calls run after the module sequence for each successful input
+and remain separate from Xylem's module catalog. Planning, policy, cancellation,
+failure handling, and run evidence must behave like the rest of the workflow
+runner.
 
 # Current evidence
 
-ACORN implements the client in revision `3d2b504c` (`acorn-lib`'s non-default
-`mcp-client` feature). It supports configured child-process and Streamable HTTP
-transports, tool discovery, allowlists, effect policy, offline behavior,
-deadlines, output limits, and typed MCP results. Xylem is currently pinned to
-ACORN revision `36cd7404` and does not contain MCP configuration or invocation
-code.
+- Xylem commit `5e67c8354bcd` pins `acorn-cmd`, `acorn-core`, `acorn-host`,
+  `acorn-macros`, and `acorn-schema` at version 0.3.4 and revision
+  `36cd74041eaa4669636b7743071f3c334cdb3b7d`. It does not depend on
+  `acorn-lib` and has no MCP configuration or execution path.
+- ACORN 0.4.0 has a policy-checked client for child-process and Streamable HTTP
+  transports. It enforces configured server and tool allowlists, declared
+  effects, offline mode, timeouts, output limits, advertised-tool discovery,
+  and JSON-object arguments. A valid `CallToolResult` with `isError: true`
+  remains a successful transport result.
+- Published ACORN 0.4.0 is not suitable for Xylem as shipped. Enabling
+  `acorn-lib/mcp-client` also enables `analysis`. A clean resolution probe grew
+  the Xylem lockfile from 454 to 881 packages and restored `polars`, its related
+  crates, and `openssl-sys`. Xylem's dependency policy deliberately forbids
+  those packages after an earlier reduction from 844 packages.
+- ACORN 0.4.0 only constructs `McpClient` from its full
+  `ApplicationConfiguration`, and `call_tool` has no caller-supplied
+  cancellation signal. Internal deadlines and normal-path shutdown exist, but
+  dropping an in-flight future is not a documented session-cleanup contract.
+- Xylem's runner is synchronous and uses Rayon for bounded input concurrency.
+  `RunCancellation` provides a graceful first request and forceful repeated
+  request. The execution plan, journal, summary, run store, JSON reporter, and
+  TUI currently use schema version 7 and represent modules, containers, GPU
+  monitoring, and inputs only.
+- Xylem already expands uppercase `{{ VARIABLE }}` strings from workflow values
+  and the derived `INPUT`, `PARENT_DIRECTORY`, `OUTPUT_DIRECTORY`, and
+  `MODULE_LIST` values. MCP arguments can reuse that vocabulary without adding
+  another expression language.
 
-# Scope
+# Dependencies
 
-- Define the Xylem configuration shape for MCP server aliases and allowed tools.
-- Add a pure planning representation for an MCP invocation, including server,
-  tool, argument provenance, policy, timeout, and output limits.
-- Adapt ACORN's client result into durable run evidence without converting a
-  tool-level `isError` into a transport failure.
-- Support fake child-process and HTTP fixtures for allowlist, offline, effect,
-  timeout, output-limit, cancellation, and malformed-result behavior.
-- Document that Xylem is a configured caller, not a general MCP proxy.
+Implementation waits for the ACORN plan "Refine the outbound MCP client
+interface for embedders" to land on the 0.4.0 line. The accepted upstream
+revision must:
 
-Do not add arbitrary server URLs, headers, tool names, or shell commands to
-workflow input. Do not expose remote tools through Xylem's existing module
-catalog until a separate capability and trust decision is recorded.
+1. compile `acorn-lib/mcp-client` without `analysis`, `std`, Polars, or OpenSSL;
+2. construct `McpClient` directly from the configured MCP server map; and
+3. provide cancellation-aware call and list operations that close HTTP sessions
+   and cancel and reap child transports within a bounded shutdown period.
 
-# Dependencies and acceptance criteria
+All ACORN crates then move together to that one revision. The revision must
+retain Xylem's Rust baseline, feature checks, native and Windows builds, and
+dependency-security gates.
 
-Upgrade all ACORN crates together only after the MCP feature is compatible with
-Xylem's MSRV, feature matrix, and portable builds. Preserve the dashboard's
-run-store and schema contracts. The plan is accepted when dry-run is
-side-effect-free, every invocation is allowlisted and policy-checked, remote
-results are journaled deterministically, cancellation closes the session, and
-headless and TUI reporting agree on the outcome.
+# Configuration contract
+
+MCP is an optional root-workflow block with named servers and an ordered call
+list:
+
+```yaml
+mcp:
+  servers:
+    research:
+      transport:
+        type: streamable-http
+        url: https://tenant.example/mcp
+        bearer_token_env: RESEARCH_MCP_TOKEN
+      allowed:
+        resolve:
+          effects: [network-read]
+          timeout: 30
+          max_output: 1 MB
+  calls:
+    - name: resolve-input
+      server: research
+      tool: resolve
+      arguments:
+        input: "{{ INPUT }}"
+```
+
+Add `McpConfiguration` and `McpCallConfiguration` to `Config` with
+`deny_unknown_fields`. Preserve ACORN's server, transport, and tool policy
+types rather than defining a second wire shape.
+
+Validation applies these rules:
+
+- A present `mcp` block has at least one server and one call.
+- Call names are nonempty and unique in configured order.
+- Every call names a configured server and one of that server's allowed tools.
+- Arguments default to `{}` and must be a JSON object.
+- Server aliases, commands, arguments to child executables, URLs, bearer-token
+  environment names, and tool names are fixed configuration. Workflow input
+  cannot replace them.
+- Any `mcp` block in a nested local or remote configuration is rejected, even
+  when the block is empty. Imported workflows cannot add transports or tenant
+  actions.
+- Only string leaves inside `arguments` use templates. Expansion is textual;
+  number, boolean, object, array, and null values remain unchanged. An unknown
+  or unavailable variable fails planning before a transport can start.
+- MCP calls use root workflow variables and the derived input values. Module
+  variables do not affect root-level calls.
+
+# Caller policy
+
+Add `--allow-mcp-mutation` and `--allow-mcp-inference` to `xylem run` and
+`xylem tui`. These values are runtime-only `ConfigOptions` and cannot be enabled
+by a workflow file.
+
+The pure planner mirrors ACORN's current policy vocabulary:
+
+- `mutation`, `destructive`, and `filesystem-write` require mutation approval.
+- `inference` requires inference approval.
+- `network-read` is denied when offline, and Streamable HTTP is unavailable
+  when offline regardless of declared effects.
+- `credentials` and `process` remain unavailable effects.
+- `filesystem-read` remains available without an extra approval, matching
+  ACORN 0.4.0.
+
+This mirror prevents known policy failures from occurring after modules have
+run. ACORN remains the enforcement boundary and checks every live invocation.
+
+# Planning contract
+
+Add `mcp_calls: Vec<PlannedMcpCall>` to `ExecutionPlan`. Entries are ordered by
+input index and then call index. Each entry records:
+
+- input and call indices, input value, and configured call name;
+- server alias and tool name;
+- the resolved JSON arguments and a sorted, deduplicated list of referenced
+  template variables;
+- declared effects, timeout seconds, and maximum output bytes;
+- effective offline, mutation, and inference settings; and
+- `would_call` or `denied`, with a bounded policy reason for a denied call.
+
+Dry-run renders denied calls instead of requiring approval merely to inspect a
+plan. A real run refuses a plan containing a denied call before acquisition,
+module execution, credential lookup, executable lookup, or transport startup.
+
+Dry-run does not construct `McpClient`, inspect bearer-token values, resolve a
+child executable, open a network connection, start a child process, request a
+tool catalog, create a journal, or write a result artifact. Resolved arguments
+are visible in dry-run output, consistent with the existing plan's effective
+module variables. They are not copied into the journal.
+
+Bump the execution-plan schema to version 8 and add
+`docs/schema/execution-plan-v8.schema.json`. Retain the v7 schema as historical
+documentation.
+
+# Execution design
+
+Create a small Xylem MCP adapter in `xylem-lib`. It owns one immutable ACORN
+client and a one-worker Tokio runtime. Rayon continues to bound active inputs;
+the runtime handles asynchronous I/O for calls already admitted by that input
+limit. The adapter is created only for a real run with configured calls.
+
+For each input:
+
+1. Run modules through the existing recorded runner.
+2. If the module outcome failed or was cancelled, leave its MCP calls
+   `not_started` and finalize the input normally.
+3. If the module outcome succeeded or was skipped, run MCP calls sequentially
+   in configured order.
+4. Stop the remaining calls on the first reported error, invocation failure,
+   evidence-write failure, or cancellation. Return the resulting input outcome
+   to the existing fail-fast dispatcher.
+
+Calls still run when `--resume` skips every module as already complete. If all
+calls succeed, the final input state is `succeeded` because the postlude did
+work. There are no retries and no completion-marker semantics for MCP calls.
+
+Build one `InvocationContext` per call with the effective approvals and offline
+state, the configured tool output ceiling, direct origin, principal `xylem`, and
+a correlation identifier derived from run, input, and call identity. Calls on
+different inputs may overlap; calls for one input never overlap.
+
+# Cancellation
+
+Extend `RunCancellation` with a dedicated MCP cancellation signal. The first
+request cancels active MCP work and prevents new calls from starting while
+retaining the existing graceful behavior for managed module commands. A
+repeated request also cancels the forceful command token.
+
+The adapter passes the cancellation future to ACORN rather than aborting the
+Tokio runtime. ACORN must finish protocol cancellation and bounded session
+shutdown before the call future resolves. Xylem records the call and input as
+`cancelled`; a cleanup detail may be appended without changing cancellation as
+the primary outcome.
+
+# Durable evidence and reporting
+
+Add immutable `McpCallOutcome`, `McpCallSummary`, `McpResultEvidence`, and
+`McpFailureKind` types. The failure kinds are:
+
+- `reported_error` for a valid result whose `isError` field is true;
+- `invocation` for policy, discovery, transport, timeout, output-limit, or
+  malformed-response failure;
+- `evidence` when a valid result cannot be stored; and
+- `cancelled` for caller cancellation.
+
+Serialize every valid bounded result atomically to
+`mcp/input-{input_index}/call-{call_index}.json` inside the run bundle. The
+version 1 artifact contains stable run, input, and call identity plus the MCP
+`content`, `structuredContent`, `isError`, and `_meta` fields. Compute the
+SHA-256 digest and byte count from the bytes actually written.
+
+Add initialized MCP call identities and `McpCallState` transitions to the
+journal. Terminal events and summaries store the relative artifact path,
+digest, byte count, and reported-error flag instead of duplicating the result.
+A result with `isError: true` is written first, then recorded as
+`reported_error`, and fails the input. An invocation failure has no result
+artifact. Failure to persist evidence fails the input because the durable
+result contract was not met.
+
+Add MCP calls to `WorkflowOutcome` and each `InputSummary`. Bump the journal and
+run-summary schemas to version 8 and add
+`docs/schema/run-summary-v8.schema.json` plus
+`docs/schema/mcp-result-v1.schema.json`. Update writers, recovery, projection,
+store discovery, reporters, and the TUI together. Follow the current exact
+schema-version policy: retain v7 schema documents but do not add a v7-to-v8 run
+migration.
+
+Console, JSON, and TUI views use the same projected summary. They show call
+name, server, tool, state, failure kind, and artifact reference. The TUI does
+not render arbitrary result payloads.
+
+# Implementation sequence
+
+1. Qualify the upstream ACORN revision and update all Acorn dependencies,
+   imports, the lockfile, and the dependency baseline in one manifest-owned
+   change.
+2. Add configuration types, root-only resolution, validation, pure recursive
+   argument expansion, caller policy, and planning. Land schema-v8 plan tests
+   before live execution.
+3. Add the ACORN adapter, Tokio bridge, runtime-only approvals, and real-run
+   policy preflight.
+4. Add result artifacts, journal events, outcomes, recovery, projections, and
+   schema-v8 summaries.
+5. Integrate per-input postludes with the runner and cancellation path.
+6. Update headless reporting, TUI rendering, examples, generated help, and user
+   documentation after names and behavior are stable.
 
 # Project code boundaries
 
-- Update: `Cargo.toml`, `Cargo.lock`, configuration, planning, journal/outcome,
-  CLI orchestration, docs, and examples as the contract is finalized.
-- Create: MCP adapter, fixtures, focused unit/integration tests, and schema
-  changes only if existing durable evidence cannot represent the result.
-- Delete: None.
+- Update: workspace manifests and lockfile; dependency policy; configuration,
+  planning, cancellation, workflow outcomes, run orchestration, journal,
+  projection, run store, reporters, TUI, schemas, documentation, and examples.
+- Create: the Xylem MCP adapter, typed result artifact support, fake
+  child-process and HTTP fixtures, focused tests, and v8/v1 schemas.
+- Delete: none. Do not remove v7 schema documents.
+
+The implementation claims the manifest, configuration, CLI, MCP integration,
+run-state, run-store, TUI, and documentation locks. It must not overlap another
+active owner of those files.
+
+# Validation
+
+Unit and schema tests cover:
+
+- JSON, JSONC, and YAML parsing; unknown fields; empty blocks; duplicate names;
+  server and allowlist references; and nested-configuration rejection;
+- recursive templates, literals of every JSON type, missing input variables,
+  sorted provenance, input-major planning order, and zero-input workflows;
+- every effect and approval combination, offline child and HTTP behavior, and
+  dry-run policy decisions;
+- schema-v8 plans, journals, recovery, projections, summaries, result-artifact
+  schema, digest verification, invalid transitions, and interrupted runs.
+
+Integration fixtures exercise the real ACORN adapter for:
+
+- child-process and Streamable HTTP success, bearer authentication, environment
+  isolation, allowlisted but unadvertised tools, and unallowlisted calls that do
+  not start a transport;
+- mutation and inference approval, offline rejection, timeout, output limit,
+  malformed protocol/result data, and cleanup failure;
+- `isError: true` with retained evidence versus invocation failure without an
+  artifact;
+- first-request cancellation, forced cancellation, HTTP closure, child reaping,
+  sequential call order, cross-input concurrency, fail-fast dispatch, module
+  failure, resume, and evidence-write failure;
+- matching console, JSON, and TUI outcomes over the same stored run.
+
+Run `cargo check --workspace --all-targets --locked`, `make test-ci`,
+`make audit`, documentation builds, and the existing native and Windows release
+builds. Inspect the final feature tree and lockfile to confirm that Polars and
+OpenSSL remain absent.
+
+# Acceptance criteria
+
+- The selected ACORN 0.4.0 revision satisfies the narrow-feature, direct
+  construction, and cancellation contracts without a local fork.
+- Workflow input cannot choose a server, transport, executable, URL, header,
+  bearer-token environment name, or tool.
+- Dry-run is write-free and transport-free while showing exact arguments,
+  provenance, policy, timeout, and output limits.
+- Every live invocation is configured, allowlisted, advertised, and checked by
+  ACORN under the caller's explicit approvals.
+- Calls are deterministic per input, honor existing input concurrency and
+  fail-fast behavior, and run after fully resumed module chains.
+- Tool-reported errors remain distinct from invocation failures and retain the
+  bounded typed result.
+- Cancellation closes the MCP session and reaps child transports before the
+  workflow reports completion.
+- Result artifacts, journal recovery, headless reporters, and the TUI agree on
+  every terminal outcome.
+- `make audit` accepts the reviewed graph while continuing to forbid Polars and
+  OpenSSL.
+
+# Non-goals
+
+- No ad hoc `xylem mcp call` or tool-list command.
+- No arbitrary headers, URLs, commands, tool names, or server aliases supplied
+  by workflow input.
+- No remote tools in the module catalog.
+- No result-to-module data flow, retries, call-level continue-on-error option,
+  nested MCP configuration, or MCP proxy/server mode.
+- No Xylem-owned MCP transport implementation or local ACORN patch.
 
 # Related plans
 
 - [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
 - [Sandboxed workflow execution](../refactors/sandboxed-workflow-execution.md)
+- ACORN: [Refine the outbound MCP client interface for embedders](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/api/outbound-mcp-client-interface.md)

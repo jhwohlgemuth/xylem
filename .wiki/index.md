@@ -17,7 +17,7 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Portfolio review
 
-Rechecked on 2026-10-04 against the current worktree, dependency network, the
+Rechecked on 2026-10-05 against the current worktree, dependency network, the
 live Homebrew tap merge request, and upstream ACORN MCP-client support. Quality measures whether a plan has
 current evidence, a bounded contract, explicit dependencies, phased delivery,
 and verifiable acceptance criteria. Difficulty is remaining delivery effort;
@@ -32,7 +32,7 @@ effort.
 | [Secure module acquisition](refactors/secure-module-acquisition.md) | 5/5 | Critical | High | Very high | The scope is focused, with a clear threat boundary, typed failure behavior, offline semantics, and adversarial validation. Implement planner and cache primitives independently, then serialize integration across the shared configuration and process locks. |
 | [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md) | 4/5 | Critical | Very high | High | The threat model and capability negotiation are well specified. The plan spans fake, OCI, separate-kernel, and default-on rollout horizons; deliver through OCI and lifecycle hardening first, then require a new decision before the stronger-provider rollout. |
 | [Memory-aware adaptive scheduling](features/memory-aware-scheduling.md) | 5/5 | High | Medium | High | The measurement evidence is strong. The scoped estimator passed its gate, but only for the pinned A+P workflow and measured size range. Production concurrency must remain one until a real concurrent holdout mix validates additive reservations. |
-| [MCP-enabled tenant tools](features/mcp-tenant-tools.md) | 3/5 | High | High | High | Upstream ACORN now provides an explicitly configured, policy-checked MCP client over child-process and Streamable HTTP transports. Xylem is still pinned before that revision; define the workflow-facing contract before upgrading or exposing remote tools. |
+| [MCP-enabled tenant tools](features/mcp-tenant-tools.md) | 5/5 | High | High | High | The workflow configuration, caller approvals, deterministic postlude, cancellation, result artifact, schema-v8 evidence, and test contracts are specified. Implementation waits for ACORN to narrow `mcp-client` and add direct construction plus cancellation-aware operations. |
 | [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) | 4/5 | Critical | Very high | Conditional high | The plan specifies the controller/worker, PVC, protocol, and failure contracts in detail. Delivery depends on shared-filesystem semantics, cluster runners, release images, and confirmed operator demand. Keep it separate from sandboxing and validate those deployment assumptions before implementation. |
 
 ## Consolidated and ranked portfolio
@@ -46,14 +46,14 @@ impact and difficulty explicitly.
 | Rank | Consolidated plan | Source plans | Impact | Difficulty | Value and decision |
 |---:|---|---|---:|---:|---|
 | 1 | Release activation | Homebrew release activation | High | Low | Very high. Resume the nearly complete tap activation. |
-| 2 | MCP-enabled tenant tools | MCP-enabled tenant tools | High | High | High. Upstream support removes the protocol implementation risk, but Xylem still needs an allowlisted workflow contract, plan/journal evidence, and policy tests. |
+| 2 | MCP-enabled tenant tools | MCP-enabled tenant tools | High | High | High. The Xylem contract is ready; the remaining external dependency is the planned ACORN 0.4.0 embedder interface and narrow feature graph. |
 | 3 | Trusted local execution | Environment/concurrency + secure acquisition + sandboxing | Critical | Very high | High. These remain independent hardening plans. Sequence their integrations after preserving the landed runtime contracts. |
 | 4 | Kubernetes execution target | Kubernetes workflow execution | Critical | Very high | Conditional high. It remains an orthogonal execution target with its own approval gate. Start from the landed execution boundary only when a supported cluster, shared PVC semantics, image pipeline, and user demand are confirmed. |
 
 ## Recommended execution order
 
 1. Resume Homebrew activation and publish the verified installation path.
-2. Define and prototype MCP-enabled tenant tools against the upstream ACORN client, with no remote-tool execution in Xylem until the policy and evidence contract is accepted.
+2. Land the ACORN 0.4.0 narrow MCP feature and embedder interface, then implement MCP-enabled tenant tools in the recorded Xylem runner.
 3. Resume memory-aware scheduling when its external block clears; integrate it through the durable run state rather than making it a prerequisite.
 4. Reassess environment/concurrency, secure acquisition, sandboxing, and Kubernetes against demonstrated operator demand and the landed execution boundary.
 

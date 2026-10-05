@@ -13,7 +13,7 @@ ACORN v0.3.4 ----> environment/concurrency -+-> kubernetes workflow backend
                |                               +-> sandboxed workflow execution
                +----> secure module acquisition
 
-ACORN MCP client --later integration--> MCP-enabled tenant tools
+ACORN narrow MCP feature + embedder interface ----> MCP-enabled tenant tools
 
 memory-aware scheduling --later extension--> durable workflow state
 ```
@@ -41,7 +41,7 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 - [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md) follows the process and immutable-environment contracts and coordinates with secure acquisition. It owns policy resolution, provider capability negotiation, session lifecycle, and the rule that workflow-controlled subprocesses cannot bypass the sandbox.
 - [Memory-aware scheduling](features/memory-aware-scheduling.md) builds on the fixed scheduler boundary and journal telemetry. Only its measurement spike may proceed before an estimator is accepted.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) consumes the error, process, configuration, and ACORN migration contracts.
-- [MCP-enabled tenant tools](features/mcp-tenant-tools.md) consumes the upstream ACORN MCP-client contract. It must not bypass Xylem planning, effect policy, journaling, or the existing module runner.
+- [MCP-enabled tenant tools](features/mcp-tenant-tools.md) follows ACORN's dependency-capability cleanup and outbound MCP embedder-interface plan. It consumes direct server-map construction and cancellation-aware calls without bypassing Xylem planning, effect policy, journaling, or the existing module runner.
 - Required CI owns enforcement of the accepted dependency graph and advisory policy.
 - [Homebrew release export](features/homebrew-export.md) consumes immutable tagged artifacts and checksums from the CI/release pipeline.
 
@@ -57,7 +57,7 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 | `xylem-lib/src/sandbox/` and sandbox conformance fixtures | Sandboxed execution | Sandboxed execution owns policy, capability, session, and provider contracts; consumers may not add provider-specific bypasses. |
 | Kubernetes target/profile/protocol modules and fixtures | Kubernetes targeting, sandboxing | Kubernetes owns outer Job execution and shared-PVC transport; sandboxing owns inner policy and neither may reinterpret the other's contract. |
 | `xylem-cli/src/{main,cli}.rs` and `commands/run/mod.rs` | Environment/concurrency, Kubernetes targeting, memory scheduling, tests | One CLI integration owner. Preserve CLI-owned exit mapping and the resume/reporter surface. |
-| MCP configuration, client adapter, and plan/journal evidence | MCP-enabled tenant tools, environment/concurrency, sandboxing | MCP integration owns the allowlist and invocation boundary; it may not create a second process supervisor or weaken offline, effect, timeout, or output limits. |
+| MCP configuration, client adapter, and plan/journal evidence | MCP-enabled tenant tools, environment/concurrency, sandboxing | MCP integration starts only after the ACORN 0.4.0 prerequisite revision is qualified. It owns the allowlist and invocation boundary, reuses the admitted input concurrency, and may not weaken offline, effect, timeout, output, cancellation, or durable-evidence limits. |
 | `Makefile` and `.gitlab-ci.yml` | Dependency gates, Kubernetes image/tests, CI/release, Homebrew export | Dependency-gate commands land before CI wires them into required jobs; Kubernetes images consume immutable release binaries; Homebrew publication follows the immutable release contract. |
 | `README.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `CONTRIBUTING.md`, `examples/` | Every user-visible plan | Documentation may inventory drift early, but final edits wait for accepted names and behavior. |
 
