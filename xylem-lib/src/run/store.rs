@@ -30,22 +30,29 @@ pub const RUN_BUNDLE_VERSION: u32 = 1;
 pub const RUN_STORE_ENV: &str = "XYLEM_RUN_STORE";
 
 /// Status exposed by run history before a bundle is opened in detail.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BundleStatus {
     /// The run was cancelled by the user.
+    #[display("cancelled")]
     Cancelled,
     /// The bundle could not be decoded.
+    #[display("corrupt")]
     Corrupt,
     /// The run completed unsuccessfully.
+    #[display("failed")]
     Failed,
     /// The run has no terminal summary.
+    #[display("interrupted")]
     Interrupted,
     /// The bundle belongs to the current live Xylem process.
+    #[display("running")]
     Running,
     /// The run completed successfully.
+    #[display("succeeded")]
     Succeeded,
     /// The manifest uses an unsupported bundle version.
+    #[display("unsupported")]
     Unsupported,
 }
 
@@ -330,30 +337,6 @@ impl Store {
     }
 }
 
-impl OutputSink for TaskLogSink {
-    fn write(&self, stream: OutputStream, bytes: &[u8]) -> std::io::Result<()> {
-        self.inner
-            .buffers
-            .lock()
-            .map_err(|_| std::io::Error::other("task-log buffer lock is poisoned"))
-            .and_then(|mut buffers| {
-                let buffer = match stream {
-                    | OutputStream::Stderr => &mut buffers.stderr,
-                    | OutputStream::Stdout => &mut buffers.stdout,
-                };
-                buffer.extend_from_slice(bytes);
-                let split = buffer.iter().rposition(|byte| *byte == b'\n').map(|index| index.saturating_add(1));
-                split.map_or(Ok(()), |split| {
-                    let complete = buffer.drain(..split).collect::<Vec<_>>();
-                    complete
-                        .split(|byte| *byte == b'\n')
-                        .filter(|line| !line.is_empty())
-                        .try_for_each(|line| self.write_line(stream, line))
-                })
-            })
-    }
-}
-
 impl TaskLogSink {
     /// Create a sink for one input/module log.
     pub fn module(bundle: Bundle, input_index: usize, module_index: usize) -> Self {
@@ -404,6 +387,30 @@ impl TaskLogSink {
             .bundle
             .append_json_line(&self.inner.path, &record)
             .map_err(std::io::Error::other)
+    }
+}
+
+impl OutputSink for TaskLogSink {
+    fn write(&self, stream: OutputStream, bytes: &[u8]) -> std::io::Result<()> {
+        self.inner
+            .buffers
+            .lock()
+            .map_err(|_| std::io::Error::other("task-log buffer lock is poisoned"))
+            .and_then(|mut buffers| {
+                let buffer = match stream {
+                    | OutputStream::Stderr => &mut buffers.stderr,
+                    | OutputStream::Stdout => &mut buffers.stdout,
+                };
+                buffer.extend_from_slice(bytes);
+                let split = buffer.iter().rposition(|byte| *byte == b'\n').map(|index| index.saturating_add(1));
+                split.map_or(Ok(()), |split| {
+                    let complete = buffer.drain(..split).collect::<Vec<_>>();
+                    complete
+                        .split(|byte| *byte == b'\n')
+                        .filter(|line| !line.is_empty())
+                        .try_for_each(|line| self.write_line(stream, line))
+                })
+            })
     }
 }
 

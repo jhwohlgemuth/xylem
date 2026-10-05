@@ -1060,8 +1060,7 @@ impl Script {
                 .map(String::from)
                 .collect::<Vec<_>>();
             let output = stdout.into_iter().chain(stderr).collect::<Vec<_>>();
-            trace!("=> {} {:#?}", Label::output(), result.dimmed());
-            trace!("=> {} {:#?}", Label::output(), output.dimmed());
+            output.iter().for_each(|line| trace!("=> {} {}", Label::output(), line.dimmed()));
             output
         })
     }

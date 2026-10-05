@@ -36,22 +36,24 @@ TRACE xylem-input-2 => OUTPUT ["publish: completed charlie"]
 ERROR xylem-input-3 => ✗ FAIL script="sh run.sh validate delta" status=exit status: 7 details="validate: intentionally rejected delta"
 
 Run <run-id>: failed
-Inputs: 2 succeeded, 2 failed, 0 skipped, 0 skipped existing, 0 unfinished
+Inputs: 2 succeeded, 0 cancelled, 2 failed, 0 skipped, 0 skipped existing, 0 unfinished
 Containers: 0 removed, 0 retained, 0 external, 0 failed
-Failed: bravo: ... process exited with status exit status: 7: validate: intentionally rejected bravo
-Failed: delta: ... process exited with status exit status: 7: validate: intentionally rejected delta
-Module Prepare: succeeded
-Module Validate: succeeded
-Module Publish: succeeded
-Module Prepare: succeeded
-Module Validate: failed: ... validate: intentionally rejected bravo
-Module Publish: not_started
-Module Prepare: succeeded
-Module Validate: succeeded
-Module Publish: succeeded
-Module Prepare: succeeded
-Module Validate: failed: ... validate: intentionally rejected delta
-Module Publish: not_started
+Input alpha: succeeded
+  Module Prepare: succeeded
+  Module Validate: succeeded
+  Module Publish: succeeded
+Input bravo: failed: ... process exited with status exit status: 7: validate: intentionally rejected bravo
+  Module Prepare: succeeded
+  Module Validate: failed: ... validate: intentionally rejected bravo
+  Module Publish: not_started
+Input charlie: succeeded
+  Module Prepare: succeeded
+  Module Validate: succeeded
+  Module Publish: succeeded
+Input delta: failed: ... process exited with status exit status: 7: validate: intentionally rejected delta
+  Module Prepare: succeeded
+  Module Validate: failed: ... validate: intentionally rejected delta
+  Module Publish: not_started
 Journal: <temporary-run-directory>/<run-id>.journal.jsonl
 ```
 

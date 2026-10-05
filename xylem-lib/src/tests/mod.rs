@@ -1,7 +1,10 @@
+extern crate alloc;
+
 use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
 use crate::*;
 use acorn_core::{Location, Scheme};
+use alloc::sync::Arc;
 use core::time::Duration;
 use pyproject_toml::Project;
 use std::collections::HashMap;
@@ -9,7 +12,7 @@ use std::env::set_var;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{mpsc, Mutex};
 use std::thread;
 
 mod completion;
@@ -17,6 +20,20 @@ mod error;
 mod plan;
 
 const FIXTURES: &str = "../tests/fixtures";
+
+#[derive(Clone)]
+struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+impl Write for SharedWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().expect("capture log output").write(bytes)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 // `core::io` is still unstable (rust-lang/rust#154046), so this lint's
 // `core::io::ErrorKind` suggestion does not compile.
 #[allow(clippy::std_instead_of_core)]
@@ -603,6 +620,33 @@ fn test_script_run_checked_reports_failure() {
         let script = Script::init().command(command).arguments(arguments).build();
 
         assert!(script.run_checked().is_err());
+    }
+}
+#[test]
+fn test_script_run_checked_traces_decoded_output() {
+    if !cfg!(target_os = "windows") {
+        let command = Command::init().name("sh".to_string()).build();
+        let arguments = to_string(vec!["-c", "printf 'snowman ☃\\n'; printf 'check ✔\\n' >&2"]);
+        let script = Script::init().command(command).arguments(arguments).build();
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let writer = SharedWriter(captured.clone());
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_max_level(tracing::Level::TRACE)
+            .with_target(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+
+        let output = tracing::subscriber::with_default(subscriber, || script.run_checked().expect("script should run"));
+        let logs = String::from_utf8(captured.lock().expect("read captured log output").clone()).expect("log output should be UTF-8");
+
+        assert_eq!(output, vec!["snowman ☃".to_string(), "check ✔".to_string()]);
+        assert!(logs.contains("snowman ☃"));
+        assert!(logs.contains("check ✔"));
+        assert!(!logs.contains("CapturedOutput"));
+        assert!(!logs.contains("bytes:"));
+        assert!(!logs.contains("ExecutionResult"));
     }
 }
 #[test]

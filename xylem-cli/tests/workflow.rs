@@ -159,7 +159,6 @@ fn test_configuration_module_executes_and_reports_qualified_leaf_identity() {
     assert_eq!(report.inputs[0].modules[0].module_path, vec!["Group", "Leaf"]);
     remove_dir_all(test_root).expect("remove configuration CLI test directory");
 }
-
 #[test]
 fn test_configuration_read_failures_use_distinct_exit_codes() {
     let test_root = std::env::temp_dir().join(format!("xylem-config-errors-{}", std::process::id()));
@@ -185,7 +184,6 @@ fn test_configuration_read_failures_use_distinct_exit_codes() {
     remove_file(invalid).expect("remove invalid YAML configuration");
     remove_dir_all(test_root).expect("remove configuration error directory");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_configured_batch_caps_active_inputs_in_the_compiled_cli() {
@@ -827,7 +825,15 @@ fn test_offline_smoke_example_runs_from_a_clean_directory() {
     assert!(!example.join("output").exists());
 
     let mut run = xylem_command();
-    run.current_dir(&example).args(["run", "--offline", "--no-progress"]).assert().success();
+    let run = run
+        .current_dir(&example)
+        .args(["-vvvv", "run", "--offline", "--no-progress"])
+        .output()
+        .expect("run smoke workflow");
+    assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
+    let diagnostics = String::from_utf8_lossy(&run.stderr);
+    assert!(diagnostics.contains("Created ../output/greeting-Ada.txt"), "{diagnostics}");
+    assert!(diagnostics.contains("Created ../output/greeting-Grace.txt"), "{diagnostics}");
     assert_eq!(
         read_to_string(example.join("output/greeting-Ada.txt")).expect("Ada greeting"),
         "Hello, Ada!\n"

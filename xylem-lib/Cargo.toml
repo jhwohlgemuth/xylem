@@ -44,5 +44,8 @@ uriparse = { workspace = true }
 url = { workspace = true }
 which = { version = "8.0.0", features = ["real-sys"], default-features = false }
 
+[dev-dependencies]
+tracing-subscriber = { workspace = true }
+
 [lints]
 workspace = true

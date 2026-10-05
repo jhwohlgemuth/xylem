@@ -75,10 +75,10 @@ impl ModuleExecutor for LoggedModuleExecutor {
             let stdout = String::from_utf8_lossy(execution.stdout().bytes());
             let stderr = String::from_utf8_lossy(execution.stderr().bytes());
             if !stdout.is_empty() {
-                tracing::trace!("=> {} {}", Label::output(), stdout.trim_end());
+                tracing::trace!(target: "xylem_cli::output", "=> {} {}", Label::output(), stdout.trim_end().dimmed());
             }
             if !stderr.is_empty() {
-                tracing::trace!("=> {} {}", Label::output(), stderr.trim_end());
+                tracing::trace!(target: "xylem_cli::output", "=> {} {}", Label::output(), stderr.trim_end().dimmed());
             }
         });
         let flushed = sink.flush().map_err(|source| xylem_lib::error::ProcessError::Output {
@@ -95,24 +95,6 @@ impl ModuleExecutor for LoggedModuleExecutor {
 
     fn is_cancellation_requested(&self) -> bool {
         self.cancellation.is_requested()
-    }
-}
-
-impl core::error::Error for RunFailure {}
-
-impl fmt::Display for RunFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.message.fmt(formatter)
-    }
-}
-
-impl From<GpuMonitorError> for RunFailure {
-    fn from(error: GpuMonitorError) -> Self {
-        match error {
-            | GpuMonitorError::Journal(error) => Self::new(exitcode::IOERR, error.to_string()),
-            | GpuMonitorError::Runtime(message) => Self::new(exitcode::UNAVAILABLE, message),
-            | GpuMonitorError::Thread(message) => Self::new(exitcode::OSERR, message),
-        }
     }
 }
 
@@ -133,32 +115,20 @@ impl RunFailure {
     }
 }
 
-impl ProgressObserver for WorkflowProgress {
-    fn update(&self, update: ProgressUpdate) {
-        let bar = match update.phase {
-            | ProgressPhase::Preparation => &self.preparation,
-            | ProgressPhase::Execution => &self.execution,
-        };
-        match update.state {
-            | ProgressState::Cancelled => {
-                bar.set_position(bar.position().saturating_add(1));
-                bar.set_message(format!("{} cancelled", update.module_path.join("::")));
-            }
-            | ProgressState::Started => {
-                let module = update.module_path.join("::");
-                let message = match update.input {
-                    | Some(input) => format!("{module} · {input}"),
-                    | None => module,
-                };
-                bar.set_message(message);
-            }
-            | ProgressState::Finished | ProgressState::Skipped | ProgressState::SkippedExisting => {
-                bar.set_position(bar.position().saturating_add(1));
-            }
-            | ProgressState::Failed => {
-                bar.set_position(bar.position().saturating_add(1));
-                bar.set_message(format!("{} failed", update.module_path.join("::")));
-            }
+impl core::error::Error for RunFailure {}
+
+impl fmt::Display for RunFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.message.fmt(formatter)
+    }
+}
+
+impl From<GpuMonitorError> for RunFailure {
+    fn from(error: GpuMonitorError) -> Self {
+        match error {
+            | GpuMonitorError::Journal(error) => Self::new(exitcode::IOERR, error.to_string()),
+            | GpuMonitorError::Runtime(message) => Self::new(exitcode::UNAVAILABLE, message),
+            | GpuMonitorError::Thread(message) => Self::new(exitcode::OSERR, message),
         }
     }
 }
@@ -197,6 +167,36 @@ impl WorkflowProgress {
         match succeeded {
             | true => self.execution.finish_with_message("Workflow complete"),
             | false => self.execution.abandon_with_message("Workflow failed"),
+        }
+    }
+}
+
+impl ProgressObserver for WorkflowProgress {
+    fn update(&self, update: ProgressUpdate) {
+        let bar = match update.phase {
+            | ProgressPhase::Preparation => &self.preparation,
+            | ProgressPhase::Execution => &self.execution,
+        };
+        match update.state {
+            | ProgressState::Cancelled => {
+                bar.set_position(bar.position().saturating_add(1));
+                bar.set_message(format!("{} cancelled", update.module_path.join("::")));
+            }
+            | ProgressState::Started => {
+                let module = update.module_path.join("::");
+                let message = match update.input {
+                    | Some(input) => format!("{module} · {input}"),
+                    | None => module,
+                };
+                bar.set_message(message);
+            }
+            | ProgressState::Finished | ProgressState::Skipped | ProgressState::SkippedExisting => {
+                bar.set_position(bar.position().saturating_add(1));
+            }
+            | ProgressState::Failed => {
+                bar.set_position(bar.position().saturating_add(1));
+                bar.set_message(format!("{} failed", update.module_path.join("::")));
+            }
         }
     }
 }
@@ -810,7 +810,7 @@ pub fn run(
                                                                             });
                                                                         }
                                                                     }
-                                                                    if !selected.contains(&ReporterType::Console) {
+                                                                    if should_write_journal_location(&selected) {
                                                                         let stderr = io::stderr();
                                                                         if let Err(why) =
                                                                             writeln!(stderr.lock(), "Journal: {}", journal_path.display())
@@ -867,6 +867,10 @@ pub fn run(
     }
 }
 
+fn should_write_journal_location(reporters: &[ReporterType]) -> bool {
+    !reporters.is_empty() && !reporters.contains(&ReporterType::Console)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -876,5 +880,12 @@ mod tests {
         let progress = WorkflowProgress::new(2, 4, true);
         assert!(progress.preparation.is_hidden());
         assert!(progress.execution.is_hidden());
+    }
+
+    #[test]
+    fn test_embedded_run_does_not_write_journal_location() {
+        assert!(!should_write_journal_location(&[]));
+        assert!(!should_write_journal_location(&[ReporterType::Console]));
+        assert!(should_write_journal_location(&[ReporterType::Json]));
     }
 }

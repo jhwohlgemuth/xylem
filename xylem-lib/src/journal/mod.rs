@@ -6,11 +6,13 @@ use acorn_core::time::Milliseconds;
 use acorn_core::validation::ValidationError;
 use acorn_schema::validation::{Validate, ValidationReport};
 use alloc::collections::{BTreeMap, BTreeSet};
-use core::fmt;
+use core::{fmt, iter::once};
+use owo_colors::Style;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
+use std::env;
 use std::fs::{create_dir_all, remove_file, rename, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -477,6 +479,18 @@ impl fmt::Display for ExecutionState {
             | Self::Skipped => "skipped",
             | Self::SkippedExisting => "skipped_existing",
         })
+    }
+}
+
+impl From<ExecutionState> for Style {
+    fn from(state: ExecutionState) -> Self {
+        match state {
+            | ExecutionState::Cancelled => Self::new().yellow(),
+            | ExecutionState::Failed => Self::new().red().bold(),
+            | ExecutionState::NotStarted | ExecutionState::Skipped | ExecutionState::SkippedExisting => Self::new().dimmed(),
+            | ExecutionState::Pending | ExecutionState::Running => Self::new().cyan(),
+            | ExecutionState::Succeeded => Self::new().green().bold(),
+        }
     }
 }
 
@@ -1083,6 +1097,17 @@ impl Validate for RunMetadata {
     }
 }
 
+impl RunStatus {
+    fn style(self) -> Style {
+        match self {
+            | Self::Cancelled => Style::new().yellow(),
+            | Self::Failed => Style::new().red().bold(),
+            | Self::Interrupted => Style::new().yellow().bold(),
+            | Self::Succeeded => Style::new().green().bold(),
+        }
+    }
+}
+
 impl fmt::Display for RunStatus {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -1146,6 +1171,11 @@ impl RunSummary {
     }
     /// Render the human-readable console summary to standard output.
     fn render_console(&self, journal_path: &Path) -> Result<(), JournalError> {
+        let stdout = io::stdout();
+        let color = stdout.is_terminal() && env::var_os("NO_COLOR").is_none();
+        self.render_console_to(&mut stdout.lock(), journal_path, color)
+    }
+    fn render_console_to(&self, output: &mut impl Write, journal_path: &Path, color: bool) -> Result<(), JournalError> {
         let mut succeeded = 0usize;
         let mut cancelled = 0usize;
         let mut failed = 0usize;
@@ -1162,13 +1192,19 @@ impl RunSummary {
                 | ExecutionState::NotStarted | ExecutionState::Pending | ExecutionState::Running => unfinished += 1,
             }
         }
-        let stdout = io::stdout();
-        let mut output = stdout.lock();
-        writeln!(output, "Run {}: {}", self.run_id, self.status)
+        let run_id = console_text(&self.run_id, Style::new().cyan().bold(), color);
+        let run_status = console_run_status(self.status, color);
+        let succeeded = console_text(format!("{succeeded} succeeded"), Style::new().green(), color);
+        let cancelled = console_text(format!("{cancelled} cancelled"), Style::new().yellow(), color);
+        let failed = console_text(format!("{failed} failed"), Style::new().red(), color);
+        let skipped = console_text(format!("{skipped} skipped"), Style::new().dimmed(), color);
+        let skipped_existing = console_text(format!("{skipped_existing} skipped existing"), Style::new().dimmed(), color);
+        let unfinished = console_text(format!("{unfinished} unfinished"), Style::new().cyan(), color);
+        writeln!(output, "Run {run_id}: {run_status}")
             .and_then(|()| {
                 writeln!(
                     output,
-                    "Inputs: {succeeded} succeeded, {cancelled} cancelled, {failed} failed, {skipped} skipped, {skipped_existing} skipped existing, {unfinished} unfinished"
+                    "Inputs: {succeeded}, {cancelled}, {failed}, {skipped}, {skipped_existing}, {unfinished}"
                 )
             })
             .and_then(|()| {
@@ -1183,10 +1219,11 @@ impl RunSummary {
                                 failed.saturating_add(usize::from(container.state.is_failed())),
                             )
                         });
-                writeln!(
-                    output,
-                    "Containers: {removed} removed, {retained} retained, {external} external, {failed} failed"
-                )
+                let removed = console_text(format!("{removed} removed"), Style::new().green(), color);
+                let retained = console_text(format!("{retained} retained"), Style::new().yellow(), color);
+                let external = console_text(format!("{external} external"), Style::new().cyan(), color);
+                let failed = console_text(format!("{failed} failed"), Style::new().red(), color);
+                writeln!(output, "Containers: {removed}, {retained}, {external}, {failed}")
             })
             .and_then(|()| match &self.gpu_monitoring {
                 | None => Ok(()),
@@ -1222,21 +1259,14 @@ impl RunSummary {
                     })
                 }),
             })
+            .and_then(|()| render_console_workflow_table(output, &self.inputs, color))
             .and_then(|()| {
-                self.inputs.iter().filter(|input| input.state.is_failed()).try_for_each(|input| {
-                    let name = input.value.as_deref().unwrap_or("<no input>");
-                    writeln!(output, "Failed: {name}: {}", input.error.as_deref().unwrap_or("module execution failed"))
-                })
+                writeln!(
+                    output,
+                    "Journal: {}",
+                    console_text(journal_path.display(), Style::new().cyan().dimmed(), color)
+                )
             })
-            .and_then(|()| {
-                self.inputs.iter().try_for_each(|input| {
-                    input.modules.iter().try_for_each(|module| match module.error.as_deref() {
-                        | Some(error) => writeln!(output, "Module {}: {}: {error}", module.module_path.join("::"), module.state),
-                        | None => writeln!(output, "Module {}: {}", module.module_path.join("::"), module.state),
-                    })
-                })
-            })
-            .and_then(|()| writeln!(output, "Journal: {}", journal_path.display()))
             .and_then(|()| output.flush())
             .map_err(JournalError::from)
     }
@@ -1519,7 +1549,6 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
             })
     }
 }
-
 fn bounded_error(value: &str) -> String {
     if value.len() <= MAX_ERROR_BYTES {
         value.to_string()
@@ -1532,7 +1561,118 @@ fn bounded_error(value: &str) -> String {
         format!("{}{}", &value[..end], SUFFIX)
     }
 }
-
+fn console_cell(value: &str, maximum: usize) -> String {
+    let normalized = value
+        .chars()
+        .map(|character| match character.is_control() {
+            | true => ' ',
+            | false => character,
+        })
+        .collect::<String>();
+    match normalized.chars().count() <= maximum {
+        | true => normalized,
+        | false => format!("{}…", normalized.chars().take(maximum.saturating_sub(1)).collect::<String>()),
+    }
+}
+fn console_pad(value: &str, width: usize) -> String {
+    format!("{value}{}", " ".repeat(width.saturating_sub(value.chars().count())))
+}
+fn console_run_status(status: RunStatus, color: bool) -> String {
+    console_text(status, status.style(), color)
+}
+fn console_table_border(output: &mut impl Write, widths: &[usize; 4], left: &str, middle: &str, right: &str, color: bool) -> io::Result<()> {
+    let segments = widths.iter().map(|width| "─".repeat(width.saturating_add(2))).collect::<Vec<_>>();
+    writeln!(
+        output,
+        "{}",
+        console_text(format!("{left}{}{right}", segments.join(middle)), Style::new().dimmed(), color)
+    )
+}
+fn console_text(value: impl fmt::Display, style: Style, color: bool) -> String {
+    match color {
+        | true => style.style(value).to_string(),
+        | false => value.to_string(),
+    }
+}
+fn render_console_workflow_table(output: &mut impl Write, inputs: &[InputSummary], color: bool) -> io::Result<()> {
+    const DETAILS_WIDTH: usize = 48;
+    const INPUT_WIDTH: usize = 24;
+    const MODULE_WIDTH: usize = 44;
+    let rows = inputs
+        .iter()
+        .flat_map(|input| {
+            let name = console_cell(input.value.as_deref().unwrap_or("<no input>"), INPUT_WIDTH);
+            let input_row = (
+                name,
+                "<input>".to_string(),
+                input.state,
+                console_cell(input.error.as_deref().unwrap_or_default(), DETAILS_WIDTH),
+                true,
+            );
+            once(input_row)
+                .chain(input.modules.iter().map(|module| {
+                    (
+                        String::new(),
+                        console_cell(&module.module_path.join("::"), MODULE_WIDTH),
+                        module.state,
+                        console_cell(module.error.as_deref().unwrap_or_default(), DETAILS_WIDTH),
+                        false,
+                    )
+                }))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let headers = ["Input", "Module", "State", "Details"];
+    let widths = rows.iter().fold(headers.map(str::len), |widths, (input, module, state, details, _)| {
+        [
+            widths[0].max(input.chars().count()),
+            widths[1].max(module.chars().count()),
+            widths[2].max(state.to_string().chars().count()),
+            widths[3].max(details.chars().count()),
+        ]
+    });
+    writeln!(output, "{}", console_text("Workflow", Style::new().cyan().bold(), color))
+        .and_then(|()| console_table_border(output, &widths, "╭", "┬", "╮", color))
+        .and_then(|()| {
+            writeln!(
+                output,
+                "│ {} │ {} │ {} │ {} │",
+                console_text(console_pad(headers[0], widths[0]), Style::new().bold(), color),
+                console_text(console_pad(headers[1], widths[1]), Style::new().bold(), color),
+                console_text(console_pad(headers[2], widths[2]), Style::new().bold(), color),
+                console_text(console_pad(headers[3], widths[3]), Style::new().bold(), color),
+            )
+        })
+        .and_then(|()| console_table_border(output, &widths, "├", "┼", "┤", color))
+        .and_then(|()| {
+            rows.iter().try_for_each(|(input, module, state, details, input_row)| {
+                let input_style = match input_row {
+                    | true => Style::new().bold(),
+                    | false => Style::new(),
+                };
+                let module_style = match input_row {
+                    | true => Style::new().dimmed().italic(),
+                    | false => Style::new(),
+                };
+                writeln!(
+                    output,
+                    "│ {} │ {} │ {} │ {} │",
+                    console_text(console_pad(input, widths[0]), input_style, color),
+                    console_text(console_pad(module, widths[1]), module_style, color),
+                    console_text(console_pad(&state.to_string(), widths[2]), Style::from(*state), color),
+                    console_text(
+                        console_pad(details, widths[3]),
+                        match details.is_empty() {
+                            | true => Style::new().dimmed(),
+                            | false => Style::new().red(),
+                        },
+                        color,
+                    ),
+                )
+            })
+        })
+        .and_then(|()| console_table_border(output, &widths, "╰", "┴", "╯", color))
+}
 fn timestamp() -> Milliseconds {
     Milliseconds::new(
         SystemTime::now()
@@ -1543,7 +1683,6 @@ fn timestamp() -> Milliseconds {
             .unwrap_or(u64::MAX),
     )
 }
-
 fn validate_container_transition(current: ContainerState, next: ContainerState) -> Result<(), JournalError> {
     let valid = match current {
         | ContainerState::NotStarted => next.is_ready() || next.is_external() || next.is_failed(),
@@ -1557,7 +1696,6 @@ fn validate_container_transition(current: ContainerState, next: ContainerState) 
         ))),
     }
 }
-
 fn validate_gpu_inventory(devices: &[GpuDevice]) -> Result<(), JournalError> {
     let (_, _, duplicate_index, duplicate_uuid) = devices.iter().fold(
         (BTreeSet::new(), BTreeSet::new(), false, false),
@@ -1574,7 +1712,6 @@ fn validate_gpu_inventory(devices: &[GpuDevice]) -> Result<(), JournalError> {
         | (false, false, false) => Ok(()),
     }
 }
-
 fn validate_gpu_readings<'a>(readings: &[GpuReading], device_ids: impl Iterator<Item = &'a String>) -> Result<(), JournalError> {
     let expected = device_ids.map(String::as_str).collect::<BTreeSet<_>>();
     let actual = readings.iter().map(|reading| reading.uuid.as_str()).collect::<BTreeSet<_>>();
@@ -1588,7 +1725,6 @@ fn validate_gpu_readings<'a>(readings: &[GpuReading], device_ids: impl Iterator<
         | (true, true, false) => Ok(()),
     }
 }
-
 fn validate_transition(current: ExecutionState, next: ExecutionState, kind: &str) -> Result<(), JournalError> {
     let valid = match current {
         | ExecutionState::NotStarted => {
