@@ -32,7 +32,7 @@ use xylem_lib::remote::RemotePolicy;
 use xylem_lib::run::store::{Bundle, Manifest, Store, TaskLogSink};
 use xylem_lib::run::telemetry::SystemMonitor;
 use xylem_lib::run::RunCancellation;
-use xylem_lib::sandbox::{EffectiveSandboxPolicy, SandboxProvider, SandboxSession};
+use xylem_lib::sandbox::{EffectiveSandboxPolicy, SandboxProvider, SandboxSession, WorkloadAcquisition};
 use xylem_lib::script::{managed_container_name, ContainerCleanup, EnvironmentValue, ModuleType, ModuleUri, Script};
 use xylem_lib::util::deduplicate;
 use xylem_lib::ReporterType;
@@ -585,7 +585,11 @@ pub fn run(
                                                                 )
                                                             })
                                                             .and_then(|journal| {
-                                                                <dyn SandboxSession>::open(&id, options.sandbox_policy.as_ref())
+                                                                let acquisition = match options.offline.unwrap_or_default() {
+                                                                    | true => WorkloadAcquisition::LocalOnly,
+                                                                    | false => WorkloadAcquisition::PullIfMissing,
+                                                                };
+                                                                <dyn SandboxSession>::open(&id, options.sandbox_policy.as_ref(), acquisition)
                                                                     .map_err(|why| {
                                                                         RunFailure::new(
                                                                             exitcode::UNAVAILABLE,

@@ -77,8 +77,19 @@ workflow and policy and records their effective values without contacting the
 runtime. The initial slice requires cleanup retention `delete`.
 The checked-in [`sandbox-policy-v1` schema](../schema/sandbox-policy-v1.schema.json)
 defines the complete document shape. Real execution is currently qualified on
-native x86_64 Linux with a local rootless runtime. The pinned workload must
-already be present; the guarded slice never performs an implicit pull.
+native x86_64 Linux with a local rootless runtime. Before opening a run session,
+Xylem inspects the exact digest-pinned workload. An online run pulls that exact
+reference once when it is absent, then re-inspects it; `--offline` requires the
+workload to exist locally and never contacts a registry. The realized image must
+be Linux/amd64, declare no entrypoint or environment outside the policy
+allowlist, and pass a fixed network-disabled non-root bootstrap probe. Module
+execution remains `--pull=never`.
+
+The reproducible baseline runner is published to
+`savannah.ornl.gov/research-enablement/xylem/runner` and
+`ghcr.io/jhwohlgemuth/xylem`. Its CI artifact reports both canonical digest
+references for operator policy. Custom workloads remain supported when they
+satisfy the same metadata and bootstrap contract.
 
 The initial OCI execution slice supports local generic script modules with
 read-only module and input mounts. Workflow requirements must be supplied by

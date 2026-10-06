@@ -38,6 +38,7 @@ coverage: cover
 lint:
 	@cargo fmt --verbose
 	@cargo clippy --no-deps --all-targets --fix --allow-dirty
+	@hadolint sandbox/runner/Containerfile
 
 test:
 	@cargo nextest run

@@ -6,8 +6,13 @@ variables:
   HOMEBREW_TAP_REPO_URL: https://code.ornl.gov/research-enablement/homebrew-xylem.git
   HOMEBREW_TAP_BRANCH: main
   HOMEBREW_TAP_FORMULA_PATH: Formula/xylem.rb
+  HADOLINT_SHA256: c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
+  HADOLINT_VERSION: "2.15.1"
   CI_DEBUG_SERVICES: true
+  GHCR_USER: jhwohlgemuth
   IS_VERSION_TAGGED: '$CI_COMMIT_TAG =~ /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/'
+  SANDBOX_RUNNER_GHCR_IMAGE: ghcr.io/jhwohlgemuth/xylem
+  SANDBOX_RUNNER_SAVANNAH_IMAGE: savannah.ornl.gov/research-enablement/xylem/runner
 
 stages:
   - prepare
@@ -56,6 +61,11 @@ test:
         - Cargo.toml
   before_script:
     - rustup component add rustfmt clippy
+    - mkdir -p /tmp/xylem-ci-bin
+    - curl -LsSf --output /tmp/xylem-ci-bin/hadolint "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-x86_64"
+    - printf '%s  %s\n' "${HADOLINT_SHA256}" /tmp/xylem-ci-bin/hadolint | sha256sum --check -
+    - chmod 0755 /tmp/xylem-ci-bin/hadolint
+    - export PATH="/tmp/xylem-ci-bin:${PATH}"
   script:
     - make test-ci
 
@@ -178,6 +188,52 @@ build-release:
     paths:
       - bin/  
 
+build-sandbox-runner:
+  stage: build
+  image:
+    name: moby/buildkit:rootless@sha256:f8a833b2de9d68e27f0815e4a737abdfaf8a2e4c615650557df11025101557b4
+    entrypoint: [""]
+  tags:
+    - amd64
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+    SOURCE_DATE_EPOCH: "1789689600"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - sandbox/runner/**/*
+  script:
+    - >-
+      buildctl-daemonless.sh build
+      --frontend dockerfile.v0
+      --local context=sandbox/runner
+      --local dockerfile=sandbox/runner
+      --opt filename=Containerfile
+      --opt platform=linux/amd64
+      --opt build-arg:SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}"
+      --metadata-file /tmp/sandbox-runner-first.json
+      --output type=oci,dest=/tmp/sandbox-runner-first.tar,oci-mediatypes=true,rewrite-timestamp=true,compatibility-version=30
+    - >-
+      buildctl-daemonless.sh build
+      --frontend dockerfile.v0
+      --local context=sandbox/runner
+      --local dockerfile=sandbox/runner
+      --opt filename=Containerfile
+      --opt platform=linux/amd64
+      --opt build-arg:SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}"
+      --metadata-file sandbox-runner-metadata.json
+      --output type=oci,dest=sandbox-runner.tar,oci-mediatypes=true,rewrite-timestamp=true,compatibility-version=30
+    - first_digest="$(awk -F '"' '$2 == "containerimage.digest" { print $4 }' /tmp/sandbox-runner-first.json)"
+    - second_digest="$(awk -F '"' '$2 == "containerimage.digest" { print $4 }' sandbox-runner-metadata.json)"
+    - test -n "${first_digest}"
+    - test "${first_digest}" = "${second_digest}"
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - sandbox-runner-metadata.json
+      - sandbox-runner.tar
+
 publish-release-linux:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
@@ -208,6 +264,56 @@ publish-release-linux:
           url: "${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${PKG_VERSION}/${BINARY_NAME}"
         - name: "${BINARY_NAME} v${PKG_VERSION} (Windows)"
           url: "${PKG_REGISTRY_URL}/${DEFAULT_WINDOWS_TARGET}/v${PKG_VERSION}/${BINARY_NAME}.exe"
+
+publish-sandbox-runner:
+  stage: release
+  image:
+    name: moby/buildkit:rootless@sha256:f8a833b2de9d68e27f0815e4a737abdfaf8a2e4c615650557df11025101557b4
+    entrypoint: [""]
+  tags:
+    - amd64
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+    DOCKER_CONFIG: /tmp/xylem-docker
+    SOURCE_DATE_EPOCH: "1789689600"
+  interruptible: false
+  resource_group: sandbox-runner
+  retry: 0
+  rules:
+    - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
+    - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - .gitlab-ci.yml
+        - sandbox/runner/**/*
+  before_script:
+    - test -n "${GHCR_TOKEN:-}"
+    - mkdir -p "${DOCKER_CONFIG}"
+    - ghcr_auth="$(printf '%s:%s' "${GHCR_USER}" "${GHCR_TOKEN}" | base64 | tr -d '\n')"
+    - savannah_auth="$(printf '%s:%s' "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')"
+    - printf '{"auths":{"ghcr.io":{"auth":"%s"},"%s":{"auth":"%s"}}}\n' "${ghcr_auth}" "${CI_REGISTRY}" "${savannah_auth}" > "${DOCKER_CONFIG}/config.json"
+  script:
+    - image_names="${SANDBOX_RUNNER_SAVANNAH_IMAGE}:${CI_COMMIT_SHA},${SANDBOX_RUNNER_GHCR_IMAGE}:${CI_COMMIT_SHA},${SANDBOX_RUNNER_SAVANNAH_IMAGE}:latest,${SANDBOX_RUNNER_GHCR_IMAGE}:latest"
+    - if [ -n "${CI_COMMIT_TAG:-}" ]; then version="${CI_COMMIT_TAG#v}"; image_names="${image_names},${SANDBOX_RUNNER_SAVANNAH_IMAGE}:${version},${SANDBOX_RUNNER_GHCR_IMAGE}:${version}"; fi
+    - >-
+      buildctl-daemonless.sh build
+      --frontend dockerfile.v0
+      --local context=sandbox/runner
+      --local dockerfile=sandbox/runner
+      --opt filename=Containerfile
+      --opt platform=linux/amd64
+      --opt build-arg:SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}"
+      --metadata-file sandbox-runner-metadata.json
+      --output type=image,name="${image_names}",push=true,name-canonical=true,oci-mediatypes=true,rewrite-timestamp=true,compatibility-version=30
+    - digest="$(awk -F '"' '$2 == "containerimage.digest" { print $4 }' sandbox-runner-metadata.json)"
+    - test -n "${digest}"
+    - printf 'XYLEM_SANDBOX_WORKLOAD=%s@%s\n' "${SANDBOX_RUNNER_SAVANNAH_IMAGE}" "${digest}" > sandbox-runner.env
+    - printf 'XYLEM_SANDBOX_WORKLOAD_GHCR=%s@%s\n' "${SANDBOX_RUNNER_GHCR_IMAGE}" "${digest}" >> sandbox-runner.env
+    - printf 'XYLEM_SANDBOX_WORKLOAD_SAVANNAH=%s@%s\n' "${SANDBOX_RUNNER_SAVANNAH_IMAGE}" "${digest}" >> sandbox-runner.env
+  artifacts:
+    reports:
+      dotenv: sandbox-runner.env
+    paths:
+      - sandbox-runner-metadata.json
 
 upload-binaries:
   stage: release

@@ -14,6 +14,7 @@ enum FakeFailure {
 }
 #[derive(Clone)]
 struct FakeProvider {
+    acquisitions: Arc<Mutex<Vec<WorkloadAcquisition>>>,
     failure: Option<FakeFailure>,
     operations: Arc<Mutex<Vec<&'static str>>>,
     resources: SandboxResources,
@@ -39,8 +40,9 @@ impl SandboxProvider for FakeProvider {
             }),
         }
     }
-    fn open(&self, _run_id: &str) -> Result<Arc<dyn SandboxSession>, SandboxError> {
+    fn open(&self, _run_id: &str, acquisition: WorkloadAcquisition) -> Result<Arc<dyn SandboxSession>, SandboxError> {
         self.operations.lock().expect("fake operation lock").push("open");
+        self.acquisitions.lock().expect("fake acquisition lock").push(acquisition);
         match self.failure == Some(FakeFailure::Open) {
             | true => Err(SandboxError::Runtime("injected open failure".to_string())),
             | false => Ok(Arc::new(FakeSession {
@@ -146,14 +148,28 @@ workload:
 fn root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("xylem-sandbox-policy-{label}-{}", process::id()))
 }
+fn workload_inspection() -> OciImageInspection {
+    OciImageInspection {
+        architecture: "amd64".to_string(),
+        config: OciImageConfig {
+            entrypoint: None,
+            environment: Some(vec!["PATH=/usr/bin".to_string()]),
+        },
+        digest: Some("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+        operating_system: "linux".to_string(),
+        repository_digests: Vec::new(),
+    }
+}
 
 #[test]
 fn fake_provider_injects_each_lifecycle_failure() {
     [FakeFailure::Discover, FakeFailure::Open, FakeFailure::Execute, FakeFailure::Finish]
         .into_iter()
         .for_each(|failure| {
+            let acquisitions = Arc::new(Mutex::new(Vec::new()));
             let operations = Arc::new(Mutex::new(Vec::new()));
             let provider = FakeProvider {
+                acquisitions: Arc::clone(&acquisitions),
                 failure: Some(failure),
                 operations: Arc::clone(&operations),
                 resources: SandboxResources {
@@ -172,7 +188,7 @@ fn fake_provider_injects_each_lifecycle_failure() {
                 assert!(discovered.is_err());
             } else {
                 assert!(discovered.is_ok());
-                let session = provider.open("run");
+                let session = provider.open("run", WorkloadAcquisition::LocalOnly);
                 if failure == FakeFailure::Open {
                     assert!(session.is_err());
                 } else {
@@ -190,6 +206,14 @@ fn fake_provider_injects_each_lifecycle_failure() {
                 | FakeFailure::Execute | FakeFailure::Finish => vec!["discover", "open", "execute", "finish"],
             };
             assert_eq!(recorded, expected);
+            let acquisitions = acquisitions.lock().expect("fake acquisition lock").clone();
+            assert_eq!(
+                acquisitions,
+                (failure != FakeFailure::Discover)
+                    .then_some(WorkloadAcquisition::LocalOnly)
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            );
         });
 }
 #[test]
@@ -332,12 +356,90 @@ fn policy_rejects_unknown_fields_and_mutable_workloads() {
 }
 #[test]
 fn sandbox_session_open_respects_optional_policy() {
-    assert!(<dyn SandboxSession>::open("run", None).expect("open host mode").is_none());
-    let directory = root("session");
+    assert!(<dyn SandboxSession>::open("run", None, WorkloadAcquisition::LocalOnly)
+        .expect("open host mode")
+        .is_none());
+}
+#[test]
+fn workload_acquisition_is_local_first_and_fail_closed() {
+    let workload = "example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let local = workload_inspection();
+    assert_eq!(
+        acquire_workload(workload, WorkloadAcquisition::PullIfMissing, Ok(Some(local.clone())), || {
+            panic!("a local workload must not be pulled")
+        })
+        .expect("reuse local workload"),
+        local
+    );
+    assert!(acquire_workload(workload, WorkloadAcquisition::LocalOnly, Ok(None), || {
+        panic!("offline mode must not pull")
+    })
+    .is_err());
+    let pulled = workload_inspection();
+    assert_eq!(
+        acquire_workload(workload, WorkloadAcquisition::PullIfMissing, Ok(None), || Ok(Some(pulled.clone()))).expect("use pulled workload"),
+        pulled
+    );
+    assert!(acquire_workload(workload, WorkloadAcquisition::PullIfMissing, Ok(None), || Ok(None)).is_err());
+}
+#[test]
+fn workload_bootstrap_probe_is_digest_pinned_and_hardened() {
+    let directory = root("workload-invocations");
     create_dir_all(&directory).expect("create policy fixture directory");
     let path = directory.join("policy.json");
     write(&path, policy("json")).expect("write policy fixture");
     let policy = EffectiveSandboxPolicy::read(&path).expect("parse policy fixture");
-    assert!(<dyn SandboxSession>::open("run", Some(&policy)).expect("open sandbox session").is_some());
+    let workload = "example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let probe = policy
+        .probe_invocation("run")
+        .into_iter()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(probe.contains(&"--pull=never".to_string()));
+    assert!(probe.contains(&"--network=none".to_string()));
+    assert!(probe.contains(&"--read-only".to_string()));
+    assert!(probe.contains(&"--user=65532:65532".to_string()));
+    assert!(probe.contains(&workload.to_string()));
+    remove_dir_all(directory).expect("remove policy fixture directory");
+}
+#[test]
+fn workload_metadata_must_match_the_provider_contract() {
+    let directory = root("workload-metadata");
+    create_dir_all(&directory).expect("create policy fixture directory");
+    let path = directory.join("policy.json");
+    write(&path, policy("json")).expect("write policy fixture");
+    let policy = EffectiveSandboxPolicy::read(&path).expect("parse policy fixture");
+    assert!(policy.verify_workload(&workload_inspection()).is_ok());
+    let invalid = [
+        OciImageInspection {
+            digest: Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
+            ..workload_inspection()
+        },
+        OciImageInspection {
+            architecture: "arm64".to_string(),
+            ..workload_inspection()
+        },
+        OciImageInspection {
+            operating_system: "windows".to_string(),
+            ..workload_inspection()
+        },
+        OciImageInspection {
+            config: OciImageConfig {
+                entrypoint: Some(vec!["/bin/sh".to_string()]),
+                ..workload_inspection().config
+            },
+            ..workload_inspection()
+        },
+        OciImageInspection {
+            config: OciImageConfig {
+                environment: Some(vec!["SECRET=value".to_string()]),
+                ..workload_inspection().config
+            },
+            ..workload_inspection()
+        },
+    ];
+    invalid
+        .into_iter()
+        .for_each(|inspection| assert!(policy.verify_workload(&inspection).is_err()));
     remove_dir_all(directory).expect("remove policy fixture directory");
 }

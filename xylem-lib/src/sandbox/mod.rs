@@ -34,7 +34,7 @@ pub trait SandboxProvider: private::Sealed + Send + Sync {
     /// Discover and validate the provider's realized capabilities.
     fn discover(&self) -> Result<SandboxCapabilities, SandboxError>;
     /// Open one logical run session without executing workflow code.
-    fn open(&self, run_id: &str) -> Result<Arc<dyn SandboxSession>, SandboxError>;
+    fn open(&self, run_id: &str, acquisition: WorkloadAcquisition) -> Result<Arc<dyn SandboxSession>, SandboxError>;
 }
 /// Sealed logical run session used by concurrent input workers.
 pub trait SandboxSession: private::Sealed + Send + Sync {
@@ -84,6 +84,14 @@ pub enum ProcessGuard {
     Nono,
     /// The [nsjail](https://github.com/google/nsjail) Linux namespace and seccomp sandbox.
     Nsjail,
+}
+/// Network acquisition permitted while opening a sandbox provider session.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkloadAcquisition {
+    /// Require the immutable workload to exist in local provider storage.
+    LocalOnly,
+    /// Pull the immutable workload when it is absent from local provider storage.
+    PullIfMissing,
 }
 /// Policy parsing, validation, or provider-discovery failure.
 #[derive(Debug, thiserror::Error)]
@@ -153,6 +161,26 @@ pub struct EffectiveSandboxPolicy {
     pub runtime: Option<OciRuntime>,
     /// Immutable provider workload identity.
     pub workload: String,
+}
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+struct OciImageConfig {
+    #[serde(rename = "Entrypoint", default)]
+    entrypoint: Option<Vec<String>>,
+    #[serde(rename = "Env", default)]
+    environment: Option<Vec<String>>,
+}
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+struct OciImageInspection {
+    #[serde(rename = "Architecture")]
+    architecture: String,
+    #[serde(rename = "Config")]
+    config: OciImageConfig,
+    #[serde(rename = "Digest", default)]
+    digest: Option<String>,
+    #[serde(rename = "Os")]
+    operating_system: String,
+    #[serde(rename = "RepoDigests", default)]
+    repository_digests: Vec<String>,
 }
 #[derive(Clone, Debug)]
 struct OciSandboxSession {
@@ -331,8 +359,12 @@ impl Config {
 }
 impl dyn SandboxSession {
     /// Open the selected provider session, or return host mode when no policy is active.
-    pub fn open(run_id: &str, policy: Option<&EffectiveSandboxPolicy>) -> Result<Option<Arc<dyn SandboxSession>>, SandboxError> {
-        policy.map_or(Ok(None), |policy| SandboxProvider::open(policy, run_id).map(Some))
+    pub fn open(
+        run_id: &str,
+        policy: Option<&EffectiveSandboxPolicy>,
+        acquisition: WorkloadAcquisition,
+    ) -> Result<Option<Arc<dyn SandboxSession>>, SandboxError> {
+        policy.map_or(Ok(None), |policy| SandboxProvider::open(policy, run_id, acquisition).map(Some))
     }
 }
 impl EffectiveSandboxPolicy {
@@ -496,6 +528,28 @@ impl EffectiveSandboxPolicy {
             | false => Ok(()),
         }
     }
+    fn inspect_workload(&self) -> Result<Option<OciImageInspection>, SandboxError> {
+        self.runtime()
+            .and_then(|runtime| {
+                CommandSpec::new(runtime.to_string())
+                    .args(args!["image", "inspect", &self.workload])
+                    .output_with_timeout(Duration::from_secs(self.policy.resources.wall_time_seconds))
+                    .map_err(|why| SandboxError::Runtime(format!("inspect pinned workload {}: {why}", self.workload)))
+            })
+            .and_then(|output| match output.status.success() {
+                | true => serde_json::from_slice::<Vec<OciImageInspection>>(&output.stdout)
+                    .map_err(|why| SandboxError::Runtime(format!("parse inspection for pinned workload {}: {why}", self.workload)))
+                    .and_then(|inspections| match inspections.as_slice() {
+                        | [inspection] => Ok(Some(inspection.clone())),
+                        | values => Err(SandboxError::Runtime(format!(
+                            "inspect pinned workload {} returned {} images",
+                            self.workload,
+                            values.len()
+                        ))),
+                    }),
+                | false => Ok(None),
+            })
+    }
     fn invocation(&self, script: &Script, container_name: &str) -> Result<Vec<OsString>, SandboxError> {
         script.validate().map_err(|why| SandboxError::Validation(why.to_string())).and_then(|()| {
             validate_granted_path(
@@ -562,35 +616,116 @@ impl EffectiveSandboxPolicy {
             })
         })
     }
-    fn verify(&self) -> Result<(), SandboxError> {
+    fn prepare_workload(&self, run_id: &str, acquisition: WorkloadAcquisition) -> Result<(), SandboxError> {
+        acquire_workload(&self.workload, acquisition, self.inspect_workload(), || {
+            self.pull_workload().and_then(|()| self.inspect_workload())
+        })
+        .and_then(|inspection| self.verify_workload(&inspection))
+        .and_then(|()| self.probe_workload(run_id))
+    }
+    fn probe_invocation(&self, run_id: &str) -> Vec<OsString> {
+        let resources = &self.policy.resources;
+        let cpus = format!("{:.3}", f64::from(resources.cpu_millis) / 1000.0);
+        let container_name = format!("xylem-{run_id}-probe");
+        args![
+            "run",
+            "--rm",
+            "--init",
+            ("--name", container_name),
+            ("--label", "gov.ornl.xylem.sandbox=true"),
+            ("--label", format!("gov.ornl.xylem.policy={}", self.digest)),
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--ipc=none",
+            ("--pids-limit", resources.pids.to_string()),
+            ("--memory", resources.memory_bytes.to_string()),
+            ("--memory-swap", resources.memory_bytes.to_string()),
+            ("--cpus", cpus),
+            "--user=65532:65532",
+            ("--tmpfs", format!("/tmp:rw,noexec,nosuid,nodev,size={}", resources.scratch_bytes)),
+            ("--entrypoint", "/bin/sh"),
+            &self.workload,
+            "-c",
+            "test \"$(id -u)\" = 65532 && test \"$(id -g)\" = 65532 && command -v sh >/dev/null && command -v cp >/dev/null && command -v git >/dev/null && command -v mkdir >/dev/null && command -v rm >/dev/null && test -w /tmp"
+        ]
+    }
+    fn probe_workload(&self, run_id: &str) -> Result<(), SandboxError> {
         self.runtime()
             .and_then(|runtime| {
                 CommandSpec::new(runtime.to_string())
-                    .args(args!["image", "inspect", "--format", "{{json .Config.Env}}", &self.workload])
-                    .checked_output_with_timeout(Duration::from_secs(10))
-                    .map_err(|why| SandboxError::Runtime(format!("inspect pinned workload {}: {why}", self.workload)))
+                    .args(self.probe_invocation(run_id))
+                    .checked_output_with_timeout(Duration::from_secs(self.policy.resources.wall_time_seconds))
+                    .map_err(|why| SandboxError::Runtime(format!("probe pinned workload {}: {why}", self.workload)))
             })
-            .and_then(|output| {
-                serde_json::from_slice::<Option<Vec<String>>>(&output.stdout)
-                    .map(Option::unwrap_or_default)
-                    .map_err(|why| SandboxError::Runtime(format!("parse environment for pinned workload {}: {why}", self.workload)))
+            .map(|_| ())
+    }
+    fn pull_workload(&self) -> Result<(), SandboxError> {
+        self.runtime()
+            .and_then(|runtime| {
+                CommandSpec::new(runtime.to_string())
+                    .args(args!["pull", &self.workload])
+                    .checked_output_with_timeout(Duration::from_secs(self.policy.resources.wall_time_seconds))
+                    .map_err(|why| SandboxError::Runtime(format!("pull pinned workload {}: {why}", self.workload)))
             })
-            .and_then(|environment| {
-                environment
-                    .iter()
-                    .map(|value| image_environment(value))
-                    .find(|name| !self.policy.environment.allow.iter().any(|allowed| allowed == name))
-                    .map_or(Ok(()), |name| {
-                        Err(SandboxError::Runtime(format!(
-                            "pinned workload {} declares environment variable {name} outside the policy allowlist",
-                            self.workload
-                        )))
-                    })
-            })
+            .map(|_| ())
     }
     fn runtime(&self) -> Result<OciRuntime, SandboxError> {
         self.runtime
             .ok_or_else(|| SandboxError::Validation("OCI sandbox policy does not select an OCI runtime".to_string()))
+    }
+    fn verify_workload(&self, inspection: &OciImageInspection) -> Result<(), SandboxError> {
+        let expected_digest = self.workload.rsplit_once('@').map_or(self.workload.as_str(), |(_, digest)| digest);
+        let digest_matches = inspection.digest.as_deref() == Some(expected_digest)
+            || inspection
+                .repository_digests
+                .iter()
+                .filter_map(|digest| digest.rsplit_once('@').map(|(_, digest)| digest))
+                .any(|digest| digest == expected_digest);
+        let invalid_environment = inspection
+            .config
+            .environment
+            .iter()
+            .flatten()
+            .map(|value| image_environment(value))
+            .find(|name| !self.policy.environment.allow.iter().any(|allowed| allowed == name));
+        match digest_matches {
+            | false => Err(SandboxError::Validation(format!(
+                "pinned workload {} realized an unexpected digest",
+                self.workload
+            ))),
+            | true => Ok(()),
+        }
+        .and_then(|()| match inspection.operating_system.as_str() {
+            | "linux" => Ok(()),
+            | operating_system => Err(SandboxError::Validation(format!(
+                "pinned workload {} targets unsupported operating system {operating_system}",
+                self.workload
+            ))),
+        })
+        .and_then(|()| match inspection.architecture.as_str() {
+            | "amd64" => Ok(()),
+            | architecture => Err(SandboxError::Validation(format!(
+                "pinned workload {} targets unsupported architecture {architecture}",
+                self.workload
+            ))),
+        })
+        .and_then(|()| match inspection.config.entrypoint.as_ref().is_none_or(Vec::is_empty) {
+            | true => Ok(()),
+            | false => Err(SandboxError::Validation(format!(
+                "pinned workload {} must not declare an entrypoint",
+                self.workload
+            ))),
+        })
+        .and_then(|()| match invalid_environment {
+            | None => Ok(()),
+            | Some(name) => Err(SandboxError::Validation(format!(
+                "pinned workload {} declares environment variable {name} outside the policy allowlist",
+                self.workload
+            ))),
+        })
     }
 }
 impl private::Sealed for EffectiveSandboxPolicy {}
@@ -598,7 +733,6 @@ impl SandboxProvider for EffectiveSandboxPolicy {
     fn discover(&self) -> Result<SandboxCapabilities, SandboxError> {
         self.runtime()
             .and_then(OciRuntime::discover)
-            .and_then(|()| self.verify())
             .map(|()| SandboxCapabilities {
                 isolation: IsolationClass::SharedKernel,
                 network_deny: true,
@@ -615,13 +749,15 @@ impl SandboxProvider for EffectiveSandboxPolicy {
                 ))),
             })
     }
-    fn open(&self, run_id: &str) -> Result<Arc<dyn SandboxSession>, SandboxError> {
+    fn open(&self, run_id: &str, acquisition: WorkloadAcquisition) -> Result<Arc<dyn SandboxSession>, SandboxError> {
         match run_id.is_empty() {
             | true => Err(SandboxError::Validation("sandbox run identifier must not be empty".to_string())),
-            | false => Ok(Arc::new(OciSandboxSession {
-                policy: self.clone(),
-                run_id: run_id.to_string(),
-            })),
+            | false => self.prepare_workload(run_id, acquisition).map(|()| {
+                Arc::new(OciSandboxSession {
+                    policy: self.clone(),
+                    run_id: run_id.to_string(),
+                }) as Arc<dyn SandboxSession>
+            }),
         }
     }
 }
@@ -921,6 +1057,22 @@ impl Validate for Script {
         }
         report.finish()
     }
+}
+fn acquire_workload(
+    workload: &str,
+    acquisition: WorkloadAcquisition,
+    local: Result<Option<OciImageInspection>, SandboxError>,
+    pull: impl FnOnce() -> Result<Option<OciImageInspection>, SandboxError>,
+) -> Result<OciImageInspection, SandboxError> {
+    local.and_then(|inspection| match (inspection, acquisition) {
+        | (Some(inspection), _) => Ok(inspection),
+        | (None, WorkloadAcquisition::LocalOnly) => Err(SandboxError::Runtime(format!(
+            "pinned workload {workload} is not available locally and offline mode prohibits pulling it"
+        ))),
+        | (None, WorkloadAcquisition::PullIfMissing) => pull().and_then(|inspection| {
+            inspection.ok_or_else(|| SandboxError::Runtime(format!("pinned workload {workload} is unavailable after a successful pull")))
+        }),
+    })
 }
 fn image_environment(value: &str) -> &str {
     value.split_once('=').map_or(value, |(name, _)| name)

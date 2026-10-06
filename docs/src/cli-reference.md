@@ -34,7 +34,8 @@ The `run` command accepts:
   `OUTPUT_DIRECTORY`;
 - `--dry-run` to describe work without executing module commands;
 - `--gpu-monitor` to collect run-wide NVIDIA GPU utilization and memory metrics;
-- `--offline` to prohibit remote acquisition;
+- `--offline` to prohibit remote module and sandbox-workload acquisition; the
+  digest-pinned workload must already be available locally;
 - `--resume` to skip modules with complete declared outputs and a matching marker;
 - repeatable or comma-delimited `--allowed <HOST[:PORT]>` values to replace
   the workflow's configured remote-host allowlist;

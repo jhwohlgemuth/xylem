@@ -25,11 +25,15 @@ lifecycle operation, and schema-v8 plan and journal evidence is
 provider-neutral. The only operational provider remains rootless OCI through
 Docker or Podman; `process_guards` must remain empty until its dedicated phase.
 
-The first slice requires its digest-pinned OCI workload to be present locally
-and never pulls implicitly. Authorized acquisition and workload publication
-remain part of the preparation phase below.
+The workload-bootstrap slice is implemented. After durable journal creation,
+an online run may pull an absent digest-pinned OCI workload once; offline runs
+require it locally. Xylem re-inspects the realized digest, validates its
+Linux/amd64 platform, entrypoint, and environment contract, then runs a fixed
+network-disabled non-root bootstrap probe. Module execution never pulls. A
+reproducible baseline runner and protected CI publication job emit the canonical
+Savannah and GHCR digest references for operator policy.
 
-This slice deliberately fails before preparation for features that do not yet
+The implementation deliberately fails before preparation for features that do not yet
 cross the boundary safely: requirements, remote or binary modules, Python and
 host environment wrappers, nested configurations, application containers,
 GPU monitoring, completion markers, artifact publication, and retained failed

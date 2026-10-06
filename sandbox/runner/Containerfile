@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+FROM debian:stable-20260918-slim@sha256:520c7157b4b1c3c46fa56bac0e748ea21d60956c0512b300e3b16d8757f68e2d
+
+ARG DEBIAN_SNAPSHOT=20260918T000000Z
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+RUN set -eux; \
+    rm -f /etc/apt/sources.list.d/debian.sources; \
+    printf '%s\n' \
+        "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}/ trixie main" \
+        "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}/ trixie-updates main" \
+        "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}/ trixie-security main" \
+        > /etc/apt/sources.list; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates=20250419 \
+        coreutils=9.7-3 \
+        dash=0.5.12-12 \
+        git=1:2.47.3-0+deb13u1; \
+    rm -rf /var/lib/apt/lists/*; \
+    groupadd --gid 65532 xylem; \
+    useradd --uid 65532 --gid 65532 --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin xylem; \
+    install -d -o 65532 -g 65532 /xylem /xylem/input /xylem/modules /xylem/output /xylem/prepared /xylem/tmp
+
+USER 65532:65532
+WORKDIR /xylem
+RUN test "$(id -u)" = 65532; \
+    test "$(id -g)" = 65532; \
+    command -v sh; \
+    command -v cp; \
+    command -v git; \
+    command -v mkdir; \
+    command -v rm
+CMD ["/bin/sh"]
