@@ -50,20 +50,39 @@ An opted-in run also requires the operator-controlled global option
 supplying one for a workflow without `sandbox: true` is an error. A requested
 sandbox never falls back to host execution.
 
-Policy documents use strict JSON, JSONC, YAML, or YML and select rootless
-Docker or Podman, a digest-pinned image, allowed host roots and child
-environment names, resource ceilings, preparation networking, and cleanup.
+Policy documents use strict JSON, JSONC, YAML, or YML. Version 1 separates the
+lifecycle provider from its immutable workload and minimum isolation class:
+
+```yaml
+version: 1
+provider:
+  type: oci
+  runtime: docker
+workload:
+  default: example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  allowed:
+    - example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+minimum_isolation: shared_kernel
+process_guards: []
+```
+
+The current provider is rootless OCI through Docker or Podman. The policy also
+owns allowed host roots and child environment names, resource ceilings,
+preparation networking, and cleanup. Process guards are reserved for later
+provider integrations and must currently be empty. The reserved vocabulary is
+Bubblewrap, nono, and nsjail.
+
 Relative policy roots resolve from the policy file. Dry-run validates the
 workflow and policy and records their effective values without contacting the
 runtime. The initial slice requires cleanup retention `delete`.
 The checked-in [`sandbox-policy-v1` schema](../schema/sandbox-policy-v1.schema.json)
 defines the complete document shape. Real execution is currently qualified on
-native x86_64 Linux with a local rootless runtime. The pinned image must
+native x86_64 Linux with a local rootless runtime. The pinned workload must
 already be present; the guarded slice never performs an implicit pull.
 
 The initial OCI execution slice supports local generic script modules with
 read-only module and input mounts. Workflow requirements must be supplied by
-the pinned image. Remote, binary, Python-environment, nested-configuration,
+the pinned workload. Remote, binary, Python-environment, nested-configuration,
 application-container, GPU, completion-marker, and artifact-publication
 features fail closed in sandbox mode while their existing host behavior
 remains available when sandboxing is disabled.

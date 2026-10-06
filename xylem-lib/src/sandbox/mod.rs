@@ -9,6 +9,7 @@ use acorn_core::util::MimeType;
 use acorn_core::validation::ValidationError;
 use acorn_schema::validation::{Validate, ValidationReport};
 use alloc::collections::{BTreeSet, VecDeque};
+use alloc::sync::Arc;
 use core::fmt;
 use core::time::Duration;
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,49 @@ use std::path::{Component, Path, PathBuf};
 const MAX_MOUNT_ENTRIES: usize = 100_000;
 /// Current operator sandbox policy schema version.
 pub const SANDBOX_POLICY_VERSION: u32 = 1;
+/// Internal sealing support for the public sandbox traits.
+mod private {
+    /// Marker implemented only by in-tree provider and session types.
+    ///
+    /// Requiring this private supertrait prevents downstream implementations from bypassing Xylem's lifecycle and capability validation.
+    pub trait Sealed {}
+}
+/// Sealed lifecycle provider selected from an effective operator policy.
+pub trait SandboxProvider: private::Sealed + Send + Sync {
+    /// Discover and validate the provider's realized capabilities.
+    fn discover(&self) -> Result<SandboxCapabilities, SandboxError>;
+    /// Open one logical run session without executing workflow code.
+    fn open(&self, run_id: &str) -> Result<Arc<dyn SandboxSession>, SandboxError>;
+}
+/// Sealed logical run session used by concurrent input workers.
+pub trait SandboxSession: private::Sealed + Send + Sync {
+    /// Execute one module command inside the provider boundary.
+    fn execute(&self, script: &Script, input_index: usize, module_index: usize, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError>;
+    /// Finish the logical session after all admitted inputs settle.
+    fn finish(&self, succeeded: bool) -> Result<(), SandboxError>;
+    /// Return the resource ceilings enforced for each command.
+    fn resources(&self) -> &SandboxResources;
+}
+/// Minimum isolation boundary required by a trusted operator policy, ordered from weakest to strongest.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IsolationClass {
+    /// Kernel-enforced process confinement without a distinct container or virtual machine boundary.
+    Process,
+    /// Container isolation sharing the host kernel.
+    SharedKernel,
+    /// Virtual-machine isolation with a separate guest kernel.
+    SeparateKernel,
+}
+/// OCI runtime selected by a trusted operator policy.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OciRuntime {
+    /// Docker Engine.
+    Docker,
+    /// Podman.
+    Podman,
+}
 /// Network access available while preparing workflow dependencies.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -30,14 +74,16 @@ pub enum PreparationNetwork {
     /// Unrestricted provider network access.
     Unrestricted,
 }
-/// OCI runtime selected by a trusted operator policy.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+/// Optional process-level confinement applied inside a provider workload.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum SandboxBackend {
-    /// Docker Engine.
-    Docker,
-    /// Podman.
-    Podman,
+pub enum ProcessGuard {
+    /// The [Bubblewrap](https://github.com/containers/bubblewrap) Linux namespace sandbox.
+    Bubblewrap,
+    /// The [nono](https://nono.sh/) Landlock or Seatbelt process guard.
+    Nono,
+    /// The [nsjail](https://github.com/google/nsjail) Linux namespace and seccomp sandbox.
+    Nsjail,
 }
 /// Policy parsing, validation, or provider-discovery failure.
 #[derive(Debug, thiserror::Error)]
@@ -68,6 +114,23 @@ pub enum SandboxError {
     #[error("invalid sandbox policy: {0}")]
     Validation(String),
 }
+/// Provider-specific operator configuration.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
+pub enum SandboxProviderConfiguration {
+    /// Native rootless OCI runtime.
+    Oci {
+        /// Docker or Podman runtime.
+        runtime: OciRuntime,
+    },
+}
+/// Supported sandbox lifecycle providers.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxProviderKind {
+    /// Native OCI runtime provider.
+    Oci,
+}
 /// Lifecycle behavior after a sandboxed run fails.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -80,45 +143,56 @@ pub enum SandboxRetention {
 /// Validated immutable sandbox policy with its canonical identity.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct EffectiveSandboxPolicy {
-    /// OCI runtime selected by the operator.
-    pub backend: SandboxBackend,
     /// Canonical policy digest.
     pub digest: String,
-    /// Digest-pinned runner image.
-    pub image: String,
     /// Validated operator policy.
     pub policy: OperatorSandboxPolicy,
+    /// Provider selected by the operator.
+    pub provider: SandboxProviderKind,
+    /// OCI runtime selected by the operator, when applicable.
+    pub runtime: Option<OciRuntime>,
+    /// Immutable provider workload identity.
+    pub workload: String,
+}
+#[derive(Clone, Debug)]
+struct OciSandboxSession {
+    policy: EffectiveSandboxPolicy,
+    run_id: String,
 }
 /// Strict operator-owned sandbox policy.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OperatorSandboxPolicy {
-    /// Images permitted for sandbox sessions, each pinned by digest.
-    pub allowed_images: Vec<String>,
-    /// OCI runtime selected by the operator.
-    pub backend: SandboxBackend,
-    /// Default digest-pinned runner image.
-    pub default_image: String,
     /// Child environment allowlist.
     pub environment: SandboxEnvironment,
     /// Cleanup and reconciliation behavior.
     pub lifecycle: SandboxLifecycle,
+    /// Minimum acceptable provider isolation class.
+    pub minimum_isolation: IsolationClass,
     /// Host path grants.
     pub paths: SandboxPaths,
     /// Preparation-session network access.
     pub preparation_network: PreparationNetwork,
+    /// Process-level confinement layers required inside the provider workload.
+    pub process_guards: Vec<ProcessGuard>,
+    /// Sandbox lifecycle provider.
+    pub provider: SandboxProviderConfiguration,
     /// Per-input resource ceilings.
     pub resources: SandboxResources,
     /// Policy schema version.
     pub version: u32,
+    /// Immutable workloads admitted by the operator.
+    pub workload: SandboxWorkload,
 }
-/// Controls an OCI provider can enforce for this implementation.
+/// Controls a sandbox provider can enforce for this implementation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct SandboxCapabilities {
+    /// Effective isolation boundary.
+    pub isolation: IsolationClass,
     /// Provider can deny execution networking.
     pub network_deny: bool,
-    /// Provider uses a native shared Linux kernel.
-    pub shared_kernel: bool,
+    /// Provider kind.
+    pub provider: SandboxProviderKind,
     /// Provider can apply CPU, memory, and PID ceilings.
     pub resource_limits: bool,
     /// Provider supports a read-only root filesystem.
@@ -174,6 +248,15 @@ pub struct SandboxResources {
     /// Maximum command wall time in seconds.
     pub wall_time_seconds: u64,
 }
+/// Immutable provider workload allowlist.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SandboxWorkload {
+    /// Workloads permitted for sandbox sessions, each pinned by digest.
+    pub allowed: Vec<String>,
+    /// Default digest-pinned workload.
+    pub default: String,
+}
 impl Config {
     pub(crate) fn validate_sandbox(&self) -> Result<(), ValidationReport> {
         let mut report = ValidationReport::new();
@@ -182,7 +265,7 @@ impl Config {
                 "requirements",
                 validation_error(
                     "unsupported",
-                    "workflow requirements are not supported in sandbox mode; provide them in the pinned runner image",
+                    "workflow requirements are not supported in sandbox mode; provide them in the pinned provider workload",
                 ),
             );
         }
@@ -246,6 +329,12 @@ impl Config {
         report.finish()
     }
 }
+impl dyn SandboxSession {
+    /// Open the selected provider session, or return host mode when no policy is active.
+    pub fn open(run_id: &str, policy: Option<&EffectiveSandboxPolicy>) -> Result<Option<Arc<dyn SandboxSession>>, SandboxError> {
+        policy.map_or(Ok(None), |policy| SandboxProvider::open(policy, run_id).map(Some))
+    }
+}
 impl EffectiveSandboxPolicy {
     /// Read, normalize, validate, and hash an operator policy.
     pub fn read(path: &Path) -> Result<Self, SandboxError> {
@@ -265,23 +354,19 @@ impl EffectiveSandboxPolicy {
             .and_then(|policy| {
                 serde_json::to_vec(&policy)
                     .map_err(|why| SandboxError::Validation(format!("serialize canonical sandbox policy: {why}")))
-                    .map(|canonical| Self {
-                        backend: policy.backend,
-                        digest: format!("sha256:{:x}", Sha256::digest(canonical)),
-                        image: policy.default_image.clone(),
-                        policy,
+                    .map(|canonical| {
+                        let (provider, runtime) = match policy.provider {
+                            | SandboxProviderConfiguration::Oci { runtime } => (SandboxProviderKind::Oci, Some(runtime)),
+                        };
+                        Self {
+                            digest: format!("sha256:{:x}", Sha256::digest(canonical)),
+                            workload: policy.workload.default.clone(),
+                            policy,
+                            provider,
+                            runtime,
+                        }
                     })
             })
-    }
-    /// Return the declared provider capabilities after verifying the local runtime.
-    pub fn discover(&self) -> Result<SandboxCapabilities, SandboxError> {
-        self.backend.discover().and_then(|()| self.verify()).map(|()| SandboxCapabilities {
-            network_deny: true,
-            read_only_root: true,
-            resource_limits: true,
-            rootless: true,
-            shared_kernel: true,
-        })
     }
     /// Validate sandbox feature compatibility before resolving nested sources.
     pub fn validate_configuration(&self, config: &Config) -> Result<(), SandboxError> {
@@ -344,7 +429,7 @@ impl EffectiveSandboxPolicy {
         })
     }
     /// Execute one resolved module command through the configured OCI runtime.
-    pub fn execute(&self, script: &Script, container_name: &str, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError> {
+    fn execute(&self, script: &Script, container_name: &str, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError> {
         let working_directory = PathBuf::from(&script.current_dir);
         self.invocation(script, container_name)
             .map_err(|why| ProcessError::Spawn {
@@ -353,47 +438,62 @@ impl EffectiveSandboxPolicy {
                 source: std::io::Error::other(why),
             })
             .and_then(|arguments| {
-                CommandSpec::new(self.backend.to_string())
-                    .args(arguments)
-                    .checked_execute(options)
-                    .map_err(|source| match source {
-                        | CommandError::NonZeroExit(result) => {
-                            let details = String::from_utf8_lossy(result.stderr().bytes()).into_owned();
-                            let status = result.status().map_or_else(
-                                || "unknown".to_string(),
-                                |status| {
-                                    status.code().map_or_else(
-                                        || status.signal().map_or_else(|| "unknown".to_string(), |signal| format!("signal {signal}")),
-                                        |code| code.to_string(),
-                                    )
+                self.runtime()
+                    .map_err(|why| ProcessError::Spawn {
+                        script: script.to_string(),
+                        working_directory: working_directory.clone(),
+                        source: std::io::Error::other(why),
+                    })
+                    .and_then(|runtime| {
+                        CommandSpec::new(runtime.to_string())
+                            .args(arguments)
+                            .checked_execute(options)
+                            .map_err(|source| match source {
+                                | CommandError::NonZeroExit(result) => {
+                                    let details = String::from_utf8_lossy(result.stderr().bytes()).into_owned();
+                                    let status = result.status().map_or_else(
+                                        || "unknown".to_string(),
+                                        |status| {
+                                            status.code().map_or_else(
+                                                || status.signal().map_or_else(|| "unknown".to_string(), |signal| format!("signal {signal}")),
+                                                |code| code.to_string(),
+                                            )
+                                        },
+                                    );
+                                    ProcessError::Unsuccessful {
+                                        script: script.to_string(),
+                                        working_directory: working_directory.clone(),
+                                        status,
+                                        stderr: details,
+                                    }
+                                }
+                                | CommandError::Spawn { source } => ProcessError::Spawn {
+                                    script: script.to_string(),
+                                    working_directory: working_directory.clone(),
+                                    source,
                                 },
-                            );
-                            ProcessError::Unsuccessful {
-                                script: script.to_string(),
-                                working_directory: working_directory.clone(),
-                                status,
-                                stderr: details,
-                            }
-                        }
-                        | CommandError::Spawn { source } => ProcessError::Spawn {
-                            script: script.to_string(),
-                            working_directory: working_directory.clone(),
-                            source,
-                        },
-                        | source => ProcessError::Managed {
-                            script: script.to_string(),
-                            working_directory: working_directory.clone(),
-                            source,
-                        },
+                                | source => ProcessError::Managed {
+                                    script: script.to_string(),
+                                    working_directory: working_directory.clone(),
+                                    source,
+                                },
+                            })
                     })
             })
     }
-    /// Best-effort terminal cleanup for a named sandbox.
-    pub fn cleanup(&self, container_name: &str, succeeded: bool) {
-        if succeeded || self.policy.lifecycle.retention == SandboxRetention::Delete {
-            let _cleanup = CommandSpec::new(self.backend.to_string())
-                .args(args!["rm", "--force", container_name])
-                .checked_output_with_timeout(Duration::from_secs(10));
+    /// Perform terminal cleanup for a named sandbox.
+    fn cleanup(&self, container_name: &str, succeeded: bool) -> Result<(), SandboxError> {
+        match succeeded || self.policy.lifecycle.retention == SandboxRetention::Delete {
+            | true => self
+                .runtime()
+                .and_then(|runtime| {
+                    CommandSpec::new(runtime.to_string())
+                        .args(args!["rm", "--force", container_name])
+                        .checked_output_with_timeout(Duration::from_secs(10))
+                        .map_err(|why| SandboxError::Runtime(format!("remove sandbox {container_name}: {why}")))
+                })
+                .map(|_| ()),
+            | false => Ok(()),
         }
     }
     fn invocation(&self, script: &Script, container_name: &str) -> Result<Vec<OsString>, SandboxError> {
@@ -435,7 +535,6 @@ impl EffectiveSandboxPolicy {
                     .map(|source| format!("type=bind,source={},target=/xylem/input/current,readonly", source.display()));
                 args![
                     "run",
-                    ..(self.policy.lifecycle.retention == SandboxRetention::Delete).then_some("--rm"),
                     "--init",
                     ("--name", container_name),
                     ("--label", "gov.ornl.xylem.sandbox=true"),
@@ -456,7 +555,7 @@ impl EffectiveSandboxPolicy {
                     ..input_mount.map(|mount| args!["--mount", mount]).unwrap_or_default(),
                     ..environment.into_iter().flat_map(|value| args!["--env", value]),
                     "--workdir=/xylem/modules/current",
-                    &self.image,
+                    &self.workload,
                     command,
                     ..arguments
                 ]
@@ -464,14 +563,17 @@ impl EffectiveSandboxPolicy {
         })
     }
     fn verify(&self) -> Result<(), SandboxError> {
-        CommandSpec::new(self.backend.to_string())
-            .args(args!["image", "inspect", "--format", "{{json .Config.Env}}", &self.image])
-            .checked_output_with_timeout(Duration::from_secs(10))
-            .map_err(|why| SandboxError::Runtime(format!("inspect pinned image {}: {why}", self.image)))
+        self.runtime()
+            .and_then(|runtime| {
+                CommandSpec::new(runtime.to_string())
+                    .args(args!["image", "inspect", "--format", "{{json .Config.Env}}", &self.workload])
+                    .checked_output_with_timeout(Duration::from_secs(10))
+                    .map_err(|why| SandboxError::Runtime(format!("inspect pinned workload {}: {why}", self.workload)))
+            })
             .and_then(|output| {
                 serde_json::from_slice::<Option<Vec<String>>>(&output.stdout)
                     .map(Option::unwrap_or_default)
-                    .map_err(|why| SandboxError::Runtime(format!("parse environment for pinned image {}: {why}", self.image)))
+                    .map_err(|why| SandboxError::Runtime(format!("parse environment for pinned workload {}: {why}", self.workload)))
             })
             .and_then(|environment| {
                 environment
@@ -480,11 +582,47 @@ impl EffectiveSandboxPolicy {
                     .find(|name| !self.policy.environment.allow.iter().any(|allowed| allowed == name))
                     .map_or(Ok(()), |name| {
                         Err(SandboxError::Runtime(format!(
-                            "pinned image {} declares environment variable {name} outside the policy allowlist",
-                            self.image
+                            "pinned workload {} declares environment variable {name} outside the policy allowlist",
+                            self.workload
                         )))
                     })
             })
+    }
+    fn runtime(&self) -> Result<OciRuntime, SandboxError> {
+        self.runtime
+            .ok_or_else(|| SandboxError::Validation("OCI sandbox policy does not select an OCI runtime".to_string()))
+    }
+}
+impl private::Sealed for EffectiveSandboxPolicy {}
+impl SandboxProvider for EffectiveSandboxPolicy {
+    fn discover(&self) -> Result<SandboxCapabilities, SandboxError> {
+        self.runtime()
+            .and_then(OciRuntime::discover)
+            .and_then(|()| self.verify())
+            .map(|()| SandboxCapabilities {
+                isolation: IsolationClass::SharedKernel,
+                network_deny: true,
+                provider: SandboxProviderKind::Oci,
+                read_only_root: true,
+                resource_limits: true,
+                rootless: true,
+            })
+            .and_then(|capabilities| match capabilities.isolation >= self.policy.minimum_isolation {
+                | true => Ok(capabilities),
+                | false => Err(SandboxError::Runtime(format!(
+                    "provider isolation {:?} does not satisfy required {:?}",
+                    capabilities.isolation, self.policy.minimum_isolation
+                ))),
+            })
+    }
+    fn open(&self, run_id: &str) -> Result<Arc<dyn SandboxSession>, SandboxError> {
+        match run_id.is_empty() {
+            | true => Err(SandboxError::Validation("sandbox run identifier must not be empty".to_string())),
+            | false => Ok(Arc::new(OciSandboxSession {
+                policy: self.clone(),
+                run_id: run_id.to_string(),
+            })),
+        }
     }
 }
 impl Module {
@@ -498,6 +636,107 @@ impl Module {
         }
     }
 }
+impl fmt::Display for OciRuntime {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            | Self::Docker => formatter.write_str("docker"),
+            | Self::Podman => formatter.write_str("podman"),
+        }
+    }
+}
+impl OciRuntime {
+    fn discover(self) -> Result<(), SandboxError> {
+        match (cfg!(target_os = "linux"), cfg!(target_arch = "x86_64")) {
+            | (false, _) => Err(SandboxError::Runtime("the qualified OCI sandbox requires native Linux".to_string())),
+            | (true, false) => Err(SandboxError::Runtime(
+                "the qualified OCI sandbox currently requires x86_64 Linux".to_string(),
+            )),
+            | (true, true) => {
+                let arguments = match self {
+                    | Self::Docker => args!["info", "--format", "{{json .SecurityOptions}}"],
+                    | Self::Podman => args!["info", "--format", "{{.Host.Security.Rootless}}"],
+                };
+                CommandSpec::new(self.to_string())
+                    .args(arguments)
+                    .checked_output_with_timeout(Duration::from_secs(10))
+                    .map_err(|why| SandboxError::Runtime(format!("inspect {self}: {why}")))
+                    .and_then(|output| {
+                        let value = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+                        match (self, value.contains("rootless") || value.trim() == "true") {
+                            | (_, true) => Ok(()),
+                            | (Self::Docker, false) => Err(SandboxError::Runtime("Docker does not report rootless security mode".to_string())),
+                            | (Self::Podman, false) => Err(SandboxError::Runtime("Podman is not rootless".to_string())),
+                        }
+                    })
+                    .and_then(|()| self.validate().map_err(|why| SandboxError::Runtime(why.to_string())))
+            }
+        }
+    }
+}
+impl Validate for OciRuntime {
+    fn validate(&self) -> Result<(), ValidationReport> {
+        match self {
+            | Self::Docker => CommandSpec::new("docker")
+                .args(args!["context", "show"])
+                .checked_output_with_timeout(Duration::from_secs(10))
+                .map_err(|why| validation_report("provider.runtime", "runtime", format!("inspect Docker context: {why}")))
+                .and_then(|output| {
+                    let context = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    CommandSpec::new("docker")
+                        .args(args!["context", "inspect", "--format", "{{json .Endpoints.docker.Host}}", context])
+                        .checked_output_with_timeout(Duration::from_secs(10))
+                        .map_err(|why| validation_report("provider.runtime", "runtime", format!("inspect Docker endpoint: {why}")))
+                })
+                .and_then(|output| {
+                    serde_json::from_slice::<String>(&output.stdout)
+                        .map_err(|why| validation_report("provider.runtime", "runtime", format!("parse Docker endpoint: {why}")))
+                })
+                .and_then(|endpoint| match endpoint.starts_with("unix://") {
+                    | true => Ok(()),
+                    | false => Err(validation_report(
+                        "provider.runtime",
+                        "local",
+                        format!("Docker endpoint {endpoint} is remote; the sandbox requires a local Unix socket"),
+                    )),
+                }),
+            | Self::Podman => CommandSpec::new("podman")
+                .args(args!["info", "--format", "{{.Host.ServiceIsRemote}}"])
+                .checked_output_with_timeout(Duration::from_secs(10))
+                .map_err(|why| validation_report("provider.runtime", "runtime", format!("inspect Podman connection: {why}")))
+                .and_then(|output| match String::from_utf8_lossy(&output.stdout).trim() {
+                    | "false" => Ok(()),
+                    | _ => Err(validation_report(
+                        "provider.runtime",
+                        "local",
+                        "Podman is using a remote service; the sandbox requires a local runtime",
+                    )),
+                }),
+        }
+    }
+}
+impl private::Sealed for OciSandboxSession {}
+impl SandboxSession for OciSandboxSession {
+    fn execute(&self, script: &Script, input_index: usize, module_index: usize, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError> {
+        let container_name = format!("xylem-{}-{input_index}-{module_index}", self.run_id);
+        let execution = self.policy.execute(script, &container_name, options);
+        let cleanup = self.policy.cleanup(&container_name, execution.is_ok());
+        match (execution, cleanup) {
+            | (Ok(result), Ok(())) => Ok(result),
+            | (Err(primary), _) => Err(primary),
+            | (Ok(_), Err(cleanup)) => Err(ProcessError::Output {
+                script: script.to_string(),
+                working_directory: PathBuf::from(&script.current_dir),
+                source: std::io::Error::other(cleanup),
+            }),
+        }
+    }
+    fn finish(&self, _succeeded: bool) -> Result<(), SandboxError> {
+        Ok(())
+    }
+    fn resources(&self) -> &SandboxResources {
+        &self.policy.policy.resources
+    }
+}
 impl OperatorSandboxPolicy {
     fn normalize(mut self, path: &Path) -> Result<Self, SandboxError> {
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
@@ -508,7 +747,6 @@ impl OperatorSandboxPolicy {
                 .map_err(|why| SandboxError::Validation(format!("resolve sandbox policy directory: {why}"))),
         };
         base.map(|base| {
-            self.allowed_images.sort();
             self.environment.allow.sort();
             self.paths.artifact_roots = self.paths.artifact_roots.into_iter().map(|value| normalize_path(&base, value)).collect();
             self.paths.input_roots = self.paths.input_roots.into_iter().map(|value| normalize_path(&base, value)).collect();
@@ -516,6 +754,8 @@ impl OperatorSandboxPolicy {
             self.paths.artifact_roots.sort();
             self.paths.input_roots.sort();
             self.paths.module_roots.sort();
+            self.process_guards.sort();
+            self.workload.allowed.sort();
             self
         })
     }
@@ -562,11 +802,12 @@ impl Validate for OperatorSandboxPolicy {
             self.resources.scratch_bytes,
             self.resources.wall_time_seconds,
         ];
-        let allowed_images = self.allowed_images.iter().collect::<BTreeSet<_>>();
+        let allowed_workloads = self.workload.allowed.iter().collect::<BTreeSet<_>>();
         let environment = self.environment.allow.iter().collect::<BTreeSet<_>>();
         let artifact_roots = self.paths.artifact_roots.iter().collect::<BTreeSet<_>>();
         let input_roots = self.paths.input_roots.iter().collect::<BTreeSet<_>>();
         let module_roots = self.paths.module_roots.iter().collect::<BTreeSet<_>>();
+        let process_guards = self.process_guards.iter().collect::<BTreeSet<_>>();
         let mut report = ValidationReport::new();
         if self.version != SANDBOX_POLICY_VERSION {
             report.add(
@@ -574,26 +815,38 @@ impl Validate for OperatorSandboxPolicy {
                 validation_error("version", format!("policy version must be {SANDBOX_POLICY_VERSION}")),
             );
         }
-        if !image_is_pinned(&self.default_image) {
+        if !workload_is_pinned(&self.workload.default) {
             report.add(
-                "default_image",
-                validation_error("digest", "default_image must use an immutable sha256 digest"),
+                "workload.default",
+                validation_error("digest", "workload.default must use an immutable sha256 digest"),
             );
         }
-        if self.allowed_images.iter().any(|image| !image_is_pinned(image)) {
+        if self.workload.allowed.iter().any(|workload| !workload_is_pinned(workload)) {
             report.add(
-                "allowed_images",
-                validation_error("digest", "allowed_images must contain only immutable sha256 digests"),
+                "workload.allowed",
+                validation_error("digest", "workload.allowed must contain only immutable sha256 digests"),
             );
         }
-        if !self.allowed_images.contains(&self.default_image) {
+        if !self.workload.allowed.contains(&self.workload.default) {
             report.add(
-                "allowed_images",
-                validation_error("contains", "allowed_images must contain default_image"),
+                "workload.allowed",
+                validation_error("contains", "workload.allowed must contain workload.default"),
             );
         }
-        if allowed_images.len() != self.allowed_images.len() {
-            report.add("allowed_images", validation_error("unique", "allowed_images must not contain duplicates"));
+        if allowed_workloads.len() != self.workload.allowed.len() {
+            report.add(
+                "workload.allowed",
+                validation_error("unique", "workload.allowed must not contain duplicates"),
+            );
+        }
+        if process_guards.len() != self.process_guards.len() {
+            report.add("process_guards", validation_error("unique", "process_guards must not contain duplicates"));
+        }
+        if !self.process_guards.is_empty() {
+            report.add(
+                "process_guards",
+                validation_error("unsupported", "process guards are reserved for a later provider integration phase"),
+            );
         }
         if !paths_are_valid(&self.paths.artifact_roots) || !paths_are_valid(&self.paths.input_roots) || !paths_are_valid(&self.paths.module_roots) {
             report.add(
@@ -644,81 +897,10 @@ impl Validate for OperatorSandboxPolicy {
         report.finish()
     }
 }
-impl fmt::Display for SandboxBackend {
+impl fmt::Display for SandboxProviderKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            | Self::Docker => formatter.write_str("docker"),
-            | Self::Podman => formatter.write_str("podman"),
-        }
-    }
-}
-impl SandboxBackend {
-    fn discover(self) -> Result<(), SandboxError> {
-        match (cfg!(target_os = "linux"), cfg!(target_arch = "x86_64")) {
-            | (false, _) => Err(SandboxError::Runtime("the qualified OCI sandbox requires native Linux".to_string())),
-            | (true, false) => Err(SandboxError::Runtime(
-                "the qualified OCI sandbox currently requires x86_64 Linux".to_string(),
-            )),
-            | (true, true) => {
-                let arguments = match self {
-                    | Self::Docker => args!["info", "--format", "{{json .SecurityOptions}}"],
-                    | Self::Podman => args!["info", "--format", "{{.Host.Security.Rootless}}"],
-                };
-                CommandSpec::new(self.to_string())
-                    .args(arguments)
-                    .checked_output_with_timeout(Duration::from_secs(10))
-                    .map_err(|why| SandboxError::Runtime(format!("inspect {self}: {why}")))
-                    .and_then(|output| {
-                        let value = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
-                        match (self, value.contains("rootless") || value.trim() == "true") {
-                            | (_, true) => Ok(()),
-                            | (Self::Docker, false) => Err(SandboxError::Runtime("Docker does not report rootless security mode".to_string())),
-                            | (Self::Podman, false) => Err(SandboxError::Runtime("Podman is not rootless".to_string())),
-                        }
-                    })
-                    .and_then(|()| self.validate().map_err(|why| SandboxError::Runtime(why.to_string())))
-            }
-        }
-    }
-}
-impl Validate for SandboxBackend {
-    fn validate(&self) -> Result<(), ValidationReport> {
-        match self {
-            | Self::Docker => CommandSpec::new("docker")
-                .args(args!["context", "show"])
-                .checked_output_with_timeout(Duration::from_secs(10))
-                .map_err(|why| validation_report("backend", "runtime", format!("inspect Docker context: {why}")))
-                .and_then(|output| {
-                    let context = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    CommandSpec::new("docker")
-                        .args(args!["context", "inspect", "--format", "{{json .Endpoints.docker.Host}}", context])
-                        .checked_output_with_timeout(Duration::from_secs(10))
-                        .map_err(|why| validation_report("backend", "runtime", format!("inspect Docker endpoint: {why}")))
-                })
-                .and_then(|output| {
-                    serde_json::from_slice::<String>(&output.stdout)
-                        .map_err(|why| validation_report("backend", "runtime", format!("parse Docker endpoint: {why}")))
-                })
-                .and_then(|endpoint| match endpoint.starts_with("unix://") {
-                    | true => Ok(()),
-                    | false => Err(validation_report(
-                        "backend",
-                        "local",
-                        format!("Docker endpoint {endpoint} is remote; the sandbox requires a local Unix socket"),
-                    )),
-                }),
-            | Self::Podman => CommandSpec::new("podman")
-                .args(args!["info", "--format", "{{.Host.ServiceIsRemote}}"])
-                .checked_output_with_timeout(Duration::from_secs(10))
-                .map_err(|why| validation_report("backend", "runtime", format!("inspect Podman connection: {why}")))
-                .and_then(|output| match String::from_utf8_lossy(&output.stdout).trim() {
-                    | "false" => Ok(()),
-                    | _ => Err(validation_report(
-                        "backend",
-                        "local",
-                        "Podman is using a remote service; the sandbox requires a local runtime",
-                    )),
-                }),
+            | Self::Oci => formatter.write_str("oci"),
         }
     }
 }
@@ -742,11 +924,6 @@ impl Validate for Script {
 }
 fn image_environment(value: &str) -> &str {
     value.split_once('=').map_or(value, |(name, _)| name)
-}
-fn image_is_pinned(value: &str) -> bool {
-    value.rsplit_once("@sha256:").is_some_and(|(name, digest)| {
-        !name.is_empty() && digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    })
 }
 fn normalize_path(base: &Path, path: PathBuf) -> PathBuf {
     match path.is_absolute() {
@@ -915,6 +1092,11 @@ fn validation_error(code: &str, message: impl Into<String>) -> ValidationError {
 }
 fn validation_report(path: &str, code: &str, message: impl Into<String>) -> ValidationReport {
     ValidationReport::from_error(path, validation_error(code, message))
+}
+fn workload_is_pinned(value: &str) -> bool {
+    value.rsplit_once("@sha256:").is_some_and(|(name, digest)| {
+        !name.is_empty() && digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
 }
 
 #[cfg(test)]

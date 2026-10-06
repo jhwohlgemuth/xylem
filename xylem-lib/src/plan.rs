@@ -4,7 +4,7 @@ extern crate alloc;
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
 use crate::config::{Config, InputAttribute};
 use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
-use crate::sandbox::{SandboxBackend, SandboxResources};
+use crate::sandbox::{IsolationClass, OciRuntime, ProcessGuard, SandboxProviderKind, SandboxResources};
 use crate::script::{
     module_working_directory, ContainerCleanup, ContainerEnvironment, ContainerRuntime, ContainerStartup, Module, ModuleType, ModuleUri, Script,
     TemplateAttribute,
@@ -164,18 +164,22 @@ pub struct PlannedMount {
 /// Sandbox intent included in a dry-run execution plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedSandbox {
-    /// Selected OCI backend, absent for host mode.
-    pub backend: Option<SandboxBackend>,
-    /// Digest-pinned sandbox image, absent for host mode.
-    pub image: Option<String>,
-    /// Effective isolation class.
-    pub isolation: String,
+    /// Minimum required isolation class, absent for host mode.
+    pub minimum_isolation: Option<IsolationClass>,
     /// `off` for compatibility host execution or `required` for sandbox execution.
     pub mode: String,
     /// Canonical effective-policy digest, absent for host mode.
     pub policy_digest: Option<String>,
+    /// Required process guards.
+    pub process_guards: Option<Vec<ProcessGuard>>,
+    /// Selected provider, absent for host mode.
+    pub provider: Option<SandboxProviderKind>,
     /// Per-input resource ceilings, absent for host mode.
     pub resources: Option<SandboxResources>,
+    /// Selected OCI runtime, when applicable.
+    pub runtime: Option<OciRuntime>,
+    /// Immutable provider workload, absent for host mode.
+    pub workload: Option<String>,
 }
 /// Resolve CLI-over-configuration input precedence with deterministic duplicate handling.
 impl Config {
@@ -500,20 +504,24 @@ impl TryFrom<Config> for PlannedSandbox {
             config.options.as_ref().and_then(|options| options.sandbox_policy.as_ref()),
         ) {
             | (false, _) => Ok(Self {
-                backend: None,
-                image: None,
-                isolation: "none".to_string(),
+                minimum_isolation: None,
                 mode: "off".to_string(),
                 policy_digest: None,
+                process_guards: None,
+                provider: None,
                 resources: None,
+                runtime: None,
+                workload: None,
             }),
             | (true, Some(policy)) => Ok(Self {
-                backend: Some(policy.backend),
-                image: Some(policy.image.clone()),
-                isolation: "shared_kernel".to_string(),
+                minimum_isolation: Some(policy.policy.minimum_isolation),
                 mode: "required".to_string(),
                 policy_digest: Some(policy.digest.clone()),
+                process_guards: Some(policy.policy.process_guards.clone()),
+                provider: Some(policy.provider),
                 resources: Some(policy.policy.resources.clone()),
+                runtime: policy.runtime,
+                workload: Some(policy.workload.clone()),
             }),
             | (true, None) => Err(PlanError::Sandbox(
                 "sandbox-enabled configuration requires a resolved operator policy".to_string(),

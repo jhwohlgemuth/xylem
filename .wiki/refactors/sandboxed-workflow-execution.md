@@ -17,8 +17,16 @@ and hardened execution for local generic script modules. Dry-run remains
 write-free and does not probe the runtime. Omitted or false `sandbox` values
 continue through the unchanged host path.
 
-The first slice requires its digest-pinned image to be present locally and
-never pulls implicitly. Authorized acquisition and runner-image publication
+The provider-boundary slice is also implemented. Operator policy v1 now
+separates a typed provider from its immutable workload, minimum isolation
+class, and reserved process guards. OCI execution crosses sealed provider and
+logical run-session contracts, fake-provider tests inject failures at every
+lifecycle operation, and schema-v8 plan and journal evidence is
+provider-neutral. The only operational provider remains rootless OCI through
+Docker or Podman; `process_guards` must remain empty until its dedicated phase.
+
+The first slice requires its digest-pinned OCI workload to be present locally
+and never pulls implicitly. Authorized acquisition and workload publication
 remain part of the preparation phase below.
 
 This slice deliberately fails before preparation for features that do not yet
@@ -42,13 +50,13 @@ containers, artifacts, and CLI defaults continue to work without a sandbox
 policy or OCI runtime.
 
 A sandboxed workflow additionally requires `--sandbox-policy <PATH>` and fails
-closed if the policy or backend is unavailable. Policy selection alone does
+closed if the policy or provider is unavailable. Policy selection alone does
 not activate sandboxing. Never downgrade a requested sandbox to host execution.
 
-Deliver sandboxing through lifecycle-hardened rootless Docker and Podman. The
-first slice uses pure invocation fixtures around the OCI provider; a complete
-fake lifecycle provider remains part of the artifact and preparation phases.
-Separate-kernel providers and sandbox-by-default rollout remain deferred.
+Deliver sandboxing through lifecycle-hardened providers. The implemented OCI
+slice uses rootless Docker or Podman, pure invocation fixtures, and a fake
+lifecycle provider. Separate-kernel providers and sandbox-by-default rollout
+remain deferred.
 
 # Trust model
 
@@ -70,10 +78,11 @@ published artifacts. Secure acquisition remains a separate contract.
 
 ## Workflow configuration and CLI
 
-- Add `Config::sandbox: bool` with Serde default `false`. Do not expose backend,
-  image, filesystem, network, lifecycle, or resource details in workflow data.
+- Add `Config::sandbox: bool` with Serde default `false`. Do not expose provider,
+  workload, filesystem, network, lifecycle, or resource details in workflow
+  data.
 - No `sandbox` field or `sandbox: false` executes through the compatibility host
-  provider with current behavior.
+  path with current behavior.
 - `sandbox: true` without `--sandbox-policy` is rejected before acquisition or
   workflow execution.
 - `--sandbox-policy` with sandboxing disabled is an unused-policy error rather
@@ -86,8 +95,9 @@ published artifacts. Secure acquisition remains a separate contract.
 Accept strict, extension-selected JSON, JSONC, YAML, and YML. Reject unknown
 fields. The policy owns:
 
-- backend selection: Docker or Podman;
-- default and allowed digest-pinned images;
+- provider selection, currently `type: oci` with Docker or Podman runtime;
+- default and allowed digest-pinned provider workloads;
+- minimum isolation class and process guards;
 - permitted module, input, and artifact roots;
 - preparation networking: deny or unrestricted;
 - child-environment allowlist;
@@ -95,19 +105,25 @@ fields. The policy owns:
 - cleanup, failure retention, and stale-resource TTL.
 
 Build one immutable `EffectiveSandboxPolicy` with canonical JSON and a SHA-256
-digest. Reject ambiguous paths, tags, unapproved images, invalid ceilings, and
-unsupported capabilities.
+digest. Reject the superseded flat OCI policy shape, ambiguous paths, tags,
+unapproved workloads, invalid ceilings, unsupported guards, and unsupported
+capabilities. The workflow and CLI contract remains only `sandbox: true` plus
+`--sandbox-policy <PATH>`; provider details never enter workflow data.
 
 ## Runtime and durable evidence
 
-Expose policy, capability, and typed sandbox error values. Keep provider and
-session traits sealed to in-tree implementations.
+Expose policy, isolation, capability, and typed sandbox error values. Keep
+provider and session traits sealed to in-tree implementations. Providers
+discover capabilities and open one logical run session; sessions execute
+indexed module requests, expose enforced resource ceilings, and finish after
+all admitted inputs settle.
 
 Advance execution plans, journals, and summaries to schema version 8. Record
-either `mode: off` for compatibility host runs or the backend/version,
-shared-kernel isolation, image digest, policy digest, sessions, limits, process
-termination, artifact publication, retention, and cleanup for sandboxed runs.
-Keep application containers separate from the outer sandbox.
+either `mode: off` for compatibility host runs or the provider, runtime,
+minimum and realized isolation, workload identity, policy digest, guards,
+sessions, limits, process termination, artifact publication, retention, and
+cleanup for sandboxed runs. Keep application containers separate from the
+outer sandbox.
 
 Sandboxing owns schema version 8. Revise the unimplemented Kubernetes and MCP
 plans to reserve versions 9 and 10 respectively.
@@ -130,11 +146,14 @@ plans to reserve versions 9 and 10 respectively.
 - Instantiate sandbox-only immutable contexts, per-input workspaces, clean
   environments, and staged publication only for `sandbox: true`.
 
-## 2. Policy and fake backend
+## 2. Policy and fake provider boundary
 
-- Create `xylem-lib/src/sandbox/` with strict parsing, validation, hashing, path
-  roles, capability negotiation, session contracts, typed errors, and a fake
-  provider with deterministic failure injection.
+- Maintain `xylem-lib/src/sandbox/` with strict parsing, validation, hashing,
+  path roles, capability negotiation, sealed provider and session contracts,
+  typed errors, and a fake provider with deterministic failure injection.
+- Keep host execution outside the sandbox provider registry. An omitted or
+  false request never constructs a provider; an opted-in run opens its logical
+  session only after capability discovery and durable journal creation.
 - Resolve policy only for opted-in workflows. Unsandboxed workflows must not
   read policy files, probe runtimes, pull images, or apply sandbox path rules.
 - Map roles to `/xylem/modules`, `/xylem/input`, `/xylem/prepared`,
@@ -189,6 +208,67 @@ plans to reserve versions 9 and 10 respectively.
 - Update architecture, configuration, CLI, threat-model, image, operations,
   and shared-plan documentation; regenerate help and replace v7 schemas with
   v8.
+
+# Provider integration roadmap
+
+Provider type and isolation class are separate contracts. A provider owns
+workspace transfer, command execution, cancellation, retention, and cleanup.
+An optional process guard only narrows processes inside that provider and never
+upgrades the provider's recorded isolation class.
+
+## OpenShell
+
+OpenShell is the first external provider after the OCI lifecycle is complete.
+Use its CLI with structured output through ACORN rather than adding its alpha
+Rust SDK as a workspace dependency. Authentication and gateway selection remain
+operator-managed; Xylem policy stores no gateway credentials.
+
+- Create one OpenShell sandbox per admitted input phase, upload only validated
+  staged content, execute exact argument arrays, download into Xylem-owned
+  staging, and delete or durably retain the sandbox on every terminal path.
+- Translate Xylem's common path, environment, network, identity, and resource
+  requirements into an OpenShell policy, then inspect the realized policy and
+  compute driver before workflow code starts.
+- Record the actual compute driver and isolation class. Docker, Podman, and
+  Kubernetes drivers remain shared-kernel unless separately qualified; the VM
+  driver may advertise separate-kernel isolation only after conformance.
+- Do not initially attach credential providers, change policy interactively,
+  expose services, or rely on provider-side artifact validation.
+
+Reference: <https://docs.nvidia.com/openshell/latest/reference/support-matrix.html>
+and <https://github.com/NVIDIA/OpenShell/blob/main/skills/openshell-cli/SKILL.md>.
+
+## Docker Sandboxes
+
+Add Docker Sandboxes after OpenShell. Begin with local, mountless microVMs and
+the `sbx` CLI: create a deterministic sandbox, copy validated sources in, use
+`sbx exec`, copy staged outputs out, then remove the sandbox. Never use the
+default direct workspace mount because it bypasses staged publication.
+
+Keep cloud sandboxes, credential injection, MCP gateways, shared skills, and
+host-service forwarding out of the initial adapter. Treat the provider as
+experimental until Docker's experimental Sandbox API and CLI automation
+surface pass Xylem's lifecycle and controller-death suite.
+
+Reference: <https://docs.docker.com/ai/sandboxes/security/isolation> and
+<https://docs.docker.com/reference/api/sandboxes/latest/>.
+
+## nono and related technologies
+
+Integrate nono as an optional process guard inside an OCI or managed-provider
+workload, not as a peer lifecycle provider. The selected workload must contain
+the pinned nono executable. Generate its grants from Xylem's admitted guest
+paths and network mode, require `FullyEnforced`, and reject missing Landlock or
+Seatbelt capabilities and every partial-enforcement result.
+
+Do not initially treat host-only nono execution as satisfying `sandbox: true`.
+It lacks the workspace, artifact, lifecycle, and separate resource boundary
+required by this plan. Bubblewrap and nsjail remain candidate process guards.
+gVisor and Kata are OCI or OpenShell runtime choices rather than new Xylem
+providers; Firecracker and libkrun should be consumed through a provider that
+owns their lifecycle.
+
+Reference: <https://github.com/nolabs-ai/nono/blob/main/docs/cli/internals/landlock.mdx>.
 
 # Validation
 

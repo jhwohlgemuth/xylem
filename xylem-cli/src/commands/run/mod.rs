@@ -32,7 +32,7 @@ use xylem_lib::remote::RemotePolicy;
 use xylem_lib::run::store::{Bundle, Manifest, Store, TaskLogSink};
 use xylem_lib::run::telemetry::SystemMonitor;
 use xylem_lib::run::RunCancellation;
-use xylem_lib::sandbox::EffectiveSandboxPolicy;
+use xylem_lib::sandbox::{EffectiveSandboxPolicy, SandboxProvider, SandboxSession};
 use xylem_lib::script::{managed_container_name, ContainerCleanup, EnvironmentValue, ModuleType, ModuleUri, Script};
 use xylem_lib::util::deduplicate;
 use xylem_lib::ReporterType;
@@ -47,8 +47,7 @@ struct BoundedTaskLogSink {
 struct LoggedModuleExecutor {
     bundle: Bundle,
     cancellation: RunCancellation,
-    run_id: String,
-    sandbox: Option<EffectiveSandboxPolicy>,
+    sandbox: Option<Arc<dyn SandboxSession>>,
 }
 /// Failure returned to the executable boundary with a stable exit code.
 #[derive(Debug)]
@@ -102,24 +101,21 @@ impl From<RunFailure> for FinalStatus {
 impl ModuleExecutor for LoggedModuleExecutor {
     fn execute(&self, script: &Script, input_index: usize, module_index: usize) -> Result<(), xylem_lib::error::ProcessError> {
         let sink = TaskLogSink::module(self.bundle.clone(), input_index, module_index);
-        let output_limit = self.sandbox.as_ref().map(|sandbox| sandbox.policy.resources.captured_output_bytes);
+        let output_limit = self.sandbox.as_ref().map(|sandbox| sandbox.resources().captured_output_bytes);
         let options = ExecutionOptions::new()
             .with_cancellation(self.cancellation.token())
             .with_sink(BoundedTaskLogSink::new(sink.clone(), output_limit));
         let options = self.sandbox.as_ref().map_or(options.clone(), |sandbox| {
-            let captured_output_bytes = usize::try_from(sandbox.policy.resources.captured_output_bytes).unwrap_or(usize::MAX);
+            let resources = sandbox.resources();
+            let captured_output_bytes = usize::try_from(resources.captured_output_bytes).unwrap_or(usize::MAX);
             options
                 .with_capture_limits(CaptureLimits::new(Some(captured_output_bytes), None))
-                .with_timeout(Duration::from_secs(sandbox.policy.resources.wall_time_seconds))
+                .with_timeout(Duration::from_secs(resources.wall_time_seconds))
         });
-        let container_name = format!("xylem-{}-{input_index}-{module_index}", self.run_id);
         let execution = self.sandbox.as_ref().map_or_else(
             || script.execute_checked(&options),
-            |sandbox| sandbox.execute(script, &container_name, &options),
+            |sandbox| sandbox.execute(script, input_index, module_index, &options),
         );
-        if let Some(sandbox) = &self.sandbox {
-            sandbox.cleanup(&container_name, execution.is_ok());
-        }
         let result = execution.map(|execution| {
             let stdout = String::from_utf8_lossy(execution.stdout().bytes());
             let stderr = String::from_utf8_lossy(execution.stderr().bytes());
@@ -581,18 +577,40 @@ pub fn run(
                                                             journal_modules,
                                                             journal_containers.clone(),
                                                         );
-                                                        let create_journal_result = create_journal.map_err(|why| {
-                                                            RunFailure::new(exitcode::CANTCREAT, format!("create durable execution journal — {why}"))
-                                                        });
+                                                        let create_journal_result = create_journal
+                                                            .map_err(|why| {
+                                                                RunFailure::new(
+                                                                    exitcode::CANTCREAT,
+                                                                    format!("create durable execution journal — {why}"),
+                                                                )
+                                                            })
+                                                            .and_then(|journal| {
+                                                                <dyn SandboxSession>::open(&id, options.sandbox_policy.as_ref())
+                                                                    .map_err(|why| {
+                                                                        RunFailure::new(
+                                                                            exitcode::UNAVAILABLE,
+                                                                            format!("open sandbox provider session — {why}"),
+                                                                        )
+                                                                    })
+                                                                    .map_err(|failure| {
+                                                                        let message = failure.to_string();
+                                                                        match journal.finish(FinalStatus::Failed, Some(&message)) {
+                                                                            | Ok(()) => failure,
+                                                                            | Err(why) => {
+                                                                                failure.with_secondary(format!("finalize execution journal — {why}"))
+                                                                            }
+                                                                        }
+                                                                    })
+                                                                    .map(|sandbox| (journal, sandbox))
+                                                            });
                                                         match create_journal_result {
-                                                            | Ok(journal) => {
+                                                            | Ok((journal, sandbox)) => {
                                                                 let journal = Arc::new(journal);
                                                                 let system_monitor = SystemMonitor::start(bundle.clone());
                                                                 let module_executor = LoggedModuleExecutor {
                                                                     bundle: bundle.clone(),
                                                                     cancellation: cancellation.clone().unwrap_or_default(),
-                                                                    run_id: id.clone(),
-                                                                    sandbox: options.sandbox_policy.clone(),
+                                                                    sandbox,
                                                                 };
                                                                 info!(path = %journal_path.display(), run_id = id, "=> {} Execution journal", Label::using());
                                                                 let progress_disabled =
@@ -807,6 +825,23 @@ pub fn run(
                                                                         })
                                                                     }
                                                                     | Err(why) => Err(why),
+                                                                };
+                                                                let sandbox_succeeded = dispatched
+                                                                    .as_ref()
+                                                                    .is_ok_and(|outcomes| outcomes.iter().flatten().all(WorkflowOutcome::is_success));
+                                                                let sandbox_cleanup = module_executor.sandbox.as_ref().map_or(Ok(()), |sandbox| {
+                                                                    sandbox.finish(sandbox_succeeded).map_err(|why| {
+                                                                        RunFailure::new(
+                                                                            exitcode::IOERR,
+                                                                            format!("finish sandbox provider session — {why}"),
+                                                                        )
+                                                                    })
+                                                                });
+                                                                let dispatched = match (dispatched, sandbox_cleanup) {
+                                                                    | (Ok(outcomes), Ok(())) => Ok(outcomes),
+                                                                    | (Err(primary), Ok(())) => Err(primary),
+                                                                    | (Ok(_), Err(cleanup)) => Err(cleanup),
+                                                                    | (Err(primary), Err(cleanup)) => Err(primary.with_secondary(cleanup)),
                                                                 };
                                                                 let monitoring = gpu_monitor
                                                                     .map(GpuMonitor::stop)

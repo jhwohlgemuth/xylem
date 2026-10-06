@@ -5,25 +5,18 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "allowed_images",
-    "backend",
-    "default_image",
     "environment",
     "lifecycle",
+    "minimum_isolation",
     "paths",
     "preparation_network",
+    "process_guards",
+    "provider",
     "resources",
-    "version"
+    "version",
+    "workload"
   ],
   "properties": {
-    "allowed_images": {
-      "type": "array",
-      "minItems": 1,
-      "uniqueItems": true,
-      "items": { "$ref": "#/$defs/image" }
-    },
-    "backend": { "enum": ["docker", "podman"] },
-    "default_image": { "$ref": "#/$defs/image" },
     "environment": {
       "type": "object",
       "additionalProperties": false,
@@ -45,6 +38,7 @@
         "stale_after_seconds": { "type": "integer", "minimum": 1 }
       }
     },
+    "minimum_isolation": { "enum": ["process", "shared_kernel", "separate_kernel"] },
     "paths": {
       "type": "object",
       "additionalProperties": false,
@@ -56,6 +50,25 @@
       }
     },
     "preparation_network": { "enum": ["deny", "unrestricted"] },
+    "process_guards": {
+      "type": "array",
+      "maxItems": 0,
+      "uniqueItems": true,
+      "items": { "enum": ["bubblewrap", "nono", "nsjail"] }
+    },
+    "provider": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["runtime", "type"],
+          "properties": {
+            "runtime": { "enum": ["docker", "podman"] },
+            "type": { "const": "oci" }
+          }
+        }
+      ]
+    },
     "resources": {
       "type": "object",
       "additionalProperties": false,
@@ -80,18 +93,32 @@
         "wall_time_seconds": { "type": "integer", "minimum": 1 }
       }
     },
-    "version": { "const": 1 }
+    "version": { "const": 1 },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "default"],
+      "properties": {
+        "allowed": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/workload" }
+        },
+        "default": { "$ref": "#/$defs/workload" }
+      }
+    }
   },
   "$defs": {
-    "image": {
-      "type": "string",
-      "pattern": "^.+@sha256:[0-9a-f]{64}$"
-    },
     "paths": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
       "items": { "type": "string", "minLength": 1 }
+    },
+    "workload": {
+      "type": "string",
+      "pattern": "^.+@sha256:[0-9a-f]{64}$"
     }
   }
 }

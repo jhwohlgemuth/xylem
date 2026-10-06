@@ -143,13 +143,18 @@
     "sandbox": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["backend", "image", "isolation", "mode", "policy_digest", "resources"],
+      "required": ["minimum_isolation", "mode", "policy_digest", "process_guards", "provider", "resources", "runtime", "workload"],
       "properties": {
-        "backend": { "enum": ["docker", "podman", null] },
-        "image": { "type": ["string", "null"] },
-        "isolation": { "enum": ["none", "shared_kernel"] },
+        "minimum_isolation": { "enum": ["process", "shared_kernel", "separate_kernel", null] },
         "mode": { "enum": ["off", "required"] },
         "policy_digest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "process_guards": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "array", "uniqueItems": true, "items": { "enum": ["bubblewrap", "nono", "nsjail"] } }
+          ]
+        },
+        "provider": { "enum": ["oci", null] },
         "resources": {
           "oneOf": [
             { "type": "null" },
@@ -169,7 +174,9 @@
               }
             }
           ]
-        }
+        },
+        "runtime": { "enum": ["docker", "podman", null] },
+        "workload": { "type": ["string", "null"] }
       }
     },
     "schema_version": { "const": 8 }

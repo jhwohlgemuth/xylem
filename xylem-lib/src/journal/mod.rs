@@ -1,7 +1,7 @@
 //! Durable, append-only execution journals and deterministic recovery
 extern crate alloc;
 
-use crate::sandbox::EffectiveSandboxPolicy;
+use crate::sandbox::{EffectiveSandboxPolicy, IsolationClass, OciRuntime, ProcessGuard, SandboxProviderKind};
 use crate::ReporterType;
 use acorn_core::time::Milliseconds;
 use acorn_core::validation::ValidationError;
@@ -434,16 +434,20 @@ pub struct RunSummary {
 #[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SandboxEvidence {
-    /// Selected OCI backend, absent for host mode.
-    pub backend: Option<String>,
-    /// Digest-pinned image, absent for host mode.
-    pub image: Option<String>,
-    /// Effective isolation class.
-    pub isolation: String,
+    /// Minimum required isolation class, absent for host mode.
+    pub minimum_isolation: Option<IsolationClass>,
     /// `off` for compatibility host execution or `required` for sandbox execution.
     pub mode: String,
     /// Canonical effective-policy digest, absent for host mode.
     pub policy_digest: Option<String>,
+    /// Required process guards.
+    pub process_guards: Option<Vec<ProcessGuard>>,
+    /// Selected provider, absent for host mode.
+    pub provider: Option<SandboxProviderKind>,
+    /// Selected OCI runtime, when applicable.
+    pub runtime: Option<OciRuntime>,
+    /// Immutable provider workload, absent for host mode.
+    pub workload: Option<String>,
 }
 impl ExecutionState {
     /// Whether this state represents completed work.
@@ -1507,21 +1511,25 @@ impl SandboxEvidence {
     /// Record compatibility host execution.
     pub fn off() -> Self {
         Self {
-            backend: None,
-            image: None,
-            isolation: "none".to_string(),
+            minimum_isolation: None,
             mode: "off".to_string(),
             policy_digest: None,
+            process_guards: None,
+            provider: None,
+            runtime: None,
+            workload: None,
         }
     }
     /// Record a required sandbox policy without persisting its path grants.
     pub fn required(policy: &EffectiveSandboxPolicy) -> Self {
         Self {
-            backend: Some(policy.backend.to_string()),
-            image: Some(policy.image.clone()),
-            isolation: "shared_kernel".to_string(),
+            minimum_isolation: Some(policy.policy.minimum_isolation),
             mode: "required".to_string(),
             policy_digest: Some(policy.digest.clone()),
+            process_guards: Some(policy.policy.process_guards.clone()),
+            provider: Some(policy.provider),
+            runtime: policy.runtime,
+            workload: Some(policy.workload.clone()),
         }
     }
 }

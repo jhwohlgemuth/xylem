@@ -923,30 +923,6 @@ fn test_preparation_failure_is_finalized_and_reported() {
     remove_dir_all(test_root).expect("remove preparation failure directory");
 }
 #[test]
-fn test_rejects_a_malformed_explicit_dotenv_file() {
-    let env_path = std::env::temp_dir().join(format!("xylem-malformed-dotenv-{}.env", std::process::id()));
-    write(&env_path, "=broken\n").expect("write malformed dotenv fixture");
-    let mut command = xylem_command();
-    let output = command
-        .args(["--env", env_path.to_str().expect("UTF-8 path")])
-        .output()
-        .expect("run with malformed dotenv");
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Could not load dotenv file"));
-    let _ = remove_file(env_path);
-}
-#[test]
-fn test_rejects_a_missing_explicit_dotenv_file() {
-    let missing = std::env::temp_dir().join(format!("xylem-missing-dotenv-{}.env", std::process::id()));
-    let mut command = xylem_command();
-    let output = command
-        .args(["--env", missing.to_str().expect("UTF-8 path")])
-        .output()
-        .expect("run with missing dotenv");
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Could not load dotenv file"));
-}
-#[test]
 fn test_rejects_an_invalid_module_location_with_context() {
     let test_root = std::env::temp_dir().join(format!("xylem-invalid-location-{}", std::process::id()));
     create_dir_all(&test_root).expect("create invalid location directory");
@@ -974,6 +950,30 @@ fn test_rejects_an_invalid_module_location_with_context() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("modules[0].uri"), "{stderr}");
     remove_dir_all(test_root).expect("remove invalid location directory");
+}
+#[test]
+fn test_rejects_a_malformed_explicit_dotenv_file() {
+    let env_path = std::env::temp_dir().join(format!("xylem-malformed-dotenv-{}.env", std::process::id()));
+    write(&env_path, "=broken\n").expect("write malformed dotenv fixture");
+    let mut command = xylem_command();
+    let output = command
+        .args(["--env", env_path.to_str().expect("UTF-8 path")])
+        .output()
+        .expect("run with malformed dotenv");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Could not load dotenv file"));
+    let _ = remove_file(env_path);
+}
+#[test]
+fn test_rejects_a_missing_explicit_dotenv_file() {
+    let missing = std::env::temp_dir().join(format!("xylem-missing-dotenv-{}.env", std::process::id()));
+    let mut command = xylem_command();
+    let output = command
+        .args(["--env", missing.to_str().expect("UTF-8 path")])
+        .output()
+        .expect("run with missing dotenv");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Could not load dotenv file"));
 }
 #[test]
 fn test_resume_logs_when_a_module_has_no_completion_declaration() {
@@ -1213,13 +1213,13 @@ fn test_sandbox_activation_is_explicit_and_fail_closed() {
     write(
         &policy,
         serde_json::to_vec_pretty(&serde_json::json!({
-            "allowed_images": ["example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
-            "backend": "docker",
-            "default_image": "example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "environment": { "allow": ["PATH"] },
             "lifecycle": { "retention": "delete", "stale_after_seconds": 3600 },
+            "minimum_isolation": "shared_kernel",
             "paths": { "artifact_roots": ["."], "input_roots": ["."], "module_roots": ["."] },
             "preparation_network": "deny",
+            "process_guards": [],
+            "provider": { "runtime": "docker", "type": "oci" },
             "resources": {
                 "artifact_bytes": 1048576,
                 "artifact_files": 100,
@@ -1230,7 +1230,11 @@ fn test_sandbox_activation_is_explicit_and_fail_closed() {
                 "scratch_bytes": 1048576,
                 "wall_time_seconds": 60
             },
-            "version": 1
+            "version": 1,
+            "workload": {
+                "allowed": ["example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+                "default": "example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
         }))
         .expect("serialize sandbox policy"),
     )
@@ -1265,7 +1269,8 @@ fn test_sandbox_activation_is_explicit_and_fail_closed() {
     assert!(enabled_output.status.success(), "{}", String::from_utf8_lossy(&enabled_output.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&enabled_output.stdout).expect("valid sandbox plan");
     assert_eq!(plan["sandbox"]["mode"], "required");
-    assert_eq!(plan["sandbox"]["backend"], "docker");
+    assert_eq!(plan["sandbox"]["provider"], "oci");
+    assert_eq!(plan["sandbox"]["runtime"], "docker");
     let outside_output = xylem_command()
         .args([
             "run",
