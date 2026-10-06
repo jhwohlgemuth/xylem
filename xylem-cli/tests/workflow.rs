@@ -28,7 +28,6 @@ fn managed_keep_alive_config() -> serde_json::Value {
         }]
     })
 }
-
 #[cfg(not(target_os = "windows"))]
 fn write_fake_docker(root: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
     let executable = root.join("docker");
@@ -63,7 +62,6 @@ esac
     std::fs::set_permissions(&executable, permissions).expect("make fake Docker runtime executable");
     (executable, log)
 }
-
 #[cfg(not(target_os = "windows"))]
 fn write_fake_nvidia_smi(root: &std::path::Path) -> std::path::PathBuf {
     let executable = root.join("nvidia-smi");
@@ -73,7 +71,6 @@ fn write_fake_nvidia_smi(root: &std::path::Path) -> std::path::PathBuf {
     std::fs::set_permissions(&executable, permissions).expect("make fake nvidia-smi executable");
     executable
 }
-
 fn xylem_command() -> assert_cmd::Command {
     let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");
     command.env(
@@ -246,7 +243,6 @@ fn test_configured_batch_caps_active_inputs_in_the_compiled_cli() {
     assert_eq!(completed, ["four", "one", "three", "two"]);
     remove_dir_all(test_root).expect("remove batch fixture");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_dry_run_plans_managed_container_without_starting_runtime() {
@@ -298,7 +294,6 @@ fn test_dry_run_plans_managed_container_without_starting_runtime() {
     assert_eq!(plan["containers"][0]["startup"], "keep_alive");
     remove_dir_all(test_root).expect("remove managed plan fixture");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_dry_run_renders_a_plan_without_writing_files() {
@@ -324,7 +319,8 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
         .expect("run dry-run plan");
     assert!(output.status.success(), "dry run failed: {}", String::from_utf8_lossy(&output.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid dry-run plan");
-    assert_eq!(plan["schema_version"], 7);
+    assert_eq!(plan["schema_version"], 8);
+    assert_eq!(plan["sandbox"]["mode"], "off");
     assert_eq!(plan["gpu_monitoring"]["interval"], 1000);
     assert_eq!(plan["gpu_monitoring"]["source"], "nvidia-smi");
     assert_eq!(plan["configuration"]["output"], output_directory.display().to_string());
@@ -335,7 +331,6 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
     );
     assert!(!output_directory.exists());
 }
-
 #[test]
 fn test_dry_run_resolves_cel_selection_relative_to_configuration() {
     let test_root = std::env::temp_dir().join(format!("xylem-cel-dry-run-{}", std::process::id()));
@@ -388,7 +383,8 @@ input:
     assert_eq!(repeated.stdout, output.stdout);
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid selection plan");
     let inputs = std::fs::canonicalize(inputs).expect("canonical selection inputs");
-    assert_eq!(plan["schema_version"], 7);
+    assert_eq!(plan["schema_version"], 8);
+    assert_eq!(plan["sandbox"]["mode"], "off");
     assert_eq!(plan["inputs"]["source"]["kind"], "selection");
     assert_eq!(plan["inputs"]["source"]["engine"], "cel");
     assert_eq!(plan["inputs"]["source"]["candidate_count"], 2);
@@ -405,7 +401,6 @@ input:
     assert_eq!(entries, ["config.yaml", "empty-path", "inputs", "outside.tif"]);
     remove_dir_all(test_root).expect("remove selection fixture");
 }
-
 #[test]
 fn test_explicit_cli_input_bypasses_cel_discovery_and_evaluation() {
     let test_root = std::env::temp_dir().join(format!("xylem-cel-cli-override-{}", std::process::id()));
@@ -447,7 +442,6 @@ input:
     assert_eq!(plan["inputs"]["values"], serde_json::json!(["explicit"]));
     remove_dir_all(test_root).expect("remove CLI override fixture");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
@@ -485,7 +479,6 @@ fn test_fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
         .assert()
         .failure()
         .code(exitcode::SOFTWARE);
-
     let report_path = read_dir(&output_directory)
         .expect("read output directory")
         .map(|entry| entry.expect("directory entry").path())
@@ -499,7 +492,6 @@ fn test_fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
     assert_eq!(report.inputs[2].state, xylem_lib::journal::ExecutionState::NotStarted);
     remove_dir_all(test_root).expect("remove durable failure directory");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_gpu_monitoring_fails_before_execution_when_nvidia_smi_is_missing() {
@@ -535,7 +527,6 @@ fn test_gpu_monitoring_fails_before_execution_when_nvidia_smi_is_missing() {
     );
     remove_dir_all(test_root).expect("remove unavailable monitoring fixture");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_gpu_monitoring_journals_samples_and_reports_aggregates() {
@@ -581,7 +572,6 @@ fn test_gpu_monitoring_journals_samples_and_reports_aggregates() {
     assert!(read_to_string(journal).expect("read GPU journal").contains("\"event\":\"gpu_sample\""));
     remove_dir_all(test_root).expect("remove GPU monitoring fixture");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_json_stdout_is_not_corrupted_by_diagnostics() {
@@ -607,7 +597,6 @@ fn test_json_stdout_is_not_corrupted_by_diagnostics() {
     assert!(journal_path.is_file());
     remove_dir_all(run_directory).expect("remove default run directory");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_keep_alive_runtime_reports_early_exit_and_timeout() {
@@ -660,7 +649,6 @@ fn test_keep_alive_runtime_reports_early_exit_and_timeout() {
         .contains("rm --force fake-container-id"));
     remove_dir_all(test_root).expect("remove keep-alive failure fixture");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_keep_alive_runtime_uses_exact_arguments_and_cleanup_override() {
@@ -716,7 +704,6 @@ fn test_keep_alive_runtime_uses_exact_arguments_and_cleanup_override() {
     assert!(!invocations.contains("rm --force"), "{invocations}");
     remove_dir_all(test_root).expect("remove keep-alive success fixture");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_loads_an_explicit_dotenv_without_overriding_process_values() {
@@ -762,21 +749,18 @@ fn test_loads_an_explicit_dotenv_without_overriding_process_values() {
     assert!(logs.contains("XYLEM_DOTENV_TEST=from-process"), "{logs}");
     let _ = remove_file(env_path);
 }
-
 #[test]
 fn test_offline_dry_run_skips_reachability_but_still_enforces_allowlist() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("CLI crate should be inside the workspace");
     let config = "tests/e2e/offline-remote-config.json";
-
     let mut allowed = xylem_command();
     allowed
         .current_dir(workspace)
         .args(["run", config, "--offline", "--dry-run", "--allowed", "example.com"])
         .assert()
         .success();
-
     let mut rejected = xylem_command();
     rejected
         .current_dir(workspace)
@@ -785,7 +769,6 @@ fn test_offline_dry_run_skips_reachability_but_still_enforces_allowlist() {
         .failure()
         .code(exitcode::UNAVAILABLE);
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_offline_smoke_example_runs_from_a_clean_directory() {
@@ -813,7 +796,6 @@ fn test_offline_smoke_example_runs_from_a_clean_directory() {
         read(source.join("module/run.sh")).expect("read smoke module"),
     )
     .expect("copy smoke module");
-
     let mut dry_run = xylem_command();
     let dry_run = dry_run
         .current_dir(&example)
@@ -823,7 +805,6 @@ fn test_offline_smoke_example_runs_from_a_clean_directory() {
     assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
     serde_json::from_slice::<serde_json::Value>(&dry_run.stdout).expect("valid smoke execution plan");
     assert!(!example.join("output").exists());
-
     let mut run = xylem_command();
     let run = run
         .current_dir(&example)
@@ -844,7 +825,6 @@ fn test_offline_smoke_example_runs_from_a_clean_directory() {
     );
     remove_dir_all(test_root).expect("remove smoke example");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_partial_multi_input_failure_preserves_completed_and_unstarted_inputs() {
@@ -901,7 +881,6 @@ fn test_partial_multi_input_failure_preserves_completed_and_unstarted_inputs() {
     );
     remove_dir_all(test_root).expect("remove partial failure directory");
 }
-
 #[test]
 fn test_preparation_failure_is_finalized_and_reported() {
     let test_root = std::env::temp_dir().join(format!("xylem-durable-preparation-{}", std::process::id()));
@@ -943,7 +922,6 @@ fn test_preparation_failure_is_finalized_and_reported() {
         .is_some_and(|error| error.contains("required command was not found")));
     remove_dir_all(test_root).expect("remove preparation failure directory");
 }
-
 #[test]
 fn test_rejects_a_malformed_explicit_dotenv_file() {
     let env_path = std::env::temp_dir().join(format!("xylem-malformed-dotenv-{}.env", std::process::id()));
@@ -957,7 +935,6 @@ fn test_rejects_a_malformed_explicit_dotenv_file() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("Could not load dotenv file"));
     let _ = remove_file(env_path);
 }
-
 #[test]
 fn test_rejects_a_missing_explicit_dotenv_file() {
     let missing = std::env::temp_dir().join(format!("xylem-missing-dotenv-{}.env", std::process::id()));
@@ -969,7 +946,6 @@ fn test_rejects_a_missing_explicit_dotenv_file() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("Could not load dotenv file"));
 }
-
 #[test]
 fn test_rejects_an_invalid_module_location_with_context() {
     let test_root = std::env::temp_dir().join(format!("xylem-invalid-location-{}", std::process::id()));
@@ -999,7 +975,6 @@ fn test_rejects_an_invalid_module_location_with_context() {
     assert!(stderr.contains("modules[0].uri"), "{stderr}");
     remove_dir_all(test_root).expect("remove invalid location directory");
 }
-
 #[test]
 fn test_resume_logs_when_a_module_has_no_completion_declaration() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1019,7 +994,6 @@ fn test_resume_logs_when_a_module_has_no_completion_declaration() {
         "{logs}"
     );
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_resume_skips_a_complete_module_without_spawning_it() {
@@ -1083,7 +1057,6 @@ fn test_resume_skips_a_complete_module_without_spawning_it() {
     }));
     remove_dir_all(test_root).expect("remove resume fixture");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_resume_skips_early_complete_module_and_runs_later_incomplete_module() {
@@ -1182,7 +1155,6 @@ fn test_resume_skips_early_complete_module_and_runs_later_incomplete_module() {
     );
     remove_dir_all(test_root).expect("remove partial resume fixture");
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_returns_failure_when_a_fixture_module_fails() {
@@ -1197,7 +1169,6 @@ fn test_returns_failure_when_a_fixture_module_fails() {
         .failure()
         .code(exitcode::SOFTWARE);
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_runs_fixture_modules_in_order_with_interpolated_environment() {
@@ -1218,7 +1189,109 @@ fn test_runs_fixture_modules_in_order_with_interpolated_environment() {
         assert!(first < second, "fixture modules ran out of order with {threads} threads:\n{logs}");
     }
 }
-
+#[test]
+fn test_sandbox_activation_is_explicit_and_fail_closed() {
+    let test_root = std::env::temp_dir().join(format!("xylem-sandbox-activation-{}", std::process::id()));
+    create_dir_all(&test_root).expect("create sandbox activation fixture");
+    let disabled = test_root.join("disabled.json");
+    let enabled = test_root.join("enabled.json");
+    let outside = test_root.join("outside.json");
+    let policy = test_root.join("policy.json");
+    write(&disabled, r#"{"requirements":[],"modules":[],"sandbox":false}"#).expect("write disabled sandbox fixture");
+    write(&enabled, r#"{"requirements":[],"modules":[],"sandbox":true}"#).expect("write enabled sandbox fixture");
+    write(
+        &outside,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "input": std::env::temp_dir(),
+            "requirements": [],
+            "modules": [],
+            "sandbox": true
+        }))
+        .expect("serialize outside-root fixture"),
+    )
+    .expect("write outside-root fixture");
+    write(
+        &policy,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "allowed_images": ["example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+            "backend": "docker",
+            "default_image": "example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "environment": { "allow": ["PATH"] },
+            "lifecycle": { "retention": "delete", "stale_after_seconds": 3600 },
+            "paths": { "artifact_roots": ["."], "input_roots": ["."], "module_roots": ["."] },
+            "preparation_network": "deny",
+            "resources": {
+                "artifact_bytes": 1048576,
+                "artifact_files": 100,
+                "captured_output_bytes": 65536,
+                "cpu_millis": 1000,
+                "memory_bytes": 268435456,
+                "pids": 64,
+                "scratch_bytes": 1048576,
+                "wall_time_seconds": 60
+            },
+            "version": 1
+        }))
+        .expect("serialize sandbox policy"),
+    )
+    .expect("write sandbox policy");
+    let disabled_output = xylem_command()
+        .args(["run", disabled.to_str().expect("UTF-8 path"), "--dry-run", "--reporter", "json"])
+        .output()
+        .expect("run disabled sandbox dry-run");
+    assert!(
+        disabled_output.status.success(),
+        "disabled sandbox changed host behavior: {}",
+        String::from_utf8_lossy(&disabled_output.stderr)
+    );
+    let missing_policy = xylem_command()
+        .args(["run", enabled.to_str().expect("UTF-8 path"), "--dry-run"])
+        .output()
+        .expect("run missing-policy fixture");
+    assert!(!missing_policy.status.success());
+    assert!(String::from_utf8_lossy(&missing_policy.stderr).contains("requires --sandbox-policy"));
+    let enabled_output = xylem_command()
+        .args([
+            "run",
+            enabled.to_str().expect("UTF-8 path"),
+            "--dry-run",
+            "--reporter",
+            "json",
+            "--sandbox-policy",
+            policy.to_str().expect("UTF-8 path"),
+        ])
+        .output()
+        .expect("run enabled sandbox dry-run");
+    assert!(enabled_output.status.success(), "{}", String::from_utf8_lossy(&enabled_output.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&enabled_output.stdout).expect("valid sandbox plan");
+    assert_eq!(plan["sandbox"]["mode"], "required");
+    assert_eq!(plan["sandbox"]["backend"], "docker");
+    let outside_output = xylem_command()
+        .args([
+            "run",
+            outside.to_str().expect("UTF-8 path"),
+            "--dry-run",
+            "--sandbox-policy",
+            policy.to_str().expect("UTF-8 path"),
+        ])
+        .output()
+        .expect("run outside-root sandbox dry-run");
+    assert!(!outside_output.status.success());
+    assert!(String::from_utf8_lossy(&outside_output.stderr).contains("outside the operator policy roots"));
+    let unused_policy = xylem_command()
+        .args([
+            "run",
+            disabled.to_str().expect("UTF-8 path"),
+            "--dry-run",
+            "--sandbox-policy",
+            test_root.join("missing-policy.json").to_str().expect("UTF-8 path"),
+        ])
+        .output()
+        .expect("run unused-policy fixture");
+    assert!(!unused_policy.status.success());
+    assert!(String::from_utf8_lossy(&unused_policy.stderr).contains("requires workflow configuration sandbox: true"));
+    remove_dir_all(test_root).expect("remove sandbox activation fixture");
+}
 #[test]
 fn test_spawn_failure_reports_command_and_working_directory() {
     let test_root = std::env::temp_dir().join(format!("xylem-spawn-failure-{}", std::process::id()));
@@ -1247,7 +1320,6 @@ fn test_spawn_failure_reports_command_and_working_directory() {
     assert!(stderr.contains(&module.display().to_string()), "{stderr}");
     remove_dir_all(test_root).expect("remove spawn failure directory");
 }
-
 #[cfg(feature = "tui")]
 #[test]
 fn test_tui_rejects_a_missing_explicit_configuration() {
@@ -1261,7 +1333,6 @@ fn test_tui_rejects_a_missing_explicit_configuration() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains(&missing.display().to_string()));
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_writes_versioned_journal_and_json_report_from_the_same_summary() {

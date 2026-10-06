@@ -1,7 +1,7 @@
 use super::*;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use ratatui::backend::TestBackend;
-use xylem_lib::journal::{ConfigurationIdentity, FinalStatus, JournalInput, JournalModule, RunMetadata};
+use xylem_lib::journal::{ConfigurationIdentity, FinalStatus, JournalInput, JournalModule, RunMetadata, SandboxEvidence};
 
 #[test]
 fn test_cancellation_requires_confirmation() {
@@ -84,6 +84,7 @@ fn test_overview_renders_run_failure() {
             version: None,
         },
         false,
+        SandboxEvidence::off(),
     );
     let journal = RunJournal::create(
         bundle.journal_path(),
@@ -171,6 +172,7 @@ fn test_workflow_renders_chart_and_table() {
             version: None,
         },
         false,
+        SandboxEvidence::off(),
     );
     let journal = RunJournal::create(
         bundle.journal_path(),

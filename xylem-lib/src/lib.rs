@@ -28,12 +28,12 @@ pub mod projection;
 #[allow(missing_docs)]
 pub mod remote;
 pub mod run;
+pub mod sandbox;
 #[allow(missing_docs)]
 pub mod script;
 pub mod selection;
 #[allow(missing_docs)]
 pub mod util;
-
 #[derive(ValueEnum, Copy, Clone, Debug, Display, PartialEq, Eq)]
 /// Output format for a completed run or dry-run plan.
 pub enum ReporterType {

@@ -78,10 +78,10 @@ monitoring changes.
 - `ExecutionPlan` is deterministic and write-free, but it currently describes
   only local acquisition, module commands, local container operations, resume,
   and the in-progress GPU monitor. It has no execution-target evidence.
-- The current worktree uses execution-plan, journal, and report version 7 for
+- The current worktree uses execution-plan, journal, and report version 8 for
   CEL selection provenance and durable dashboard state. The dashboard owns the
-  coordinated version-7 runtime contract; Kubernetes must advance that
-  contract to version 8 rather than modifying version-7 artifacts in place.
+  coordinated version-8 sandbox runtime contract; Kubernetes must advance that
+  contract to version 9 rather than modifying version-8 artifacts in place.
 - `RunJournal` is append-only, flushed at every transition, and recovered into
   `RunSummary`. It is the correct authoritative worker result once its path is
   placed on durable shared storage.
@@ -472,7 +472,7 @@ writing the canonical configuration, or contacting the cluster.
 
 # Plan, journal, and result schemas
 
-## Execution-plan version 8
+## Execution-plan version 9
 
 Add a required `target` object to every plan.
 
@@ -515,11 +515,11 @@ live server observations so repeated planning remains deterministic.
 Retain the existing containers array. Kubernetes validation requires it to be
 empty for every selected module and emits a module-qualified error otherwise.
 
-Create `execution-plan-v8.schema.json` and make it the only supported execution
-plan schema. Remove the superseded version-7 schema and reader when version 8
+Create `execution-plan-v9.schema.json` and make it the only supported execution
+plan schema. Remove the superseded version-8 schema and reader when version 9
 becomes current.
 
-## Journal and run-summary version 8
+## Journal and run-summary version 9
 
 Extend run metadata and recovered summary with target evidence:
 
@@ -538,8 +538,8 @@ events remain ordinary module, input, container, completion, and GPU events;
 do not duplicate Kubernetes watch events into the append-only workflow
 journal. Controller observations belong in `submission.json`.
 
-Create `run-summary-v8.schema.json` and advance the journal version only after
-the environment/concurrency v7 contract lands. Preserve bounded error behavior
+Create `run-summary-v9.schema.json` and advance the journal from the landed
+sandbox v8 contract. Preserve bounded error behavior
 and never record kubeconfig content, access tokens, registry credentials, or
 credential-bearing URLs.
 
@@ -729,7 +729,7 @@ The winning worker:
    static-plan digest;
 3. verifies its downward-API Job/Pod identity matches the request labels;
 4. sets its explicit run/work/journal paths from the request;
-5. creates the v8 journal with Kubernetes target evidence;
+5. creates the v9 journal with Kubernetes target evidence;
 6. verifies requirements inside the runner image;
 7. acquires and prepares selected modules inside the shared work directory;
 8. starts GPU monitoring when requested;
@@ -898,7 +898,7 @@ untracked Pod; incompatibility fails in the versioned worker handshake.
   orchestration.
 - Configuration/planning types and semantic validation needed for target
   selection, mapped plans, and module-container rejection.
-- Journal metadata, recovery, reporters, and versioned v8 schemas.
+- Journal metadata, recovery, reporters, and versioned v9 schemas.
 - Workspace and CLI manifests, lockfile, dependency policy, Makefile, and
   GitLab CI.
 - Architecture, CLI, configuration, module, examples, release, and operator
@@ -912,7 +912,7 @@ untracked Pod; incompatibility fails in the versioned worker handshake.
   request/result, and plan-evidence modules in `xylem-lib`.
 - Native Kubernetes adapter and controller lifecycle modules in `xylem-cli`.
 - Fake Kubernetes client and API fixtures.
-- Version-7 execution-plan and run-summary schemas.
+- Version-8 execution-plan and run-summary schemas.
 - Reference runner Containerfile/build scripts and multi-architecture release
   metadata.
 - Kind fixtures for shared storage, namespace, Role/RoleBinding, PVC, success,
@@ -921,8 +921,8 @@ untracked Pod; incompatibility fails in the versioned worker handshake.
 
 ## Delete
 
-- Superseded version-7 execution-plan, journal, and summary schemas, readers,
-  and successful compatibility fixtures when version 8 becomes current.
+- Superseded version-8 execution-plan, journal, and summary schemas, readers,
+  and successful compatibility fixtures when version 9 becomes current.
 
 Local execution and existing container runtimes remain supported on their
 current path.
@@ -931,8 +931,8 @@ current path.
 
 ## Prerequisites
 
-- Preserve the landed execution-plan version-6 CEL provenance and land the
-  environment/concurrency version-7 contract first; Kubernetes owns version 8.
+- Preserve the landed execution-plan version-8 sandbox contract; Kubernetes
+  owns version 9.
 - Complete the lossless process result, timeout, cancellation, and child-reaping
   contract before claiming graceful Pod termination.
 - Complete immutable workflow environment/run-context work before serializing
@@ -1007,12 +1007,12 @@ workflow state.
 - Add `ExecutionTarget`, strict profile types, pure validation, canonical
   hashing, and component-safe path mapping.
 - Add the v1 request, submission, and result protocols with atomic persistence.
-- Add version-8 plan/journal/summary target evidence.
+- Add version-9 plan/journal/summary target evidence.
 - Add deterministic Job construction as a pure conversion from validated
   profile plus request metadata.
 - Reject module containers and unsupported controller inputs during planning.
 
-Exit gate: dry-run renders a deterministic v8 Kubernetes plan without writes
+Exit gate: dry-run renders a deterministic v9 Kubernetes plan without writes
 or API access, and all profile/path/protocol/Job tests pass without a cluster.
 
 ## Phase 3: native controller and worker
@@ -1161,7 +1161,7 @@ and a workflow rooted entirely beneath the shared workspace.
   their behavior.
 - An explicit Kubernetes run submits exactly one stable-API Job for the whole
   workflow and never invokes `kubectl`.
-- Dry-run performs no write or cluster call and includes deterministic v8
+- Dry-run performs no write or cluster call and includes deterministic v9
   target/path evidence.
 - A real run validates Kubernetes 1.31+, namespace, PVC, RBAC, profile, paths,
   image digest, and module compatibility before Job creation.

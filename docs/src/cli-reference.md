@@ -9,11 +9,13 @@ xylem [OPTIONS] tui [CONFIG]
 ```
 
 Global options include verbosity flags, `-t, --threads <N>`, `--env <PATH>`,
-and `--no-progress`. The worker count defaults to 10, must be greater than
+`--sandbox-policy <PATH>`, and `--no-progress`. The worker count defaults to 10, must be greater than
 zero, and limits Xylem's Rayon work rather than threads created by child
 programs. `--env` selects a specific dotenv file and fails if that file cannot
 be loaded; existing process variables take precedence over values in the file.
 Without `--env`, discovery of a default `.env` file remains optional.
+`--sandbox-policy` is read only when the workflow explicitly sets
+`sandbox: true`; a missing required policy or an unused policy is an error.
 
 A workflow may additionally set the positive `options.batch` value to cap
 active top-level inputs. The effective input concurrency is the smaller of
@@ -56,9 +58,10 @@ relocating canonical evidence. The configuration `output` field continues to
 describe workflow artifacts. The legacy `--output` spelling remains an alias
 for `--report-output`.
 
-The version 7 JSON summary includes the run and configuration identities,
+The version 8 JSON summary includes the run and configuration identities,
 timestamps and duration, dry-run flag, final status, and ordered input/module
-states. When GPU monitoring is enabled, the journal retains one raw sample per
+states, plus explicit `sandbox` evidence (`mode: off` for compatibility runs).
+When GPU monitoring is enabled, the journal retains one raw sample per
 second and the summary includes per-device sample counts, average and peak
 utilization, and average and peak frame-buffer memory usage. A missing or
 invalid initial `nvidia-smi` query prevents module execution; a later sampling

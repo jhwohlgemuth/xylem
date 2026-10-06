@@ -93,6 +93,9 @@ impl Validate for Config {
                 report.add("options.allowed", validation_error("hosts", error.to_string()));
             }
         }
+        if self.sandbox {
+            report = report.merge("", report_of(self.validate_sandbox()));
+        }
         let skip_checksum = self.options.as_ref().and_then(|options| options.skip_verify_checksum).unwrap_or_default();
         self.modules.iter().enumerate().fold(BTreeSet::new(), |mut names, (index, module)| {
             let path = format!("modules[{index}]");

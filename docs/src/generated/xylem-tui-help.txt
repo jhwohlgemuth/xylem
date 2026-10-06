@@ -6,10 +6,11 @@ Arguments:
   [CONFIG]  Workflow configuration preloaded into the New Run action
 
 Options:
-  -v, --verbose...   Increase logging verbosity
-  -q, --quiet...     Decrease logging verbosity
-  -t, --threads <N>  Maximum number of Rayon workers used by Xylem (does not limit child tools)
-                     [default: 10]
-      --env <PATH>   Load environment variables from a specific dotenv file
-      --no-progress  Disable interactive workflow progress indicators
-  -h, --help         Print help
+  -v, --verbose...             Increase logging verbosity
+  -q, --quiet...               Decrease logging verbosity
+  -t, --threads <N>            Maximum number of Rayon workers used by Xylem (does not limit child
+                               tools) [default: 10]
+      --env <PATH>             Load environment variables from a specific dotenv file
+      --no-progress            Disable interactive workflow progress indicators
+      --sandbox-policy <PATH>  Trusted operator policy used only by workflows with `sandbox: true`
+  -h, --help                   Print help

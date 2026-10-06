@@ -1,6 +1,7 @@
 //! Durable, append-only execution journals and deterministic recovery
 extern crate alloc;
 
+use crate::sandbox::EffectiveSandboxPolicy;
 use crate::ReporterType;
 use acorn_core::time::Milliseconds;
 use acorn_core::validation::ValidationError;
@@ -19,11 +20,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use strum::EnumIs;
 
 /// Current on-disk journal schema version.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 7;
-
+pub const JOURNAL_SCHEMA_VERSION: u32 = 8;
 /// Maximum number of UTF-8 bytes retained for one journal error detail.
 pub const MAX_ERROR_BYTES: usize = 4096;
-
 trait Summary {
     fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<u64>, &mut u64);
 
@@ -37,7 +36,6 @@ trait Summary {
         *updated_at_ms = timestamp_ms;
     }
 }
-
 /// Durable state of a container used by the run.
 #[derive(Clone, Copy, Debug, Deserialize, EnumIs, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -55,7 +53,6 @@ pub enum ContainerState {
     /// Lifecycle work failed.
     Failed,
 }
-
 /// State of a run input or module at one point in time.
 #[derive(Clone, Copy, Debug, Deserialize, EnumIs, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,7 +74,6 @@ pub enum ExecutionState {
     /// Work was not executed because declared outputs were already complete.
     SkippedExisting,
 }
-
 /// Final state written by a normally completed run.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -89,14 +85,12 @@ pub enum FinalStatus {
     /// At least one required operation failed.
     Failed,
 }
-
 #[derive(Clone, Debug)]
 enum GpuJournalState {
     Disabled,
     Finished,
     Started { device_ids: Option<BTreeSet<String>> },
 }
-
 /// Recovered disposition of requested GPU monitoring.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -110,7 +104,6 @@ pub enum GpuMonitoringStatus {
     /// Monitoring could not collect its initial inventory and sample.
     Unavailable,
 }
-
 /// Journal creation, persistence, validation, or recovery failure.
 #[derive(Debug)]
 pub enum JournalError {
@@ -123,7 +116,6 @@ pub enum JournalError {
     /// A concurrent writer panicked while owning the journal lock.
     Poisoned,
 }
-
 /// One append-only journal event.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -164,7 +156,6 @@ pub enum JournalEvent {
     /// Marks a normal run finalization.
     RunFinished { status: FinalStatus, error: Option<String> },
 }
-
 /// Overall state reconstructed from a journal.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -178,7 +169,6 @@ pub enum RunStatus {
     /// The journal has no finalization record.
     Interrupted,
 }
-
 /// Stable configuration identity recorded at run start.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -190,7 +180,6 @@ pub struct ConfigurationIdentity {
     /// Optional workflow version declared by the configuration.
     pub version: Option<String>,
 }
-
 /// Latest reconstructed lifecycle state for one container.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ContainerSummary {
@@ -209,7 +198,6 @@ pub struct ContainerSummary {
     /// Timestamp of the latest transition.
     pub updated_at_ms: u64,
 }
-
 /// Stable identity and capacity for one monitored GPU.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GpuDevice {
@@ -222,7 +210,6 @@ pub struct GpuDevice {
     /// Stable NVIDIA device UUID.
     pub uuid: String,
 }
-
 #[derive(Clone, Debug)]
 struct GpuDeviceAggregate {
     device: GpuDevice,
@@ -230,7 +217,6 @@ struct GpuDeviceAggregate {
     samples: u64,
     utilization_percent: MetricAggregate,
 }
-
 /// Aggregated telemetry for one monitored GPU.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GpuDeviceSummary {
@@ -249,7 +235,6 @@ pub struct GpuDeviceSummary {
     /// Stable NVIDIA device UUID.
     pub uuid: String,
 }
-
 /// Integer aggregate for one sampled GPU metric.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GpuMetricSummary {
@@ -260,7 +245,6 @@ pub struct GpuMetricSummary {
     /// Number of supported readings included in the aggregate.
     pub samples: u64,
 }
-
 /// Recovered run-wide GPU monitoring summary.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GpuMonitoringSummary {
@@ -273,7 +257,6 @@ pub struct GpuMonitoringSummary {
     /// Ordered monitored devices and their aggregates.
     pub devices: Vec<GpuDeviceSummary>,
 }
-
 /// One timestamped GPU reading stored in a journal sample event.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GpuReading {
@@ -284,7 +267,6 @@ pub struct GpuReading {
     /// Stable NVIDIA device UUID.
     pub uuid: String,
 }
-
 #[derive(Clone, Debug)]
 struct GpuRecovery {
     devices: BTreeMap<String, GpuDeviceAggregate>,
@@ -292,7 +274,6 @@ struct GpuRecovery {
     finished: bool,
     interval: Milliseconds,
 }
-
 /// Latest reconstructed input state and its ordered modules.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct InputSummary {
@@ -313,7 +294,6 @@ pub struct InputSummary {
     /// Ordered module states.
     pub modules: Vec<ModuleSummary>,
 }
-
 /// Stable identity for a container in a run journal.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JournalContainer {
@@ -326,7 +306,6 @@ pub struct JournalContainer {
     /// Runtime executable name.
     pub runtime: String,
 }
-
 /// Stable identity and display value for one workflow input.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -338,7 +317,6 @@ pub struct JournalInput {
     /// User-facing input value. `None` represents a zero-input workflow.
     pub value: Option<String>,
 }
-
 /// Stable identity for one executable module in a run journal.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JournalModule {
@@ -349,7 +327,6 @@ pub struct JournalModule {
     /// Stable ancestry from the root workflow to the executable leaf.
     pub module_path: Vec<String>,
 }
-
 /// One versioned line in a journal file.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JournalRecord {
@@ -365,7 +342,6 @@ pub struct JournalRecord {
     #[serde(flatten)]
     pub event: JournalEvent,
 }
-
 #[derive(Debug)]
 struct JournalSink {
     writer: BufWriter<File>,
@@ -376,14 +352,12 @@ struct JournalSink {
     finalized: bool,
     gpu_monitoring: GpuJournalState,
 }
-
 #[derive(Clone, Debug, Default)]
 struct MetricAggregate {
     maximum: u64,
     samples: u64,
     sum: u128,
 }
-
 /// Latest reconstructed module state.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleSummary {
@@ -402,7 +376,6 @@ pub struct ModuleSummary {
     /// Timestamp of the latest transition.
     pub updated_at_ms: u64,
 }
-
 /// A serialized, flush-on-transition journal writer safe for concurrent callers.
 #[derive(Debug)]
 pub struct RunJournal {
@@ -413,7 +386,6 @@ pub struct RunJournal {
     containers: Vec<JournalContainer>,
     sink: Mutex<JournalSink>,
 }
-
 /// Run metadata written before any input begins.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RunMetadata {
@@ -423,10 +395,11 @@ pub struct RunMetadata {
     pub configuration: ConfigurationIdentity,
     /// Whether this is a side-effect-free dry run.
     pub dry_run: bool,
+    /// Effective sandbox mode and non-secret policy identity.
+    pub sandbox: SandboxEvidence,
     /// Unix timestamp in milliseconds.
     pub started_at_ms: u64,
 }
-
 /// Deterministic summary reconstructed from durable journal records.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RunSummary {
@@ -438,6 +411,8 @@ pub struct RunSummary {
     pub configuration: ConfigurationIdentity,
     /// Whether this was a dry run.
     pub dry_run: bool,
+    /// Effective sandbox mode and non-secret policy identity.
+    pub sandbox: SandboxEvidence,
     /// Run start timestamp.
     pub started_at_ms: u64,
     /// Finalization timestamp, absent for interrupted runs.
@@ -455,7 +430,21 @@ pub struct RunSummary {
     /// Ordered input summaries.
     pub inputs: Vec<InputSummary>,
 }
-
+/// Non-secret sandbox evidence recorded for every run.
+#[skip_serializing_none]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SandboxEvidence {
+    /// Selected OCI backend, absent for host mode.
+    pub backend: Option<String>,
+    /// Digest-pinned image, absent for host mode.
+    pub image: Option<String>,
+    /// Effective isolation class.
+    pub isolation: String,
+    /// `off` for compatibility host execution or `required` for sandbox execution.
+    pub mode: String,
+    /// Canonical effective-policy digest, absent for host mode.
+    pub policy_digest: Option<String>,
+}
 impl ExecutionState {
     /// Whether this state represents completed work.
     pub fn is_complete(self) -> bool {
@@ -466,7 +455,6 @@ impl ExecutionState {
         self.is_complete() || self.is_failed() || self.is_cancelled()
     }
 }
-
 impl fmt::Display for ExecutionState {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -481,19 +469,6 @@ impl fmt::Display for ExecutionState {
         })
     }
 }
-
-impl From<ExecutionState> for Style {
-    fn from(state: ExecutionState) -> Self {
-        match state {
-            | ExecutionState::Cancelled => Self::new().yellow(),
-            | ExecutionState::Failed => Self::new().red().bold(),
-            | ExecutionState::NotStarted | ExecutionState::Skipped | ExecutionState::SkippedExisting => Self::new().dimmed(),
-            | ExecutionState::Pending | ExecutionState::Running => Self::new().cyan(),
-            | ExecutionState::Succeeded => Self::new().green().bold(),
-        }
-    }
-}
-
 impl Validate for GpuDevice {
     fn validate(&self) -> Result<(), ValidationReport> {
         let mut report = ValidationReport::new();
@@ -506,7 +481,6 @@ impl Validate for GpuDevice {
         report.finish()
     }
 }
-
 impl fmt::Display for GpuMonitoringStatus {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -517,7 +491,6 @@ impl fmt::Display for GpuMonitoringStatus {
         })
     }
 }
-
 impl GpuRecovery {
     fn new(interval: Milliseconds) -> Result<Self, JournalError> {
         match interval.is_zero() {
@@ -616,13 +589,11 @@ impl GpuRecovery {
         }
     }
 }
-
 impl Summary for InputSummary {
     fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<u64>, &mut u64) {
         (&mut self.state, &mut self.error, &mut self.started_at_ms, &mut self.updated_at_ms)
     }
 }
-
 impl core::error::Error for JournalError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
@@ -632,7 +603,6 @@ impl core::error::Error for JournalError {
         }
     }
 }
-
 impl fmt::Display for JournalError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -643,25 +613,21 @@ impl fmt::Display for JournalError {
         }
     }
 }
-
 impl From<serde_json::Error> for JournalError {
     fn from(error: serde_json::Error) -> Self {
         Self::Json(error)
     }
 }
-
 impl From<std::io::Error> for JournalError {
     fn from(error: std::io::Error) -> Self {
         Self::Io(error)
     }
 }
-
 impl From<ValidationReport> for JournalError {
     fn from(error: ValidationReport) -> Self {
         Self::Invalid(error.to_string())
     }
 }
-
 impl JournalInput {
     /// Create a deterministic input identity from its ordered position.
     pub fn new(index: usize, value: Option<String>) -> Self {
@@ -672,14 +638,12 @@ impl JournalInput {
         }
     }
 }
-
 impl JournalModule {
     /// Create a stable module identity from its ordered position, display name, and ancestry.
     pub fn new(index: usize, name: String, module_path: Vec<String>) -> Self {
         Self { index, name, module_path }
     }
 }
-
 impl JournalSink {
     /// Append one event with the next sequence number and durable flush.
     fn append_locked(&mut self, run_id: &str, event: JournalEvent) -> Result<(), JournalError> {
@@ -703,7 +667,6 @@ impl JournalSink {
         }
     }
 }
-
 impl MetricAggregate {
     fn summary(self) -> Option<GpuMetricSummary> {
         (self.samples > 0).then(|| GpuMetricSummary {
@@ -718,13 +681,11 @@ impl MetricAggregate {
         self.sum = self.sum.saturating_add(u128::from(value));
     }
 }
-
 impl Summary for ModuleSummary {
     fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<u64>, &mut u64) {
         (&mut self.state, &mut self.error, &mut self.started_at_ms, &mut self.updated_at_ms)
     }
 }
-
 impl RunJournal {
     /// Create a new journal and durably initialize every input and module.
     ///
@@ -1019,7 +980,6 @@ impl RunJournal {
             .and_then(|mut sink| sink.append_locked(&self.run_id, event))
     }
 }
-
 impl Validate for RunJournal {
     fn validate(&self) -> Result<(), ValidationReport> {
         let report = match self.run_id.is_empty() {
@@ -1072,19 +1032,18 @@ impl Validate for RunJournal {
             .finish()
     }
 }
-
 impl RunMetadata {
     /// Build metadata with the current system time.
-    pub fn now(run_id: String, configuration: ConfigurationIdentity, dry_run: bool) -> Self {
+    pub fn now(run_id: String, configuration: ConfigurationIdentity, dry_run: bool, sandbox: SandboxEvidence) -> Self {
         Self {
             run_id,
             configuration,
             dry_run,
+            sandbox,
             started_at_ms: timestamp().get(),
         }
     }
 }
-
 impl Validate for RunMetadata {
     fn validate(&self) -> Result<(), ValidationReport> {
         match self.run_id.is_empty() {
@@ -1096,18 +1055,6 @@ impl Validate for RunMetadata {
         }
     }
 }
-
-impl RunStatus {
-    fn style(self) -> Style {
-        match self {
-            | Self::Cancelled => Style::new().yellow(),
-            | Self::Failed => Style::new().red().bold(),
-            | Self::Interrupted => Style::new().yellow().bold(),
-            | Self::Succeeded => Style::new().green().bold(),
-        }
-    }
-}
-
 impl fmt::Display for RunStatus {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -1118,7 +1065,16 @@ impl fmt::Display for RunStatus {
         })
     }
 }
-
+impl RunStatus {
+    fn style(self) -> Style {
+        match self {
+            | Self::Cancelled => Style::new().yellow(),
+            | Self::Failed => Style::new().red().bold(),
+            | Self::Interrupted => Style::new().yellow().bold(),
+            | Self::Succeeded => Style::new().green().bold(),
+        }
+    }
+}
 impl RunSummary {
     /// Persist this summary as formatted JSON without overwriting an existing report.
     pub fn write_json_atomic(&self, directory: &Path) -> Result<PathBuf, JournalError> {
@@ -1280,7 +1236,6 @@ impl RunSummary {
             .and_then(|()| output.flush().map_err(JournalError::from))
     }
 }
-
 impl TryFrom<&Path> for RunSummary {
     type Error = JournalError;
 
@@ -1319,7 +1274,6 @@ impl TryFrom<&Path> for RunSummary {
         })
     }
 }
-
 impl TryFrom<PathBuf> for RunSummary {
     type Error = JournalError;
 
@@ -1327,7 +1281,6 @@ impl TryFrom<PathBuf> for RunSummary {
         Self::try_from(path.as_path())
     }
 }
-
 impl TryFrom<Vec<JournalRecord>> for RunSummary {
     type Error = JournalError;
 
@@ -1535,6 +1488,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                             run_id: metadata.run_id,
                             configuration: metadata.configuration,
                             dry_run: metadata.dry_run,
+                            sandbox: metadata.sandbox,
                             started_at_ms: metadata.started_at_ms,
                             finished_at_ms,
                             duration_ms,
@@ -1547,6 +1501,39 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                     }
                 }
             })
+    }
+}
+impl SandboxEvidence {
+    /// Record compatibility host execution.
+    pub fn off() -> Self {
+        Self {
+            backend: None,
+            image: None,
+            isolation: "none".to_string(),
+            mode: "off".to_string(),
+            policy_digest: None,
+        }
+    }
+    /// Record a required sandbox policy without persisting its path grants.
+    pub fn required(policy: &EffectiveSandboxPolicy) -> Self {
+        Self {
+            backend: Some(policy.backend.to_string()),
+            image: Some(policy.image.clone()),
+            isolation: "shared_kernel".to_string(),
+            mode: "required".to_string(),
+            policy_digest: Some(policy.digest.clone()),
+        }
+    }
+}
+impl From<ExecutionState> for Style {
+    fn from(state: ExecutionState) -> Self {
+        match state {
+            | ExecutionState::Cancelled => Self::new().yellow(),
+            | ExecutionState::Failed => Self::new().red().bold(),
+            | ExecutionState::NotStarted | ExecutionState::Skipped | ExecutionState::SkippedExisting => Self::new().dimmed(),
+            | ExecutionState::Pending | ExecutionState::Running => Self::new().cyan(),
+            | ExecutionState::Succeeded => Self::new().green().bold(),
+        }
     }
 }
 fn bounded_error(value: &str) -> String {

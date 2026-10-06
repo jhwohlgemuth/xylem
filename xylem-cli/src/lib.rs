@@ -19,7 +19,6 @@ use xylem_lib::ReporterType;
 pub mod cli;
 /// Command implementations.
 pub mod commands;
-
 // Environment variables
 const DISPLAY_LEVEL: bool = true;
 const DISPLAY_LINE_NUMBER: bool = false;
@@ -126,6 +125,7 @@ pub fn run_example(config: &str) -> Void {
     init_tracing(None, &Verbosity::default(), Some(filter.as_str()), false)?;
     match commands::run::run(
         &Some(config),
+        &None,
         &[ReporterType::Console],
         &None,
         &None,

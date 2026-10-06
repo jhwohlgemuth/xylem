@@ -4,6 +4,7 @@ extern crate alloc;
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
 use crate::config::{Config, InputAttribute};
 use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
+use crate::sandbox::{SandboxBackend, SandboxResources};
 use crate::script::{
     module_working_directory, ContainerCleanup, ContainerEnvironment, ContainerRuntime, ContainerStartup, Module, ModuleType, ModuleUri, Script,
     TemplateAttribute,
@@ -28,10 +29,11 @@ pub enum PlanError {
     Input(String),
     /// Scripted input selection failed.
     Selection(SelectionError),
+    /// Required sandbox policy was not resolved by the trusted caller.
+    Sandbox(String),
     /// Semantic configuration validation failed.
     Validation(ValidationReport),
 }
-
 /// Versioned dry-run plan rendered without mutating the host.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ExecutionPlan {
@@ -47,10 +49,11 @@ pub struct ExecutionPlan {
     pub modules: Vec<PlannedModule>,
     /// Whether resume observations influenced decisions.
     pub resume: bool,
+    /// Effective sandbox intent and policy identity.
+    pub sandbox: PlannedSandbox,
     /// Execution-plan schema version.
     pub schema_version: u32,
 }
-
 /// Configuration identity embedded in an execution plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlanConfiguration {
@@ -63,7 +66,6 @@ pub struct PlanConfiguration {
     /// Optional configured workflow version.
     pub version: Option<String>,
 }
-
 /// Acquisition operation required before a module can execute.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedAcquisition {
@@ -72,7 +74,6 @@ pub struct PlannedAcquisition {
     /// Configured module source URI.
     pub source: String,
 }
-
 /// Command information known without acquiring or mutating the host.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedCommand {
@@ -85,7 +86,6 @@ pub struct PlannedCommand {
     /// Deterministic module working directory before a run root is allocated.
     pub working_directory: Option<String>,
 }
-
 /// Resolved completion declaration included in the plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedCompletion {
@@ -94,7 +94,6 @@ pub struct PlannedCompletion {
     /// Sorted output path or glob patterns.
     pub outputs: Vec<String>,
 }
-
 /// One container operation required by the plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedContainer {
@@ -117,7 +116,6 @@ pub struct PlannedContainer {
     /// Startup strategy for a managed container, or null for an external container.
     pub startup: Option<ContainerStartup>,
 }
-
 /// GPU monitoring selected for a planned run.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedGpuMonitoring {
@@ -126,7 +124,6 @@ pub struct PlannedGpuMonitoring {
     /// Telemetry provider executable.
     pub source: String,
 }
-
 /// One planned module decision.
 #[derive(Builder, Clone, Debug, Eq, PartialEq, Serialize)]
 #[builder(on(String, into), start_fn(name = init))]
@@ -154,7 +151,6 @@ pub struct PlannedModule {
     /// Effective variables after workflow, output-default, module, and input precedence.
     pub variables: BTreeMap<String, String>,
 }
-
 /// One bind mount shown in a dry-run plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedMount {
@@ -165,7 +161,22 @@ pub struct PlannedMount {
     /// Absolute guest target.
     pub target: String,
 }
-
+/// Sandbox intent included in a dry-run execution plan.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PlannedSandbox {
+    /// Selected OCI backend, absent for host mode.
+    pub backend: Option<SandboxBackend>,
+    /// Digest-pinned sandbox image, absent for host mode.
+    pub image: Option<String>,
+    /// Effective isolation class.
+    pub isolation: String,
+    /// `off` for compatibility host execution or `required` for sandbox execution.
+    pub mode: String,
+    /// Canonical effective-policy digest, absent for host mode.
+    pub policy_digest: Option<String>,
+    /// Per-input resource ceilings, absent for host mode.
+    pub resources: Option<SandboxResources>,
+}
 /// Resolve CLI-over-configuration input precedence with deterministic duplicate handling.
 impl Config {
     /// Resolve inputs and retain deterministic source provenance for planning.
@@ -199,7 +210,6 @@ impl Config {
         }
     }
 }
-
 impl ContainerEnvironment {
     fn planned(self, module_index: usize) -> PlannedContainer {
         let startup = self.create.then(|| self.resolved_startup().0);
@@ -227,7 +237,6 @@ impl ContainerEnvironment {
         }
     }
 }
-
 impl ExecutionPlan {
     /// Build a plan using only configuration and explicitly labeled read-only completion observations.
     pub fn build(config: &Config, path: String, inputs: &[Option<String>], resume: bool) -> Result<Self, PlanError> {
@@ -245,49 +254,51 @@ impl ExecutionPlan {
     }
     /// Build a plan from inputs resolved by the provenance-aware planning boundary.
     pub fn build_resolved(config: &Config, path: String, inputs: &ResolvedInputs, resume: bool) -> Result<Self, PlanError> {
-        config.validate_for_inputs(&inputs.values).map_err(PlanError::from).and_then(|()| {
-            inputs
-                .values
-                .iter()
-                .enumerate()
-                .try_fold(Vec::new(), |modules, (input_index, input)| {
-                    config
-                        .modules
-                        .iter()
-                        .enumerate()
-                        .try_fold(modules, |mut modules, (module_index, module)| {
-                            module.plan(config, input, input_index, module_index, resume).map(|planned| {
-                                modules.push(planned);
-                                modules
+        PlannedSandbox::try_from(config.clone())
+            .and_then(|sandbox| config.validate_for_inputs(&inputs.values).map_err(PlanError::from).map(|()| sandbox))
+            .and_then(|sandbox| {
+                inputs
+                    .values
+                    .iter()
+                    .enumerate()
+                    .try_fold(Vec::new(), |modules, (input_index, input)| {
+                        config
+                            .modules
+                            .iter()
+                            .enumerate()
+                            .try_fold(modules, |mut modules, (module_index, module)| {
+                                module.plan(config, input, input_index, module_index, resume).map(|planned| {
+                                    modules.push(planned);
+                                    modules
+                                })
                             })
-                        })
-                })
-                .map(|modules| Self {
-                    containers: PlannedContainer::from_modules(config, &modules),
-                    configuration: PlanConfiguration {
-                        id: config.id.clone(),
-                        output: config.output.clone(),
-                        path,
-                        version: config.version.clone(),
-                    },
-                    gpu_monitoring: config
-                        .options
-                        .as_ref()
-                        .and_then(|options| options.gpu_monitor)
-                        .unwrap_or_default()
-                        .then(|| PlannedGpuMonitoring {
-                            interval: GPU_SAMPLE_INTERVAL_MS,
-                            source: "nvidia-smi".to_string(),
-                        }),
-                    inputs: inputs.clone(),
-                    modules,
-                    resume,
-                    schema_version: 7,
-                })
-        })
+                    })
+                    .map(|modules| Self {
+                        containers: PlannedContainer::from_modules(config, &modules),
+                        configuration: PlanConfiguration {
+                            id: config.id.clone(),
+                            output: config.output.clone(),
+                            path,
+                            version: config.version.clone(),
+                        },
+                        gpu_monitoring: config
+                            .options
+                            .as_ref()
+                            .and_then(|options| options.gpu_monitor)
+                            .unwrap_or_default()
+                            .then(|| PlannedGpuMonitoring {
+                                interval: GPU_SAMPLE_INTERVAL_MS,
+                                source: "nvidia-smi".to_string(),
+                            }),
+                        inputs: inputs.clone(),
+                        modules,
+                        resume,
+                        sandbox,
+                        schema_version: 8,
+                    })
+            })
     }
 }
-
 impl From<InputAttribute> for InputSource {
     fn from(input: InputAttribute) -> Self {
         match input {
@@ -297,7 +308,6 @@ impl From<InputAttribute> for InputSource {
         }
     }
 }
-
 impl Module {
     fn command(&self, variables: &BTreeMap<String, String>) -> PlannedCommand {
         let uri = match &self.module_type {
@@ -388,47 +398,43 @@ impl Module {
             })
     }
 }
-
 impl core::error::Error for PlanError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             | Self::Completion(error) => Some(error),
             | Self::Input(_) => None,
+            | Self::Sandbox(_) => None,
             | Self::Selection(error) => Some(error),
             | Self::Validation(error) => Some(error),
         }
     }
 }
-
 impl fmt::Display for PlanError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             | Self::Completion(error) => error.fmt(formatter),
             | Self::Input(error) => formatter.write_str(error),
+            | Self::Sandbox(error) => formatter.write_str(error),
             | Self::Selection(error) => error.fmt(formatter),
             | Self::Validation(error) => error.fmt(formatter),
         }
     }
 }
-
 impl From<CompletionError> for PlanError {
     fn from(error: CompletionError) -> Self {
         Self::Completion(error)
     }
 }
-
 impl From<SelectionError> for PlanError {
     fn from(error: SelectionError) -> Self {
         Self::Selection(error)
     }
 }
-
 impl From<ValidationReport> for PlanError {
     fn from(error: ValidationReport) -> Self {
         Self::Validation(error)
     }
 }
-
 impl From<Module> for PlannedAcquisition {
     fn from(module: Module) -> Self {
         let (action, source) = match module.module_type {
@@ -456,7 +462,6 @@ impl From<Module> for PlannedAcquisition {
         }
     }
 }
-
 impl PlannedContainer {
     fn from_modules(config: &Config, modules: &[PlannedModule]) -> Vec<Self> {
         modules
@@ -486,7 +491,36 @@ impl PlannedContainer {
             .collect()
     }
 }
+impl TryFrom<Config> for PlannedSandbox {
+    type Error = PlanError;
 
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        match (
+            config.sandbox,
+            config.options.as_ref().and_then(|options| options.sandbox_policy.as_ref()),
+        ) {
+            | (false, _) => Ok(Self {
+                backend: None,
+                image: None,
+                isolation: "none".to_string(),
+                mode: "off".to_string(),
+                policy_digest: None,
+                resources: None,
+            }),
+            | (true, Some(policy)) => Ok(Self {
+                backend: Some(policy.backend),
+                image: Some(policy.image.clone()),
+                isolation: "shared_kernel".to_string(),
+                mode: "required".to_string(),
+                policy_digest: Some(policy.digest.clone()),
+                resources: Some(policy.policy.resources.clone()),
+            }),
+            | (true, None) => Err(PlanError::Sandbox(
+                "sandbox-enabled configuration requires a resolved operator policy".to_string(),
+            )),
+        }
+    }
+}
 fn normalize_inputs(values: Vec<String>) -> Vec<Option<String>> {
     let values = values.into_iter().fold(Vec::new(), |mut unique, value| {
         if !unique.contains(&value) {

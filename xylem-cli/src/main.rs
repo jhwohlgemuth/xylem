@@ -71,6 +71,7 @@ fn main() -> Void {
             ..
         }) => match commands::run::run(
             config,
+            &args.sandbox_policy,
             reporter,
             report_output,
             artifact_output,
@@ -101,15 +102,18 @@ fn main() -> Void {
             let (selected, working_directory) = tui_configuration_context(config.as_ref(), &directory)?;
             env::set_current_dir(working_directory)?;
             let limits = args.threads;
+            let sandbox_policy = args.sandbox_policy.clone();
             xylem_tui::run_with_diagnostics(selected, dashboard_log.unwrap_or_default(), move |config| {
                 let cancellation = RunCancellation::default();
                 let child_cancellation = cancellation.clone();
                 let cancel = cancellation.clone();
+                let sandbox_policy = sandbox_policy.clone();
                 let (sender, completion) = mpsc::channel();
                 thread::spawn(move || {
                     // The dashboard renders the run bundle; CLI reporters would write into its alternate screen.
                     let result = commands::run::run(
                         &Some(config),
+                        &sandbox_policy,
                         &[],
                         &None,
                         &None,

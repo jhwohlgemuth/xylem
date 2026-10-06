@@ -20,7 +20,6 @@ fn test_allowed_accepts_repeated_and_comma_delimited_values() {
         | _ => panic!("run command should parse"),
     }
 }
-
 #[test]
 fn test_artifact_and_report_outputs_are_distinct() {
     let args = parse(&["xylem", "run", "--artifact-output", "artifacts", "--report-output", "reports"]);
@@ -42,7 +41,6 @@ fn test_artifact_and_report_outputs_are_distinct() {
         | _ => panic!("run command should parse"),
     }
 }
-
 #[test]
 fn test_container_policy_flags_parse() {
     match parse(&["xylem", "run", "--container-cleanup", "on-success", "--no-container-env"]).command {
@@ -57,7 +55,6 @@ fn test_container_policy_flags_parse() {
         | _ => panic!("run command should parse"),
     }
 }
-
 #[test]
 fn test_global_env_and_progress_flags_parse_before_or_after_run() {
     let before = parse(&["xylem", "--env", "custom.env", "--no-progress", "run"]);
@@ -67,7 +64,6 @@ fn test_global_env_and_progress_flags_parse_before_or_after_run() {
     assert_eq!(after.env, Some(PathBuf::from("custom.env")));
     assert!(after.no_progress);
 }
-
 #[test]
 fn test_gpu_monitor_is_explicit() {
     match parse(&["xylem", "run", "--gpu-monitor"]).command {
@@ -79,7 +75,6 @@ fn test_gpu_monitor_is_explicit() {
         | _ => panic!("run command should parse"),
     }
 }
-
 #[test]
 fn test_help_documents_thread_contract() {
     let help = Arguments::command().render_long_help().to_string();
@@ -87,7 +82,6 @@ fn test_help_documents_thread_contract() {
     assert!(help.contains("[default: 10]"));
     assert!(help.contains("does not limit child tools"));
 }
-
 #[test]
 fn test_reporters_are_typed_repeatable_and_default_to_console() {
     match parse(&["xylem", "run"]).command {
@@ -100,7 +94,6 @@ fn test_reporters_are_typed_repeatable_and_default_to_console() {
     }
     assert!(Arguments::try_parse_from(["xylem", "run", "--reporter", "unknown"]).is_err());
 }
-
 #[test]
 fn test_resume_is_explicit() {
     match parse(&["xylem", "run", "--resume"]).command {
@@ -112,7 +105,6 @@ fn test_resume_is_explicit() {
         | _ => panic!("run command should parse"),
     }
 }
-
 #[test]
 fn test_run_configuration_is_positional_and_config_flag_is_rejected() {
     match parse(&["xylem", "run", "workflow.json"]).command {
@@ -121,18 +113,22 @@ fn test_run_configuration_is_positional_and_config_flag_is_rejected() {
     }
     assert!(Arguments::try_parse_from(["xylem", "run", "--config", "workflow.json"]).is_err());
 }
-
+#[test]
+fn test_sandbox_policy_is_global() {
+    let before = parse(&["xylem", "--sandbox-policy", "sandbox.yaml", "run"]);
+    assert_eq!(before.sandbox_policy, Some(PathBuf::from("sandbox.yaml")));
+    let after = parse(&["xylem", "run", "--sandbox-policy", "sandbox.json"]);
+    assert_eq!(after.sandbox_policy, Some(PathBuf::from("sandbox.json")));
+}
 #[test]
 fn test_threads_accept_short_and_long_flags() {
     assert_eq!(parse(&["xylem", "-t", "1", "run"]).threads.threads(), 1);
     assert_eq!(parse(&["xylem", "run", "--threads", "24"]).threads.threads(), 24);
 }
-
 #[test]
 fn test_threads_default_to_ten() {
     assert_eq!(parse(&["xylem"]).threads.threads(), 10);
 }
-
 #[test]
 fn test_threads_reject_zero_non_numeric_and_missing_values() {
     for arguments in [
@@ -147,7 +143,6 @@ fn test_threads_reject_zero_non_numeric_and_missing_values() {
         .to_string();
     assert!(zero.contains("thread count must be greater than zero"));
 }
-
 #[cfg(feature = "tui")]
 #[test]
 fn test_tui_configuration_is_optional_and_positional() {

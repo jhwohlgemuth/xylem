@@ -31,6 +31,9 @@ Options:
       --no-progress
           Disable interactive workflow progress indicators
 
+      --sandbox-policy <PATH>
+          Trusted operator policy used only by workflows with `sandbox: true`
+
   -h, --help
           Print help (see a summary with '-h')
 

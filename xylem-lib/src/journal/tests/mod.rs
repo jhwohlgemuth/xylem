@@ -12,6 +12,7 @@ fn metadata(run_id: &str) -> RunMetadata {
             version: Some("1.0.0".to_string()),
         },
         dry_run: false,
+        sandbox: SandboxEvidence::off(),
         started_at_ms: 1,
     }
 }
@@ -238,6 +239,7 @@ fn test_json_report_is_atomic_and_refuses_overwrite() {
             version: None,
         },
         dry_run: false,
+        sandbox: SandboxEvidence::off(),
         started_at_ms: 1,
         finished_at_ms: Some(2),
         duration_ms: Some(1),

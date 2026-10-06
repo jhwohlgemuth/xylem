@@ -33,6 +33,41 @@ zero or more inputs, shared variables, ordered modules, and execution options.
 Relative `file:` module paths resolve from the directory where Xylem is
 launched. Modules execute in array order for each active input.
 
+## Opt-in sandboxing
+
+Sandboxing is disabled by default. Omitting `sandbox`, or setting it to
+`false`, preserves the existing host execution path and requires no sandbox
+policy or container runtime.
+
+Set the single top-level field below to require sandboxed execution:
+
+```yaml
+sandbox: true
+```
+
+An opted-in run also requires the operator-controlled global option
+`--sandbox-policy <PATH>`. Supplying a policy does not activate sandboxing, and
+supplying one for a workflow without `sandbox: true` is an error. A requested
+sandbox never falls back to host execution.
+
+Policy documents use strict JSON, JSONC, YAML, or YML and select rootless
+Docker or Podman, a digest-pinned image, allowed host roots and child
+environment names, resource ceilings, preparation networking, and cleanup.
+Relative policy roots resolve from the policy file. Dry-run validates the
+workflow and policy and records their effective values without contacting the
+runtime. The initial slice requires cleanup retention `delete`.
+The checked-in [`sandbox-policy-v1` schema](../schema/sandbox-policy-v1.schema.json)
+defines the complete document shape. Real execution is currently qualified on
+native x86_64 Linux with a local rootless runtime. The pinned image must
+already be present; the guarded slice never performs an implicit pull.
+
+The initial OCI execution slice supports local generic script modules with
+read-only module and input mounts. Workflow requirements must be supplied by
+the pinned image. Remote, binary, Python-environment, nested-configuration,
+application-container, GPU, completion-marker, and artifact-publication
+features fail closed in sandbox mode while their existing host behavior
+remains available when sandboxing is disabled.
+
 Explicit input lists preserve their declared order and duplicate values keep
 their first occurrence. Directory-derived inputs are sorted by path. CLI
 `--input` replaces configured input values rather than appending to them.
@@ -103,7 +138,7 @@ MiB per scalar. Exceeding any limit fails before workflow execution.
 
 A non-empty CLI `--input` list has precedence and bypasses selection request
 validation, root access, discovery, compilation, and evaluation. Dry-run uses
-the same read-only selection snapshot as execution. Execution-plan schema v7
+the same read-only selection snapshot as execution. Execution-plan schema v8
 records canonical options, limits, engine/interpreter identity, counts, and
 SHA-256 script and inventory digests without recording the script, configured
 variable values, or unselected inventory.

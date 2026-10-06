@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://xylem.ornl.gov/schema/run-summary-v7.schema.json",
-  "title": "Xylem run summary version 7",
+  "$id": "https://xylem.ornl.gov/schema/run-summary-v8.schema.json",
+  "title": "Xylem run summary version 8",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,12 +14,13 @@
     "duration_ms",
     "status",
     "error",
+    "sandbox",
     "gpu_monitoring",
     "containers",
     "inputs"
   ],
   "properties": {
-    "schema_version": { "const": 7 },
+    "schema_version": { "const": 8 },
     "run_id": { "type": "string", "minLength": 1 },
     "configuration": { "$ref": "#/$defs/configuration" },
     "dry_run": { "type": "boolean" },
@@ -28,6 +29,7 @@
     "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
     "status": { "enum": ["cancelled", "succeeded", "failed", "interrupted"] },
     "error": { "type": ["string", "null"], "maxLength": 4096 },
+    "sandbox": { "$ref": "#/$defs/sandbox" },
     "gpu_monitoring": {
       "oneOf": [
         { "type": "null" },
@@ -134,6 +136,18 @@
         "error": { "type": ["string", "null"], "maxLength": 4096 },
         "started_at_ms": { "type": ["integer", "null"], "minimum": 0 },
         "updated_at_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["isolation", "mode"],
+      "properties": {
+        "backend": { "enum": ["docker", "podman", null] },
+        "image": { "type": ["string", "null"] },
+        "isolation": { "enum": ["none", "shared_kernel"] },
+        "mode": { "enum": ["off", "required"] },
+        "policy_digest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" }
       }
     },
     "state": {

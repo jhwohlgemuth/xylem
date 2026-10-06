@@ -57,6 +57,9 @@ Options:
   -d, --dry-run
           Execute workflow dry run (do not actually make changes to environment)
 
+      --sandbox-policy <PATH>
+          Trusted operator policy used only by workflows with `sandbox: true`
+
       --gpu-monitor
           Collect run-wide NVIDIA GPU telemetry with nvidia-smi
 

@@ -8,6 +8,7 @@ use crate::outcome::{ModuleOutcome, WorkflowOutcome};
 use crate::plan::PlanError;
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
 use crate::remote::{redact_url, RemotePolicy};
+use crate::sandbox::EffectiveSandboxPolicy;
 use crate::script::*;
 pub use crate::selection::{InputSelection, SelectionEngine, SelectionOptions, SelectionRequest};
 use crate::util::absolute_path;
@@ -36,7 +37,6 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 mod validation;
-
 /// Executes one resolved module command for an orchestration adapter.
 pub trait ModuleExecutor: Send + Sync {
     /// Execute a script for the stable input and module positions.
@@ -47,7 +47,6 @@ pub trait ModuleExecutor: Send + Sync {
         false
     }
 }
-
 /// Supported workflow configuration serialization formats.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConfigFormat {
@@ -58,7 +57,6 @@ pub enum ConfigFormat {
     /// YAML Ain't Markup Language.
     Yaml,
 }
-
 /// Failure to select or deserialize a workflow configuration file.
 #[derive(Debug)]
 pub enum ConfigReadError {
@@ -83,7 +81,6 @@ pub enum ConfigReadError {
     /// The path does not use a supported configuration extension.
     UnsupportedExtension(PathBuf),
 }
-
 /// Failure while resolving nested configuration modules.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigurationModuleError {
@@ -119,14 +116,12 @@ pub enum ConfigurationModuleError {
     #[error("configuration module {module} cannot apply revision to direct document {uri}")]
     Revision { module: String, uri: String },
 }
-
 #[derive(Clone, Debug)]
 enum ConfigurationSource {
     File(PathBuf),
     Git { identity: String, path: PathBuf },
     Http(String),
 }
-
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -135,7 +130,6 @@ pub enum InputAttribute {
     List(Vec<String>),
     Select(InputSelection),
 }
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Check {
@@ -148,7 +142,6 @@ pub struct Check {
     /// Parent directory of the item being checked when not used within a workflow
     pub parent: Option<String>,
 }
-
 #[derive(Clone, Builder, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
 #[serde(deny_unknown_fields)]
@@ -189,8 +182,11 @@ pub struct Config {
     #[serde(alias = "artifacts")]
     pub output: Option<String>,
     pub options: Option<ConfigOptions>,
+    /// Require execution through an operator-selected sandbox policy.
+    #[builder(default)]
+    #[serde(default)]
+    pub sandbox: bool,
 }
-
 #[derive(Builder, Clone, Debug, Deserialize, Serialize, With)]
 #[builder(start_fn(name = init))]
 #[serde(deny_unknown_fields)]
@@ -222,8 +218,10 @@ pub struct ConfigOptions {
     /// Runtime-only identifier used to derive managed container names.
     #[serde(skip)]
     pub container_run_id: Option<String>,
+    /// Runtime-only validated sandbox policy.
+    #[serde(skip)]
+    pub sandbox_policy: Option<EffectiveSandboxPolicy>,
 }
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Parameters {
@@ -238,7 +236,6 @@ pub struct Parameters {
     /// Custom string data
     pub custom: Option<String>,
 }
-
 #[derive(Builder, Clone, Debug, Deserialize, Serialize)]
 #[builder(start_fn(name = init))]
 #[serde(deny_unknown_fields)]
@@ -250,7 +247,6 @@ pub struct Rule {
     /// Options to pass to the checker
     pub parameters: Option<Parameters>,
 }
-
 impl Config {
     /// Resolve local configuration modules into their executable leaf modules.
     pub fn resolve(self, source: &Path) -> Result<Self, ConfigurationModuleError> {
@@ -1123,7 +1119,6 @@ impl Config {
         }
     }
 }
-
 impl TryFrom<&Path> for Config {
     type Error = ConfigReadError;
 
@@ -1136,7 +1131,6 @@ impl TryFrom<&Path> for Config {
         }
     }
 }
-
 impl TryFrom<PathBuf> for Config {
     type Error = ConfigReadError;
 
@@ -1144,13 +1138,11 @@ impl TryFrom<PathBuf> for Config {
         Self::try_from(path.as_path())
     }
 }
-
 impl fmt::Display for ConfigFormat {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         MimeType::from(*self).fmt(formatter)
     }
 }
-
 impl core::error::Error for ConfigReadError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
@@ -1160,7 +1152,6 @@ impl core::error::Error for ConfigReadError {
         }
     }
 }
-
 impl fmt::Display for ConfigReadError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1180,14 +1171,12 @@ impl fmt::Display for ConfigReadError {
         }
     }
 }
-
 impl ConfigurationModuleError {
     /// Whether this failure represents unavailable remote acquisition rather than invalid configuration data.
     pub fn is_availability(&self) -> bool {
         matches!(self, Self::Remote { .. })
     }
 }
-
 impl ConfigurationSource {
     fn identity(&self) -> String {
         match self {
@@ -1203,7 +1192,6 @@ impl ConfigurationSource {
         }
     }
 }
-
 impl From<ConfigFormat> for MimeType {
     fn from(format: ConfigFormat) -> Self {
         match format {
@@ -1213,7 +1201,6 @@ impl From<ConfigFormat> for MimeType {
         }
     }
 }
-
 impl Module {
     fn prepare_binary(&self, uri: &str, checksum: Option<&str>, options: &ConfigOptions, policy: &RemotePolicy) -> Result<(), String> {
         match ModuleUri::from(&acorn_core::Location::from(uri)) {
@@ -1471,7 +1458,6 @@ impl Module {
         format!("module {} remote source {} failed: {why}", self.name, redact_url(url))
     }
 }
-
 impl Module {
     fn absolutize(&mut self, source: &Path) {
         let uri = match &mut self.module_type {
@@ -1487,11 +1473,9 @@ impl Module {
         }
     }
 }
-
 fn default_container_env() -> bool {
     true
 }
-
 fn deserialize_version<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -1502,23 +1486,19 @@ where
     }
     Ok(version)
 }
-
 fn parse_json_configuration(content: &str) -> serde_json::Result<Config> {
     serde_json::from_str::<Value>(content).and_then(serde_json::from_value)
 }
-
 fn parse_jsonc_configuration(content: &str) -> Result<Config, Box<dyn core::error::Error + Send + Sync>> {
     parse_to_serde_value::<Value>(content, &ParseOptions::strict_jsonc())
         .map_err(|source| Box::new(source) as Box<dyn core::error::Error + Send + Sync>)
         .and_then(|value| serde_json::from_value(value).map_err(|source| Box::new(source) as Box<dyn core::error::Error + Send + Sync>))
 }
-
 fn parse_yaml_configuration(content: &str) -> serde_norway::Result<Config> {
     serde_norway::from_str::<serde_norway::Value>(content)
         .and_then(|mut value| value.apply_merge().map(|()| value))
         .and_then(serde_norway::from_value)
 }
-
 fn read_configuration_content(path: &Path, format: ConfigFormat) -> Result<String, ConfigReadError> {
     read_to_string(path)
         .map_err(|source| ConfigReadError::Read {

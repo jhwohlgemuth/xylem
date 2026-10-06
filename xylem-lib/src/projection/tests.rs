@@ -1,9 +1,9 @@
 use super::*;
-use crate::journal::{ConfigurationIdentity, InputSummary, ModuleSummary};
+use crate::journal::{ConfigurationIdentity, InputSummary, ModuleSummary, SandboxEvidence, JOURNAL_SCHEMA_VERSION};
 
 fn summary(state: ExecutionState, started: u64, updated: u64) -> RunSummary {
     RunSummary {
-        schema_version: 7,
+        schema_version: JOURNAL_SCHEMA_VERSION,
         run_id: "run".to_string(),
         configuration: ConfigurationIdentity {
             path: "workflow.json".to_string(),
@@ -11,6 +11,7 @@ fn summary(state: ExecutionState, started: u64, updated: u64) -> RunSummary {
             version: None,
         },
         dry_run: false,
+        sandbox: SandboxEvidence::off(),
         started_at_ms: 0,
         finished_at_ms: Some(updated),
         duration_ms: Some(updated),

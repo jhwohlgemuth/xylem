@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://xylem.ornl.gov/schema/execution-plan-v7.schema.json",
-  "title": "Xylem execution plan version 7",
+  "$id": "https://xylem.ornl.gov/schema/execution-plan-v8.schema.json",
+  "title": "Xylem execution plan version 8",
   "type": "object",
   "additionalProperties": false,
-  "required": ["configuration", "containers", "gpu_monitoring", "inputs", "modules", "resume", "schema_version"],
+  "required": ["configuration", "containers", "gpu_monitoring", "inputs", "modules", "resume", "sandbox", "schema_version"],
   "properties": {
     "configuration": { "type": "object" },
     "containers": {
@@ -140,6 +140,38 @@
       }
     },
     "resume": { "type": "boolean" },
-    "schema_version": { "const": 7 }
+    "sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend", "image", "isolation", "mode", "policy_digest", "resources"],
+      "properties": {
+        "backend": { "enum": ["docker", "podman", null] },
+        "image": { "type": ["string", "null"] },
+        "isolation": { "enum": ["none", "shared_kernel"] },
+        "mode": { "enum": ["off", "required"] },
+        "policy_digest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "resources": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["artifact_bytes", "artifact_files", "captured_output_bytes", "cpu_millis", "memory_bytes", "pids", "scratch_bytes", "wall_time_seconds"],
+              "properties": {
+                "artifact_bytes": { "type": "integer", "minimum": 1 },
+                "artifact_files": { "type": "integer", "minimum": 1 },
+                "captured_output_bytes": { "type": "integer", "minimum": 1 },
+                "cpu_millis": { "type": "integer", "minimum": 1 },
+                "memory_bytes": { "type": "integer", "minimum": 1 },
+                "pids": { "type": "integer", "minimum": 1 },
+                "scratch_bytes": { "type": "integer", "minimum": 1 },
+                "wall_time_seconds": { "type": "integer", "minimum": 1 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "schema_version": { "const": 8 }
   }
 }

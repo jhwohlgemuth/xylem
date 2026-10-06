@@ -1,5 +1,5 @@
 use crate::cli::DEFAULT_CONFIG_NAMES;
-use acorn_cmd::ExecutionOptions;
+use acorn_cmd::{CaptureLimits, ExecutionOptions, OutputSink, OutputStream};
 use acorn_host::config::resolve_config_path;
 use acorn_host::terminal::Label;
 use acorn_schema::validation::Validate;
@@ -7,6 +7,7 @@ use alloc::collections::BTreeSet;
 use alloc::sync::Arc;
 use clap_verbosity_flag::Verbosity;
 use core::fmt;
+use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use nanoid::nanoid;
@@ -22,6 +23,7 @@ use xylem_lib::execution::{ExecutionContext, ExecutionLimits};
 use xylem_lib::gpu::{GpuMonitor, GpuMonitorError};
 use xylem_lib::journal::{
     ConfigurationIdentity, ContainerState, ExecutionState, FinalStatus, JournalContainer, JournalInput, JournalModule, RunJournal, RunMetadata,
+    SandboxEvidence,
 };
 use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::ExecutionPlan;
@@ -30,48 +32,95 @@ use xylem_lib::remote::RemotePolicy;
 use xylem_lib::run::store::{Bundle, Manifest, Store, TaskLogSink};
 use xylem_lib::run::telemetry::SystemMonitor;
 use xylem_lib::run::RunCancellation;
+use xylem_lib::sandbox::EffectiveSandboxPolicy;
 use xylem_lib::script::{managed_container_name, ContainerCleanup, EnvironmentValue, ModuleType, ModuleUri, Script};
 use xylem_lib::util::deduplicate;
 use xylem_lib::ReporterType;
 
 const CANCELLED_EXIT_CODE: i32 = 130;
-
+struct BoundedTaskLogSink {
+    inner: TaskLogSink,
+    limit: Option<u64>,
+    stderr: AtomicU64,
+    stdout: AtomicU64,
+}
 struct LoggedModuleExecutor {
     bundle: Bundle,
     cancellation: RunCancellation,
+    run_id: String,
+    sandbox: Option<EffectiveSandboxPolicy>,
 }
-
 /// Failure returned to the executable boundary with a stable exit code.
 #[derive(Debug)]
 pub struct RunFailure {
     exit_code: i32,
     message: String,
 }
-
 struct WorkflowProgress {
     preparation: ProgressBar,
     execution: ProgressBar,
 }
-
+impl BoundedTaskLogSink {
+    fn new(inner: TaskLogSink, limit: Option<u64>) -> Self {
+        Self {
+            inner,
+            limit,
+            stderr: AtomicU64::new(0),
+            stdout: AtomicU64::new(0),
+        }
+    }
+}
+impl OutputSink for BoundedTaskLogSink {
+    fn write(&self, stream: OutputStream, bytes: &[u8]) -> io::Result<()> {
+        let counter = match stream {
+            | OutputStream::Stderr => &self.stderr,
+            | OutputStream::Stdout => &self.stdout,
+        };
+        self.limit
+            .map_or(Ok(()), |limit| {
+                let bytes = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+                counter
+                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                        current.checked_add(bytes).filter(|updated| *updated <= limit)
+                    })
+                    .map(|_| ())
+                    .map_err(|_| io::Error::other(format!("sandbox output exceeded the {limit}-byte per-stream limit")))
+            })
+            .and_then(|()| self.inner.write(stream, bytes))
+    }
+}
 impl From<&RunFailure> for FinalStatus {
     fn from(_: &RunFailure) -> Self {
         Self::Failed
     }
 }
-
 impl From<RunFailure> for FinalStatus {
     fn from(_: RunFailure) -> Self {
         Self::Failed
     }
 }
-
 impl ModuleExecutor for LoggedModuleExecutor {
     fn execute(&self, script: &Script, input_index: usize, module_index: usize) -> Result<(), xylem_lib::error::ProcessError> {
         let sink = TaskLogSink::module(self.bundle.clone(), input_index, module_index);
+        let output_limit = self.sandbox.as_ref().map(|sandbox| sandbox.policy.resources.captured_output_bytes);
         let options = ExecutionOptions::new()
             .with_cancellation(self.cancellation.token())
-            .with_sink(sink.clone());
-        let result = script.execute_checked(&options).map(|execution| {
+            .with_sink(BoundedTaskLogSink::new(sink.clone(), output_limit));
+        let options = self.sandbox.as_ref().map_or(options.clone(), |sandbox| {
+            let captured_output_bytes = usize::try_from(sandbox.policy.resources.captured_output_bytes).unwrap_or(usize::MAX);
+            options
+                .with_capture_limits(CaptureLimits::new(Some(captured_output_bytes), None))
+                .with_timeout(Duration::from_secs(sandbox.policy.resources.wall_time_seconds))
+        });
+        let container_name = format!("xylem-{}-{input_index}-{module_index}", self.run_id);
+        let execution = self.sandbox.as_ref().map_or_else(
+            || script.execute_checked(&options),
+            |sandbox| sandbox.execute(script, &container_name, &options),
+        );
+        if let Some(sandbox) = &self.sandbox {
+            sandbox.cleanup(&container_name, execution.is_ok());
+        }
+        let result = execution.map(|execution| {
             let stdout = String::from_utf8_lossy(execution.stdout().bytes());
             let stderr = String::from_utf8_lossy(execution.stderr().bytes());
             if !stdout.is_empty() {
@@ -92,12 +141,25 @@ impl ModuleExecutor for LoggedModuleExecutor {
             | (Ok(()), Err(output)) => Err(output),
         }
     }
-
     fn is_cancellation_requested(&self) -> bool {
         self.cancellation.is_requested()
     }
 }
-
+impl core::error::Error for RunFailure {}
+impl fmt::Display for RunFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.message.fmt(formatter)
+    }
+}
+impl From<GpuMonitorError> for RunFailure {
+    fn from(error: GpuMonitorError) -> Self {
+        match error {
+            | GpuMonitorError::Journal(error) => Self::new(exitcode::IOERR, error.to_string()),
+            | GpuMonitorError::Runtime(message) => Self::new(exitcode::UNAVAILABLE, message),
+            | GpuMonitorError::Thread(message) => Self::new(exitcode::OSERR, message),
+        }
+    }
+}
 impl RunFailure {
     fn new(exit_code: i32, message: impl Into<String>) -> Self {
         Self {
@@ -114,25 +176,35 @@ impl RunFailure {
         self.exit_code
     }
 }
-
-impl core::error::Error for RunFailure {}
-
-impl fmt::Display for RunFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.message.fmt(formatter)
-    }
-}
-
-impl From<GpuMonitorError> for RunFailure {
-    fn from(error: GpuMonitorError) -> Self {
-        match error {
-            | GpuMonitorError::Journal(error) => Self::new(exitcode::IOERR, error.to_string()),
-            | GpuMonitorError::Runtime(message) => Self::new(exitcode::UNAVAILABLE, message),
-            | GpuMonitorError::Thread(message) => Self::new(exitcode::OSERR, message),
+impl ProgressObserver for WorkflowProgress {
+    fn update(&self, update: ProgressUpdate) {
+        let bar = match update.phase {
+            | ProgressPhase::Preparation => &self.preparation,
+            | ProgressPhase::Execution => &self.execution,
+        };
+        match update.state {
+            | ProgressState::Cancelled => {
+                bar.set_position(bar.position().saturating_add(1));
+                bar.set_message(format!("{} cancelled", update.module_path.join("::")));
+            }
+            | ProgressState::Started => {
+                let module = update.module_path.join("::");
+                let message = match update.input {
+                    | Some(input) => format!("{module} · {input}"),
+                    | None => module,
+                };
+                bar.set_message(message);
+            }
+            | ProgressState::Finished | ProgressState::Skipped | ProgressState::SkippedExisting => {
+                bar.set_position(bar.position().saturating_add(1));
+            }
+            | ProgressState::Failed => {
+                bar.set_position(bar.position().saturating_add(1));
+                bar.set_message(format!("{} failed", update.module_path.join("::")));
+            }
         }
     }
 }
-
 impl WorkflowProgress {
     fn new(preparation_total: u64, execution_total: u64, disabled: bool) -> Self {
         match disabled {
@@ -170,41 +242,11 @@ impl WorkflowProgress {
         }
     }
 }
-
-impl ProgressObserver for WorkflowProgress {
-    fn update(&self, update: ProgressUpdate) {
-        let bar = match update.phase {
-            | ProgressPhase::Preparation => &self.preparation,
-            | ProgressPhase::Execution => &self.execution,
-        };
-        match update.state {
-            | ProgressState::Cancelled => {
-                bar.set_position(bar.position().saturating_add(1));
-                bar.set_message(format!("{} cancelled", update.module_path.join("::")));
-            }
-            | ProgressState::Started => {
-                let module = update.module_path.join("::");
-                let message = match update.input {
-                    | Some(input) => format!("{module} · {input}"),
-                    | None => module,
-                };
-                bar.set_message(message);
-            }
-            | ProgressState::Finished | ProgressState::Skipped | ProgressState::SkippedExisting => {
-                bar.set_position(bar.position().saturating_add(1));
-            }
-            | ProgressState::Failed => {
-                bar.set_position(bar.position().saturating_add(1));
-                bar.set_message(format!("{} failed", update.module_path.join("::")));
-            }
-        }
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 /// Resolve, validate, plan, execute, journal, and report one workflow run.
 pub fn run(
     config: &Option<PathBuf>,
+    sandbox_policy: &Option<PathBuf>,
     reporter: &[ReporterType],
     report_output: &Option<PathBuf>,
     artifact_output: &Option<PathBuf>,
@@ -243,51 +285,77 @@ pub fn run(
             RunFailure::new(exit_code, why.to_string())
         })
         .and_then(|mut preview| {
-            artifact_output
-                .as_ref()
-                .map_or(Ok(()), |output| {
-                    output.to_str().map_or_else(
-                        || Err(RunFailure::new(exitcode::USAGE, "--artifact-output must be valid UTF-8")),
-                        |output| {
-                            preview.output = Some(output.to_string());
-                            preview
-                                .variables
-                                .get_or_insert_default()
-                                .insert("OUTPUT_DIRECTORY".to_string(), serde_json::Value::String(output.to_string()));
-                            preview.modules.iter_mut().for_each(|module| {
-                                if let Some(variables) = &mut module.variables {
-                                    if variables.contains_key("OUTPUT_DIRECTORY") {
-                                        variables.insert("OUTPUT_DIRECTORY".to_string(), serde_json::Value::String(output.to_string()));
+            let effective_sandbox = match (preview.sandbox, sandbox_policy.as_deref()) {
+                | (false, None) => Ok(None),
+                | (false, Some(_)) => Err(RunFailure::new(
+                    exitcode::USAGE,
+                    "--sandbox-policy requires workflow configuration sandbox: true",
+                )),
+                | (true, None) => Err(RunFailure::new(
+                    exitcode::USAGE,
+                    "workflow configuration sandbox: true requires --sandbox-policy <PATH>",
+                )),
+                | (true, Some(path)) => EffectiveSandboxPolicy::read(path)
+                    .map(Some)
+                    .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string())),
+            };
+            effective_sandbox.and_then(|effective_sandbox| {
+                artifact_output
+                    .as_ref()
+                    .map_or(Ok(()), |output| {
+                        output.to_str().map_or_else(
+                            || Err(RunFailure::new(exitcode::USAGE, "--artifact-output must be valid UTF-8")),
+                            |output| {
+                                preview.output = Some(output.to_string());
+                                preview
+                                    .variables
+                                    .get_or_insert_default()
+                                    .insert("OUTPUT_DIRECTORY".to_string(), serde_json::Value::String(output.to_string()));
+                                preview.modules.iter_mut().for_each(|module| {
+                                    if let Some(variables) = &mut module.variables {
+                                        if variables.contains_key("OUTPUT_DIRECTORY") {
+                                            variables.insert("OUTPUT_DIRECTORY".to_string(), serde_json::Value::String(output.to_string()));
+                                        }
                                     }
-                                }
-                            });
-                            Ok(())
-                        },
-                    )
-                })
-                .map(|()| {
-                    let options = preview.options.take().unwrap_or_else(|| ConfigOptions::init().build());
-                    let allowed = cli_allowed.clone().or(options.allowed.clone());
-                    let dry_run = cli_dry_run || options.dry_run.unwrap_or_default();
-                    let gpu_monitor = cli_gpu_monitor || options.gpu_monitor.unwrap_or_default();
-                    let offline = cli_offline || options.offline.unwrap_or_default();
-                    let resume = cli_resume || options.resume.unwrap_or_default();
-                    let skip_verify_checksum = cli_skip_verify_checksum || options.skip_verify_checksum.unwrap_or_default();
-                    let skip_verify_requirements = cli_skip_verify_requirements || options.skip_verify_requirements.unwrap_or_default();
-                    preview.options = Some(
-                        options
-                            .with_allowed(allowed)
-                            .with_dry_run(Some(dry_run))
-                            .with_gpu_monitor(Some(gpu_monitor))
-                            .with_offline(Some(offline))
-                            .with_resume(Some(resume))
-                            .with_skip_verify_checksum(Some(skip_verify_checksum))
-                            .with_skip_verify_requirements(Some(skip_verify_requirements))
-                            .with_container_cleanup(cli_container_cleanup)
-                            .with_forward_container_env(!cli_no_container_env),
-                    );
-                    preview
-                })
+                                });
+                                Ok(())
+                            },
+                        )
+                    })
+                    .map(|()| {
+                        let options = preview.options.take().unwrap_or_else(|| ConfigOptions::init().build());
+                        let allowed = cli_allowed.clone().or(options.allowed.clone());
+                        let dry_run = cli_dry_run || options.dry_run.unwrap_or_default();
+                        let gpu_monitor = cli_gpu_monitor || options.gpu_monitor.unwrap_or_default();
+                        let offline = cli_offline || options.offline.unwrap_or_default();
+                        let resume = cli_resume || options.resume.unwrap_or_default();
+                        let skip_verify_checksum = cli_skip_verify_checksum || options.skip_verify_checksum.unwrap_or_default();
+                        let skip_verify_requirements = cli_skip_verify_requirements || options.skip_verify_requirements.unwrap_or_default();
+                        preview.options = Some(
+                            options
+                                .with_allowed(allowed)
+                                .with_dry_run(Some(dry_run))
+                                .with_gpu_monitor(Some(gpu_monitor))
+                                .with_offline(Some(offline))
+                                .with_resume(Some(resume))
+                                .with_skip_verify_checksum(Some(skip_verify_checksum))
+                                .with_skip_verify_requirements(Some(skip_verify_requirements))
+                                .with_container_cleanup(cli_container_cleanup)
+                                .with_forward_container_env(!cli_no_container_env)
+                                .with_sandbox_policy(effective_sandbox),
+                        );
+                        preview
+                    })
+            })
+        })
+        .and_then(|preview| {
+            preview
+                .options
+                .as_ref()
+                .and_then(|options| options.sandbox_policy.as_ref())
+                .map_or(Ok(()), |policy| policy.validate_configuration(&preview))
+                .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
+                .map(|()| preview)
         })
         .and_then(|preview| {
             let options = preview.options.as_ref();
@@ -332,9 +400,29 @@ pub fn run(
         })
         .and_then(|preview| {
             preview
+                .options
+                .as_ref()
+                .and_then(|options| options.sandbox_policy.as_ref())
+                .map_or(Ok(()), |policy| {
+                    policy.validate_input_discovery(&preview, &config_path, cli_input.as_deref())
+                })
+                .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
+                .map(|()| preview)
+        })
+        .and_then(|preview| {
+            preview
                 .resolve_inputs(cli_input.as_deref(), &config_path)
                 .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
                 .map(|inputs| (preview, inputs))
+        })
+        .and_then(|(preview, inputs)| {
+            preview
+                .options
+                .as_ref()
+                .and_then(|options| options.sandbox_policy.as_ref())
+                .map_or(Ok(()), |policy| policy.validate_workflow(&preview, &inputs.values))
+                .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
+                .map(|()| (preview, inputs))
         })
         .and_then(|(preview, inputs)| {
             RemotePolicy::from_hosts(preview.options.as_ref().and_then(|options| options.allowed.as_deref()))
@@ -389,8 +477,15 @@ pub fn run(
             }
         },
         | Ok((preview, inputs, plan)) => {
-            let execution =
-                ExecutionContext::new(limits).map_err(|why| RunFailure::new(exitcode::OSERR, format!("initialize Xylem worker pool — {why}")));
+            let execution = preview
+                .options
+                .as_ref()
+                .and_then(|options| options.sandbox_policy.as_ref())
+                .map_or(Ok(()), |policy| policy.discover().map(|_| ()))
+                .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
+                .and_then(|()| {
+                    ExecutionContext::new(limits).map_err(|why| RunFailure::new(exitcode::OSERR, format!("initialize Xylem worker pool — {why}")))
+                });
             match execution {
                 | Ok(execution) => {
                     debug!(threads = execution.limits().threads(), "=> {} Rayon worker limit", Label::using());
@@ -460,7 +555,11 @@ pub fn run(
                                                             version: cfg.version.clone(),
                                                         };
                                                         let dry_run = options.dry_run.unwrap_or_default();
-                                                        let metadata = RunMetadata::now(run_id, configuration, dry_run);
+                                                        let sandbox = options
+                                                            .sandbox_policy
+                                                            .as_ref()
+                                                            .map_or_else(SandboxEvidence::off, SandboxEvidence::required);
+                                                        let metadata = RunMetadata::now(run_id, configuration, dry_run, sandbox);
                                                         let journal_containers = plan
                                                             .containers
                                                             .iter()
@@ -492,6 +591,8 @@ pub fn run(
                                                                 let module_executor = LoggedModuleExecutor {
                                                                     bundle: bundle.clone(),
                                                                     cancellation: cancellation.clone().unwrap_or_default(),
+                                                                    run_id: id.clone(),
+                                                                    sandbox: options.sandbox_policy.clone(),
                                                                 };
                                                                 info!(path = %journal_path.display(), run_id = id, "=> {} Execution journal", Label::using());
                                                                 let progress_disabled =
@@ -535,14 +636,17 @@ pub fn run(
                                                                             .unwrap_or_else(|| ConfigOptions::init().root(root.clone()).build());
                                                                         let concurrency = execution.input_concurrency(options.batch);
                                                                         debug!(concurrency, "=> {} Active workflow input limit", Label::using());
-                                                                        let lifecycle = ContainerLifecycle::start(
-                                                                            &prepared,
-                                                                            &required_modules,
-                                                                            options.root.as_deref().unwrap_or(root.as_path()),
-                                                                            &id,
-                                                                            options.offline.unwrap_or_default(),
-                                                                            options.container_cleanup,
-                                                                        )
+                                                                        let lifecycle = match options.sandbox_policy.is_some() {
+                                                                            | true => Ok(ContainerLifecycle::default()),
+                                                                            | false => ContainerLifecycle::start(
+                                                                                &prepared,
+                                                                                &required_modules,
+                                                                                options.root.as_deref().unwrap_or(root.as_path()),
+                                                                                &id,
+                                                                                options.offline.unwrap_or_default(),
+                                                                                options.container_cleanup,
+                                                                            ),
+                                                                        }
                                                                         .map_err(|why| {
                                                                             journal_containers.iter().for_each(|container| {
                                                                                 let _ = journal.transition_container(
@@ -866,7 +970,6 @@ pub fn run(
         | Err(failure) => Err(failure),
     }
 }
-
 fn should_write_journal_location(reporters: &[ReporterType]) -> bool {
     !reporters.is_empty() && !reporters.contains(&ReporterType::Console)
 }

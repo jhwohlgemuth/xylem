@@ -7,7 +7,6 @@ use xylem_lib::ReporterType;
 
 /// Ordered default workflow configuration names.
 pub const DEFAULT_CONFIG_NAMES: [&str; 4] = [".xylem.json", ".xylem.jsonc", ".xylem.yaml", ".xylem.yml"];
-
 #[derive(Debug, Subcommand)]
 #[command(long_about = None)]
 /// Top-level Xylem commands.
@@ -78,7 +77,6 @@ pub enum Commands {
         config: Option<PathBuf>,
     },
 }
-
 ///
 ///
 /// ░  ░░░░  ░░  ░░░░  ░░  ░░░░░░░░        ░░  ░░░░  ░
@@ -104,6 +102,9 @@ pub struct Arguments {
     /// Disable interactive workflow progress indicators
     #[arg(long, global = true)]
     pub no_progress: bool,
+    /// Trusted operator policy used only by workflows with `sandbox: true`
+    #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath, global = true)]
+    pub sandbox_policy: Option<PathBuf>,
     #[command(subcommand)]
     /// Command to execute; omission prints no output and exits successfully.
     pub command: Option<Commands>,
