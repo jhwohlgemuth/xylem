@@ -108,10 +108,17 @@ Docker context, uses `oklahoma` by default, and retains outputs and evidence in
 overwrite a results directory containing `observations.jsonl`. A host bind is
 used so automated Docker image and volume cleanup cannot discard the evidence.
 
-Only four approved cases currently exist, so the manifest provides the minimum
-three training cases and one holdout case but cannot define a two-case holdout
-mix. The base manifest excludes Module O; use the separate A/P/O workflow below
-when owner-supplied Earthdata credentials are available.
+The accepted manifests currently contain four cases: the minimum three training
+cases and one holdout case, so they do not define a two-case holdout mix. A
+fifth private candidate,
+`GSED/common/imagery-processing/test-cases/test-case-wv02-large-low-mid`, is
+available at commit `fc4cd2647bdc8ca9c561c44bb038ab71bb9c1cb7` but is not yet
+part of either accepted decision. Materialize it without Git metadata, inventory
+its exact input features, and measure it individually before pairing it with
+the existing holdout in new A/P and A/P/O mix runs. Retain the existing evidence
+directories and estimator identities unchanged unless a new gate is accepted.
+The base manifest excludes Module O; use the separate A/P/O workflow below when
+owner-supplied Earthdata credentials are available.
 
 The accepted 2026-10-03 Oklahoma run, sanitized observations, generated
 analysis, and operator scope are retained in

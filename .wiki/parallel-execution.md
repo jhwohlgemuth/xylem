@@ -40,8 +40,8 @@ Secure acquisition owns generic transport behavior.
 1. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), preserving the landed CEL selection boundary and following the published [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md)
 2. [Kubernetes workflow execution backend](features/kubernetes-workflow-backend.md), after process and immutable environment contracts land
 3. [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md), after process and immutable environment contracts land
-4. [Memory-aware scheduling](features/memory-aware-scheduling.md), whose measurement gate and fixed scheduler prerequisite are complete
-The `options.batch` rolling input ceiling and landed CEL selection snapshot are baselines these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Memory-aware scheduling starts in a new pure library module, then extends durable state without replacing the runner path or store.
+4. [Memory-aware scheduling](features/memory-aware-scheduling.md), whose scoped estimator gates and pure admission model are complete
+The `options.batch` rolling input ceiling and landed CEL selection snapshot are baselines these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Memory-aware scheduling next claims configuration and execution-plan schema ownership; runtime admission and durable state remain later serial integrations. A new fifth imagery case may qualify concurrent admission only after fresh individual and mix measurements.
 
 ### Lane C: CLI and verification
 
@@ -61,7 +61,7 @@ The following slices have disjoint primary write sets:
 | Slice | Primary ownership | Restriction |
 |---|---|---|
 | Hermetic helper preparation | new test-support module and new fixtures | Do not edit CLI roots or rewrite assertions owned by later contracts. |
-| Memory admission model | new `xylem-lib/src/memory.rs` and the `xylem-lib` module list | Do not edit configuration, CLI, execution admission, journal, report, or run-store contracts. |
+| Memory configuration and dry-run plan | memory registry, configuration/validation, plan types/tests, and a new versioned execution-plan schema | Do not edit CLI, execution admission, journal, report, run-store, or module acquisition behavior. |
 | CI rule validation | isolated CI lint inputs and plan notes | Do not edit `Makefile` or `.gitlab-ci.yml` until dependency-gate commands are accepted. |
 
 ## Agent start checklist

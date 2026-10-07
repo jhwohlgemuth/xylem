@@ -22,6 +22,8 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 - Xylem's durable runtime does not yet record peak child-process memory; the
   accepted spike evidence remains separate from production telemetry.
 - Inputs may be files or directories of heterogeneous contents, and different modules can have different peak-memory curves for the same input.
+- The pure estimator and FIFO admission model landed in commit `4df056c`; no
+  configuration, plan, scheduler, CLI, or durable-state contract selects it yet.
 
 # Project code boundaries
 
@@ -64,14 +66,28 @@ configuration, plan, journal, or report contracts.
   observed fixed worst case. Synthetic observations validate the harness but
   never affect the decision.
 
-The four current test-case projects and the Module A/P/O repositories were
-located in `GSED/common/imagery-processing` and pinned on 2026-10-02. Oklahoma
-has clean, Git-free copies of the four inputs. This is enough for three
-training cases and one holdout case, but not a two-case holdout mix. The first
-real run was therefore scoped to Module A plus Module P. A later A/P/O run used
-owner-supplied Earthdata credentials and a measurement wrapper that rejects
-missing or empty Module O outputs, closing the pinned Module O revision's
-worker-error reporting gap for the spike.
+The accepted evidence uses four test-case projects and the pinned Module A/P/O
+repositories located in `GSED/common/imagery-processing` on 2026-10-02.
+Oklahoma has clean, Git-free copies of those four inputs. That corpus provides
+three training cases and one holdout case, but cannot form a two-case holdout
+mix. The first real run was therefore scoped to Module A plus Module P. A later
+A/P/O run used owner-supplied Earthdata credentials and a measurement wrapper
+that rejects missing or empty Module O outputs, closing the pinned Module O
+revision's worker-error reporting gap for the spike.
+
+On 2026-10-07, a fifth private test case,
+`GSED/common/imagery-processing/test-cases/test-case-wv02-large-low-mid`, became
+available at commit `fc4cd2647bdc8ca9c561c44bb038ab71bb9c1cb7`. Its README
+describes four WorldView-2 PAN/MUL tile pairs, and GitLab reports approximately
+2.58 GB of LFS objects. This case is not part of either accepted manifest or
+decision. Before using it, materialize a Git-free copy, record its exact file
+count, input bytes, and checked raster features, and run it as a candidate
+second holdout under both pinned workflows. If its individual observation is
+compatible, pair it with `wv02-medium-mid-high` in a two-case holdout mix. Keep
+production input concurrency at one until both the individual and concurrent
+holdout gates pass. If the accepted coefficients or measured range change,
+publish a new estimator identity rather than changing either `*-v1` identity
+in place.
 
 On 2026-10-03, the scoped Module A plus Module P run completed on Oklahoma with
 five recorded repetitions per case. The sanitized artifacts and operator
@@ -104,68 +120,76 @@ and operator scope are retained under
   fixed worst case.
 - Non-baseline five-run peak ranges were 0.002%–0.242% of each case median.
 
-These decisions authorize implementing the scheduler and telemetry behind
-explicit configuration boundaries for the measured A/P and A/P/O estimators.
-They do not authorize different module revisions, reordered modules,
-out-of-range inputs, or arbitrary workflows. Those cases retain fixed batching.
-Because the approved corpus cannot form a two-case holdout mix, keep production
-input concurrency at one until a concurrent holdout mix validates additive
-reservations; the synthetic scheduler and configuration work can proceed now.
+These decisions authorize configuration and telemetry work behind explicit
+boundaries for the measured A/P and A/P/O estimators. They do not authorize
+different module revisions, reordered modules, out-of-range inputs, arbitrary
+workflows, or concurrent production admission. Those cases retain fixed
+batching. The fifth case makes a concurrent holdout gate possible, but does not
+satisfy it by existing. Synthetic scheduler and configuration work can proceed
+while the expanded measurements run.
 
 # Next implementation slice
 
-Start with a library-only estimator and admission model. This slice proves the
-portable arithmetic and scheduling invariants without changing configuration,
-CLI, execution-plan, journal, report, or run-store schemas.
+Add validated configuration and a versioned dry-run plan representation for
+memory-aware intent. This slice selects a known estimator and explicit budget
+without changing runtime admission, CLI flags, journal, report, or run-store
+behavior.
 
 ## Handoff
 
-- **Prerequisite landing:** the 2026-10-06 Module O measurement harness and
-  evidence currently in the worktree must land before runtime work begins. Its
-  landing commit is pending because these changes are intentionally uncommitted.
-- **Baseline commit:** `12b84b9fc4902b8162626e44cdb76f7af3c4d239`.
-- **Create:** `xylem-lib/src/memory.rs` for checked byte quantities, estimator
-  calculations, reservation decisions, deterministic FIFO admission, and
-  colocated synthetic tests.
-- **Update:** `xylem-lib/src/lib.rs` to expose the new library module.
+- **Prerequisite landing and baseline:**
+  `4df056cabbd3ca4c2c9661f8ac806ae2cbf81866`, which contains the pure memory
+  model and supersedes the earlier measurement-evidence baseline.
+- **Create:** `docs/schema/execution-plan-v9.schema.json` for the versioned plan
+  contract. Do not mutate the version 8 schema.
+- **Update:** `xylem-lib/src/memory/mod.rs` for the accepted estimator registry;
+  `xylem-lib/src/config/mod.rs` and `xylem-lib/src/config/validation.rs` for the
+  configuration type and semantic validation; `xylem-lib/src/config/tests/`
+  for JSON/YAML and rejection cases; `xylem-lib/src/plan.rs` and
+  `xylem-lib/src/tests/plan.rs` for deterministic version 9 plan output.
 - **Delete:** None.
-- **Lock scope:** claim only the new memory scheduler model and the library
-  module list. Do not claim the configuration, CLI, scheduler-integration,
-  run-state, run-store, or documentation locks in this slice.
-- **Public contract:** add only the documented library estimator and admission
-  API. Add no serialized configuration fields, CLI flags, plan fields, journal
-  records, report fields, or automatic host-memory detection.
-- **Dependencies:** add none. Use checked integer or fixed-point arithmetic and
-  always round reservations up.
-- **Focused validation:** `cargo test --locked --package xylem-lib memory` plus
-  `cargo test --locked --package xylem-lib execution::tests`.
+- **Lock scope:** claim the configuration lock and execution-plan schema only.
+  Do not claim the CLI, scheduler, run-state, run-store, report, or general
+  documentation locks.
+- **Public configuration contract:** add nested `options.memory` intent with an
+  explicit positive `budget` using `acorn_schema::hardware::Memory` and an
+  `estimator` identity. Omitting it preserves fixed batching. Accept only known
+  measured identities and reject a module order or declared revision that does
+  not match the registry.
+- **Public plan contract:** version the execution plan to 9 and include the
+  validated memory budget and estimator selection. Do not emit per-input
+  reservations or claim that memory-aware admission would run in this slice.
+- **Dependencies:** add none. Add no host-memory detection and no CLI override.
+- **Focused validation:**
+  `cargo test --locked --package xylem-lib config::tests`,
+  `cargo test --locked --package xylem-lib tests::plan`, and schema fixture
+  validation.
 
-The model must accept an explicit positive budget, positive reservations, and
-the existing `InputBatch` ceiling. It must preserve input order, release a
-reservation exactly once on terminal completion, reject an input whose
-reservation exceeds the entire budget, and return a deterministic admission
-decision without reading host state or starting work. Unsupported estimator
-identities and out-of-range inputs are typed fallback results, not guessed
-reservations.
+Validation must cover JSON/YAML round trips, zero or invalid budgets, missing
+budget or estimator fields, unknown identities, reordered or extra modules,
+wrong or absent declared revisions, unchanged fixed-batching behavior when the
+option is absent, deterministic plan serialization, and the version 9 schema.
+The current leaf-script acquisition path retains a structured `Location`
+revision but does not check out or attest that revision. This slice may validate
+and report the declaration, but runtime estimator activation must remain
+blocked until acquisition enforces the pin or an equivalent content identity.
+Do not widen acquisition behavior while holding only the configuration and plan
+locks.
 
-Required synthetic cases are: exact-budget fit, one-byte-over-budget,
-zero/overflow rejection, release followed by immediate admission, batch lower
-than memory capacity, memory capacity lower than batch, FIFO fairness, stable
-ordering, unsupported estimator fallback, and oversized-input rejection.
-Property tests must show that admitted reservation bytes never exceed the
-budget and admitted count never exceeds `batch` for any transition sequence.
+## Landing order after configuration and planning
 
-## Landing order after the pure model
-
-1. Add validated configuration and dry-run plan types that select only known,
-   measured estimator identities and require an explicit memory budget.
-2. Integrate admission into the existing fail-fast rolling input loop while
+1. In parallel, inventory the fifth test case, add candidate holdout entries
+   and compatible two-case mixes to both measurement manifests, and rerun the
+   A/P and A/P/O gates without overwriting accepted evidence.
+2. Enforce or attest pinned leaf-module revisions at the acquisition boundary.
+3. Integrate admission into the existing fail-fast rolling input loop while
    preserving `options.batch`, `--threads`, cancellation, resume, and ordered
-   outcomes. Keep real input concurrency at one.
-3. Version journal/report evidence for estimator identity, estimated bytes,
+   outcomes. Keep real input concurrency at one unless the concurrent holdout
+   gate is GO.
+4. Version journal/report evidence for estimator identity, estimated bytes,
    budget, safety reserve, fallback reason, and optional observed peak.
-4. Add operational documentation and rerun the accepted real workflows to
-   compare estimates with observed peaks.
+5. Add operational documentation and rerun accepted workflows to compare
+   estimates with observed peaks.
 
 # Recommendation
 
