@@ -17,6 +17,7 @@ COPY --from=builder /workspace/target/release/xylem /usr/local/bin/xylem
 COPY --from=builder /workspace/target/release/xylem-memory-probe /usr/local/bin/xylem-memory-probe
 COPY --from=builder /workspace/target/release/xylem-memory-spike /usr/local/bin/xylem-memory-spike
 COPY tools/memory-spike/docker-measure-entrypoint.sh /usr/local/bin/xylem-memory-docker-measure
+COPY tools/memory-spike/module-o-measure.sh /usr/local/bin/xylem-memory-module-o
 COPY tools/memory-spike/real /opt/xylem-memory/real
 
 ENV PATH=/opt/conda/bin:$PATH \

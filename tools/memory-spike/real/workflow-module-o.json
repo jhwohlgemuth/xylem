@@ -1,0 +1,85 @@
+{
+  "version": "1.0.3",
+  "id": "memory-spike-module-a-p-o",
+  "description": "Pinned Module A, P, and O memory-spike workflow",
+  "requirements": ["python"],
+  "keywords": ["memory-spike"],
+  "output": "/measurement/artifacts",
+  "modules": [
+    {
+      "name": "Module A",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:///workload/modules/module-a",
+      "variables": {
+        "METHOD": "boa_reflectance",
+        "PROFILE": "urban"
+      },
+      "completion": {
+        "outputs": ["{{ OUTPUT_DIRECTORY }}/**/*_MODA.TIF"]
+      },
+      "template": {
+        "command": "python",
+        "arguments": [
+          "-m",
+          "lib",
+          "--input_directory",
+          "{{ INPUT }}",
+          "--output_directory",
+          "{{ OUTPUT_DIRECTORY }}",
+          "--method",
+          "{{ METHOD }}",
+          "--profile",
+          "{{ PROFILE }}"
+        ]
+      }
+    },
+    {
+      "name": "Module P",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:///workload/modules/module-p",
+      "variables": {
+        "METHOD": "nn_diffuse",
+        "SOURCE_DIRECTORY": "{{ OUTPUT_DIRECTORY }}"
+      },
+      "completion": {
+        "outputs": ["{{ OUTPUT_DIRECTORY }}/**/*_MODA_MODP.TIF"]
+      },
+      "template": {
+        "command": "python",
+        "arguments": [
+          "-m",
+          "lib",
+          "--source_directory",
+          "{{ SOURCE_DIRECTORY }}",
+          "--output_directory",
+          "{{ OUTPUT_DIRECTORY }}",
+          "--method",
+          "{{ METHOD }}",
+          "--module_list",
+          "MODA, MODP, MODO"
+        ]
+      }
+    },
+    {
+      "name": "Module O",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:///workload/modules/module-o",
+      "variables": {
+        "SOURCE_DIRECTORY": "{{ OUTPUT_DIRECTORY }}"
+      },
+      "completion": {
+        "outputs": ["{{ OUTPUT_DIRECTORY }}/**/*_MODA_MODP_MODO.TIF"]
+      },
+      "template": {
+        "command": "xylem-memory-module-o",
+        "arguments": [
+          "{{ SOURCE_DIRECTORY }}",
+          "{{ OUTPUT_DIRECTORY }}"
+        ]
+      }
+    }
+  ]
+}

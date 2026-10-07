@@ -20,8 +20,9 @@ memory-aware scheduling --later extension--> durable workflow state
 
 Secure acquisition still waits for its acquisition-location APIs. The landed
 runtime preserves current fixed concurrency; the environment/concurrency
-refactor and blocked memory-aware scheduler later consume or extend its runner
-path and durable contracts.
+refactor later consumes its runner path. The memory-aware measurement gate is
+complete, so its pure library model may start before later scheduler and
+durable-contract integration.
 
 ## Quality and delivery path
 
@@ -39,7 +40,7 @@ The hermetic test plan starts immediately with host-independent fixtures. Its fi
 
 - [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) follows the process and immutable-environment contracts. It owns the outer local-controller/in-cluster-worker target, shared-PVC protocol, Kubernetes lifecycle commands, and runner-image contract; it does not implement sandbox policy or module-container translation.
 - [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md) follows the process and immutable-environment contracts and coordinates with secure acquisition. It owns policy resolution, provider capability negotiation, session lifecycle, and the rule that workflow-controlled subprocesses cannot bypass the sandbox.
-- [Memory-aware scheduling](features/memory-aware-scheduling.md) builds on the fixed scheduler boundary and journal telemetry. Only its measurement spike may proceed before an estimator is accepted.
+- [Memory-aware scheduling](features/memory-aware-scheduling.md) builds on the fixed scheduler boundary and journal telemetry. Its A/P and A/P/O estimators are accepted; begin with the isolated pure library model before claiming scheduler, CLI, or run-state locks.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) consumes the error, process, configuration, and ACORN migration contracts.
 - [MCP-enabled tenant tools](features/mcp-tenant-tools.md) follows ACORN's dependency-capability cleanup and outbound MCP embedder-interface plan. It consumes direct server-map construction and cancellation-aware calls without bypassing Xylem planning, effect policy, journaling, or the existing module runner.
 - Required CI owns enforcement of the accepted dependency graph and advisory policy.

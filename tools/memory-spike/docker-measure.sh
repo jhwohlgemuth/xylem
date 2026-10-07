@@ -4,10 +4,29 @@ set -eu
 cache_volume=${CACHE_VOLUME:-xylem-memory-cache}
 context=${DOCKER_CONTEXT:-oklahoma}
 image=xylem-memory-spike-measure:local
+manifest=${MEASUREMENT_MANIFEST:-manifest.json}
 memory_limit=${MEMORY_LIMIT:-64g}
 repository=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
+results_directory=${RESULTS_DIRECTORY:-results}
 workload_root=${WORKLOAD_ROOT:-/home/o9w/xylem-memory}
-results_root=${workload_root}/results
+results_root=${workload_root}/${results_directory}
+
+case "${manifest}" in
+  *[!A-Za-z0-9._-]*|'')
+    printf 'MEASUREMENT_MANIFEST must be a filename under tools/memory-spike/real\n' >&2
+    exit 1
+    ;;
+esac
+case "${results_directory}" in
+  *[!A-Za-z0-9._-]*|'')
+    printf 'RESULTS_DIRECTORY must be a directory name under WORKLOAD_ROOT\n' >&2
+    exit 1
+    ;;
+esac
+if [ "${manifest}" = manifest-module-o.json ] && [ -z "${EARTHDATA_API_TOKEN:-}" ]; then
+  printf 'EARTHDATA_API_TOKEN is required for the Module O measurement\n' >&2
+  exit 1
+fi
 
 server=$(docker --context "${context}" info --format '{{.OSType}}|{{.Architecture}}|{{.CgroupVersion}}|{{.OperatingSystem}}')
 server_os=${server%%|*}
@@ -56,10 +75,11 @@ docker --context "${context}" run --rm \
   --entrypoint sh \
   --mount "type=bind,source=${workload_root},target=/workload" \
   "${image}" \
-  -ceu 'test -d /workload/corpus && test -d /workload/modules/data && mkdir -p /workload/results && test ! -e /workload/results/observations.jsonl'
+  -ceu "test -d /workload/corpus && test -d /workload/modules/data && mkdir -p /workload/${results_directory} && test ! -e /workload/${results_directory}/observations.jsonl"
 
-docker --context "${context}" run \
+set -- docker --context "${context}" run \
   --cgroupns private \
+  --env XYLEM_RUN_STORE=/measurement/runs \
   --memory "${memory_limit}" \
   --memory-swap "${memory_limit}" \
   --mount "type=bind,source=${workload_root},target=/workload,readonly" \
@@ -72,14 +92,19 @@ docker --context "${context}" run \
   --read-only \
   --rm \
   --shm-size 1g \
-  --tmpfs /tmp:rw,nosuid,nodev,size=8g \
+  --tmpfs /tmp:rw,nosuid,nodev,size=8g
+if [ "${manifest}" = manifest-module-o.json ]; then
+  set -- "$@" --env EARTHDATA_API_TOKEN
+fi
+set -- "$@" \
   "${image}" \
   xylem-memory-spike measure \
-  --manifest /opt/xylem-memory/real/manifest.json \
+  --manifest "/opt/xylem-memory/real/${manifest}" \
   --cgroup-root /sys/fs/cgroup \
   --xylem /usr/local/bin/xylem \
   --work-root /measurement/work \
   --observations /measurement/observations.jsonl
+"$@"
 
 docker --context "${context}" run --rm \
   --entrypoint xylem-memory-spike \
@@ -88,7 +113,7 @@ docker --context "${context}" run --rm \
   --read-only \
   "${image}" \
   analyze \
-  --manifest /opt/xylem-memory/real/manifest.json \
+  --manifest "/opt/xylem-memory/real/${manifest}" \
   --observations /measurement/observations.jsonl \
   --json /measurement/analysis.json \
   --markdown /measurement/report.md

@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "estimators": [
+    {
+      "key": "module-a-p-o-v1",
+      "required_for_go": true,
+      "baseline_case_id": "baseline-module-a-p-o",
+      "modules": [
+        {
+          "name": "module-a",
+          "version": "unversioned",
+          "revision": "2396c36644a89170bde2da2f29a65a364b21338c"
+        },
+        {
+          "name": "module-p",
+          "version": "unversioned",
+          "revision": "a80b166736e8174171e398653fda925d3c124fae"
+        },
+        {
+          "name": "module-o",
+          "version": "unversioned",
+          "revision": "404ab3bccb64e0c7823f5eb577cc491f695bbf2b"
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "baseline-module-a-p-o",
+      "estimator_key": "module-a-p-o-v1",
+      "partition": "baseline",
+      "config": "baseline.json",
+      "input": null,
+      "features": {
+        "file_count": 0,
+        "input_bytes": 0,
+        "decoded_bytes": 0,
+        "rasters": []
+      }
+    },
+    {
+      "case_id": "ge01-medium-low-mid-module-a-p-o",
+      "estimator_key": "module-a-p-o-v1",
+      "partition": "training",
+      "config": "workflow-module-o.json",
+      "input": "/workload/corpus/test-case-GE01-medium-low-mid",
+      "features": {
+        "file_count": 47,
+        "input_bytes": 529854516,
+        "decoded_bytes": 2210398208,
+        "rasters": [
+          {
+            "width": 10240,
+            "height": 6144,
+            "bands": 4,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          },
+          {
+            "width": 37888,
+            "height": 22528,
+            "bands": 1,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "wv02-medium-mid-high-module-a-p-o",
+      "estimator_key": "module-a-p-o-v1",
+      "partition": "holdout",
+      "config": "workflow-module-o.json",
+      "input": "/workload/corpus/test-case-WV02-medium-mid-high",
+      "features": {
+        "file_count": 48,
+        "input_bytes": 678219617,
+        "decoded_bytes": 2805989376,
+        "rasters": [
+          {
+            "width": 9216,
+            "height": 8192,
+            "bands": 4,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          },
+          {
+            "width": 35840,
+            "height": 30720,
+            "bands": 1,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "wv03-large-high-mid-module-a-p-o",
+      "estimator_key": "module-a-p-o-v1",
+      "partition": "training",
+      "config": "workflow-module-o.json",
+      "input": "/workload/corpus/test-case-wv03-large-high-mid",
+      "features": {
+        "file_count": 47,
+        "input_bytes": 1037649019,
+        "decoded_bytes": 4357881856,
+        "rasters": [
+          {
+            "width": 11264,
+            "height": 10240,
+            "bands": 4,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          },
+          {
+            "width": 43008,
+            "height": 39936,
+            "bands": 1,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "wv03-large-mid-low-module-a-p-o",
+      "estimator_key": "module-a-p-o-v1",
+      "partition": "training",
+      "config": "workflow-module-o.json",
+      "input": "/workload/corpus/test-case-wv03-large-mid-low",
+      "features": {
+        "file_count": 47,
+        "input_bytes": 1143813163,
+        "decoded_bytes": 4357881856,
+        "rasters": [
+          {
+            "width": 11264,
+            "height": 10240,
+            "bands": 4,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          },
+          {
+            "width": 43008,
+            "height": 39936,
+            "bands": 1,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          }
+        ]
+      }
+    }
+  ],
+  "mixes": []
+}

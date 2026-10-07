@@ -110,15 +110,34 @@ used so automated Docker image and volume cleanup cannot discard the evidence.
 
 Only four approved cases currently exist, so the manifest provides the minimum
 three training cases and one holdout case but cannot define a two-case holdout
-mix. Module O is excluded from this run because its DEM acquisition requires
-owner-supplied Earthdata/ASTER credentials. Its current process-pool boundary
-also fails to propagate worker errors, so a missing DEM can otherwise appear
-as a successful module command without an orthorectified raster.
+mix. The base manifest excludes Module O; use the separate A/P/O workflow below
+when owner-supplied Earthdata credentials are available.
 
 The accepted 2026-10-03 Oklahoma run, sanitized observations, generated
 analysis, and operator scope are retained in
 `evidence/oklahoma-2026-10-03/`. The GO decision applies only to the pinned
 Module A plus Module P sequence and measured input-byte range.
+
+### Measure the pinned Module A, P, and O workflow
+
+Store `EARTHDATA_API_TOKEN` in the ignored repository-root `.env`, then run:
+
+```shell
+tools/memory-spike/docker-measure-module-o.sh
+```
+
+The wrapper forwards only `EARTHDATA_API_TOKEN` to the measurement container,
+uses `real/manifest-module-o.json`, and writes evidence under
+`/home/o9w/xylem-memory/results-module-o`. Module O runs through a measurement
+wrapper that fails unless every non-empty Module P image produces a non-empty
+orthorectified image. This closes the pinned Module O revision's worker-failure
+reporting gap for the spike without changing that external repository.
+
+The accepted 2026-10-06 Oklahoma A/P/O run, sanitized observations, generated
+analysis, and operator scope are retained in
+`evidence/oklahoma-2026-10-06-module-o/`. Its independent GO decision applies
+only to the pinned Module A, Module P, and Module O sequence, one active input,
+and the measured 529,854,516–1,143,813,163 input-byte range.
 
 ## Analyze
 

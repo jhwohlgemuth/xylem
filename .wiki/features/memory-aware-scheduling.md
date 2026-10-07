@@ -7,6 +7,7 @@ impact: high
 package: [xylem-lib, xylem-cli]
 tags: [feature, scheduler, memory, resources, telemetry, concurrency]
 status: in-progress
+priority: next
 ---
 
 # Goal
@@ -18,7 +19,8 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 - The current execution model assigns equal scheduling weight to every input regardless of input size or module behavior.
 - `--threads` bounds Rayon workers and `options.batch` bounds active inputs, but neither represents memory demand.
 - Workflow `resources` are string values verified as host requirements; they do not provide a quantitative memory budget or estimator.
-- Xylem does not record peak child-process memory, so there is no repository evidence that the example input-to-output size ratios predict peak RAM.
+- Xylem's durable runtime does not yet record peak child-process memory; the
+  accepted spike evidence remains separate from production telemetry.
 - Inputs may be files or directories of heterogeneous contents, and different modules can have different peak-memory curves for the same input.
 
 # Project code boundaries
@@ -29,7 +31,7 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 
 # Dependencies and ordering
 
-This implementation is tracked by [work item #13](https://code.ornl.gov/research-enablement/xylem/-/work_items/13). Measurement may begin independently, but production scheduling depends on the existing `options.batch` input ceiling and deterministic orchestration. Observed-versus-estimated telemetry uses the durable execution journal. Do not add runtime dependencies or public configuration until the spike produces an accepted estimator and error bound.
+This implementation is tracked by [work item #13](https://code.ornl.gov/research-enablement/xylem/-/work_items/13). Production scheduling depends on the existing `options.batch` input ceiling and deterministic orchestration. Observed-versus-estimated telemetry uses the durable execution journal. The estimator gate is now satisfied for the exact A/P and A/P/O scopes below; runtime work must retain those boundaries without adding dependencies.
 
 # Measurement spike status
 
@@ -64,11 +66,12 @@ configuration, plan, journal, or report contracts.
 
 The four current test-case projects and the Module A/P/O repositories were
 located in `GSED/common/imagery-processing` and pinned on 2026-10-02. Oklahoma
-now has clean, Git-free copies of the four inputs. This is enough for three
+has clean, Git-free copies of the four inputs. This is enough for three
 training cases and one holdout case, but not a two-case holdout mix. The first
-real run is therefore scoped to Module A plus Module P. Module O remains
-blocked on owner-supplied Earthdata/ASTER DEM credentials; its current worker
-pool also does not propagate a failed DEM worker to the module exit status.
+real run was therefore scoped to Module A plus Module P. A later A/P/O run used
+owner-supplied Earthdata credentials and a measurement wrapper that rejects
+missing or empty Module O outputs, closing the pinned Module O revision's
+worker-error reporting gap for the spike.
 
 On 2026-10-03, the scoped Module A plus Module P run completed on Oklahoma with
 five recorded repetitions per case. The sanitized artifacts and operator
@@ -84,13 +87,85 @@ sign-off are retained under
   fixed worst case.
 - Non-baseline five-run peak ranges were 0.004%–0.012% of each case median.
 
-This decision authorizes implementing the scheduler and telemetry behind an
-explicit configuration boundary for the measured estimator. It does not
-authorize applying the model to Module O, different module revisions,
+On 2026-10-06, the pinned Module A, Module P, and Module O workflow completed
+on Oklahoma with five recorded repetitions per case. The sanitized artifacts
+and operator scope are retained under
+`tools/memory-spike/evidence/oklahoma-2026-10-06-module-o/`.
+
+- The independent gate decision is **GO** for Module A revision
+  `2396c36644a89170bde2da2f29a65a364b21338c`, Module P revision
+  `a80b166736e8174171e398653fda925d3c124fae`, and Module O revision
+  `404ab3bccb64e0c7823f5eb577cc491f695bbf2b`, in that order.
+- The selected input-byte estimator uses a 3,696,455,730.646-byte intercept,
+  29.776 bytes per input byte, and a 1.10 safety multiplier over the same
+  529,854,516–1,143,813,163 input-byte range.
+- It produced zero training or held-out underpredictions, no extrapolations,
+  and a 27.7% median reservation reduction versus the 36,363,116,544-byte
+  fixed worst case.
+- Non-baseline five-run peak ranges were 0.002%–0.242% of each case median.
+
+These decisions authorize implementing the scheduler and telemetry behind
+explicit configuration boundaries for the measured A/P and A/P/O estimators.
+They do not authorize different module revisions, reordered modules,
 out-of-range inputs, or arbitrary workflows. Those cases retain fixed batching.
 Because the approved corpus cannot form a two-case holdout mix, keep production
 input concurrency at one until a concurrent holdout mix validates additive
 reservations; the synthetic scheduler and configuration work can proceed now.
+
+# Next implementation slice
+
+Start with a library-only estimator and admission model. This slice proves the
+portable arithmetic and scheduling invariants without changing configuration,
+CLI, execution-plan, journal, report, or run-store schemas.
+
+## Handoff
+
+- **Prerequisite landing:** the 2026-10-06 Module O measurement harness and
+  evidence currently in the worktree must land before runtime work begins. Its
+  landing commit is pending because these changes are intentionally uncommitted.
+- **Baseline commit:** `12b84b9fc4902b8162626e44cdb76f7af3c4d239`.
+- **Create:** `xylem-lib/src/memory.rs` for checked byte quantities, estimator
+  calculations, reservation decisions, deterministic FIFO admission, and
+  colocated synthetic tests.
+- **Update:** `xylem-lib/src/lib.rs` to expose the new library module.
+- **Delete:** None.
+- **Lock scope:** claim only the new memory scheduler model and the library
+  module list. Do not claim the configuration, CLI, scheduler-integration,
+  run-state, run-store, or documentation locks in this slice.
+- **Public contract:** add only the documented library estimator and admission
+  API. Add no serialized configuration fields, CLI flags, plan fields, journal
+  records, report fields, or automatic host-memory detection.
+- **Dependencies:** add none. Use checked integer or fixed-point arithmetic and
+  always round reservations up.
+- **Focused validation:** `cargo test --locked --package xylem-lib memory` plus
+  `cargo test --locked --package xylem-lib execution::tests`.
+
+The model must accept an explicit positive budget, positive reservations, and
+the existing `InputBatch` ceiling. It must preserve input order, release a
+reservation exactly once on terminal completion, reject an input whose
+reservation exceeds the entire budget, and return a deterministic admission
+decision without reading host state or starting work. Unsupported estimator
+identities and out-of-range inputs are typed fallback results, not guessed
+reservations.
+
+Required synthetic cases are: exact-budget fit, one-byte-over-budget,
+zero/overflow rejection, release followed by immediate admission, batch lower
+than memory capacity, memory capacity lower than batch, FIFO fairness, stable
+ordering, unsupported estimator fallback, and oversized-input rejection.
+Property tests must show that admitted reservation bytes never exceed the
+budget and admitted count never exceeds `batch` for any transition sequence.
+
+## Landing order after the pure model
+
+1. Add validated configuration and dry-run plan types that select only known,
+   measured estimator identities and require an explicit memory budget.
+2. Integrate admission into the existing fail-fast rolling input loop while
+   preserving `options.batch`, `--threads`, cancellation, resume, and ordered
+   outcomes. Keep real input concurrency at one.
+3. Version journal/report evidence for estimator identity, estimated bytes,
+   budget, safety reserve, fallback reason, and optional observed peak.
+4. Add operational documentation and rerun the accepted real workflows to
+   compare estimates with observed peaks.
 
 # Recommendation
 
