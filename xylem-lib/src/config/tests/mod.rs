@@ -57,6 +57,33 @@ fn configuration_files(root: &Path) -> Vec<PathBuf> {
         })
         .collect()
 }
+fn memory_configuration(estimator: Value, modules: Vec<Value>, budget: &str) -> Config {
+    serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": modules,
+        "options": { "memory": { "budget": budget, "estimator": estimator } }
+    }))
+    .expect("memory configuration")
+}
+fn memory_estimator(identity: &str) -> Value {
+    serde_json::json!({
+        "identity": identity,
+        "intercept": "16GB",
+        "maximum_input": "1TB",
+        "minimum_input": "1KB",
+        "safety_millionths": 1_100_000,
+        "slope_millionths": 0
+    })
+}
+fn memory_module(name: &str) -> Value {
+    serde_json::json!({
+        "name": name,
+        "programmingLanguage": "generic",
+        "template": { "arguments": [], "command": "true" },
+        "type": "script",
+        "uri": "file:."
+    })
+}
 
 #[test]
 fn test_all_module_locations_round_trip_scalar_and_structured_forms() {
@@ -959,6 +986,119 @@ fn test_managed_container_validation_requires_owned_fields() {
     }))
     .expect("external container configuration");
     assert!(external_with_image.validate().is_err());
+}
+#[test]
+fn test_memory_configuration_accepts_arbitrary_module_sets() {
+    let config = memory_configuration(
+        memory_estimator("custom-x-y-z-v1"),
+        vec![memory_module("Module X"), memory_module("Module Y"), memory_module("Module Z")],
+        "64GB",
+    );
+    assert!(config.validate().is_ok());
+
+    let empty = memory_configuration(memory_estimator("zero-module-v1"), Vec::new(), "64GB");
+    assert!(empty.validate().is_ok());
+}
+#[test]
+fn test_memory_configuration_rejects_incomplete_or_invalid_budgets() {
+    let estimator = memory_estimator("custom-modules-v1");
+    let modules = vec![memory_module("Anything")];
+    let zero = memory_configuration(estimator.clone(), modules.clone(), "0GB");
+    let direct = zero
+        .options
+        .as_ref()
+        .and_then(|options| options.memory.as_ref())
+        .expect("memory options")
+        .validate()
+        .expect_err("memory options must validate independently");
+    assert!(direct.iter().any(|issue| issue.path == "budget"));
+    let zero = zero.validate().expect_err("zero memory budget must fail");
+    assert!(zero.iter().any(|issue| issue.path == "options.memory.budget"));
+    let mut nonfinite = memory_configuration(estimator.clone(), modules.clone(), "64GB");
+    nonfinite
+        .options
+        .as_mut()
+        .and_then(|options| options.memory.as_mut())
+        .expect("memory options")
+        .budget = Memory::gb(f64::INFINITY);
+    let nonfinite = nonfinite.validate().expect_err("nonfinite memory budget must fail");
+    assert!(nonfinite.iter().any(|issue| issue.path == "options.memory.budget"));
+    for memory in [serde_json::json!({"budget": "64GB"}), serde_json::json!({"estimator": estimator.clone()})] {
+        let document = serde_json::json!({"requirements": [], "modules": modules.clone(), "options": {"memory": memory}});
+        assert!(serde_json::from_value::<Config>(document).is_err());
+    }
+    for budget in [serde_json::json!(-1), serde_json::json!("invalid")] {
+        let document = serde_json::json!({
+            "requirements": [],
+            "modules": [],
+            "options": {"memory": {"budget": budget, "estimator": estimator.clone()}}
+        });
+        assert!(serde_json::from_value::<Config>(document).is_err());
+    }
+}
+#[test]
+fn test_memory_configuration_rejects_invalid_estimators() {
+    let invalid_identity = memory_configuration(memory_estimator("  "), vec![memory_module("Anything")], "64GB")
+        .validate()
+        .expect_err("empty estimator identity must fail");
+    assert!(invalid_identity.iter().any(|issue| issue.path == "options.memory.estimator.identity"));
+
+    let mut reversed = memory_estimator("reversed-range-v1");
+    reversed["maximum_input"] = serde_json::json!("1KB");
+    reversed["minimum_input"] = serde_json::json!("1TB");
+    let reversed = memory_configuration(reversed, vec![memory_module("Anything")], "64GB")
+        .validate()
+        .expect_err("reversed estimator range must fail");
+    assert!(reversed.iter().any(|issue| issue.path == "options.memory.estimator.maximum_input"));
+
+    let mut unsafe_multiplier = memory_estimator("unsafe-multiplier-v1");
+    unsafe_multiplier["safety_millionths"] = serde_json::json!(999_999);
+    let unsafe_multiplier = memory_configuration(unsafe_multiplier, vec![memory_module("Anything")], "64GB")
+        .validate()
+        .expect_err("unsafe multiplier must fail");
+    assert!(unsafe_multiplier
+        .iter()
+        .any(|issue| issue.path == "options.memory.estimator.safety_millionths"));
+
+    let mut zero = memory_estimator("zero-prediction-v1");
+    zero["intercept"] = serde_json::json!("0GB");
+    let zero = memory_configuration(zero, vec![memory_module("Anything")], "64GB")
+        .validate()
+        .expect_err("zero prediction must fail");
+    assert!(zero.iter().any(|issue| issue.path == "options.memory.estimator"));
+
+    let mut nonfinite = memory_configuration(memory_estimator("nonfinite-v1"), vec![memory_module("Anything")], "64GB");
+    nonfinite
+        .options
+        .as_mut()
+        .and_then(|options| options.memory.as_mut())
+        .expect("memory options")
+        .estimator
+        .intercept = Memory::gb(f64::INFINITY);
+    let nonfinite = nonfinite.validate().expect_err("nonfinite estimator memory must fail");
+    assert!(nonfinite.iter().any(|issue| issue.path == "options.memory.estimator.intercept"));
+}
+#[test]
+fn test_memory_configuration_round_trips_through_json_and_yaml() {
+    let config = memory_configuration(
+        memory_estimator("custom-round-trip-v1"),
+        vec![memory_module("First"), memory_module("Second")],
+        "64GB",
+    );
+    assert!(config.validate().is_ok());
+    let serialized = serde_json::to_value(&config).expect("serialize memory configuration");
+    assert_eq!(serialized["options"]["memory"]["budget"], "64GB");
+    assert_eq!(serialized["options"]["memory"]["estimator"]["identity"], "custom-round-trip-v1");
+    assert_eq!(serialized["options"]["memory"]["estimator"]["slope_millionths"], 0);
+    let yaml = serde_norway::to_string(&config).expect("serialize YAML memory configuration");
+    let round_trip = parse_yaml_configuration(&yaml).expect("deserialize YAML memory configuration");
+    assert_eq!(
+        round_trip
+            .options
+            .and_then(|options| options.memory)
+            .and_then(|memory| memory.budget.checked_bytes()),
+        Some(64 * 1024 * 1024 * 1024)
+    );
 }
 #[test]
 fn test_preparation_and_execution_emit_progress_updates() {

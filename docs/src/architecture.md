@@ -64,10 +64,11 @@ classification to a process exit code and renders the terminal diagnostic.
 Resume decisions are made before module preparation from explicit completion
 declarations. The runtime requires both non-empty declared outputs and an exact
 canonical marker identity, and records skips as `skipped_existing`. Execution
-plans, journals, and recovered summaries use schema version 8, including the
-durable `cancelled` state and explicit sandbox-mode evidence. Journal evidence carries both the leaf display name
-and its qualified `module_path`. Dry-run uses a separate in-memory execution
-plan and performs no filesystem writes.
+plans use schema version 9, while journals and recovered summaries remain on
+schema version 8 with the durable `cancelled` state and explicit sandbox-mode
+evidence. Journal evidence carries both the leaf display name and its qualified
+`module_path`. Dry-run uses a separate in-memory execution plan and performs no
+filesystem writes.
 
 See
 [ARCHITECTURE.md](https://code.ornl.gov/research-enablement/xylem/-/blob/main/ARCHITECTURE.md)

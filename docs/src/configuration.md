@@ -118,6 +118,40 @@ Explicit input lists preserve their declared order and duplicate values keep
 their first occurrence. Directory-derived inputs are sorted by path. CLI
 `--input` replaces configured input values rather than appending to them.
 
+## Memory-aware intent
+
+Any workflow can declare a positive memory budget and a complete estimator.
+The estimator is independent of module names, order, count, and revisions:
+
+```yaml
+options:
+  memory:
+    budget: 64GB
+    estimator:
+      identity: my-workflow-v1
+      intercept: 16GB
+      maximum_input: 1TB
+      minimum_input: 1KB
+      safety_millionths: 1100000
+      slope_millionths: 0
+```
+
+`identity` is a stable caller-chosen label for plans and future telemetry.
+`intercept` is the fixed memory contribution. `slope_millionths` is the number
+of memory bytes per input byte, scaled by one million. `safety_millionths` is a
+safety multiplier scaled by one million and must be at least `1000000` (1.0).
+The minimum and maximum input sizes define the model's calibrated range. A
+zero slope is valid when the intercept is positive, allowing a conservative
+fixed reservation for any module combination. Xylem validates the model's
+values and arithmetic, but the workflow author remains responsible for
+calibrating it for the configured modules and inputs.
+
+Execution-plan schema v9 records the budget, estimator, and
+`mode: fixed_fallback`. Memory-aware admission is not active yet, so real runs
+emit a warning and retain the existing `options.batch` limit. Omitting
+`options.memory` preserves fixed batching without a warning. There is no CLI
+override or automatic host-memory detection.
+
 ## CEL input selection
 
 A workflow can discover local files and directories beneath explicit roots and
@@ -184,7 +218,7 @@ MiB per scalar. Exceeding any limit fails before workflow execution.
 
 A non-empty CLI `--input` list has precedence and bypasses selection request
 validation, root access, discovery, compilation, and evaluation. Dry-run uses
-the same read-only selection snapshot as execution. Execution-plan schema v8
+the same read-only selection snapshot as execution. Execution-plan schema v9
 records canonical options, limits, engine/interpreter identity, counts, and
 SHA-256 script and inventory digests without recording the script, configured
 variable values, or unselected inventory.

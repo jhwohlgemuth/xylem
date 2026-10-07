@@ -19,6 +19,7 @@ use acorn_host::config::{read_jsonc, ConfigError as AcornConfigError};
 use acorn_host::fs::{file_checksum, make_executable};
 use acorn_host::terminal::Label;
 use acorn_macros::With;
+use acorn_schema::hardware::Memory;
 use alloc::collections::BTreeSet;
 use bon::Builder;
 use convert_case::{Case, Casing};
@@ -194,6 +195,8 @@ pub struct ConfigOptions {
     pub root: Option<PathBuf>,
     /// Maximum number of top-level workflow inputs that may run concurrently.
     pub batch: Option<InputBatch>,
+    /// Module-agnostic memory-aware execution intent.
+    pub memory: Option<MemoryOptions>,
     #[serde(alias = "dry-run")]
     pub dry_run: Option<bool>,
     /// Collect run-wide NVIDIA GPU telemetry with `nvidia-smi`.
@@ -221,6 +224,34 @@ pub struct ConfigOptions {
     /// Runtime-only validated sandbox policy.
     #[serde(skip)]
     pub sandbox_policy: Option<EffectiveSandboxPolicy>,
+}
+/// Module-agnostic fixed-point estimator configuration.
+#[derive(Builder, Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[builder(start_fn(name = init))]
+#[serde(deny_unknown_fields)]
+pub struct MemoryEstimatorOptions {
+    /// Stable identity for telemetry and plan comparison.
+    pub identity: String,
+    /// Constant memory contribution before applying the safety multiplier.
+    pub intercept: Memory,
+    /// Largest aggregate input size covered by the estimator evidence.
+    pub maximum_input: Memory,
+    /// Smallest aggregate input size covered by the estimator evidence.
+    pub minimum_input: Memory,
+    /// Safety multiplier scaled by one million.
+    pub safety_millionths: u64,
+    /// Memory-per-input-byte slope scaled by one million.
+    pub slope_millionths: u64,
+}
+/// Explicit memory budget and estimator definition.
+#[derive(Builder, Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[builder(start_fn(name = init))]
+#[serde(deny_unknown_fields)]
+pub struct MemoryOptions {
+    /// Maximum aggregate reservation intended for admitted inputs.
+    pub budget: Memory,
+    /// Estimator calibrated for this workflow's modules and inputs.
+    pub estimator: MemoryEstimatorOptions,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

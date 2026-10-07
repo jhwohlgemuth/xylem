@@ -81,7 +81,7 @@ impl OutputSink for BoundedTaskLogSink {
             .map_or(Ok(()), |limit| {
                 let bytes = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
                 counter
-                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                    .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                         current.checked_add(bytes).filter(|updated| *updated <= limit)
                     })
                     .map(|_| ())
@@ -475,6 +475,12 @@ pub fn run(
             }
         },
         | Ok((preview, inputs, plan)) => {
+            if let Some(memory) = &plan.memory {
+                eprintln!(
+                    "Warning: Memory-aware admission is not enabled for estimator {}; using fixed input batching",
+                    memory.estimator.identity
+                );
+            }
             let execution = preview
                 .options
                 .as_ref()

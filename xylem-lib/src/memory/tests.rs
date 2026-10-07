@@ -3,7 +3,7 @@ use super::*;
 const MODULE_A_P_ESTIMATOR: &str = "module-a-p-v1";
 const MODULE_A_P_O_ESTIMATOR: &str = "module-a-p-o-v1";
 
-fn accepted_estimators() -> [MemoryEstimator; 2] {
+fn measured_estimators() -> [MemoryEstimator; 2] {
     [
         MemoryEstimator::new(
             MODULE_A_P_ESTIMATOR,
@@ -104,6 +104,10 @@ fn estimator_constructor_rejects_invalid_models() {
         Err(MemoryEstimatorError::EmptyIdentity)
     );
     assert_eq!(
+        MemoryEstimator::new("   ", memory(1), memory(1), memory(2), 1, 1_000_000),
+        Err(MemoryEstimatorError::EmptyIdentity)
+    );
+    assert_eq!(
         MemoryEstimator::new("range", memory(1), memory(2), memory(1), 1, 1_000_000),
         Err(MemoryEstimatorError::InvalidInputRange {
             maximum: memory(1),
@@ -121,14 +125,14 @@ fn estimator_constructor_rejects_invalid_models() {
 }
 #[test]
 fn estimator_includes_measured_range_boundaries() {
-    accepted_estimators().iter().for_each(|estimator| {
+    measured_estimators().iter().for_each(|estimator| {
         assert!(matches!(estimator.estimate(memory(529_854_516)), Ok(MemoryEstimate::Reservation(_))));
         assert!(matches!(estimator.estimate(memory(1_143_813_163)), Ok(MemoryEstimate::Reservation(_))));
     });
 }
 #[test]
 fn estimator_returns_typed_out_of_range_fallbacks() {
-    let estimators = accepted_estimators();
+    let estimators = measured_estimators();
     assert_eq!(
         estimators[0].estimate(memory(529_854_515)),
         Ok(MemoryEstimate::Fallback(MemoryFallback::InputOutOfRange {
@@ -157,7 +161,7 @@ fn estimator_supports_arbitrary_module_sets() {
 }
 #[test]
 fn estimators_use_conservative_fixed_point_coefficients() {
-    let estimators = accepted_estimators();
+    let estimators = measured_estimators();
     assert_eq!(
         reservation(estimators[0].estimate(memory(678_219_617)).expect("estimate")),
         26_272_047_448

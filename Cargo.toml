@@ -16,12 +16,12 @@ keywords = ["research", "automation"]
 exclude = [".vale", ".vscode"]
 
 [workspace.lints.rust]
-missing-docs = "deny"
-rust-2018-idioms = "warn"
+missing_docs = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
 unsafe_code = "forbid"
 
 [workspace.lints.rustdoc]
-broken-intra-doc-links = "forbid"
+broken_intra_doc_links = "forbid"
 
 [workspace.lints.clippy]
 alloc_instead_of_core = "warn"

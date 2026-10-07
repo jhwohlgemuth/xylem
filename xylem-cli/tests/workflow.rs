@@ -319,7 +319,8 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
         .expect("run dry-run plan");
     assert!(output.status.success(), "dry run failed: {}", String::from_utf8_lossy(&output.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid dry-run plan");
-    assert_eq!(plan["schema_version"], 8);
+    assert_eq!(plan["schema_version"], 9);
+    assert!(plan["memory"].is_null());
     assert_eq!(plan["sandbox"]["mode"], "off");
     assert_eq!(plan["gpu_monitoring"]["interval"], 1000);
     assert_eq!(plan["gpu_monitoring"]["source"], "nvidia-smi");
@@ -383,7 +384,8 @@ input:
     assert_eq!(repeated.stdout, output.stdout);
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid selection plan");
     let inputs = std::fs::canonicalize(inputs).expect("canonical selection inputs");
-    assert_eq!(plan["schema_version"], 8);
+    assert_eq!(plan["schema_version"], 9);
+    assert!(plan["memory"].is_null());
     assert_eq!(plan["sandbox"]["mode"], "off");
     assert_eq!(plan["inputs"]["source"]["kind"], "selection");
     assert_eq!(plan["inputs"]["source"]["engine"], "cel");
@@ -748,6 +750,94 @@ fn test_loads_an_explicit_dotenv_without_overriding_process_values() {
     assert!(output.status.success(), "dotenv precedence workflow failed:\n{logs}");
     assert!(logs.contains("XYLEM_DOTENV_TEST=from-process"), "{logs}");
     let _ = remove_file(env_path);
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_memory_intent_plans_and_runs_with_a_fixed_batching_warning() {
+    let test_root = std::env::temp_dir().join(format!("xylem-memory-intent-{}", std::process::id()));
+    create_dir_all(&test_root).expect("create memory intent fixture");
+    let modules = serde_json::json!([
+        {
+            "name": "First Module",
+            "programmingLanguage": "generic",
+            "template": { "arguments": [], "command": "true" },
+            "type": "script",
+            "uri": "file:."
+        },
+        {
+            "name": "Second Module",
+            "programmingLanguage": "generic",
+            "template": { "arguments": [], "command": "true" },
+            "type": "script",
+            "uri": "file:."
+        }
+    ]);
+    let memory_path = test_root.join("memory.json");
+    write(
+        &memory_path,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "requirements": [],
+            "modules": modules,
+            "options": {
+                "memory": {
+                    "budget": "64GB",
+                    "estimator": {
+                        "identity": "custom-modules-v1",
+                        "intercept": "16GB",
+                        "maximum_input": "1TB",
+                        "minimum_input": "1KB",
+                        "safety_millionths": 1_100_000,
+                        "slope_millionths": 0
+                    }
+                }
+            }
+        }))
+        .expect("serialize memory intent fixture"),
+    )
+    .expect("write memory intent fixture");
+    let dry_run = xylem_command()
+        .args([
+            "run",
+            memory_path.to_str().expect("UTF-8 memory configuration"),
+            "--dry-run",
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("render memory intent plan");
+    assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&dry_run.stdout).expect("valid memory intent plan");
+    assert_eq!(plan["schema_version"], 9);
+    assert_eq!(plan["memory"]["budget"], "64GB");
+    assert_eq!(plan["memory"]["estimator"]["identity"], "custom-modules-v1");
+    assert_eq!(plan["memory"]["estimator"]["slope_millionths"], 0);
+    assert_eq!(plan["memory"]["mode"], "fixed_fallback");
+    assert!(!String::from_utf8_lossy(&dry_run.stderr).contains("Memory-aware admission is not enabled"));
+    let run = xylem_command()
+        .args(["--no-progress", "run", memory_path.to_str().expect("UTF-8 memory configuration")])
+        .output()
+        .expect("run memory intent fixture");
+    assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        stderr
+            .matches("Memory-aware admission is not enabled for estimator custom-modules-v1; using fixed input batching")
+            .count(),
+        1
+    );
+    let fixed_path = test_root.join("fixed.json");
+    write(
+        &fixed_path,
+        serde_json::to_vec_pretty(&serde_json::json!({"requirements": [], "modules": modules})).expect("serialize fixed batching fixture"),
+    )
+    .expect("write fixed batching fixture");
+    let fixed = xylem_command()
+        .args(["--no-progress", "run", fixed_path.to_str().expect("UTF-8 fixed configuration")])
+        .output()
+        .expect("run fixed batching fixture");
+    assert!(fixed.status.success(), "{}", String::from_utf8_lossy(&fixed.stderr));
+    assert!(!String::from_utf8_lossy(&fixed.stderr).contains("Memory-aware admission is not enabled"));
+    remove_dir_all(test_root).expect("remove memory intent fixture");
 }
 #[test]
 #[ignore = "requires a native rootless OCI runtime and digest-pinned sandbox workload"]

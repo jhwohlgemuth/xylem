@@ -163,33 +163,35 @@ impl MemoryAdmissionQueue {
     pub fn new(budget: Memory, batch: InputBatch, reservations: Vec<Memory>) -> Result<Self, MemoryAdmissionError> {
         match budget.checked_bytes().filter(|value| *value > 0) {
             | None => Err(MemoryAdmissionError::InvalidBudget { budget }),
-            | Some(capacity) => match reservations
-                .iter()
-                .position(|reservation| reservation.checked_bytes().filter(|value| *value > 0).is_none())
-            {
-                | Some(index) => Err(MemoryAdmissionError::InvalidReservation {
-                    index,
-                    reservation: reservations[index].clone(),
-                }),
-                | None => match reservations
+            | Some(capacity) => {
+                let values = reservations
                     .iter()
-                    .position(|reservation| reservation.checked_bytes().is_some_and(|required| required > capacity))
-                {
-                    | Some(index) => Err(MemoryAdmissionError::Oversized {
-                        budget,
+                    .position(|reservation| reservation.checked_bytes().filter(|value| *value > 0).is_none());
+                match values {
+                    | Some(index) => Err(MemoryAdmissionError::InvalidReservation {
                         index,
                         reservation: reservations[index].clone(),
                     }),
-                    | None => Ok(Self {
-                        active: BTreeMap::new(),
-                        batch,
-                        budget,
-                        next: 0,
-                        reservations,
-                        reserved: 0,
-                    }),
-                },
-            },
+                    | None => match reservations
+                        .iter()
+                        .position(|reservation| reservation.checked_bytes().is_some_and(|required| required > capacity))
+                    {
+                        | Some(index) => Err(MemoryAdmissionError::Oversized {
+                            budget,
+                            index,
+                            reservation: reservations[index].clone(),
+                        }),
+                        | None => Ok(Self {
+                            active: BTreeMap::new(),
+                            batch,
+                            budget,
+                            next: 0,
+                            reservations,
+                            reserved: 0,
+                        }),
+                    },
+                }
+            }
         }
     }
     /// Admit the longest FIFO prefix that fits both budget and batch ceilings.
@@ -289,7 +291,7 @@ impl MemoryEstimator {
                 memory: maximum_input,
             }),
             | (Some(intercept_value), Some(minimum_value), Some(maximum_value)) => match (
-                identity.is_empty(),
+                identity.trim().is_empty(),
                 minimum_value > maximum_value,
                 intercept_value == 0 && slope_millionths == 0,
                 safety_millionths < FIXED_POINT_SCALE,
@@ -357,7 +359,7 @@ impl MemoryEstimator {
             },
         }
     }
-    /// Return the estimator identity used for telemetry and configuration matching.
+    /// Return the estimator identity used for plans and telemetry.
     pub fn identity(&self) -> &str {
         &self.identity
     }
@@ -382,6 +384,5 @@ impl fmt::Display for MemoryEstimatorError {
         }
     }
 }
-
 #[cfg(test)]
 mod tests;

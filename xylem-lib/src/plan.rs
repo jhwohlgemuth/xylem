@@ -2,7 +2,7 @@
 extern crate alloc;
 
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
-use crate::config::{Config, InputAttribute};
+use crate::config::{Config, InputAttribute, MemoryEstimatorOptions, MemoryOptions};
 use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
 use crate::sandbox::{IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard, SandboxProviderKind, SandboxResources};
 use crate::script::{
@@ -11,6 +11,7 @@ use crate::script::{
 };
 use crate::selection::{InputSource, ResolvedInputs, SelectionError};
 use acorn_core::time::Milliseconds;
+use acorn_schema::hardware::Memory;
 use acorn_schema::validation::ValidationReport;
 use alloc::collections::BTreeMap;
 use bon::Builder;
@@ -20,6 +21,13 @@ use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 use tracing::debug;
 
+/// Memory behavior represented by an execution plan.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryPlanMode {
+    /// Retain fixed batching until memory-aware admission is activated.
+    FixedFallback,
+}
 /// Failure to validate or render an execution plan.
 #[derive(Debug)]
 pub enum PlanError {
@@ -45,6 +53,8 @@ pub struct ExecutionPlan {
     pub gpu_monitoring: Option<PlannedGpuMonitoring>,
     /// Ordered resolved input values and their source provenance.
     pub inputs: ResolvedInputs,
+    /// Validated memory intent, when configured.
+    pub memory: Option<PlannedMemory>,
     /// Ordered module decisions for every input.
     pub modules: Vec<PlannedModule>,
     /// Whether resume observations influenced decisions.
@@ -123,6 +133,16 @@ pub struct PlannedGpuMonitoring {
     pub interval: Milliseconds,
     /// Telemetry provider executable.
     pub source: String,
+}
+/// Validated memory intent included in an execution plan.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PlannedMemory {
+    /// Maximum aggregate reservation requested by the workflow.
+    pub budget: Memory,
+    /// Validated module-agnostic estimator definition.
+    pub estimator: MemoryEstimatorOptions,
+    /// Runtime behavior for this plan.
+    pub mode: MemoryPlanMode,
 }
 /// One planned module decision.
 #[derive(Builder, Clone, Debug, Eq, PartialEq, Serialize)]
@@ -299,10 +319,15 @@ impl ExecutionPlan {
                                 source: "nvidia-smi".to_string(),
                             }),
                         inputs: inputs.clone(),
+                        memory: config
+                            .options
+                            .as_ref()
+                            .and_then(|options| options.memory.as_ref())
+                            .map(PlannedMemory::from),
                         modules,
                         resume,
                         sandbox,
-                        schema_version: 8,
+                        schema_version: 9,
                     })
             })
     }
@@ -497,6 +522,15 @@ impl PlannedContainer {
             )
             .into_values()
             .collect()
+    }
+}
+impl From<&MemoryOptions> for PlannedMemory {
+    fn from(memory: &MemoryOptions) -> Self {
+        Self {
+            budget: memory.budget.clone(),
+            estimator: memory.estimator.clone(),
+            mode: MemoryPlanMode::FixedFallback,
+        }
     }
 }
 impl TryFrom<Config> for PlannedSandbox {

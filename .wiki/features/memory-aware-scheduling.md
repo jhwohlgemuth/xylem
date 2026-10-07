@@ -18,12 +18,15 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 
 - The current execution model assigns equal scheduling weight to every input regardless of input size or module behavior.
 - `--threads` bounds Rayon workers and `options.batch` bounds active inputs, but neither represents memory demand.
-- Workflow `resources` are string values verified as host requirements; they do not provide a quantitative memory budget or estimator.
+- Workflow `resources` remain string values verified as host requirements.
+  Quantitative intent now lives only in validated `options.memory` and does not
+  activate scheduler admission.
 - Xylem's durable runtime does not yet record peak child-process memory; the
   accepted spike evidence remains separate from production telemetry.
 - Inputs may be files or directories of heterogeneous contents, and different modules can have different peak-memory curves for the same input.
-- The pure estimator and FIFO admission model landed in commit `4df056c`; no
-  configuration, plan, scheduler, CLI, or durable-state contract selects it yet.
+- The pure estimator and FIFO admission model landed in commit `4df056c`.
+  Validated configuration and execution-plan v9 now record estimator intent,
+  while scheduling and durable-state integration remain pending.
 
 # Project code boundaries
 
@@ -33,7 +36,7 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 
 # Dependencies and ordering
 
-This implementation is tracked by [work item #13](https://code.ornl.gov/research-enablement/xylem/-/work_items/13). Production scheduling depends on the existing `options.batch` input ceiling and deterministic orchestration. Observed-versus-estimated telemetry uses the durable execution journal. The estimator gate is now satisfied for the exact A/P and A/P/O scopes below; runtime work must retain those boundaries without adding dependencies.
+This implementation is tracked by [work item #13](https://code.ornl.gov/research-enablement/xylem/-/work_items/13). Production scheduling depends on the existing `options.batch` input ceiling and deterministic orchestration. Observed-versus-estimated telemetry uses the durable execution journal. The A/P and A/P/O measurements below provide reviewed estimator examples; the configuration contract remains module-agnostic so other workflows can supply their own calibrated models.
 
 # Measurement spike status
 
@@ -120,75 +123,43 @@ and operator scope are retained under
   fixed worst case.
 - Non-baseline five-run peak ranges were 0.002%–0.242% of each case median.
 
-These decisions authorize configuration and telemetry work behind explicit
-boundaries for the measured A/P and A/P/O estimators. They do not authorize
-different module revisions, reordered modules, out-of-range inputs, arbitrary
-workflows, or concurrent production admission. Those cases retain fixed
-batching. The fifth case makes a concurrent holdout gate possible, but does not
-satisfy it by existing. Synthetic scheduler and configuration work can proceed
-while the expanded measurements run.
+These decisions establish evidence only for the measured A/P and A/P/O
+revisions, order, and input range. They do not make those combinations a
+production registry or prevent another workflow from declaring its own model.
+Each estimator definition carries its complete coefficients and calibrated
+range; its author is responsible for making the identity and evidence match the
+configured modules. The fifth case makes a concurrent holdout gate possible for
+the measured imagery workflows, but does not satisfy it by existing. Synthetic
+scheduler work can proceed while the expanded measurements run.
 
-# Next implementation slice
+# Landed configuration and planning slice
 
-Add validated configuration and a versioned dry-run plan representation for
-memory-aware intent. This slice selects a known estimator and explicit budget
-without changing runtime admission, CLI flags, journal, report, or run-store
-behavior.
+The configuration and execution-plan slice is implemented on the sandbox
+lifecycle baseline `b7caa55`. It adds `options.memory` with an explicit positive
+`Memory` budget and a complete module-agnostic fixed-point estimator. Any
+module list can use the option; validation covers the estimator identity,
+coefficients, safety multiplier, and calibrated input range without inspecting
+module names, order, count, or revisions.
 
-## Handoff
-
-- **Prerequisite landing and baseline:**
-  `4df056cabbd3ca4c2c9661f8ac806ae2cbf81866`, which contains the pure memory
-  model and supersedes the earlier measurement-evidence baseline.
-- **Create:** `docs/schema/execution-plan-v9.schema.json` for the versioned plan
-  contract. Do not mutate the version 8 schema.
-- **Update:** `xylem-lib/src/memory/mod.rs` for the accepted estimator registry;
-  `xylem-lib/src/config/mod.rs` and `xylem-lib/src/config/validation.rs` for the
-  configuration type and semantic validation; `xylem-lib/src/config/tests/`
-  for JSON/YAML and rejection cases; `xylem-lib/src/plan.rs` and
-  `xylem-lib/src/tests/plan.rs` for deterministic version 9 plan output.
-- **Delete:** None.
-- **Lock scope:** claim the configuration lock and execution-plan schema only.
-  Do not claim the CLI, scheduler, run-state, run-store, report, or general
-  documentation locks.
-- **Public configuration contract:** add nested `options.memory` intent with an
-  explicit positive `budget` using `acorn_schema::hardware::Memory` and an
-  `estimator` identity. Omitting it preserves fixed batching. Accept only known
-  measured identities and reject a module order or declared revision that does
-  not match the registry.
-- **Public plan contract:** version the execution plan to 9 and include the
-  validated memory budget and estimator selection. Do not emit per-input
-  reservations or claim that memory-aware admission would run in this slice.
-- **Dependencies:** add none. Add no host-memory detection and no CLI override.
-- **Focused validation:**
-  `cargo test --locked --package xylem-lib config::tests`,
-  `cargo test --locked --package xylem-lib tests::plan`, and schema fixture
-  validation.
-
-Validation must cover JSON/YAML round trips, zero or invalid budgets, missing
-budget or estimator fields, unknown identities, reordered or extra modules,
-wrong or absent declared revisions, unchanged fixed-batching behavior when the
-option is absent, deterministic plan serialization, and the version 9 schema.
-The current leaf-script acquisition path retains a structured `Location`
-revision but does not check out or attest that revision. This slice may validate
-and report the declaration, but runtime estimator activation must remain
-blocked until acquisition enforces the pin or an equivalent content identity.
-Do not widen acquisition behavior while holding only the configuration and plan
-locks.
+Execution-plan schema v9 adds nullable memory intent. A configured plan records
+the budget, complete estimator, and `fixed_fallback` mode; an unconfigured plan
+records `memory: null`. Real configured runs emit one warning and retain fixed
+batching. No memory reservations, host-memory detection, CLI override, journal
+fields, or run-store fields are active.
 
 ## Landing order after configuration and planning
 
 1. In parallel, inventory the fifth test case, add candidate holdout entries
    and compatible two-case mixes to both measurement manifests, and rerun the
    A/P and A/P/O gates without overwriting accepted evidence.
-2. Enforce or attest pinned leaf-module revisions at the acquisition boundary.
-3. Integrate admission into the existing fail-fast rolling input loop while
+2. Integrate admission into the existing fail-fast rolling input loop while
    preserving `options.batch`, `--threads`, cancellation, resume, and ordered
-   outcomes. Keep real input concurrency at one unless the concurrent holdout
-   gate is GO.
-4. Version journal/report evidence for estimator identity, estimated bytes,
+   outcomes. The generic scheduler may use any valid caller-supplied estimator;
+   keep the reviewed imagery profile's real input concurrency at one unless its
+   concurrent holdout gate is GO.
+3. Version journal/report evidence for estimator identity, estimated bytes,
    budget, safety reserve, fallback reason, and optional observed peak.
-5. Add operational documentation and rerun accepted workflows to compare
+4. Add operational documentation and rerun accepted workflows to compare
    estimates with observed peaks.
 
 # Recommendation
@@ -210,7 +181,7 @@ Output size may be recorded as a feature, but it must not become the reservation
 - Release reservations when the input reaches a terminal state and immediately consider waiting work.
 - Define fairness so a large input cannot starve indefinitely behind smaller work.
 - Reject an estimate larger than the full budget with an actionable diagnostic unless a separate run-alone policy is explicitly enabled.
-- Fall back to fixed batching when no estimator is configured or validated for a module.
+- Fall back to fixed batching when no estimator is configured or an input is outside its calibrated range.
 
 ## Telemetry
 
@@ -220,7 +191,7 @@ Record estimator identity, estimated bytes, configured budget, safety reserve, a
 
 - Use a pure synthetic scheduler model to test budgets, releases, fairness, deterministic ordering, batch interaction, zero/overflow values, and oversized work.
 - Property-test that the sum of active reservations never exceeds the configured budget and active count never exceeds `batch`.
-- Test estimator selection and fallback for files, directories, unknown modules, and missing metadata.
+- Test estimation and fallback for files, directories, arbitrary module combinations, and missing metadata.
 - Run representative production workloads and compare OOM rate, utilization, elapsed time, and prediction error against fixed batching.
 - Validate Linux first if that is the supported production environment; gate platform-specific peak-memory observation narrowly.
 
@@ -231,7 +202,7 @@ Record estimator identity, estimated bytes, configured budget, safety reserve, a
 - Active reservations never exceed the explicit memory budget or fixed batch ceiling.
 - Oversized inputs receive a clear policy-driven result rather than an implicit OOM attempt.
 - Scheduling is deterministic, rolling, and starvation-resistant.
-- Unsupported modules safely fall back to fixed batching.
+- Unconfigured workflows and inputs outside the estimator range safely fall back to fixed batching.
 - Operational documentation explains budgeting, headroom, telemetry, and estimator limitations.
 
 # Related plans

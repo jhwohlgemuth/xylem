@@ -1,5 +1,6 @@
 use super::*;
 use crate::completion::{Completion, CompletionPlan};
+use crate::memory::{MemoryEstimator, MemoryEstimatorError};
 use acorn_core::validation::{digest, ValidationError};
 use acorn_schema::validation::{report_of, rules, Validate, ValidationReport};
 use core::mem;
@@ -91,6 +92,9 @@ impl Validate for Config {
             }
             if let Err(error) = RemotePolicy::from_hosts(options.allowed.as_deref()) {
                 report.add("options.allowed", validation_error("hosts", error.to_string()));
+            }
+            if let Some(memory) = &options.memory {
+                report = report.merge("options.memory", report_of(memory.validate()));
             }
         }
         if self.sandbox {
@@ -225,6 +229,37 @@ impl Validate for ContainerEnvironment {
                     );
                 }
             }
+        }
+        report.finish()
+    }
+}
+impl Validate for MemoryOptions {
+    fn validate(&self) -> Result<(), ValidationReport> {
+        let mut report = ValidationReport::new();
+        if self.budget.checked_bytes().filter(|budget| *budget > 0).is_none() {
+            report.add(
+                "budget",
+                validation_error("positive", "memory budget must be finite and greater than zero"),
+            );
+        }
+        let estimator = &self.estimator;
+        let memory_estimator = MemoryEstimator::new(
+            estimator.identity.clone(),
+            estimator.intercept.clone(),
+            estimator.minimum_input.clone(),
+            estimator.maximum_input.clone(),
+            estimator.slope_millionths,
+            estimator.safety_millionths,
+        );
+        if let Err(error) = memory_estimator {
+            let (path, code) = match &error {
+                | MemoryEstimatorError::EmptyIdentity => ("estimator.identity".to_string(), "nonempty"),
+                | MemoryEstimatorError::InvalidInputRange { .. } => ("estimator.maximum_input".to_string(), "range"),
+                | MemoryEstimatorError::InvalidMemory { attribute, .. } => (format!("estimator.{attribute}"), "finite"),
+                | MemoryEstimatorError::UnsafeMultiplier { .. } => ("estimator.safety_millionths".to_string(), "minimum"),
+                | MemoryEstimatorError::ZeroPrediction => ("estimator".to_string(), "nonzero"),
+            };
+            report.add(path, validation_error(code, error.to_string()));
         }
         report.finish()
     }

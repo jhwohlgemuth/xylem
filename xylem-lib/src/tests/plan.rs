@@ -1,5 +1,5 @@
 use crate::config::{Config, InputAttribute};
-use crate::plan::ExecutionPlan;
+use crate::plan::{ExecutionPlan, MemoryPlanMode};
 use crate::script::ContainerStartup;
 use crate::selection::InputSource;
 #[cfg(target_os = "linux")]
@@ -128,7 +128,8 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
     let first = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("build plan");
     let second = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("rebuild plan");
     assert_eq!(first, second);
-    assert_eq!(first.schema_version, 8);
+    assert_eq!(first.schema_version, 9);
+    assert!(first.memory.is_none());
     assert_eq!(first.sandbox.mode, "off");
     assert_eq!(first.inputs.source, InputSource::List);
     let yaml = serde_norway::to_string(&config).expect("serialize YAML configuration");
@@ -205,7 +206,7 @@ fn test_execution_plan_reports_container_startup_strategies() {
             .find(|container| container.name == name)
             .and_then(|container| container.startup)
     };
-    assert_eq!(plan.schema_version, 8);
+    assert_eq!(plan.schema_version, 9);
     assert_eq!(plan.sandbox.mode, "off");
     assert_eq!(startup("explicit"), Some(ContainerStartup::ExplicitCommand));
     assert_eq!(startup("external"), None);
@@ -220,6 +221,54 @@ fn test_execution_plan_reports_gpu_monitoring_without_host_queries() {
     let monitoring = plan.gpu_monitoring.expect("planned GPU monitoring");
     assert_eq!(monitoring.interval, crate::gpu::GPU_SAMPLE_INTERVAL_MS);
     assert_eq!(monitoring.source, "nvidia-smi");
+}
+#[test]
+fn test_execution_plan_reports_validated_memory_fallback() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [
+            {
+                "name": "First Module",
+                "programmingLanguage": "generic",
+                "template": { "arguments": [], "command": "true" },
+                "type": "script",
+                "uri": "file:."
+            },
+            {
+                "name": "Second Module",
+                "programmingLanguage": "generic",
+                "template": { "arguments": [], "command": "true" },
+                "type": "script",
+                "uri": "file:."
+            }
+        ],
+        "options": {
+            "memory": {
+                "budget": "64GB",
+                "estimator": {
+                    "identity": "custom-modules-v1",
+                    "intercept": "16GB",
+                    "maximum_input": "1TB",
+                    "minimum_input": "1KB",
+                    "safety_millionths": 1_100_000,
+                    "slope_millionths": 0
+                }
+            }
+        }
+    }))
+    .expect("memory plan configuration");
+    let first = ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect("build memory plan");
+    let second = ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect("rebuild memory plan");
+    assert_eq!(first, second);
+    let memory = first.memory.expect("planned memory intent");
+    assert_eq!(memory.budget.checked_bytes(), Some(64 * 1024 * 1024 * 1024));
+    assert_eq!(memory.estimator.identity, "custom-modules-v1");
+    assert_eq!(memory.mode, MemoryPlanMode::FixedFallback);
+    let serialized = serde_json::to_value(second).expect("serialize memory plan");
+    assert_eq!(serialized["memory"]["estimator"]["identity"], "custom-modules-v1");
+    assert_eq!(serialized["memory"]["estimator"]["slope_millionths"], 0);
+    assert_eq!(serialized["memory"]["mode"], "fixed_fallback");
+    assert_eq!(serialized["schema_version"], 9);
 }
 #[cfg(target_os = "linux")]
 #[test]
