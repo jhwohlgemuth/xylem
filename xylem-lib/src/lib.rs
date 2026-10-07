@@ -21,6 +21,7 @@ pub mod execution;
 pub mod gpu;
 #[allow(missing_docs)]
 pub mod journal;
+pub mod memory;
 pub mod outcome;
 pub mod plan;
 pub mod progress;
