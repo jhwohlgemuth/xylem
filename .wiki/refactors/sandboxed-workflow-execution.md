@@ -11,11 +11,13 @@ status: implementing
 
 # Delivery status
 
-The first guarded slice is implemented: explicit opt-in, strict policy parsing
-and hashing, schema-v8 plan/journal evidence, native rootless OCI qualification,
-and hardened execution for local generic script modules. Dry-run remains
-write-free and does not probe the runtime. Omitted or false `sandbox` values
-continue through the unchanged host path.
+The guarded OCI lifecycle is implemented: explicit opt-in, strict policy
+parsing and hashing, schema-v8 plan/journal evidence, native rootless OCI
+qualification, and per-input preparation and execution containers. Each input
+is prepared and executed sequentially within one scheduler admission; inputs
+may still run concurrently under the scheduler. Dry-run remains write-free and
+does not probe the runtime. Omitted or false `sandbox` values continue through
+the unchanged host path.
 
 The provider-boundary slice is also implemented. Operator policy v1 now
 separates a typed provider from its immutable workload, minimum isolation
@@ -33,12 +35,14 @@ network-disabled non-root bootstrap probe. Module execution never pulls. A
 reproducible baseline runner and protected CI publication job emit the canonical
 Savannah and GHCR digest references for operator policy.
 
-The implementation deliberately fails before preparation for features that do not yet
-cross the boundary safely: requirements, remote or binary modules, Python and
-host environment wrappers, nested configurations, application containers,
-GPU monitoring, completion markers, artifact publication, and retained failed
-containers. The remaining sections describe the work required to lift those
-restrictions without weakening the boundary.
+Preparation now verifies requirements in the selected workload and stages
+local or HTTP(S) generic, binary, and Python modules in bounded private
+storage. Remote preparation obeys the policy network mode, binary checksums are
+verified after bounded archive extraction, and execution always uses network
+`none`. Nested configurations, application containers, GPU monitoring,
+completion markers, artifact publication, and retained failed containers
+continue to fail closed. The remaining sections describe the later work needed
+to lift those restrictions without weakening the boundary.
 
 # Goal
 

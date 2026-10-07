@@ -91,12 +91,28 @@ The reproducible baseline runner is published to
 references for operator policy. Custom workloads remain supported when they
 satisfy the same metadata and bootstrap contract.
 
-The initial OCI execution slice supports local generic script modules with
-read-only module and input mounts. Workflow requirements must be supplied by
-the pinned workload. Remote, binary, Python-environment, nested-configuration,
-application-container, GPU, completion-marker, and artifact-publication
-features fail closed in sandbox mode while their existing host behavior
-remains available when sandboxing is disabled.
+The OCI lifecycle uses a separate preparation container and execution
+container for every admitted input. Preparation verifies workflow requirements
+inside the pinned workload and supports local or HTTP(S) generic scripts,
+binaries, and Python modules. HTTP(S) script modules are acquired as Git
+repositories; HTTP(S) binaries are downloaded without redirects and verified
+against their configured checksum unless checksum verification is explicitly
+disabled. Python modules may prepare `environment.yml` with conda or mamba, or
+`pixi.toml` with pixi, when the selected workload provides the corresponding
+tool.
+
+Preparation receives only read-only module sources and bounded private
+storage. Its network is either denied or unrestricted according to operator
+policy. The resulting archive is bounded by the scratch-byte and artifact-file
+ceilings, rejects unsafe paths and entry types, and materializes only safe
+links. Execution mounts the staged modules and current input read-only, uses a
+bounded writable tmpfs, and always disables networking. Preparation and module
+execution stay within the same scheduler admission for an input; sandbox
+memory limits do not alter the scheduler's independent memory estimate.
+
+Nested-configuration, application-container, GPU, completion-marker, and
+artifact-publication features fail closed in sandbox mode while their existing
+host behavior remains available when sandboxing is disabled.
 
 Explicit input lists preserve their declared order and duplicate values keep
 their first occurrence. Directory-derived inputs are sorted by path. CLI

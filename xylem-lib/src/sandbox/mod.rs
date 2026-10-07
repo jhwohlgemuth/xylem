@@ -1,12 +1,17 @@
 //! Opt-in sandbox policy and provider contracts.
 extern crate alloc;
 
+mod archive;
+mod lifecycle;
+
 use crate::config::{Config, InputAttribute};
 use crate::error::ProcessError;
+use crate::remote::RemotePolicy;
 use crate::script::{Module, ModuleLanguage, ModuleType, ModuleUri, Script, TemplateAttribute};
-use acorn_cmd::{args, CommandError, CommandSpec, ExecutionOptions, ExecutionResult};
+use acorn_cmd::{args, CommandSpec, ExecutionOptions, ExecutionResult};
 use acorn_core::util::MimeType;
 use acorn_core::validation::ValidationError;
+use acorn_core::Location;
 use acorn_schema::validation::{Validate, ValidationReport};
 use alloc::collections::{BTreeSet, VecDeque};
 use alloc::sync::Arc;
@@ -29,6 +34,22 @@ mod private {
     /// Requiring this private supertrait prevents downstream implementations from bypassing Xylem's lifecycle and capability validation.
     pub trait Sealed {}
 }
+pub(super) trait PreparedSandboxBackend: Send + Sync {
+    fn execute(&self, script: &Script, module_index: usize, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError>;
+    fn finish(&self, succeeded: bool) -> Result<(), SandboxError>;
+    fn prepared_config(&self) -> &Config;
+    fn prepared_input(&self) -> Option<&str>;
+    fn resources(&self) -> &SandboxResources;
+}
+/// Sealed preparation phase for one admitted workflow input.
+pub trait SandboxPreparation: private::Sealed + Send {
+    /// Verify declared commands inside the preparation workload.
+    fn verify_requirements(&mut self) -> Result<(), SandboxError>;
+    /// Prepare one required module by its stable configuration index.
+    fn prepare_module(&mut self, module_index: usize) -> Result<(), SandboxError>;
+    /// Seal prepared content and start the network-disabled execution phase.
+    fn seal(self: Box<Self>) -> Result<SandboxInput<Prepared>, SandboxError>;
+}
 /// Sealed lifecycle provider selected from an effective operator policy.
 pub trait SandboxProvider: private::Sealed + Send + Sync {
     /// Discover and validate the provider's realized capabilities.
@@ -38,8 +59,8 @@ pub trait SandboxProvider: private::Sealed + Send + Sync {
 }
 /// Sealed logical run session used by concurrent input workers.
 pub trait SandboxSession: private::Sealed + Send + Sync {
-    /// Execute one module command inside the provider boundary.
-    fn execute(&self, script: &Script, input_index: usize, module_index: usize, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError>;
+    /// Begin one isolated input preparation phase.
+    fn start_input(&self, request: SandboxInput<Requested>) -> Result<Box<dyn SandboxPreparation>, SandboxError>;
     /// Finish the logical session after all admitted inputs settle.
     fn finish(&self, succeeded: bool) -> Result<(), SandboxError>;
     /// Return the resource ceilings enforced for each command.
@@ -85,14 +106,6 @@ pub enum ProcessGuard {
     /// The [nsjail](https://github.com/google/nsjail) Linux namespace and seccomp sandbox.
     Nsjail,
 }
-/// Network acquisition permitted while opening a sandbox provider session.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum WorkloadAcquisition {
-    /// Require the immutable workload to exist in local provider storage.
-    LocalOnly,
-    /// Pull the immutable workload when it is absent from local provider storage.
-    PullIfMissing,
-}
 /// Policy parsing, validation, or provider-discovery failure.
 #[derive(Debug, thiserror::Error)]
 pub enum SandboxError {
@@ -122,6 +135,16 @@ pub enum SandboxError {
     #[error("invalid sandbox policy: {0}")]
     Validation(String),
 }
+/// Observable preparation transition for one required module.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SandboxPreparationState {
+    /// Module preparation failed.
+    Failed,
+    /// Module preparation completed.
+    Finished,
+    /// Module preparation started.
+    Started,
+}
 /// Provider-specific operator configuration.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
@@ -147,6 +170,14 @@ pub enum SandboxRetention {
     Delete,
     /// Retain resources only after failure.
     RetainOnFailure,
+}
+/// Network acquisition permitted while opening a sandbox provider session.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkloadAcquisition {
+    /// Require the immutable workload to exist in local provider storage.
+    LocalOnly,
+    /// Pull the immutable workload when it is absent from local provider storage.
+    PullIfMissing,
 }
 /// Validated immutable sandbox policy with its canonical identity.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -212,8 +243,22 @@ pub struct OperatorSandboxPolicy {
     /// Immutable workloads admitted by the operator.
     pub workload: SandboxWorkload,
 }
+/// Prepared sandbox input state.
+#[derive(Clone)]
+pub struct Prepared {
+    backend: Arc<dyn PreparedSandboxBackend>,
+}
+/// Requested sandbox input state.
+#[derive(Clone, Debug)]
+pub struct Requested {
+    config: Config,
+    input: Option<String>,
+    input_index: usize,
+    module_indices: Vec<usize>,
+    staging_root: PathBuf,
+}
 /// Controls a sandbox provider can enforce for this implementation.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SandboxCapabilities {
     /// Effective isolation boundary.
     pub isolation: IsolationClass,
@@ -234,6 +279,11 @@ pub struct SandboxCapabilities {
 pub struct SandboxEnvironment {
     /// Exact child environment names permitted by the operator.
     pub allow: Vec<String>,
+}
+/// One sandbox input whose generic state makes lifecycle transitions explicit.
+#[derive(Clone, Debug)]
+pub struct SandboxInput<State> {
+    state: State,
 }
 /// Sandbox cleanup and reconciliation settings.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -288,15 +338,6 @@ pub struct SandboxWorkload {
 impl Config {
     pub(crate) fn validate_sandbox(&self) -> Result<(), ValidationReport> {
         let mut report = ValidationReport::new();
-        if !self.requirements.is_empty() {
-            report.add(
-                "requirements",
-                validation_error(
-                    "unsupported",
-                    "workflow requirements are not supported in sandbox mode; provide them in the pinned provider workload",
-                ),
-            );
-        }
         if self.output.is_some() {
             report.add(
                 "output",
@@ -311,26 +352,24 @@ impl Config {
         }
         self.modules.iter().enumerate().for_each(|(index, module)| {
             let path = format!("modules[{index}]");
-            match &module.module_type {
-                | ModuleType::Script {
-                    programming_language: Some(ModuleLanguage::Generic) | None,
-                    uri,
-                } if matches!(ModuleUri::from(uri), ModuleUri::File(_)) => (),
-                | ModuleType::Script { .. } => report.add(
-                    format!("{path}.uri"),
-                    validation_error("sandbox", format!("module {} must be a local generic script", module.name)),
-                ),
-                | ModuleType::Binary { .. } => report.add(
-                    format!("{path}.type"),
-                    validation_error("unsupported", format!("binary module {} is not supported in sandbox mode", module.name)),
-                ),
-                | ModuleType::Configuration { .. } => report.add(
+            let supported_source = module.sandbox_source().is_ok();
+            let supported_type = module.sandbox_type_supported();
+            match (&module.module_type, supported_source && supported_type) {
+                | (ModuleType::Configuration { .. }, _) => report.add(
                     format!("{path}.type"),
                     validation_error(
                         "unsupported",
                         format!("nested configuration module {} is not supported in sandbox mode", module.name),
                     ),
                 ),
+                | (_, false) => report.add(
+                    format!("{path}.uri"),
+                    validation_error(
+                        "sandbox",
+                        format!("module {} must use a local or HTTP(S) generic, binary, or Python source", module.name),
+                    ),
+                ),
+                | (_, true) => (),
             }
             if module.completion.is_some() {
                 report.add(
@@ -338,16 +377,13 @@ impl Config {
                     validation_error("unsupported", "completion markers are not yet supported in sandbox mode"),
                 );
             }
-            if matches!(
-                &module.template,
-                Some(TemplateAttribute::Template(template)) if template.container.is_some() || template.virtual_environment.is_some()
-            ) {
+            if matches!(&module.template, Some(TemplateAttribute::Template(template)) if template.container.is_some()) {
                 report.add(
                     format!("{path}.template"),
                     validation_error(
                         "unsupported",
                         format!(
-                            "module {} uses a host environment wrapper that is not supported in sandbox mode",
+                            "module {} uses an application container that is not supported in sandbox mode",
                             module.name
                         ),
                     ),
@@ -355,16 +391,6 @@ impl Config {
             }
         });
         report.finish()
-    }
-}
-impl dyn SandboxSession {
-    /// Open the selected provider session, or return host mode when no policy is active.
-    pub fn open(
-        run_id: &str,
-        policy: Option<&EffectiveSandboxPolicy>,
-        acquisition: WorkloadAcquisition,
-    ) -> Result<Option<Arc<dyn SandboxSession>>, SandboxError> {
-        policy.map_or(Ok(None), |policy| SandboxProvider::open(policy, run_id, acquisition).map(Some))
     }
 }
 impl EffectiveSandboxPolicy {
@@ -430,88 +456,70 @@ impl EffectiveSandboxPolicy {
     /// Reject workflow features that cannot yet cross the OCI boundary safely.
     pub fn validate_workflow(&self, config: &Config, inputs: &[Option<String>]) -> Result<(), SandboxError> {
         config.validate().map_err(|why| SandboxError::Validation(why.to_string())).and_then(|()| {
-            config
-                .modules
-                .iter()
-                .map(|module| {
-                    validate_granted_path(&module.sandbox_path(), &self.policy.paths.module_roots, "module").and_then(|module_source| {
-                        validate_template_path(module, &module_source).and_then(|()| {
-                            Script::from_module(module.clone(), None)
-                                .map_err(|why| {
-                                    SandboxError::Validation(format!("module {} cannot be loaded for sandbox execution: {why}", module.name))
-                                })
-                                .and_then(|script| script.validate().map_err(|why| SandboxError::Validation(why.to_string())))
-                                .map(|()| module_source)
-                        })
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .and_then(|modules| {
-                    inputs
+            RemotePolicy::from_hosts(config.options.as_ref().and_then(|options| options.allowed.as_deref()))
+                .map_err(|why| SandboxError::Validation(format!("invalid remote module allowlist: {why}")))
+                .and_then(|remote_policy| {
+                    config
+                        .modules
                         .iter()
-                        .flatten()
-                        .map(|input| validate_granted_path(Path::new(input), &self.policy.paths.input_roots, "input"))
-                        .collect::<Result<Vec<_>, _>>()
-                        .and_then(|inputs| {
+                        .map(|module| {
+                            module.sandbox_source().and_then(|location| match ModuleUri::from(&location) {
+                                | ModuleUri::File(path) => {
+                                    validate_granted_path(&path, &self.policy.paths.module_roots, "module").and_then(|module_source| {
+                                        validate_template_path(module, &module_source).and_then(|()| {
+                                            Script::from_module(module.clone(), None)
+                                                .map_err(|why| {
+                                                    SandboxError::Validation(format!(
+                                                        "module {} cannot be loaded for sandbox execution: {why}",
+                                                        module.name
+                                                    ))
+                                                })
+                                                .and_then(|script| script.validate().map_err(|why| SandboxError::Validation(why.to_string())))
+                                                .map(|()| Some(module_source))
+                                        })
+                                    })
+                                }
+                                | ModuleUri::Url(url) => match (
+                                    config.options.as_ref().and_then(|options| options.offline).unwrap_or_default(),
+                                    self.policy.preparation_network,
+                                ) {
+                                    | (true, _) => Err(SandboxError::Validation(format!(
+                                        "module {} remote source is unavailable in offline sandbox mode",
+                                        module.name
+                                    ))),
+                                    | (_, PreparationNetwork::Deny) => Err(SandboxError::Validation(format!(
+                                        "module {} requires preparation networking denied by sandbox policy",
+                                        module.name
+                                    ))),
+                                    | (false, PreparationNetwork::Unrestricted) => {
+                                        let url = url.to_string();
+                                        remote_policy
+                                            .ensure_allowed(&url)
+                                            .map(|_| None)
+                                            .map_err(|why| SandboxError::Validation(format!("module {} remote source failed: {why}", module.name)))
+                                    }
+                                },
+                                | ModuleUri::Unknown(value) => Err(SandboxError::Validation(format!(
+                                    "module {} has invalid sandbox source {value}",
+                                    module.name
+                                ))),
+                            })
+                        })
+                        .collect::<Result<Vec<Option<PathBuf>>, _>>()
+                        .and_then(|modules| {
                             inputs
                                 .iter()
-                                .try_for_each(|input| modules.iter().try_for_each(|module| validate_mount_separation(module, input)))
+                                .flatten()
+                                .map(|input| validate_granted_path(Path::new(input), &self.policy.paths.input_roots, "input"))
+                                .collect::<Result<Vec<_>, _>>()
+                                .and_then(|inputs| {
+                                    inputs.iter().try_for_each(|input| {
+                                        modules.iter().flatten().try_for_each(|module| validate_mount_separation(module, input))
+                                    })
+                                })
                         })
                 })
         })
-    }
-    /// Execute one resolved module command through the configured OCI runtime.
-    fn execute(&self, script: &Script, container_name: &str, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError> {
-        let working_directory = PathBuf::from(&script.current_dir);
-        self.invocation(script, container_name)
-            .map_err(|why| ProcessError::Spawn {
-                script: script.to_string(),
-                working_directory: working_directory.clone(),
-                source: std::io::Error::other(why),
-            })
-            .and_then(|arguments| {
-                self.runtime()
-                    .map_err(|why| ProcessError::Spawn {
-                        script: script.to_string(),
-                        working_directory: working_directory.clone(),
-                        source: std::io::Error::other(why),
-                    })
-                    .and_then(|runtime| {
-                        CommandSpec::new(runtime.to_string())
-                            .args(arguments)
-                            .checked_execute(options)
-                            .map_err(|source| match source {
-                                | CommandError::NonZeroExit(result) => {
-                                    let details = String::from_utf8_lossy(result.stderr().bytes()).into_owned();
-                                    let status = result.status().map_or_else(
-                                        || "unknown".to_string(),
-                                        |status| {
-                                            status.code().map_or_else(
-                                                || status.signal().map_or_else(|| "unknown".to_string(), |signal| format!("signal {signal}")),
-                                                |code| code.to_string(),
-                                            )
-                                        },
-                                    );
-                                    ProcessError::Unsuccessful {
-                                        script: script.to_string(),
-                                        working_directory: working_directory.clone(),
-                                        status,
-                                        stderr: details,
-                                    }
-                                }
-                                | CommandError::Spawn { source } => ProcessError::Spawn {
-                                    script: script.to_string(),
-                                    working_directory: working_directory.clone(),
-                                    source,
-                                },
-                                | source => ProcessError::Managed {
-                                    script: script.to_string(),
-                                    working_directory: working_directory.clone(),
-                                    source,
-                                },
-                            })
-                    })
-            })
     }
     /// Perform terminal cleanup for a named sandbox.
     fn cleanup(&self, container_name: &str, succeeded: bool) -> Result<(), SandboxError> {
@@ -550,72 +558,6 @@ impl EffectiveSandboxPolicy {
                 | false => Ok(None),
             })
     }
-    fn invocation(&self, script: &Script, container_name: &str) -> Result<Vec<OsString>, SandboxError> {
-        script.validate().map_err(|why| SandboxError::Validation(why.to_string())).and_then(|()| {
-            validate_granted_path(
-                Path::new(&script.current_dir),
-                &self.policy.paths.module_roots,
-                "module working directory",
-            )
-            .and_then(|module_source| {
-                let input = script.envs.as_ref().and_then(|envs| envs.get("_XYLEM_INPUT"));
-                input
-                    .map(|value| validate_granted_path(Path::new(value), &self.policy.paths.input_roots, "input"))
-                    .transpose()
-                    .and_then(|input_source| {
-                        input_source
-                            .as_ref()
-                            .map_or(Ok(()), |input_source| validate_mount_separation(&module_source, input_source))
-                            .map(|()| (module_source, input.map(PathBuf::from), input_source))
-                    })
-            })
-            .map(|(module_source, input, input_source)| {
-                let replacements = path_replacements(Path::new(&script.current_dir), &module_source, input.as_deref(), input_source.as_deref());
-                let command = rewrite_path(&script.command.name, &replacements);
-                let arguments = script.arguments.iter().map(|argument| rewrite_path(argument, &replacements));
-                let environment = script
-                    .envs
-                    .clone()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|(name, _)| self.policy.environment.allow.contains(name))
-                    .map(|(name, value)| format!("{name}={}", rewrite_path(&value, &replacements)))
-                    .collect::<Vec<_>>();
-                let resources = &self.policy.resources;
-                let cpus = format!("{:.3}", f64::from(resources.cpu_millis) / 1000.0);
-                let module_mount = format!("type=bind,source={},target=/xylem/modules/current,readonly", module_source.display());
-                let input_mount = input_source
-                    .as_ref()
-                    .map(|source| format!("type=bind,source={},target=/xylem/input/current,readonly", source.display()));
-                args![
-                    "run",
-                    "--init",
-                    ("--name", container_name),
-                    ("--label", "gov.ornl.xylem.sandbox=true"),
-                    ("--label", format!("gov.ornl.xylem.policy={}", self.digest)),
-                    "--pull=never",
-                    "--network=none",
-                    "--read-only",
-                    "--cap-drop=ALL",
-                    "--security-opt=no-new-privileges",
-                    "--ipc=none",
-                    ("--pids-limit", resources.pids.to_string()),
-                    ("--memory", resources.memory_bytes.to_string()),
-                    ("--memory-swap", resources.memory_bytes.to_string()),
-                    ("--cpus", cpus),
-                    "--user=65532:65532",
-                    ("--tmpfs", format!("/tmp:rw,noexec,nosuid,nodev,size={}", resources.scratch_bytes)),
-                    ("--mount", module_mount),
-                    ..input_mount.map(|mount| args!["--mount", mount]).unwrap_or_default(),
-                    ..environment.into_iter().flat_map(|value| args!["--env", value]),
-                    "--workdir=/xylem/modules/current",
-                    &self.workload,
-                    command,
-                    ..arguments
-                ]
-            })
-        })
-    }
     fn prepare_workload(&self, run_id: &str, acquisition: WorkloadAcquisition) -> Result<(), SandboxError> {
         acquire_workload(&self.workload, acquisition, self.inspect_workload(), || {
             self.pull_workload().and_then(|()| self.inspect_workload())
@@ -649,7 +591,7 @@ impl EffectiveSandboxPolicy {
             ("--entrypoint", "/bin/sh"),
             &self.workload,
             "-c",
-            "test \"$(id -u)\" = 65532 && test \"$(id -g)\" = 65532 && command -v sh >/dev/null && command -v cp >/dev/null && command -v git >/dev/null && command -v mkdir >/dev/null && command -v rm >/dev/null && test -w /tmp"
+            "test \"$(id -u)\" = 65532 && test \"$(id -g)\" = 65532 && command -v sh >/dev/null && command -v cp >/dev/null && command -v curl >/dev/null && command -v git >/dev/null && command -v mkdir >/dev/null && command -v python >/dev/null && command -v rm >/dev/null && command -v tar >/dev/null && test -w /tmp"
         ]
     }
     fn probe_workload(&self, run_id: &str) -> Result<(), SandboxError> {
@@ -762,14 +704,27 @@ impl SandboxProvider for EffectiveSandboxPolicy {
     }
 }
 impl Module {
-    fn sandbox_path(&self) -> PathBuf {
-        let uri = match &self.module_type {
+    fn sandbox_source(&self) -> Result<Location, SandboxError> {
+        let location = match &self.module_type {
             | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => uri,
         };
-        match ModuleUri::from(uri) {
-            | ModuleUri::File(path) => path,
-            | ModuleUri::Url(_) | ModuleUri::Unknown(_) => PathBuf::new(),
+        match location.is_local() || location.is_http_or_https() {
+            | true => Ok(location.clone()),
+            | false => Err(SandboxError::Validation(format!(
+                "module {} must use a local or HTTP(S) source",
+                self.name
+            ))),
         }
+    }
+    fn sandbox_type_supported(&self) -> bool {
+        matches!(
+            self.module_type,
+            ModuleType::Binary { .. }
+                | ModuleType::Script {
+                    programming_language: Some(ModuleLanguage::Generic | ModuleLanguage::Python) | None,
+                    ..
+                }
+        )
     }
 }
 impl fmt::Display for OciRuntime {
@@ -852,19 +807,8 @@ impl Validate for OciRuntime {
 }
 impl private::Sealed for OciSandboxSession {}
 impl SandboxSession for OciSandboxSession {
-    fn execute(&self, script: &Script, input_index: usize, module_index: usize, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError> {
-        let container_name = format!("xylem-{}-{input_index}-{module_index}", self.run_id);
-        let execution = self.policy.execute(script, &container_name, options);
-        let cleanup = self.policy.cleanup(&container_name, execution.is_ok());
-        match (execution, cleanup) {
-            | (Ok(result), Ok(())) => Ok(result),
-            | (Err(primary), _) => Err(primary),
-            | (Ok(_), Err(cleanup)) => Err(ProcessError::Output {
-                script: script.to_string(),
-                working_directory: PathBuf::from(&script.current_dir),
-                source: std::io::Error::other(cleanup),
-            }),
-        }
+    fn start_input(&self, request: SandboxInput<Requested>) -> Result<Box<dyn SandboxPreparation>, SandboxError> {
+        lifecycle::start(self, request)
     }
     fn finish(&self, _succeeded: bool) -> Result<(), SandboxError> {
         Ok(())
@@ -1033,11 +977,119 @@ impl Validate for OperatorSandboxPolicy {
         report.finish()
     }
 }
+impl SandboxInput<Prepared> {
+    pub(super) fn from_backend(backend: Arc<dyn PreparedSandboxBackend>) -> Self {
+        Self { state: Prepared { backend } }
+    }
+    /// Execute one module command inside the prepared input container.
+    pub fn execute(&self, script: &Script, module_index: usize, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError> {
+        self.state.backend.execute(script, module_index, options)
+    }
+    /// Finish the input and remove its provider resources.
+    pub fn finish(&self, succeeded: bool) -> Result<(), SandboxError> {
+        self.state.backend.finish(succeeded)
+    }
+    /// Return the host-staged configuration used to resolve module templates.
+    pub fn prepared_config(&self) -> &Config {
+        self.state.backend.prepared_config()
+    }
+    /// Return the original admitted input path.
+    pub fn prepared_input(&self) -> Option<&str> {
+        self.state.backend.prepared_input()
+    }
+    /// Return the resource ceilings enforced for this input.
+    pub fn resources(&self) -> &SandboxResources {
+        self.state.backend.resources()
+    }
+}
+impl SandboxInput<Requested> {
+    /// Build a request from resolved workflow state and deterministically ordered required modules.
+    pub fn new(
+        config: Config,
+        input_index: usize,
+        module_indices: impl IntoIterator<Item = usize>,
+        staging_root: PathBuf,
+        input: Option<String>,
+    ) -> Result<Self, SandboxError> {
+        let module_indices = module_indices.into_iter().collect::<Vec<_>>();
+        let ordered = module_indices.windows(2).all(|pair| pair[0] < pair[1]);
+        let indices = module_indices.iter().all(|index| *index < config.modules.len());
+        let root = staging_root.as_os_str().is_empty();
+        match (ordered, indices, root) {
+            | (false, _, _) => Err(SandboxError::Validation(
+                "sandbox input module indices must be strictly increasing".to_string(),
+            )),
+            | (_, false, _) => Err(SandboxError::Validation("sandbox input contains an invalid module index".to_string())),
+            | (_, _, true) => Err(SandboxError::Validation("sandbox staging root must not be empty".to_string())),
+            | (true, true, false) => Ok(Self {
+                state: Requested {
+                    config,
+                    input,
+                    input_index,
+                    module_indices,
+                    staging_root,
+                },
+            }),
+        }
+    }
+    /// Prepare every required module and transition this input to its prepared state.
+    pub fn prepare(
+        self,
+        session: &dyn SandboxSession,
+        mut observe: impl FnMut(usize, SandboxPreparationState),
+    ) -> Result<SandboxInput<Prepared>, SandboxError> {
+        let module_indices = self.state.module_indices.clone();
+        session.start_input(self).and_then(|mut preparation| {
+            preparation
+                .verify_requirements()
+                .and_then(|()| {
+                    module_indices.iter().try_for_each(|module_index| {
+                        observe(*module_index, SandboxPreparationState::Started);
+                        let result = preparation.prepare_module(*module_index);
+                        observe(
+                            *module_index,
+                            match result.is_ok() {
+                                | true => SandboxPreparationState::Finished,
+                                | false => SandboxPreparationState::Failed,
+                            },
+                        );
+                        result
+                    })
+                })
+                .and_then(|()| preparation.seal())
+        })
+    }
+    pub(crate) fn config(&self) -> &Config {
+        &self.state.config
+    }
+    pub(crate) fn input(&self) -> Option<&str> {
+        self.state.input.as_deref()
+    }
+    pub(crate) fn input_index(&self) -> usize {
+        self.state.input_index
+    }
+    pub(crate) fn module_indices(&self) -> &[usize] {
+        &self.state.module_indices
+    }
+    pub(crate) fn staging_root(&self) -> &Path {
+        &self.state.staging_root
+    }
+}
 impl fmt::Display for SandboxProviderKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             | Self::Oci => formatter.write_str("oci"),
         }
+    }
+}
+impl dyn SandboxSession {
+    /// Open the selected provider session, or return host mode when no policy is active.
+    pub fn open(
+        run_id: &str,
+        policy: Option<&EffectiveSandboxPolicy>,
+        acquisition: WorkloadAcquisition,
+    ) -> Result<Option<Arc<dyn SandboxSession>>, SandboxError> {
+        policy.map_or(Ok(None), |policy| SandboxProvider::open(policy, run_id, acquisition).map(Some))
     }
 }
 impl Validate for Script {
@@ -1049,10 +1101,15 @@ impl Validate for Script {
                 validation_error("unsupported", "application container declarations are not supported inside sandbox mode"),
             );
         }
-        if self.command.virtual_environment.is_some() {
+        let unsupported_environment = self
+            .command
+            .virtual_environment
+            .as_ref()
+            .is_some_and(|environment| !environment.manager.supports_sandbox());
+        if unsupported_environment {
             report.add(
-                "command.virtual_environment",
-                validation_error("unsupported", "host virtual environments are not supported inside sandbox mode"),
+                "command.virtual_environment.manager",
+                validation_error("unsupported", "sandbox mode supports conda, mamba, and pixi environments"),
             );
         }
         report.finish()
@@ -1082,21 +1139,6 @@ fn normalize_path(base: &Path, path: PathBuf) -> PathBuf {
         | true => path,
         | false => base.join(path),
     }
-}
-fn path_replacements(module: &Path, resolved_module: &Path, input: Option<&Path>, resolved_input: Option<&Path>) -> Vec<(String, String)> {
-    let mut replacements = [input, resolved_input]
-        .into_iter()
-        .flatten()
-        .map(|path| (path.display().to_string(), "/xylem/input/current".to_string()))
-        .collect::<Vec<_>>();
-    replacements.extend(
-        [module, resolved_module]
-            .into_iter()
-            .map(|path| (path.display().to_string(), "/xylem/modules/current".to_string())),
-    );
-    replacements.sort_by(|left, right| right.0.len().cmp(&left.0.len()).then_with(|| left.0.cmp(&right.0)));
-    replacements.dedup();
-    replacements
 }
 fn paths_are_valid(values: &[PathBuf]) -> bool {
     !values.is_empty()

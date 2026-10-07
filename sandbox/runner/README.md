@@ -17,3 +17,8 @@ workload:
 ```
 
 Tags exist only for registry discovery. Xylem accepts and pulls workloads only by digest.
+
+The mandatory native rootless Docker and Podman conformance jobs consume the
+digest-pinned reference from the protected `XYLEM_SANDBOX_WORKLOAD` CI
+variable. Their dedicated Linux amd64 runners must expose the matching runtime
+and must not use a remote engine, Docker Desktop, or a Podman machine.

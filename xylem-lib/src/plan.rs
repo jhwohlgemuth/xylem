@@ -4,7 +4,7 @@ extern crate alloc;
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
 use crate::config::{Config, InputAttribute};
 use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
-use crate::sandbox::{IsolationClass, OciRuntime, ProcessGuard, SandboxProviderKind, SandboxResources};
+use crate::sandbox::{IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard, SandboxProviderKind, SandboxResources};
 use crate::script::{
     module_working_directory, ContainerCleanup, ContainerEnvironment, ContainerRuntime, ContainerStartup, Module, ModuleType, ModuleUri, Script,
     TemplateAttribute,
@@ -170,6 +170,8 @@ pub struct PlannedSandbox {
     pub mode: String,
     /// Canonical effective-policy digest, absent for host mode.
     pub policy_digest: Option<String>,
+    /// Network available only during dependency preparation.
+    pub preparation_network: Option<PreparationNetwork>,
     /// Required process guards.
     pub process_guards: Option<Vec<ProcessGuard>>,
     /// Selected provider, absent for host mode.
@@ -178,6 +180,8 @@ pub struct PlannedSandbox {
     pub resources: Option<SandboxResources>,
     /// Selected OCI runtime, when applicable.
     pub runtime: Option<OciRuntime>,
+    /// Provider lifecycle model, absent for host mode.
+    pub session_model: Option<String>,
     /// Immutable provider workload, absent for host mode.
     pub workload: Option<String>,
 }
@@ -507,20 +511,24 @@ impl TryFrom<Config> for PlannedSandbox {
                 minimum_isolation: None,
                 mode: "off".to_string(),
                 policy_digest: None,
+                preparation_network: None,
                 process_guards: None,
                 provider: None,
                 resources: None,
                 runtime: None,
+                session_model: None,
                 workload: None,
             }),
             | (true, Some(policy)) => Ok(Self {
                 minimum_isolation: Some(policy.policy.minimum_isolation),
                 mode: "required".to_string(),
                 policy_digest: Some(policy.digest.clone()),
+                preparation_network: Some(policy.policy.preparation_network),
                 process_guards: Some(policy.policy.process_guards.clone()),
                 provider: Some(policy.provider),
                 resources: Some(policy.policy.resources.clone()),
                 runtime: policy.runtime,
+                session_model: Some("per_input".to_string()),
                 workload: Some(policy.workload.clone()),
             }),
             | (true, None) => Err(PlanError::Sandbox(

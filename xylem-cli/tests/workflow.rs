@@ -750,6 +750,81 @@ fn test_loads_an_explicit_dotenv_without_overriding_process_values() {
     let _ = remove_file(env_path);
 }
 #[test]
+#[ignore = "requires a native rootless OCI runtime and digest-pinned sandbox workload"]
+fn test_native_rootless_sandbox_conformance() {
+    let runtime = std::env::var("XYLEM_SANDBOX_RUNTIME").expect("XYLEM_SANDBOX_RUNTIME must select docker or podman");
+    let workload = std::env::var("XYLEM_SANDBOX_WORKLOAD").expect("XYLEM_SANDBOX_WORKLOAD must be digest-pinned");
+    let test_root = std::env::temp_dir().join(format!("xylem-native-sandbox-{}", std::process::id()));
+    let artifacts = test_root.join("artifacts");
+    let inputs = test_root.join("inputs");
+    let modules = test_root.join("modules");
+    create_dir_all(&artifacts).expect("create sandbox artifact root");
+    create_dir_all(&inputs).expect("create sandbox input root");
+    create_dir_all(&modules).expect("create sandbox module root");
+    let input = inputs.join("sample.txt");
+    write(&input, "sample").expect("write sandbox input");
+    let config = test_root.join("config.json");
+    write(
+        &config,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "input": [input],
+            "requirements": ["curl", "python", "sh", "tar"],
+            "modules": [{
+                "name": "native-conformance",
+                "type": "script",
+                "programmingLanguage": "generic",
+                "uri": format!("file:{}", modules.display()),
+                "template": {
+                    "arguments": ["-c", "test -r \"$_XYLEM_INPUT\" && test ! -w \"$_XYLEM_INPUT\" && test -d /xylem/prepared && test -w /xylem/tmp && ! touch /xylem/prepared/forbidden && ! curl --connect-timeout 1 https://example.invalid"],
+                    "command": "sh"
+                }
+            }],
+            "sandbox": true
+        }))
+        .expect("serialize native sandbox config"),
+    )
+    .expect("write native sandbox config");
+    let policy = test_root.join("policy.json");
+    write(
+        &policy,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "environment": { "allow": ["PATH", "_XYLEM_INPUT", "_XYLEM_MODULE_LIST", "_XYLEM_PARENT_DIRECTORY"] },
+            "lifecycle": { "retention": "delete", "stale_after_seconds": 3600 },
+            "minimum_isolation": "shared_kernel",
+            "paths": { "artifact_roots": [artifacts], "input_roots": [inputs], "module_roots": [modules] },
+            "preparation_network": "deny",
+            "process_guards": [],
+            "provider": { "runtime": runtime, "type": "oci" },
+            "resources": {
+                "artifact_bytes": 1048576,
+                "artifact_files": 1000,
+                "captured_output_bytes": 65536,
+                "cpu_millis": 1000,
+                "memory_bytes": 536870912,
+                "pids": 128,
+                "scratch_bytes": 134217728,
+                "wall_time_seconds": 60
+            },
+            "version": 1,
+            "workload": { "allowed": [workload], "default": workload }
+        }))
+        .expect("serialize native sandbox policy"),
+    )
+    .expect("write native sandbox policy");
+    let output = xylem_command()
+        .args([
+            "run",
+            config.to_str().expect("UTF-8 config path"),
+            "--no-progress",
+            "--sandbox-policy",
+            policy.to_str().expect("UTF-8 policy path"),
+        ])
+        .output()
+        .expect("run native sandbox conformance workflow");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    remove_dir_all(test_root).expect("remove native sandbox fixture");
+}
+#[test]
 fn test_offline_dry_run_skips_reachability_but_still_enforces_allowlist() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

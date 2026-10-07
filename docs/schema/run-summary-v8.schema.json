@@ -142,13 +142,51 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["mode"],
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "required" } }, "required": ["mode"] },
+          "then": {
+            "required": ["minimum_isolation", "policy_digest", "preparation_network", "process_guards", "provider", "realized_capabilities", "resources", "runtime", "session_model", "workload"]
+          }
+        }
+      ],
       "properties": {
         "minimum_isolation": { "enum": ["process", "shared_kernel", "separate_kernel"] },
         "mode": { "enum": ["off", "required"] },
         "policy_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "preparation_network": { "enum": ["deny", "unrestricted"] },
         "process_guards": { "type": "array", "uniqueItems": true, "items": { "enum": ["bubblewrap", "nono", "nsjail"] } },
         "provider": { "enum": ["oci"] },
+        "realized_capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["isolation", "network_deny", "provider", "read_only_root", "resource_limits", "rootless"],
+          "properties": {
+            "isolation": { "enum": ["process", "shared_kernel", "separate_kernel"] },
+            "network_deny": { "type": "boolean" },
+            "provider": { "enum": ["oci"] },
+            "read_only_root": { "type": "boolean" },
+            "resource_limits": { "type": "boolean" },
+            "rootless": { "type": "boolean" }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact_bytes", "artifact_files", "captured_output_bytes", "cpu_millis", "memory_bytes", "pids", "scratch_bytes", "wall_time_seconds"],
+          "properties": {
+            "artifact_bytes": { "type": "integer", "minimum": 1 },
+            "artifact_files": { "type": "integer", "minimum": 1 },
+            "captured_output_bytes": { "type": "integer", "minimum": 1 },
+            "cpu_millis": { "type": "integer", "minimum": 1 },
+            "memory_bytes": { "type": "integer", "minimum": 1 },
+            "pids": { "type": "integer", "minimum": 1 },
+            "scratch_bytes": { "type": "integer", "minimum": 1 },
+            "wall_time_seconds": { "type": "integer", "minimum": 1 }
+          }
+        },
         "runtime": { "enum": ["docker", "podman"] },
+        "session_model": { "const": "per_input" },
         "workload": { "type": "string" }
       }
     },

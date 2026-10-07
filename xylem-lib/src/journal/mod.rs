@@ -1,7 +1,9 @@
 //! Durable, append-only execution journals and deterministic recovery
 extern crate alloc;
 
-use crate::sandbox::{EffectiveSandboxPolicy, IsolationClass, OciRuntime, ProcessGuard, SandboxProviderKind};
+use crate::sandbox::{
+    EffectiveSandboxPolicy, IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard, SandboxCapabilities, SandboxProviderKind, SandboxResources,
+};
 use crate::ReporterType;
 use acorn_core::time::Milliseconds;
 use acorn_core::validation::ValidationError;
@@ -440,12 +442,20 @@ pub struct SandboxEvidence {
     pub mode: String,
     /// Canonical effective-policy digest, absent for host mode.
     pub policy_digest: Option<String>,
+    /// Network available only during dependency preparation.
+    pub preparation_network: Option<PreparationNetwork>,
     /// Required process guards.
     pub process_guards: Option<Vec<ProcessGuard>>,
     /// Selected provider, absent for host mode.
     pub provider: Option<SandboxProviderKind>,
+    /// Capabilities realized during provider discovery.
+    pub realized_capabilities: Option<SandboxCapabilities>,
+    /// Per-input provider resource ceilings.
+    pub resources: Option<SandboxResources>,
     /// Selected OCI runtime, when applicable.
     pub runtime: Option<OciRuntime>,
+    /// Provider lifecycle model, absent for host mode.
+    pub session_model: Option<String>,
     /// Immutable provider workload, absent for host mode.
     pub workload: Option<String>,
 }
@@ -1514,21 +1524,29 @@ impl SandboxEvidence {
             minimum_isolation: None,
             mode: "off".to_string(),
             policy_digest: None,
+            preparation_network: None,
             process_guards: None,
             provider: None,
+            realized_capabilities: None,
+            resources: None,
             runtime: None,
+            session_model: None,
             workload: None,
         }
     }
     /// Record a required sandbox policy without persisting its path grants.
-    pub fn required(policy: &EffectiveSandboxPolicy) -> Self {
+    pub fn required(policy: &EffectiveSandboxPolicy, capabilities: SandboxCapabilities) -> Self {
         Self {
             minimum_isolation: Some(policy.policy.minimum_isolation),
             mode: "required".to_string(),
             policy_digest: Some(policy.digest.clone()),
+            preparation_network: Some(policy.policy.preparation_network),
             process_guards: Some(policy.policy.process_guards.clone()),
             provider: Some(policy.provider),
+            realized_capabilities: Some(capabilities),
+            resources: Some(policy.policy.resources.clone()),
             runtime: policy.runtime,
+            session_model: Some("per_input".to_string()),
             workload: Some(policy.workload.clone()),
         }
     }

@@ -239,7 +239,6 @@ pub enum VirtualEnvironmentManager {
     #[display("unknown")]
     Unknown,
 }
-
 #[derive(Builder, Clone, Debug, Display)]
 #[display("{}", name)]
 #[builder(start_fn(name = init))]
@@ -865,7 +864,7 @@ impl Script {
             .build();
         Script::init().command(command).arguments(arguments).build()
     }
-    fn get_command(&self) -> String {
+    pub(crate) fn get_command(&self) -> String {
         let name = match &self.command.virtual_environment {
             | Some(VirtualEnvironment { manager, .. }) => manager.to_string(),
             | _ => self.command.name.clone(),
@@ -875,7 +874,7 @@ impl Script {
             | _ => name,
         }
     }
-    fn get_arguments(&self) -> Vec<String> {
+    pub(crate) fn get_arguments(&self) -> Vec<String> {
         let self_arguments = match &self.command.virtual_environment {
             | Some(VirtualEnvironment { name, manager, .. }) => {
                 let mut arguments = match manager {
@@ -1284,6 +1283,11 @@ impl StringTemplate {
         };
         self.value = updated;
         self
+    }
+}
+impl VirtualEnvironmentManager {
+    pub(crate) fn supports_sandbox(&self) -> bool {
+        matches!(self, Self::Conda | Self::Mamba | Self::Pixi)
     }
 }
 

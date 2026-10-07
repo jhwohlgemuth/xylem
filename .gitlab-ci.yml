@@ -69,6 +69,58 @@ test:
   script:
     - make test-ci
 
+sandbox-docker-conformance:
+  stage: test
+  tags:
+    - sandbox-docker-rootless-amd64
+  variables:
+    XYLEM_SANDBOX_RUNTIME: docker
+  rules:
+    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - sandbox/runner/**/*
+        - xylem-cli/**/*
+        - xylem-lib/**/*
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - test "$(uname -s)" = Linux
+    - test "$(uname -m)" = x86_64
+    - test -n "${XYLEM_SANDBOX_WORKLOAD:-}"
+    - docker info --format '{{json .SecurityOptions}}' | grep -q rootless
+    - cargo test -p xylem-cli test_native_rootless_sandbox_conformance -- --ignored --exact
+
+sandbox-podman-conformance:
+  stage: test
+  tags:
+    - sandbox-podman-rootless-amd64
+  variables:
+    XYLEM_SANDBOX_RUNTIME: podman
+  rules:
+    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - sandbox/runner/**/*
+        - xylem-cli/**/*
+        - xylem-lib/**/*
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - test "$(uname -s)" = Linux
+    - test "$(uname -m)" = x86_64
+    - test -n "${XYLEM_SANDBOX_WORKLOAD:-}"
+    - test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+    - cargo test -p xylem-cli test_native_rootless_sandbox_conformance -- --ignored --exact
+
 dependency-security:
   stage: test
   image: savannah.ornl.gov/research-enablement/acorn/rust:latest

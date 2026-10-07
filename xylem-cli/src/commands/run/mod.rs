@@ -32,7 +32,9 @@ use xylem_lib::remote::RemotePolicy;
 use xylem_lib::run::store::{Bundle, Manifest, Store, TaskLogSink};
 use xylem_lib::run::telemetry::SystemMonitor;
 use xylem_lib::run::RunCancellation;
-use xylem_lib::sandbox::{EffectiveSandboxPolicy, SandboxProvider, SandboxSession, WorkloadAcquisition};
+use xylem_lib::sandbox::{
+    EffectiveSandboxPolicy, Prepared, SandboxInput, SandboxPreparationState, SandboxProvider, SandboxSession, WorkloadAcquisition,
+};
 use xylem_lib::script::{managed_container_name, ContainerCleanup, EnvironmentValue, ModuleType, ModuleUri, Script};
 use xylem_lib::util::deduplicate;
 use xylem_lib::ReporterType;
@@ -47,7 +49,7 @@ struct BoundedTaskLogSink {
 struct LoggedModuleExecutor {
     bundle: Bundle,
     cancellation: RunCancellation,
-    sandbox: Option<Arc<dyn SandboxSession>>,
+    sandbox: Option<SandboxInput<Prepared>>,
 }
 /// Failure returned to the executable boundary with a stable exit code.
 #[derive(Debug)]
@@ -114,7 +116,7 @@ impl ModuleExecutor for LoggedModuleExecutor {
         });
         let execution = self.sandbox.as_ref().map_or_else(
             || script.execute_checked(&options),
-            |sandbox| sandbox.execute(script, input_index, module_index, &options),
+            |sandbox| sandbox.execute(script, module_index, &options),
         );
         let result = execution.map(|execution| {
             let stdout = String::from_utf8_lossy(execution.stdout().bytes());
@@ -477,13 +479,15 @@ pub fn run(
                 .options
                 .as_ref()
                 .and_then(|options| options.sandbox_policy.as_ref())
-                .map_or(Ok(()), |policy| policy.discover().map(|_| ()))
+                .map_or(Ok(None), |policy| policy.discover().map(Some))
                 .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
-                .and_then(|()| {
-                    ExecutionContext::new(limits).map_err(|why| RunFailure::new(exitcode::OSERR, format!("initialize Xylem worker pool — {why}")))
+                .and_then(|capabilities| {
+                    ExecutionContext::new(limits)
+                        .map(|execution| (execution, capabilities))
+                        .map_err(|why| RunFailure::new(exitcode::OSERR, format!("initialize Xylem worker pool — {why}")))
                 });
             match execution {
-                | Ok(execution) => {
+                | Ok((execution, sandbox_capabilities)) => {
                     debug!(threads = execution.limits().threads(), "=> {} Rayon worker limit", Label::using());
                     let id = nanoid!(10, &nanoid::alphabet::SAFE);
                     let root = env::temp_dir().join(EnvironmentValue::PREFIX).join(id.clone());
@@ -551,10 +555,10 @@ pub fn run(
                                                             version: cfg.version.clone(),
                                                         };
                                                         let dry_run = options.dry_run.unwrap_or_default();
-                                                        let sandbox = options
-                                                            .sandbox_policy
-                                                            .as_ref()
-                                                            .map_or_else(SandboxEvidence::off, SandboxEvidence::required);
+                                                        let sandbox = match (options.sandbox_policy.as_ref(), sandbox_capabilities.clone()) {
+                                                            | (Some(policy), Some(capabilities)) => SandboxEvidence::required(policy, capabilities),
+                                                            | _ => SandboxEvidence::off(),
+                                                        };
                                                         let metadata = RunMetadata::now(run_id, configuration, dry_run, sandbox);
                                                         let journal_containers = plan
                                                             .containers
@@ -611,16 +615,16 @@ pub fn run(
                                                             | Ok((journal, sandbox)) => {
                                                                 let journal = Arc::new(journal);
                                                                 let system_monitor = SystemMonitor::start(bundle.clone());
-                                                                let module_executor = LoggedModuleExecutor {
-                                                                    bundle: bundle.clone(),
-                                                                    cancellation: cancellation.clone().unwrap_or_default(),
-                                                                    sandbox,
-                                                                };
+                                                                let run_cancellation = cancellation.clone().unwrap_or_default();
                                                                 info!(path = %journal_path.display(), run_id = id, "=> {} Execution journal", Label::using());
                                                                 let progress_disabled =
                                                                     no_progress || !io::stderr().is_terminal() || env::var_os("CI").is_some();
+                                                                let preparation_total = match sandbox.is_some() {
+                                                                    | true => required_modules.len().saturating_mul(inputs.len()),
+                                                                    | false => cfg.modules.len(),
+                                                                };
                                                                 let progress = WorkflowProgress::new(
-                                                                    cfg.modules.len() as u64,
+                                                                    preparation_total as u64,
                                                                     cfg.modules.len().saturating_mul(inputs.len()) as u64,
                                                                     progress_disabled,
                                                                 );
@@ -632,8 +636,10 @@ pub fn run(
                                                                         .map_err(RunFailure::from),
                                                                     | false => Ok(()),
                                                                 };
-                                                                let prepared = monitoring.and_then(|()| {
-                                                                    cfg.with_options(options)
+                                                                let prepared = monitoring.and_then(|()| match sandbox.is_some() {
+                                                                    | true => Ok(cfg.with_options(options)),
+                                                                    | false => cfg
+                                                                        .with_options(options)
                                                                         .verify_requirements()
                                                                         .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
                                                                         .map(Config::verify_resources)
@@ -647,9 +653,11 @@ pub fn run(
                                                                                 .map_err(|why| {
                                                                                     RunFailure::new(exitcode::UNAVAILABLE, why.to_string())
                                                                                 })
-                                                                        })
+                                                                        }),
                                                                 });
-                                                                progress.finish_preparation(prepared.is_ok());
+                                                                if sandbox.is_none() {
+                                                                    progress.finish_preparation(prepared.is_ok());
+                                                                }
                                                                 let dispatched = match prepared {
                                                                     | Ok(prepared) => {
                                                                         let options = prepared
@@ -691,7 +699,7 @@ pub fn run(
                                                                                 let _ = journal.transition_container(container.index, state, None);
                                                                             });
                                                                             let operation = |index, input: &Option<String>| {
-                                                                                if module_executor.cancellation.is_requested() {
+                                                                                if run_cancellation.is_requested() {
                                                                                     let message = "workflow cancellation requested";
                                                                                     let _ = journal.transition_input(
                                                                                         index,
@@ -731,14 +739,83 @@ pub fn run(
                                                                                         WorkflowOutcome::failed(input.clone(), message)
                                                                                     }
                                                                                     | Ok(()) => {
-                                                                                        let mut outcome = prepared.clone().run_workflow_recorded(
-                                                                                            input.clone(),
-                                                                                            &options,
-                                                                                            Some(&progress),
-                                                                                            Some(&module_executor),
-                                                                                            Some(&journal),
-                                                                                            index,
-                                                                                        );
+                                                                                        let sandbox_input = sandbox
+                                                                                            .as_ref()
+                                                                                            .map(|session| {
+                                                                                                SandboxInput::new(
+                                                                                                    prepared.clone(),
+                                                                                                    index,
+                                                                                                    required_modules.iter().copied(),
+                                                                                                    root.join("sandbox"),
+                                                                                                    input.clone(),
+                                                                                                )
+                                                                                                .and_then(|requested| {
+                                                                                                    requested.prepare(
+                                                                                                        session.as_ref(),
+                                                                                                        |module_index, state| {
+                                                                                                            if let Some(module) =
+                                                                                                                prepared.modules.get(module_index)
+                                                                                                            {
+                                                                                                                let state = match state {
+                                                                                                                    | SandboxPreparationState::Failed => ProgressState::Failed,
+                                                                                                                    | SandboxPreparationState::Finished => ProgressState::Finished,
+                                                                                                                    | SandboxPreparationState::Started => ProgressState::Started,
+                                                                                                                };
+                                                                                                                ProgressPhase::Preparation.emit(
+                                                                                                                    state,
+                                                                                                                    &module.name,
+                                                                                                                    &module.module_path,
+                                                                                                                    Some(&progress),
+                                                                                                                    input.as_deref(),
+                                                                                                                );
+                                                                                                            }
+                                                                                                        },
+                                                                                                    )
+                                                                                                })
+                                                                                            })
+                                                                                            .transpose();
+                                                                                        let mut outcome = match sandbox_input {
+                                                                                            | Err(why) => {
+                                                                                                WorkflowOutcome::failed(input.clone(), why.to_string())
+                                                                                            }
+                                                                                            | Ok(sandbox_input) => {
+                                                                                                let execution_config = sandbox_input
+                                                                                                    .as_ref()
+                                                                                                    .map_or_else(|| prepared.clone(), |value| value.prepared_config().clone());
+                                                                                                let execution_input = sandbox_input
+                                                                                                    .as_ref()
+                                                                                                    .and_then(|value| value.prepared_input().map(str::to_string))
+                                                                                                    .or_else(|| input.clone());
+                                                                                                let module_executor = LoggedModuleExecutor {
+                                                                                                    bundle: bundle.clone(),
+                                                                                                    cancellation: run_cancellation.clone(),
+                                                                                                    sandbox: sandbox_input.clone(),
+                                                                                                };
+                                                                                                let mut outcome = execution_config.run_workflow_recorded(
+                                                                                                    execution_input,
+                                                                                                    &options,
+                                                                                                    Some(&progress),
+                                                                                                    Some(&module_executor),
+                                                                                                    Some(&journal),
+                                                                                                    index,
+                                                                                                );
+                                                                                                if let Some(sandbox_input) = sandbox_input {
+                                                                                                    if let Err(why) = sandbox_input.finish(outcome.is_success()) {
+                                                                                                        let cleanup = format!(
+                                                                                                            "finish sandbox input {index} — {why}"
+                                                                                                        );
+                                                                                                        outcome.state = ExecutionState::Failed;
+                                                                                                        outcome.error = Some(match outcome.error {
+                                                                                                            | Some(primary) => {
+                                                                                                                format!("{primary}; additionally, {cleanup}")
+                                                                                                            }
+                                                                                                            | None => cleanup,
+                                                                                                        });
+                                                                                                    }
+                                                                                                }
+                                                                                                outcome
+                                                                                            }
+                                                                                        };
                                                                                         let terminal_transition = journal.transition_input(
                                                                                             index,
                                                                                             outcome.state,
@@ -833,7 +910,10 @@ pub fn run(
                                                                 let sandbox_succeeded = dispatched
                                                                     .as_ref()
                                                                     .is_ok_and(|outcomes| outcomes.iter().flatten().all(WorkflowOutcome::is_success));
-                                                                let sandbox_cleanup = module_executor.sandbox.as_ref().map_or(Ok(()), |sandbox| {
+                                                                if sandbox.is_some() {
+                                                                    progress.finish_preparation(sandbox_succeeded);
+                                                                }
+                                                                let sandbox_cleanup = sandbox.as_ref().map_or(Ok(()), |sandbox| {
                                                                     sandbox.finish(sandbox_succeeded).map_err(|why| {
                                                                         RunFailure::new(
                                                                             exitcode::IOERR,
