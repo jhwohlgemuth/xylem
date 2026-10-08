@@ -40,9 +40,8 @@ runner.
   dropping an in-flight future is not a documented session-cleanup contract.
 - Xylem's runner is synchronous and uses Rayon for bounded input concurrency.
   `RunCancellation` provides a graceful first request and forceful repeated
-  request. The execution plan, journal, summary, run store, JSON reporter, and
-  TUI currently use schema version 8 and represent modules, containers, GPU
-  monitoring, and inputs only.
+  request. Execution plans currently use version 10 and journals/summaries use
+  version 9; neither contract represents MCP calls.
 - Xylem already expands uppercase `{{ VARIABLE }}` strings from workflow values
   and the derived `INPUT`, `PARENT_DIRECTORY`, `OUTPUT_DIRECTORY`, and
   `MODULE_LIST` values. MCP arguments can reuse that vocabulary without adding
@@ -153,9 +152,8 @@ tool catalog, create a journal, or write a result artifact. Resolved arguments
 are visible in dry-run output, consistent with the existing plan's effective
 module variables. They are not copied into the journal.
 
-Bump the execution-plan schema to version 10 and add
-`docs/schema/execution-plan-v10.schema.json`. Retain the v8 schema as historical
-documentation.
+Allocate the next execution-plan version at implementation time and add its
+schema document. Retain prior schemas as historical documentation.
 
 # Execution design
 
@@ -222,13 +220,12 @@ A result with `isError: true` is written first, then recorded as
 artifact. Failure to persist evidence fails the input because the durable
 result contract was not met.
 
-Add MCP calls to `WorkflowOutcome` and each `InputSummary`. Bump the journal and
-run-summary schemas to version 10 and add
-`docs/schema/run-summary-v10.schema.json` plus
+Add MCP calls to `WorkflowOutcome` and each `InputSummary`. Allocate the next
+journal/run-summary version at implementation time and add its schema plus
 `docs/schema/mcp-result-v1.schema.json`. Update writers, recovery, projection,
 store discovery, reporters, and the TUI together. Follow the current exact
-schema-version policy: retain v8 schema documents but do not add a v8-to-v10 run
-migration.
+schema-version policy: retain prior schema documents but do not add run
+migrations.
 
 Console, JSON, and TUI views use the same projected summary. They show call
 name, server, tool, state, failure kind, and artifact reference. The TUI does
@@ -240,12 +237,12 @@ not render arbitrary result payloads.
    imports, the lockfile, and the dependency baseline in one manifest-owned
    change.
 2. Add configuration types, root-only resolution, validation, pure recursive
-   argument expansion, caller policy, and planning. Land schema-v10 plan tests
-   before live execution.
+   argument expansion, caller policy, and planning. Land current-version plan
+   tests before live execution.
 3. Add the ACORN adapter, Tokio bridge, runtime-only approvals, and real-run
    policy preflight.
 4. Add result artifacts, journal events, outcomes, recovery, projections, and
-   schema-v10 summaries.
+   newly versioned summaries.
 5. Integrate per-input postludes with the runner and cancellation path.
 6. Update headless reporting, TUI rendering, examples, generated help, and user
    documentation after names and behavior are stable.
@@ -256,8 +253,8 @@ not render arbitrary result payloads.
   planning, cancellation, workflow outcomes, run orchestration, journal,
   projection, run store, reporters, TUI, schemas, documentation, and examples.
 - Create: the Xylem MCP adapter, typed result artifact support, fake
-  child-process and HTTP fixtures, focused tests, and v10/v1 schemas.
-- Delete: none. Do not remove v8 schema documents.
+  child-process and HTTP fixtures, focused tests, and versioned/v1 schemas.
+- Delete: none. Do not remove prior schema documents.
 
 The implementation claims the manifest, configuration, CLI, MCP integration,
 run-state, run-store, TUI, and documentation locks. It must not overlap another
@@ -273,8 +270,9 @@ Unit and schema tests cover:
   sorted provenance, input-major planning order, and zero-input workflows;
 - every effect and approval combination, offline child and HTTP behavior, and
   dry-run policy decisions;
-- schema-v10 plans, journals, recovery, projections, summaries, result-artifact
-  schema, digest verification, invalid transitions, and interrupted runs.
+- current-version plans, journals, recovery, projections, summaries,
+  result-artifact schema, digest verification, invalid transitions, and
+  interrupted runs.
 
 Integration fixtures exercise the real ACORN adapter for:
 

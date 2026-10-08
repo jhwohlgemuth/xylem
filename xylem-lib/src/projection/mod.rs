@@ -48,8 +48,8 @@ impl DurationHistory {
             .filter(|module| module.state == ExecutionState::Succeeded)
             .filter_map(|module| {
                 module
-                    .started_at_ms
-                    .map(|started| (module.module_path.clone(), module.updated_at_ms.saturating_sub(started)))
+                    .started_at
+                    .map(|started| (module.module_path.clone(), module.updated_at.get().saturating_sub(started.get())))
             })
             .fold(BTreeMap::<Vec<String>, Vec<u64>>::new(), |mut samples, (path, duration)| {
                 let values = samples.entry(path).or_default();
@@ -75,7 +75,7 @@ impl DurationHistory {
                     .collect::<Option<Vec<_>>>();
                 historical.map_or_else(
                     || {
-                        let elapsed = now_ms.saturating_sub(summary.started_at_ms);
+                        let elapsed = now_ms.saturating_sub(summary.started_at.get());
                         (completed_steps > 0).then(|| {
                             let per_step = elapsed / completed_steps as u64;
                             let total = per_step.saturating_mul(remaining.len() as u64);

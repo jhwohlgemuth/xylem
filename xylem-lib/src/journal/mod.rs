@@ -1,12 +1,16 @@
 //! Durable, append-only execution journals and deterministic recovery
 extern crate alloc;
 
+use crate::memory::{MemoryEstimator, PlannedMemoryFallback};
+use crate::plan::{MemoryPlanMode, PlannedMemory};
 use crate::sandbox::{
     EffectiveSandboxPolicy, IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard, SandboxCapabilities, SandboxProviderKind, SandboxResources,
 };
 use crate::ReporterType;
 use acorn_core::time::Milliseconds;
 use acorn_core::validation::ValidationError;
+use acorn_macros::With;
+use acorn_schema::hardware::Memory;
 use acorn_schema::validation::{Validate, ValidationReport};
 use alloc::collections::{BTreeMap, BTreeSet};
 use core::{fmt, iter::once};
@@ -22,20 +26,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use strum::EnumIs;
 
 /// Current on-disk journal schema version.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 8;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 9;
 /// Maximum number of UTF-8 bytes retained for one journal error detail.
 pub const MAX_ERROR_BYTES: usize = 4096;
 trait Summary {
-    fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<u64>, &mut u64);
+    fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<Milliseconds>, &mut Milliseconds);
 
-    fn update_state(&mut self, next: ExecutionState, error: Option<String>, timestamp_ms: u64) {
-        let (current, current_error, started_at_ms, updated_at_ms) = self.state_fields();
+    fn update_state(&mut self, next: ExecutionState, error: Option<String>, timestamp: Milliseconds) {
+        let (current, current_error, started_at, updated_at) = self.state_fields();
         *current = next;
         *current_error = error;
-        if next.is_running() && started_at_ms.is_none() {
-            *started_at_ms = Some(timestamp_ms);
+        if next.is_running() && started_at.is_none() {
+            *started_at = Some(timestamp);
         }
-        *updated_at_ms = timestamp_ms;
+        *updated_at = timestamp;
     }
 }
 /// Durable state of a container used by the run.
@@ -120,11 +124,11 @@ pub enum JournalError {
 }
 /// One append-only journal event.
 #[skip_serializing_none]
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum JournalEvent {
     /// Declares the run before any work begins.
-    RunStarted { metadata: RunMetadata },
+    RunStarted { metadata: Box<RunMetadata> },
     /// Records a container lifecycle transition.
     ContainerState {
         container: JournalContainer,
@@ -145,6 +149,12 @@ pub enum JournalEvent {
         state: ExecutionState,
         error: Option<String>,
     },
+    /// Records an optional platform observation of one input's peak memory.
+    InputMemoryObserved {
+        input_index: usize,
+        input_id: String,
+        observed_peak: Memory,
+    },
     /// Records a module transition for an input.
     ModuleState {
         input_index: usize,
@@ -157,6 +167,37 @@ pub enum JournalEvent {
     },
     /// Marks a normal run finalization.
     RunFinished { status: FinalStatus, error: Option<String> },
+}
+/// Memory scheduling behavior recorded for a run.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryEvidenceMode {
+    /// Fixed input batching was retained because at least one estimate was unavailable.
+    FixedFallback,
+    /// Inputs were admitted using their memory reservations.
+    MemoryAware,
+}
+/// Durable reason that an input could not use memory-aware admission.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, thiserror::Error)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MemoryFallbackEvidence {
+    /// The input size was outside the estimator's calibrated range.
+    #[error("input size is outside the calibrated range")]
+    InputOutOfRange {
+        /// Largest input size accepted by the estimator.
+        maximum_input: Memory,
+        /// Smallest input size accepted by the estimator.
+        minimum_input: Memory,
+    },
+    /// The input could not be measured safely.
+    #[error("{detail}")]
+    InputUnavailable {
+        /// Bounded diagnostic explaining why sizing failed.
+        detail: String,
+    },
+    /// The workflow had no concrete input to size.
+    #[error("the workflow has no concrete input to size")]
+    NoInput,
 }
 /// Overall state reconstructed from a journal.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -198,7 +239,7 @@ pub struct ContainerSummary {
     /// Bounded lifecycle failure, when present.
     pub error: Option<String>,
     /// Timestamp of the latest transition.
-    pub updated_at_ms: u64,
+    pub updated_at: Milliseconds,
 }
 /// Stable identity and capacity for one monitored GPU.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -290,9 +331,9 @@ pub struct InputSummary {
     /// Bounded failure detail, when present.
     pub error: Option<String>,
     /// First running timestamp, when execution began.
-    pub started_at_ms: Option<u64>,
+    pub started_at: Option<Milliseconds>,
     /// Timestamp of the latest transition.
-    pub updated_at_ms: u64,
+    pub updated_at: Milliseconds,
     /// Ordered module states.
     pub modules: Vec<ModuleSummary>,
 }
@@ -330,7 +371,7 @@ pub struct JournalModule {
     pub module_path: Vec<String>,
 }
 /// One versioned line in a journal file.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct JournalRecord {
     /// Schema version for this record.
     pub schema_version: u32,
@@ -348,11 +389,31 @@ pub struct JournalRecord {
 struct JournalSink {
     writer: BufWriter<File>,
     next_sequence: u64,
+    input_observations: Vec<bool>,
+    input_started: Vec<bool>,
     input_states: Vec<ExecutionState>,
     module_states: Vec<Vec<ExecutionState>>,
     container_states: Vec<ContainerState>,
     finalized: bool,
     gpu_monitoring: GpuJournalState,
+}
+/// Portable estimate and optional observation for one input.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct MemoryInputEvidence {
+    /// Fixed-point estimate before applying the safety multiplier.
+    pub estimated: Option<Memory>,
+    /// Reason no reservation was produced.
+    pub fallback: Option<MemoryFallbackEvidence>,
+    /// Aggregate logical input bytes when sizing succeeded.
+    pub input: Option<Memory>,
+    /// Stable position in resolved input order.
+    pub input_index: usize,
+    /// Optional platform observation recorded separately from admission.
+    pub observed_peak: Option<Memory>,
+    /// Bytes enforced by the memory-aware admission queue.
+    pub reservation: Option<Memory>,
+    /// Difference between the reservation and base estimate.
+    pub safety_reserve: Option<Memory>,
 }
 #[derive(Clone, Debug, Default)]
 struct MetricAggregate {
@@ -374,9 +435,9 @@ pub struct ModuleSummary {
     /// Bounded failure detail, when present.
     pub error: Option<String>,
     /// First running timestamp, when execution began.
-    pub started_at_ms: Option<u64>,
+    pub started_at: Option<Milliseconds>,
     /// Timestamp of the latest transition.
-    pub updated_at_ms: u64,
+    pub updated_at: Milliseconds,
 }
 /// A serialized, flush-on-transition journal writer safe for concurrent callers.
 #[derive(Debug)]
@@ -384,12 +445,28 @@ pub struct RunJournal {
     path: PathBuf,
     run_id: String,
     inputs: Vec<JournalInput>,
+    memory: Option<RunMemoryEvidence>,
     modules: Vec<JournalModule>,
     containers: Vec<JournalContainer>,
     sink: Mutex<JournalSink>,
 }
+/// Durable run-wide memory admission evidence.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RunMemoryEvidence {
+    /// Explicit aggregate reservation budget.
+    pub budget: Memory,
+    /// Stable configured estimator identity.
+    pub estimator_identity: String,
+    /// Ordered per-input estimates and fallback reasons.
+    pub inputs: Vec<MemoryInputEvidence>,
+    /// Scheduling behavior selected by the execution plan.
+    pub mode: MemoryEvidenceMode,
+    /// Safety multiplier scaled by one million.
+    pub safety_millionths: u64,
+}
 /// Run metadata written before any input begins.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[skip_serializing_none]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, With)]
 pub struct RunMetadata {
     /// Unique run identifier.
     pub run_id: String,
@@ -397,13 +474,16 @@ pub struct RunMetadata {
     pub configuration: ConfigurationIdentity,
     /// Whether this is a side-effect-free dry run.
     pub dry_run: bool,
+    /// Portable memory admission evidence, when configured.
+    #[with(some)]
+    pub memory: Option<RunMemoryEvidence>,
     /// Effective sandbox mode and non-secret policy identity.
     pub sandbox: SandboxEvidence,
     /// Unix timestamp in milliseconds.
-    pub started_at_ms: u64,
+    pub started_at: Milliseconds,
 }
 /// Deterministic summary reconstructed from durable journal records.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RunSummary {
     /// Summary schema version.
     pub schema_version: u32,
@@ -416,11 +496,11 @@ pub struct RunSummary {
     /// Effective sandbox mode and non-secret policy identity.
     pub sandbox: SandboxEvidence,
     /// Run start timestamp.
-    pub started_at_ms: u64,
+    pub started_at: Milliseconds,
     /// Finalization timestamp, absent for interrupted runs.
-    pub finished_at_ms: Option<u64>,
+    pub finished_at: Option<Milliseconds>,
     /// Elapsed run duration, absent for interrupted runs.
-    pub duration_ms: Option<u64>,
+    pub duration: Option<Milliseconds>,
     /// Overall recovered status.
     pub status: RunStatus,
     /// Final bounded run error, when present.
@@ -431,6 +511,8 @@ pub struct RunSummary {
     pub containers: Vec<ContainerSummary>,
     /// Ordered input summaries.
     pub inputs: Vec<InputSummary>,
+    /// Portable memory admission evidence and optional observed peaks.
+    pub memory: Option<RunMemoryEvidence>,
 }
 /// Non-secret sandbox evidence recorded for every run.
 #[skip_serializing_none]
@@ -604,8 +686,8 @@ impl GpuRecovery {
     }
 }
 impl Summary for InputSummary {
-    fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<u64>, &mut u64) {
-        (&mut self.state, &mut self.error, &mut self.started_at_ms, &mut self.updated_at_ms)
+    fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<Milliseconds>, &mut Milliseconds) {
+        (&mut self.state, &mut self.error, &mut self.started_at, &mut self.updated_at)
     }
 }
 impl core::error::Error for JournalError {
@@ -681,6 +763,105 @@ impl JournalSink {
         }
     }
 }
+impl fmt::Display for MemoryEvidenceMode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            | Self::FixedFallback => "fixed_fallback",
+            | Self::MemoryAware => "memory_aware",
+        })
+    }
+}
+impl From<MemoryPlanMode> for MemoryEvidenceMode {
+    fn from(mode: MemoryPlanMode) -> Self {
+        match mode {
+            | MemoryPlanMode::FixedFallback => Self::FixedFallback,
+            | MemoryPlanMode::MemoryAware => Self::MemoryAware,
+        }
+    }
+}
+impl From<&PlannedMemoryFallback> for MemoryFallbackEvidence {
+    fn from(fallback: &PlannedMemoryFallback) -> Self {
+        match fallback {
+            | PlannedMemoryFallback::InputOutOfRange {
+                maximum_input_bytes,
+                minimum_input_bytes,
+            } => Self::InputOutOfRange {
+                maximum_input: Memory::kb(*maximum_input_bytes as f64 / 1024.0),
+                minimum_input: Memory::kb(*minimum_input_bytes as f64 / 1024.0),
+            },
+            | PlannedMemoryFallback::InputUnavailable { detail } => Self::InputUnavailable {
+                detail: bounded_error(detail),
+            },
+            | PlannedMemoryFallback::NoInput => Self::NoInput,
+        }
+    }
+}
+impl Validate for MemoryFallbackEvidence {
+    fn validate(&self) -> Result<(), ValidationReport> {
+        let mut report = ValidationReport::new();
+        match self {
+            | Self::InputOutOfRange {
+                maximum_input,
+                minimum_input,
+            } => match (minimum_input.checked_bytes(), maximum_input.checked_bytes()) {
+                | (Some(minimum), Some(maximum)) if minimum > 0 && minimum <= maximum => (),
+                | _ => report.add(
+                    "maximum_input",
+                    ValidationError::new("range").with_message("memory fallback input range must be positive and ordered"),
+                ),
+            },
+            | Self::InputUnavailable { detail } if detail.is_empty() || detail.len() > MAX_ERROR_BYTES => report.add(
+                "detail",
+                ValidationError::new("length").with_message("memory fallback detail must be nonempty and bounded"),
+            ),
+            | Self::InputUnavailable { .. } | Self::NoInput => (),
+        }
+        report.finish()
+    }
+}
+impl Validate for MemoryInputEvidence {
+    fn validate(&self) -> Result<(), ValidationReport> {
+        let mut report = ValidationReport::new();
+        if let Some(fallback) = &self.fallback {
+            if let Err(why) = fallback.validate() {
+                report = report.merge("fallback", why);
+            }
+        }
+        let decision_valid = match (
+            self.estimated.as_ref().and_then(Memory::checked_bytes),
+            self.fallback.as_ref(),
+            self.input.as_ref().and_then(Memory::checked_bytes),
+            self.reservation.as_ref().and_then(Memory::checked_bytes),
+            self.safety_reserve.as_ref().and_then(Memory::checked_bytes),
+        ) {
+            | (Some(estimated), None, Some(input), Some(reservation), Some(safety)) => {
+                estimated > 0 && input > 0 && estimated.checked_add(safety) == Some(reservation) && reservation > 0
+            }
+            | (None, Some(_), _, None, None) => self
+                .input
+                .as_ref()
+                .is_none_or(|input| input.checked_bytes().is_some_and(|value| value > 0)),
+            | _ => false,
+        };
+        if !decision_valid {
+            report.add(
+                "decision",
+                ValidationError::new("consistent").with_message("memory evidence decision is inconsistent"),
+            );
+        }
+        if self
+            .observed_peak
+            .as_ref()
+            .is_some_and(|peak| peak.checked_bytes().filter(|value| *value > 0).is_none())
+        {
+            report.add(
+                "observed_peak",
+                ValidationError::new("positive").with_message("observed peak memory must be finite and greater than zero"),
+            );
+        }
+        report.finish()
+    }
+}
 impl MetricAggregate {
     fn summary(self) -> Option<GpuMetricSummary> {
         (self.samples > 0).then(|| GpuMetricSummary {
@@ -696,8 +877,8 @@ impl MetricAggregate {
     }
 }
 impl Summary for ModuleSummary {
-    fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<u64>, &mut u64) {
-        (&mut self.state, &mut self.error, &mut self.started_at_ms, &mut self.updated_at_ms)
+    fn state_fields(&mut self) -> (&mut ExecutionState, &mut Option<String>, &mut Option<Milliseconds>, &mut Milliseconds) {
+        (&mut self.state, &mut self.error, &mut self.started_at, &mut self.updated_at)
     }
 }
 impl RunJournal {
@@ -722,15 +903,19 @@ impl RunJournal {
             .and_then(|()| OpenOptions::new().write(true).create_new(true).open(&path).map_err(JournalError::from))
             .and_then(|file| {
                 let module_states = inputs.iter().map(|_| vec![ExecutionState::NotStarted; modules.len()]).collect::<Vec<_>>();
+                let memory = metadata.memory.clone();
                 let journal = Self {
                     path,
                     run_id: metadata.run_id.clone(),
                     inputs: inputs.clone(),
+                    memory,
                     modules: modules.clone(),
                     containers: containers.clone(),
                     sink: Mutex::new(JournalSink {
                         writer: BufWriter::new(file),
                         next_sequence: 0,
+                        input_observations: vec![false; inputs.len()],
+                        input_started: vec![false; inputs.len()],
                         input_states: vec![ExecutionState::NotStarted; inputs.len()],
                         module_states,
                         container_states: vec![ContainerState::NotStarted; containers.len()],
@@ -740,7 +925,9 @@ impl RunJournal {
                 };
                 match journal.validate().map_err(JournalError::from) {
                     | Ok(()) => journal
-                        .append(JournalEvent::RunStarted { metadata })
+                        .append(JournalEvent::RunStarted {
+                            metadata: Box::new(metadata),
+                        })
                         .and_then(|()| {
                             containers.into_iter().try_for_each(|container| {
                                 journal.append(JournalEvent::ContainerState {
@@ -891,6 +1078,43 @@ impl RunJournal {
     pub fn path(&self) -> &Path {
         &self.path
     }
+    /// Durably record one positive platform observation of an input's peak memory.
+    pub fn record_memory_peak(&self, input_index: usize, observed_peak: Memory) -> Result<(), JournalError> {
+        self.memory
+            .as_ref()
+            .and_then(|memory| memory.inputs.get(input_index))
+            .ok_or_else(|| JournalError::Invalid(format!("input {input_index} has no configured memory evidence")))
+            .and_then(|_| {
+                self.inputs
+                    .get(input_index)
+                    .ok_or_else(|| JournalError::Invalid(format!("unknown input index {input_index}")))
+            })
+            .and_then(|input| {
+                self.sink.lock().map_err(|_| JournalError::Poisoned).and_then(|mut sink| {
+                    match (
+                        observed_peak.checked_bytes().is_some_and(|value| value > 0),
+                        sink.input_started[input_index],
+                        sink.input_observations[input_index],
+                    ) {
+                        | (false, _, _) => Err(JournalError::Invalid("observed peak memory must be greater than zero".to_string())),
+                        | (_, false, _) => Err(JournalError::Invalid(format!(
+                            "input {input_index} peak memory was observed before execution"
+                        ))),
+                        | (_, _, true) => Err(JournalError::Invalid(format!("input {input_index} peak memory was already observed"))),
+                        | (true, true, false) => sink
+                            .append_locked(
+                                &self.run_id,
+                                JournalEvent::InputMemoryObserved {
+                                    input_index,
+                                    input_id: input.input_id.clone(),
+                                    observed_peak,
+                                },
+                            )
+                            .map(|()| sink.input_observations[input_index] = true),
+                    }
+                })
+            })
+    }
     /// Durably transition one input.
     pub fn transition_input(&self, input_index: usize, state: ExecutionState, error: Option<&str>) -> Result<(), JournalError> {
         self.inputs
@@ -919,7 +1143,12 @@ impl RunJournal {
                                 },
                             )
                         })
-                        .map(|()| sink.input_states[input_index] = state)
+                        .map(|()| {
+                            sink.input_states[input_index] = state;
+                            if state.is_running() {
+                                sink.input_started[input_index] = true;
+                            }
+                        })
                 })
             })
     }
@@ -1025,6 +1254,18 @@ impl Validate for RunJournal {
                 (report, input_ids)
             })
             .0;
+        let validation = self
+            .memory
+            .as_ref()
+            .map_or(Ok(()), |memory| memory.validate_for_inputs(self.inputs.len(), false));
+        let report = match validation {
+            | Ok(()) => report,
+            | Err(why) => {
+                let mut report = report;
+                report.add("memory", ValidationError::new("invalid").with_message(why.to_string()));
+                report
+            }
+        };
         self.modules
             .iter()
             .enumerate()
@@ -1046,6 +1287,177 @@ impl Validate for RunJournal {
             .finish()
     }
 }
+impl RunMemoryEvidence {
+    fn observe(&mut self, input_index: usize, observed_peak: Memory) -> Result<(), JournalError> {
+        self.inputs
+            .get_mut(input_index)
+            .ok_or_else(|| JournalError::Invalid(format!("memory observation references unknown input {input_index}")))
+            .and_then(|input| {
+                match (
+                    observed_peak.checked_bytes().is_some_and(|value| value > 0),
+                    input.observed_peak.is_some(),
+                ) {
+                    | (false, _) => Err(JournalError::Invalid("observed peak memory must be greater than zero".to_string())),
+                    | (_, true) => Err(JournalError::Invalid(format!("input {input_index} peak memory was already observed"))),
+                    | (true, false) => {
+                        input.observed_peak = Some(observed_peak);
+                        Ok(())
+                    }
+                }
+            })
+    }
+    fn validate_for_inputs(&self, count: usize, allow_observations: bool) -> Result<(), JournalError> {
+        self.validate().map_err(JournalError::from).and_then(|()| {
+            match (
+                self.inputs.len() == count,
+                allow_observations || self.inputs.iter().all(|input| input.observed_peak.is_none()),
+            ) {
+                | (false, _) => Err(JournalError::Invalid(format!(
+                    "memory evidence contains {} inputs for {count} journal inputs",
+                    self.inputs.len()
+                ))),
+                | (_, false) => Err(JournalError::Invalid("memory evidence contains an observation at run start".to_string())),
+                | (true, true) => Ok(()),
+            }
+        })
+    }
+}
+impl TryFrom<&PlannedMemory> for RunMemoryEvidence {
+    type Error = JournalError;
+
+    fn try_from(planned: &PlannedMemory) -> Result<Self, Self::Error> {
+        let estimator = MemoryEstimator::new(
+            planned.estimator.identity.clone(),
+            planned.estimator.intercept.clone(),
+            planned.estimator.minimum_input.clone(),
+            planned.estimator.maximum_input.clone(),
+            planned.estimator.slope_millionths,
+            planned.estimator.safety_millionths,
+        );
+        estimator
+            .map_err(|why| JournalError::Invalid(format!("rebuild planned memory estimator: {why}")))
+            .and_then(|estimator| {
+                planned
+                    .inputs
+                    .iter()
+                    .map(|input| match (&input.fallback, &input.reservation) {
+                        | (Some(fallback), None) => Ok(MemoryInputEvidence {
+                            estimated: None,
+                            fallback: Some(fallback.into()),
+                            input: input.input_bytes.map(|bytes| Memory::kb(bytes as f64 / 1024.0)),
+                            input_index: input.input_index,
+                            observed_peak: None,
+                            reservation: None,
+                            safety_reserve: None,
+                        }),
+                        | (None, Some(reservation)) => input
+                            .input_bytes
+                            .filter(|value| *value > 0)
+                            .ok_or_else(|| JournalError::Invalid(format!("planned memory input {} is missing its input size", input.input_index)))
+                            .and_then(|input_bytes| {
+                                estimator
+                                    .reservation_breakdown_bytes(input_bytes)
+                                    .map_err(|why| JournalError::Invalid(format!("derive memory evidence for input {}: {why}", input.input_index)))
+                                    .and_then(|breakdown| {
+                                        let reservation_bytes = breakdown.reservation.checked_bytes().unwrap_or_default();
+                                        match reservation.checked_bytes() == Some(reservation_bytes) {
+                                            | true => Ok(MemoryInputEvidence {
+                                                estimated: Some(breakdown.estimated),
+                                                fallback: None,
+                                                input: Some(Memory::kb(input_bytes as f64 / 1024.0)),
+                                                input_index: input.input_index,
+                                                observed_peak: None,
+                                                reservation: Some(breakdown.reservation),
+                                                safety_reserve: Some(breakdown.safety_reserve),
+                                            }),
+                                            | false => Err(JournalError::Invalid(format!(
+                                                "planned memory reservation changed for input {}",
+                                                input.input_index
+                                            ))),
+                                        }
+                                    })
+                            }),
+                        | _ => Err(JournalError::Invalid(format!(
+                            "planned memory input {} has an inconsistent decision",
+                            input.input_index
+                        ))),
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .and_then(|inputs| {
+                let evidence = Self {
+                    budget: planned.budget.clone(),
+                    estimator_identity: planned.estimator.identity.clone(),
+                    inputs,
+                    mode: planned.mode.into(),
+                    safety_millionths: planned.estimator.safety_millionths,
+                };
+                evidence.validate_for_inputs(planned.inputs.len(), false).map(|()| evidence)
+            })
+    }
+}
+impl Validate for RunMemoryEvidence {
+    fn validate(&self) -> Result<(), ValidationReport> {
+        let mut report = ValidationReport::new();
+        let budget = self.budget.checked_bytes().filter(|value| *value > 0);
+        if budget.is_none() {
+            report.add(
+                "budget",
+                ValidationError::new("positive").with_message("memory evidence budget must be finite and greater than zero"),
+            );
+        }
+        if self.estimator_identity.trim().is_empty() {
+            report.add(
+                "estimator_identity",
+                ValidationError::new("nonempty").with_message("memory evidence estimator identity must not be empty"),
+            );
+        }
+        if self.inputs.is_empty() {
+            report.add(
+                "inputs",
+                ValidationError::new("nonempty").with_message("memory evidence inputs must not be empty"),
+            );
+        }
+        if self.safety_millionths < 1_000_000 {
+            report.add(
+                "safety_millionths",
+                ValidationError::new("minimum").with_message("memory evidence safety multiplier must be at least 1000000 millionths"),
+            );
+        }
+        let mode_valid = match self.mode {
+            | MemoryEvidenceMode::FixedFallback => self.inputs.iter().any(|input| input.fallback.is_some()),
+            | MemoryEvidenceMode::MemoryAware => self.inputs.iter().all(|input| input.fallback.is_none()),
+        };
+        if !mode_valid {
+            report.add(
+                "mode",
+                ValidationError::new("consistent").with_message("memory evidence mode does not match its input decisions"),
+            );
+        }
+        report = self.inputs.iter().enumerate().fold(report, |mut report, (expected_index, input)| {
+            if input.input_index != expected_index {
+                report.add(
+                    format!("inputs[{expected_index}].input_index"),
+                    ValidationError::new("sequence").with_message(format!("expected input index {expected_index}, found {}", input.input_index)),
+                );
+            }
+            if let Err(why) = input.validate() {
+                let path = format!("inputs[{expected_index}]");
+                report = report.merge(&path, why);
+            }
+            if let (Some(budget), Some(reservation)) = (budget, input.reservation.as_ref().and_then(Memory::checked_bytes)) {
+                if reservation > budget {
+                    report.add(
+                        format!("inputs[{expected_index}].reservation"),
+                        ValidationError::new("maximum").with_message("memory reservation exceeds the run budget"),
+                    );
+                }
+            }
+            report
+        });
+        report.finish()
+    }
+}
 impl RunMetadata {
     /// Build metadata with the current system time.
     pub fn now(run_id: String, configuration: ConfigurationIdentity, dry_run: bool, sandbox: SandboxEvidence) -> Self {
@@ -1053,20 +1465,30 @@ impl RunMetadata {
             run_id,
             configuration,
             dry_run,
+            memory: None,
             sandbox,
-            started_at_ms: timestamp().get(),
+            started_at: timestamp(),
         }
     }
 }
 impl Validate for RunMetadata {
     fn validate(&self) -> Result<(), ValidationReport> {
-        match self.run_id.is_empty() {
-            | true => Err(ValidationReport::from_error(
-                "run_id",
-                ValidationError::new("nonempty").with_message("Run ID cannot be empty"),
-            )),
-            | false => Ok(()),
+        let mut report = ValidationReport::new();
+        if self.run_id.is_empty() {
+            report.add("run_id", ValidationError::new("nonempty").with_message("Run ID cannot be empty"));
         }
+        if let Some(memory) = &self.memory {
+            if let Err(why) = memory.validate() {
+                report = report.merge("memory", why);
+            }
+            if memory.inputs.iter().any(|input| input.observed_peak.is_some()) {
+                report.add(
+                    "memory.inputs",
+                    ValidationError::new("unobserved").with_message("memory evidence cannot contain observations at run start"),
+                );
+            }
+        }
+        report.finish()
     }
 }
 impl fmt::Display for RunStatus {
@@ -1176,6 +1598,35 @@ impl RunSummary {
                     output,
                     "Inputs: {succeeded}, {cancelled}, {failed}, {skipped}, {skipped_existing}, {unfinished}"
                 )
+            })
+            .and_then(|()| {
+                self.memory.as_ref().map_or(Ok(()), |memory| {
+                    writeln!(
+                        output,
+                        "Memory: {} via {}, budget {} bytes",
+                        memory.mode,
+                        memory.estimator_identity,
+                        memory.budget.checked_bytes().unwrap_or_default()
+                    )
+                    .and_then(|()| {
+                        memory.inputs.iter().try_for_each(|input| match &input.fallback {
+                            | Some(fallback) => writeln!(output, "Memory input {}: fixed fallback ({fallback})", input.input_index),
+                            | None => writeln!(
+                                output,
+                                "Memory input {}: estimate {} + safety {} = reservation {} bytes{}",
+                                input.input_index,
+                                input.estimated.as_ref().and_then(Memory::checked_bytes).unwrap_or_default(),
+                                input.safety_reserve.as_ref().and_then(Memory::checked_bytes).unwrap_or_default(),
+                                input.reservation.as_ref().and_then(Memory::checked_bytes).unwrap_or_default(),
+                                input
+                                    .observed_peak
+                                    .as_ref()
+                                    .and_then(Memory::checked_bytes)
+                                    .map_or(String::new(), |peak| format!(", observed {peak} bytes"))
+                            ),
+                        })
+                    })
+                })
             })
             .and_then(|()| {
                 let (removed, retained, external, failed) =
@@ -1312,10 +1763,11 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                 let JournalRecord {
                     schema_version,
                     sequence,
-                    timestamp: timestamp_ms,
+                    timestamp: timestamp_value,
                     run_id: record_run_id,
                     event,
                 } = record;
+                let timestamp = Milliseconds::new(timestamp_value);
                 let header = match (schema_version == JOURNAL_SCHEMA_VERSION, sequence == expected_sequence as u64) {
                     | (false, _) => Err(JournalError::Invalid(format!("unsupported schema version {schema_version}"))),
                     | (true, false) => Err(JournalError::Invalid(format!("expected sequence {expected_sequence}, found {sequence}"))),
@@ -1340,10 +1792,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                         | JournalEvent::RunStarted { metadata: value } => {
                             match metadata.is_some() || expected_sequence != 0 || value.run_id != record_run_id {
                                 | true => Err(JournalError::Invalid("run_started must be the first and only start record".to_string())),
-                                | false => {
-                                    metadata = Some(value);
-                                    Ok(())
-                                }
+                                | false => value.validate().map_err(JournalError::from).map(|()| metadata = Some(*value)),
                             }
                         }
                         | JournalEvent::ContainerState { container, state, error } => {
@@ -1357,7 +1806,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                         | false => validate_container_transition(summary.state, state).map(|()| {
                                             summary.state = state;
                                             summary.error = error;
-                                            summary.updated_at_ms = timestamp_ms;
+                                            summary.updated_at = timestamp;
                                         }),
                                     }
                                 }
@@ -1371,7 +1820,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                             runtime: container.runtime,
                                             state,
                                             error,
-                                            updated_at_ms: timestamp_ms,
+                                            updated_at: timestamp,
                                         },
                                     );
                                     Ok(())
@@ -1404,7 +1853,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                 | Some(summary) => match summary.input_id != input.input_id || summary.value != input.value {
                                     | true => Err(JournalError::Invalid(format!("input identity changed at index {}", input.index))),
                                     | false => {
-                                        validate_transition(summary.state, state, "input").map(|()| summary.update_state(state, error, timestamp_ms))
+                                        validate_transition(summary.state, state, "input").map(|()| summary.update_state(state, error, timestamp))
                                     }
                                 },
                                 | None if state.is_not_started() && input.index == initialized_inputs => {
@@ -1416,8 +1865,8 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                             value: input.value,
                                             state,
                                             error,
-                                            started_at_ms: None,
-                                            updated_at_ms: timestamp_ms,
+                                            started_at: None,
+                                            updated_at: timestamp,
                                             modules: Vec::new(),
                                         },
                                     );
@@ -1426,6 +1875,26 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                 | None => Err(JournalError::Invalid(format!("input {} was not initialized in order", input.index))),
                             }
                         }
+                        | JournalEvent::InputMemoryObserved {
+                            input_index,
+                            input_id,
+                            observed_peak,
+                        } => inputs
+                            .get(&input_index)
+                            .ok_or_else(|| JournalError::Invalid(format!("memory observation references unknown input {input_index}")))
+                            .and_then(|input| match (input.input_id == input_id, input.started_at.is_some()) {
+                                | (false, _) => Err(JournalError::Invalid(format!(
+                                    "memory observation input identity changed at index {input_index}"
+                                ))),
+                                | (_, false) => Err(JournalError::Invalid(format!(
+                                    "input {input_index} peak memory was observed before execution"
+                                ))),
+                                | (true, true) => metadata
+                                    .as_mut()
+                                    .and_then(|metadata| metadata.memory.as_mut())
+                                    .ok_or_else(|| JournalError::Invalid(format!("input {input_index} has no configured memory evidence")))
+                                    .and_then(|memory| memory.observe(input_index, observed_peak)),
+                            }),
                         | JournalEvent::ModuleState {
                             input_index,
                             input_id,
@@ -1448,7 +1917,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                                     "module identity changed at input {input_index}, index {module_index}"
                                                 ))),
                                                 | false => validate_transition(summary.state, state, "module")
-                                                    .map(|()| summary.update_state(state, error, timestamp_ms)),
+                                                    .map(|()| summary.update_state(state, error, timestamp)),
                                             }
                                         }
                                         | None if state.is_not_started() && module_index == initialized_modules => {
@@ -1458,8 +1927,8 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                                 module_path,
                                                 state,
                                                 error,
-                                                started_at_ms: None,
-                                                updated_at_ms: timestamp_ms,
+                                                started_at: None,
+                                                updated_at: timestamp,
                                             });
                                             Ok(())
                                         }
@@ -1473,7 +1942,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                         {
                             | true => Err(JournalError::Invalid("run finalized while GPU monitoring was active".to_string())),
                             | false => {
-                                finalization = Some((status, error, timestamp_ms));
+                                finalization = Some((status, error, timestamp));
                                 Ok(())
                             }
                         },
@@ -1481,39 +1950,44 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
             })
             .and_then(|()| metadata.ok_or_else(|| JournalError::Invalid("run_started record is missing".to_string())))
             .and_then(|metadata| {
+                let memory_validation = metadata
+                    .memory
+                    .as_ref()
+                    .map_or(Ok(()), |memory| memory.validate_for_inputs(inputs.len(), true));
                 let invalid_success = matches!(finalization, Some((FinalStatus::Succeeded, _, _)))
                     && inputs.values().any(|input| {
                         !input.state.is_complete() || (input.state.is_succeeded() && input.modules.iter().any(|module| !module.state.is_complete()))
                     });
-                match invalid_success {
+                memory_validation.and_then(|()| match invalid_success {
                     | true => Err(JournalError::Invalid(
                         "a successful finalization contains unfinished or failed work".to_string(),
                     )),
                     | false => {
-                        let (status, error, finished_at_ms) = match finalization {
-                            | Some((FinalStatus::Cancelled, error, finished_at_ms)) => (RunStatus::Cancelled, error, Some(finished_at_ms)),
-                            | Some((FinalStatus::Succeeded, error, finished_at_ms)) => (RunStatus::Succeeded, error, Some(finished_at_ms)),
-                            | Some((FinalStatus::Failed, error, finished_at_ms)) => (RunStatus::Failed, error, Some(finished_at_ms)),
+                        let (status, error, finished_at) = match finalization {
+                            | Some((FinalStatus::Cancelled, error, finished_at)) => (RunStatus::Cancelled, error, Some(finished_at)),
+                            | Some((FinalStatus::Succeeded, error, finished_at)) => (RunStatus::Succeeded, error, Some(finished_at)),
+                            | Some((FinalStatus::Failed, error, finished_at)) => (RunStatus::Failed, error, Some(finished_at)),
                             | None => (RunStatus::Interrupted, None, None),
                         };
-                        let duration_ms = finished_at_ms.map(|finished| finished.saturating_sub(metadata.started_at_ms));
+                        let duration = finished_at.map(|finished| Milliseconds::new(finished.get().saturating_sub(metadata.started_at.get())));
                         Ok(RunSummary {
                             schema_version: JOURNAL_SCHEMA_VERSION,
                             run_id: metadata.run_id,
                             configuration: metadata.configuration,
                             dry_run: metadata.dry_run,
                             sandbox: metadata.sandbox,
-                            started_at_ms: metadata.started_at_ms,
-                            finished_at_ms,
-                            duration_ms,
+                            started_at: metadata.started_at,
+                            finished_at,
+                            duration,
                             status,
                             error,
                             gpu_monitoring: gpu_monitoring.map(GpuRecovery::summary),
                             containers: containers.into_values().collect(),
                             inputs: inputs.into_values().collect(),
+                            memory: metadata.memory,
                         })
                     }
-                }
+                })
             })
     }
 }

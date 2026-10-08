@@ -153,6 +153,12 @@ pub struct MemoryEstimator {
     safety_millionths: u64,
     slope_millionths: u64,
 }
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct MemoryReservationBreakdown {
+    pub(crate) estimated: Memory,
+    pub(crate) reservation: Memory,
+    pub(crate) safety_reserve: Memory,
+}
 /// Read-only sizing and reservation result for one resolved input.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct PlannedMemoryInput {
@@ -351,7 +357,7 @@ impl MemoryEstimator {
             },
         }
     }
-    fn calculate(&self, input: Memory, input_value: u64) -> Result<Memory, MemoryCalculationError> {
+    fn calculate(&self, input: Memory, input_value: u64) -> Result<MemoryReservationBreakdown, MemoryCalculationError> {
         self.intercept
             .checked_bytes()
             .map(u128::from)
@@ -366,16 +372,28 @@ impl MemoryEstimator {
                     .checked_add(u128::from(FIXED_POINT_SCALE) - 1)
                     .map(|adjusted| adjusted / u128::from(FIXED_POINT_SCALE))
             })
-            .and_then(|base| base.checked_mul(u128::from(self.safety_millionths)))
-            .and_then(|safe| {
-                safe.checked_add(u128::from(FIXED_POINT_SCALE) - 1)
-                    .map(|adjusted| adjusted / u128::from(FIXED_POINT_SCALE))
+            .and_then(|estimated| {
+                estimated
+                    .checked_mul(u128::from(self.safety_millionths))
+                    .and_then(|safe| {
+                        safe.checked_add(u128::from(FIXED_POINT_SCALE) - 1)
+                            .map(|adjusted| adjusted / u128::from(FIXED_POINT_SCALE))
+                    })
+                    .map(|reservation| (estimated, reservation))
             })
-            .and_then(|reservation| u64::try_from(reservation).ok())
-            .filter(|reservation| *reservation > 0)
-            .and_then(|reservation| {
-                let memory = Memory::kb(reservation as f64 / 1024.0);
-                memory.checked_bytes().filter(|value| *value > 0).map(|_| memory)
+            .and_then(|(estimated, reservation)| u64::try_from(estimated).ok().zip(u64::try_from(reservation).ok()))
+            .filter(|(estimated, reservation)| *estimated > 0 && *reservation >= *estimated)
+            .and_then(|(estimated_bytes, reservation_bytes)| {
+                let estimated = Memory::kb(estimated_bytes as f64 / 1024.0);
+                let reservation = Memory::kb(reservation_bytes as f64 / 1024.0);
+                reservation
+                    .checked_bytes()
+                    .filter(|value| *value > 0 && *value >= estimated_bytes)
+                    .map(|actual_reservation_bytes| MemoryReservationBreakdown {
+                        estimated,
+                        reservation,
+                        safety_reserve: Memory::kb(actual_reservation_bytes.saturating_sub(estimated_bytes) as f64 / 1024.0),
+                    })
             })
             .ok_or(MemoryCalculationError::Overflow {
                 estimator: self.identity.clone(),
@@ -395,8 +413,17 @@ impl MemoryEstimator {
                     maximum: self.maximum_input.clone(),
                     minimum: self.minimum_input.clone(),
                 })),
-                | false => self.calculate(input, input_value).map(MemoryEstimate::Reservation),
+                | false => self
+                    .calculate(input, input_value)
+                    .map(|breakdown| MemoryEstimate::Reservation(breakdown.reservation)),
             },
+        }
+    }
+    pub(crate) fn reservation_breakdown_bytes(&self, input_bytes: u64) -> Result<MemoryReservationBreakdown, MemoryCalculationError> {
+        let input = Memory::kb(input_bytes as f64 / 1024.0);
+        match input_bytes {
+            | 0 => Err(MemoryCalculationError::InvalidInput { input }),
+            | input_value => self.calculate(input, input_value),
         }
     }
     /// Inspect resolved inputs and calculate deterministic memory reservations.

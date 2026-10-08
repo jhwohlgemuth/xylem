@@ -16,7 +16,9 @@ use tracing::{debug, info};
 use xylem_lib::config::{Config, ConfigOptions};
 use xylem_lib::execution::ExecutionContext;
 use xylem_lib::gpu::GpuMonitor;
-use xylem_lib::journal::{ConfigurationIdentity, JournalContainer, JournalInput, JournalModule, RunJournal, RunMetadata, SandboxEvidence};
+use xylem_lib::journal::{
+    ConfigurationIdentity, JournalContainer, JournalInput, JournalModule, RunJournal, RunMemoryEvidence, RunMetadata, SandboxEvidence,
+};
 use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::{ExecutionPlan, MemoryPlanMode};
 use xylem_lib::remote::RemotePolicy;
@@ -61,7 +63,6 @@ fn create_journal(runtime: &Runtime<'_>, bundle: &Bundle, options: &ConfigOption
         | (Some(policy), Some(capabilities)) => SandboxEvidence::required(policy, capabilities),
         | _ => SandboxEvidence::off(),
     };
-    let metadata = RunMetadata::now(runtime.id.clone(), configuration, options.dry_run.unwrap_or_default(), sandbox);
     let journal_containers = runtime
         .plan
         .containers
@@ -77,9 +78,23 @@ fn create_journal(runtime: &Runtime<'_>, bundle: &Bundle, options: &ConfigOption
             runtime: container.runtime.to_string(),
         })
         .collect::<Vec<_>>();
-    RunJournal::create_with_containers(journal_path, metadata, journal_inputs, journal_modules, journal_containers.clone())
-        .map(|journal| (journal, journal_containers))
-        .map_err(|why| RunFailure::new(exitcode::CANTCREAT, format!("create durable execution journal — {why}")))
+    runtime
+        .plan
+        .memory
+        .as_ref()
+        .map(RunMemoryEvidence::try_from)
+        .transpose()
+        .map_err(|why| RunFailure::new(exitcode::SOFTWARE, format!("derive durable memory evidence — {why}")))
+        .and_then(|memory| {
+            let metadata = RunMetadata::now(runtime.id.clone(), configuration, options.dry_run.unwrap_or_default(), sandbox);
+            let metadata = match memory {
+                | Some(memory) => metadata.with_memory(memory),
+                | None => metadata,
+            };
+            RunJournal::create_with_containers(journal_path, metadata, journal_inputs, journal_modules, journal_containers.clone())
+                .map(|journal| (journal, journal_containers))
+                .map_err(|why| RunFailure::new(exitcode::CANTCREAT, format!("create durable execution journal — {why}")))
+        })
 }
 pub(super) fn execute(request: &RunRequest<'_>, prepared: PreparedRun) -> Result<(), RunFailure> {
     if let Some((memory, fallback)) = prepared.plan.memory.as_ref().and_then(|memory| {

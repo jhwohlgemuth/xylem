@@ -1,4 +1,5 @@
 //! End-to-end command-line workflow tests.
+use acorn_schema::hardware::Memory;
 use std::fs::{create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
@@ -914,6 +915,7 @@ fn test_memory_runtime_admission_caps_the_compiled_cli() {
     assert_eq!(plan["memory"]["mode"], "memory_aware");
     assert_eq!(plan["memory"]["inputs"][0]["input_bytes"], 3 * 1024);
     assert_eq!(plan["memory"]["inputs"][1]["reservation"], "2KB");
+    let report_output = test_root.join("reports");
     let run = xylem_command()
         .current_dir(workspace)
         .args([
@@ -922,6 +924,10 @@ fn test_memory_runtime_admission_caps_the_compiled_cli() {
             "--no-progress",
             "run",
             config_path.to_str().expect("UTF-8 memory-aware config"),
+            "--report-output",
+            report_output.to_str().expect("UTF-8 report output"),
+            "--reporter",
+            "json",
         ])
         .output()
         .expect("run memory-aware workflow");
@@ -929,6 +935,19 @@ fn test_memory_runtime_admission_caps_the_compiled_cli() {
     assert!(run.status.success(), "memory-aware workflow failed:\n{logs}");
     assert!(!logs.contains("fell back to fixed input batching"));
     assert_eq!(read_to_string(state.join("peak")).expect("peak memory-aware concurrency").trim(), "2");
+    let report_path = read_dir(&report_output)
+        .expect("read memory report output")
+        .map(|entry| entry.expect("memory report entry").path())
+        .find(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .expect("memory JSON report");
+    let report: xylem_lib::journal::RunSummary =
+        serde_json::from_slice(&read(&report_path).expect("read memory JSON report")).expect("valid memory JSON report");
+    let memory = report.memory.expect("durable memory evidence");
+    assert_eq!(memory.estimator_identity, "compiled-cli-v1");
+    assert_eq!(memory.budget.checked_bytes(), Some(5 * 1024));
+    assert_eq!(memory.inputs[0].estimated.as_ref().and_then(Memory::checked_bytes), Some(3 * 1024));
+    assert_eq!(memory.inputs[0].safety_reserve.as_ref().and_then(Memory::checked_bytes), Some(0));
+    assert_eq!(memory.inputs[0].reservation.as_ref().and_then(Memory::checked_bytes), Some(3 * 1024));
     remove_dir_all(test_root).expect("remove memory-aware fixture");
 }
 #[cfg(not(target_os = "windows"))]
@@ -1684,6 +1703,7 @@ fn test_writes_versioned_journal_and_json_report_from_the_same_summary() {
     assert_eq!(report, recovered);
     assert_eq!(report.schema_version, xylem_lib::journal::JOURNAL_SCHEMA_VERSION);
     assert_eq!(report.status, xylem_lib::journal::RunStatus::Succeeded);
+    assert!(report.memory.is_none());
     assert!(report
         .inputs
         .iter()

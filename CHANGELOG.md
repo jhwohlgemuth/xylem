@@ -5,6 +5,7 @@
 
 ### 🚀 Features
 
+- Add journal and run-summary schema v9 with durable memory estimator, reservation, fallback, and optional peak-observation evidence.
 - Complete reusable local, HTTP(S), and Git-backed configuration modules with recursive policy-constrained flattening and qualified runtime identities.
 
 ### 📦 Dependencies

@@ -3,6 +3,26 @@ use acorn_schema::validation::Validate;
 use alloc::sync::Arc;
 use std::fs::{create_dir_all, read, read_to_string, remove_dir, remove_file};
 
+fn memory(bytes: u64) -> Memory {
+    Memory::kb(bytes as f64 / 1024.0)
+}
+fn memory_evidence() -> RunMemoryEvidence {
+    RunMemoryEvidence {
+        budget: memory(200),
+        estimator_identity: "journal-test-v1".to_string(),
+        inputs: vec![MemoryInputEvidence {
+            estimated: Some(memory(120)),
+            fallback: None,
+            input: Some(memory(10)),
+            input_index: 0,
+            observed_peak: None,
+            reservation: Some(memory(150)),
+            safety_reserve: Some(memory(30)),
+        }],
+        mode: MemoryEvidenceMode::MemoryAware,
+        safety_millionths: 1_250_000,
+    }
+}
 fn metadata(run_id: &str) -> RunMetadata {
     RunMetadata {
         run_id: run_id.to_string(),
@@ -12,8 +32,9 @@ fn metadata(run_id: &str) -> RunMetadata {
             version: Some("1.0.0".to_string()),
         },
         dry_run: false,
+        memory: None,
         sandbox: SandboxEvidence::off(),
-        started_at_ms: 1,
+        started_at: Milliseconds::new(1),
     }
 }
 fn module() -> JournalModule {
@@ -240,19 +261,89 @@ fn test_json_report_is_atomic_and_refuses_overwrite() {
         },
         dry_run: false,
         sandbox: SandboxEvidence::off(),
-        started_at_ms: 1,
-        finished_at_ms: Some(2),
-        duration_ms: Some(1),
+        started_at: Milliseconds::new(1),
+        finished_at: Some(Milliseconds::new(2)),
+        duration: Some(Milliseconds::new(1)),
         status: RunStatus::Succeeded,
         error: None,
         gpu_monitoring: None,
         inputs: Vec::new(),
+        memory: None,
     };
     let path = summary.write_json_atomic(&directory).expect("write JSON report");
-    assert_eq!(serde_json::from_slice::<RunSummary>(&read(&path).expect("read report")).unwrap(), summary);
+    let bytes = read(&path).expect("read report");
+    assert_eq!(serde_json::from_slice::<RunSummary>(&bytes).unwrap(), summary);
+    let serialized = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
+    assert!(serialized["memory"].is_null());
+    assert!(serialized.get("started_at").is_some());
+    assert!(serialized.get("started_at_ms").is_none());
     assert!(summary.write_json_atomic(&directory).is_err());
     remove_file(path).expect("remove report");
     remove_dir(directory).expect("remove reporter test directory");
+}
+#[test]
+fn test_memory_evidence_recovers_optional_peak_observations() {
+    let path = path("memory-observed");
+    let metadata = metadata("run-memory-observed").with_memory(memory_evidence());
+    let journal =
+        RunJournal::create(path.clone(), metadata, vec![JournalInput::new(0, Some("input".to_string()))], Vec::new()).expect("create memory journal");
+    assert!(journal.record_memory_peak(0, memory(175)).is_err());
+    journal.transition_input(0, ExecutionState::Running, None).expect("start input");
+    journal.transition_input(0, ExecutionState::Succeeded, None).expect("finish input");
+    assert!(journal.record_memory_peak(0, memory(0)).is_err());
+    journal.record_memory_peak(0, memory(175)).expect("record underpredicted peak");
+    assert!(journal.record_memory_peak(0, memory(176)).is_err());
+    journal.finish(FinalStatus::Succeeded, None).expect("finish run");
+    let summary = RunJournal::read(&path).expect("recover memory journal");
+    let serialized = serde_json::to_value(&summary).expect("serialize memory summary");
+    assert!(serialized["memory"]["budget"].is_string());
+    assert!(serialized["memory"]["inputs"][0]["estimated"].is_string());
+    assert!(serialized["memory"]["inputs"][0].get("estimated_bytes").is_none());
+    let mut output = Vec::new();
+    summary.render_console_to(&mut output, &path, false).expect("render memory evidence");
+    let output = String::from_utf8(output).expect("memory output should be UTF-8");
+    assert!(output.contains("Memory: memory_aware via journal-test-v1, budget 200 bytes"));
+    assert!(output.contains("estimate 120 + safety 30 = reservation 150 bytes, observed 175 bytes"));
+    let memory = summary.memory.expect("memory evidence");
+    assert_eq!(memory.budget.checked_bytes(), Some(200));
+    assert_eq!(memory.inputs[0].estimated.as_ref().and_then(Memory::checked_bytes), Some(120));
+    assert_eq!(memory.inputs[0].safety_reserve.as_ref().and_then(Memory::checked_bytes), Some(30));
+    assert_eq!(memory.inputs[0].reservation.as_ref().and_then(Memory::checked_bytes), Some(150));
+    assert_eq!(memory.inputs[0].observed_peak.as_ref().and_then(Memory::checked_bytes), Some(175));
+    remove_file(path).expect("remove memory journal");
+}
+#[test]
+fn test_memory_evidence_validates_mode_and_unconfigured_observations() {
+    let invalid_fallback = MemoryFallbackEvidence::InputOutOfRange {
+        maximum_input: memory(1),
+        minimum_input: memory(2),
+    };
+    assert!(invalid_fallback.validate().is_err());
+    let mut invalid_input = memory_evidence().inputs.remove(0);
+    invalid_input.safety_reserve = Some(memory(29));
+    assert!(invalid_input.validate().is_err());
+    let invalid_path = path("memory-invalid");
+    let mut invalid = memory_evidence();
+    invalid.mode = MemoryEvidenceMode::FixedFallback;
+    assert!(RunJournal::create(
+        invalid_path.clone(),
+        metadata("run-memory-invalid").with_memory(invalid),
+        vec![JournalInput::new(0, None)],
+        Vec::new()
+    )
+    .is_err());
+    assert!(!invalid_path.exists());
+    let path = path("memory-unconfigured");
+    let journal = RunJournal::create(
+        path.clone(),
+        metadata("run-memory-unconfigured"),
+        vec![JournalInput::new(0, None)],
+        Vec::new(),
+    )
+    .expect("create unconfigured journal");
+    journal.transition_input(0, ExecutionState::Running, None).expect("start input");
+    assert!(journal.record_memory_peak(0, memory(1)).is_err());
+    remove_file(path).expect("remove unconfigured journal");
 }
 #[test]
 fn test_metadata_and_journal_inputs_are_validated_before_use() {

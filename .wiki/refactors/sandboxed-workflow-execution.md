@@ -133,8 +133,8 @@ sessions, limits, process termination, artifact publication, retention, and
 cleanup for sandboxed runs. Keep application containers separate from the
 outer sandbox.
 
-Sandboxing owns schema version 8. Revise the unimplemented Kubernetes and MCP
-plans to reserve versions 9 and 10 respectively.
+Sandboxing established schema version 8. Later plans allocate new schema
+versions from the landed current baseline when their implementations begin.
 
 # Implementation
 

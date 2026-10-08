@@ -21,13 +21,15 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 - Workflow `resources` remain string values verified as host requirements.
   Quantitative admission is configured independently through validated
   `options.memory`.
-- Xylem's durable runtime does not yet record peak child-process memory; the
-  accepted spike evidence remains separate from production telemetry.
+- Journal/report schema v9 accepts optional per-input observed peaks, but no
+  platform collector is active; accepted spike evidence therefore remains
+  separate from production telemetry.
 - Inputs may be files or directories of heterogeneous contents, and different modules can have different peak-memory curves for the same input.
 - The pure estimator and FIFO admission model landed in commit `4df056c`.
   Validated configuration, read-only input sizing, execution-plan v10, and the
-  fail-fast runtime admission integration are now implemented. Durable-state
-  integration and production measurement follow-up remain pending.
+  fail-fast runtime admission integration and durable journal/report evidence
+  are now implemented. Platform observation and production measurement
+  follow-up remain pending.
 
 # Project code boundaries
 
@@ -133,7 +135,7 @@ configured modules. The fifth case makes a concurrent holdout gate possible for
 the measured imagery workflows, but does not satisfy it by existing. Synthetic
 scheduler work can proceed while the expanded measurements run.
 
-# Landed configuration, planning, and runtime slices
+# Landed configuration, planning, runtime, and durable-evidence slices
 
 The configuration and execution-plan slice is implemented on the sandbox
 lifecycle baseline `b7caa55`. It adds `options.memory` with an explicit positive
@@ -152,8 +154,15 @@ Otherwise, the existing fail-fast rolling scheduler admits the FIFO prefix that
 fits the memory budget, `options.batch`, and `--threads`; it releases each
 reservation once at terminal input completion and admits no new work after a
 failure or cancellation. An unconfigured plan records `memory: null` and keeps
-the original fixed batching path. Host-memory detection, a CLI override,
-journal fields, and run-store fields are not active.
+the original fixed batching path.
+
+Journal and run-summary schema v9 records the estimator identity, configured
+budget, safety multiplier, and ordered per-input base estimate, safety reserve,
+enforced reservation, or structured fallback. A separate one-shot journal
+event can record a positive observed peak after an input starts; underprediction
+is retained as evidence and does not change the run result. Unconfigured
+summaries record `memory: null`. Host-memory detection, a CLI override, and a
+platform peak collector are not active.
 
 ## Remaining landing order
 
@@ -163,8 +172,8 @@ journal fields, and run-store fields are not active.
    The generic scheduler accepts any valid caller-supplied estimator, but keep
    the reviewed imagery profile's real input concurrency at one unless its
    concurrent holdout gate is GO.
-2. Version journal/report evidence for estimator identity, estimated bytes,
-   budget, safety reserve, fallback reason, and optional observed peak.
+2. Add a narrowly gated platform collector for optional per-input peak memory
+   without changing the portable reservation contract.
 3. Add operational examples and rerun accepted workflows to compare
    estimates with observed peaks.
 

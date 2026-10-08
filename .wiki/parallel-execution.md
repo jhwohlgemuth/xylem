@@ -40,8 +40,8 @@ Secure acquisition owns generic transport behavior.
 1. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), preserving the landed CEL selection boundary and following the published [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md)
 2. [Kubernetes workflow execution backend](features/kubernetes-workflow-backend.md), after process and immutable environment contracts land
 3. [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md), after process and immutable environment contracts land
-4. [Memory-aware scheduling](features/memory-aware-scheduling.md), whose scoped estimator gates, planning, and runtime admission are complete
-The `options.batch` rolling input ceiling and landed CEL selection snapshot are baselines these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Memory-aware scheduling next claims journal and report schema ownership for durable estimator evidence. A new fifth imagery case may qualify the reviewed imagery profiles for concurrent admission only after fresh individual and mix measurements.
+4. [Memory-aware scheduling](features/memory-aware-scheduling.md), whose scoped estimator gates, planning, runtime admission, and durable estimator evidence are complete
+The `options.batch` rolling input ceiling and landed CEL selection snapshot are baselines these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Memory-aware scheduling next adds optional platform peak collection and operational validation. A new fifth imagery case may qualify the reviewed imagery profiles for concurrent admission only after fresh individual and mix measurements.
 
 ### Lane C: CLI and verification
 
@@ -61,7 +61,6 @@ The following slices have disjoint primary write sets:
 | Slice | Primary ownership | Restriction |
 |---|---|---|
 | Hermetic helper preparation | new test-support module and new fixtures | Do not edit CLI roots or rewrite assertions owned by later contracts. |
-| Memory durable evidence | journal/report schemas, projections, and recovery tests | Preserve execution-plan v10 and runtime admission; do not combine optional peak observation with the portable reservation contract. |
 | CI rule validation | isolated CI lint inputs and plan notes | Do not edit `Makefile` or `.gitlab-ci.yml` until dependency-gate commands are accepted. |
 
 ## Agent start checklist

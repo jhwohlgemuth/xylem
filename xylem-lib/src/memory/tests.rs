@@ -6,6 +6,9 @@ use std::os::unix::fs::symlink;
 const MODULE_A_P_ESTIMATOR: &str = "module-a-p-v1";
 const MODULE_A_P_O_ESTIMATOR: &str = "module-a-p-o-v1";
 
+fn batch(value: usize) -> InputBatch {
+    InputBatch::try_from(value).expect("positive batch")
+}
 fn measured_estimators() -> [MemoryEstimator; 2] {
     [
         MemoryEstimator::new(
@@ -27,9 +30,6 @@ fn measured_estimators() -> [MemoryEstimator; 2] {
         )
         .expect("valid Module A/P/O estimator"),
     ]
-}
-fn batch(value: usize) -> InputBatch {
-    InputBatch::try_from(value).expect("positive batch")
 }
 fn memory(value: u64) -> Memory {
     Memory::kb(value as f64 / 1024.0)
@@ -132,6 +132,19 @@ fn estimator_includes_measured_range_boundaries() {
         assert!(matches!(estimator.estimate(memory(529_854_516)), Ok(MemoryEstimate::Reservation(_))));
         assert!(matches!(estimator.estimate(memory(1_143_813_163)), Ok(MemoryEstimate::Reservation(_))));
     });
+}
+#[test]
+fn estimator_reports_base_and_safety_reservations() {
+    let estimator = MemoryEstimator::new("breakdown-v1", memory(100), memory(1), memory(100), 2_000_000, 1_250_000).expect("valid estimator");
+    let breakdown = estimator.reservation_breakdown_bytes(10).expect("valid breakdown");
+    assert_eq!(breakdown.estimated.checked_bytes(), Some(120));
+    assert_eq!(breakdown.safety_reserve.checked_bytes(), Some(30));
+    assert_eq!(breakdown.reservation.checked_bytes(), Some(150));
+    let exact = MemoryEstimator::new("exact-v1", memory(100), memory(1), memory(100), 0, 1_000_000).expect("valid estimator");
+    let breakdown = exact.reservation_breakdown_bytes(10).expect("valid exact breakdown");
+    assert_eq!(breakdown.estimated.checked_bytes(), Some(100));
+    assert_eq!(breakdown.safety_reserve.checked_bytes(), Some(0));
+    assert_eq!(breakdown.reservation.checked_bytes(), Some(100));
 }
 #[test]
 fn estimator_returns_typed_out_of_range_fallbacks() {

@@ -1,7 +1,9 @@
 use crate::config::{Config, InputAttribute};
+use crate::journal::{MemoryEvidenceMode, MemoryFallbackEvidence, RunMemoryEvidence};
 use crate::plan::{ExecutionPlan, MemoryPlanMode};
 use crate::script::ContainerStartup;
 use crate::selection::InputSource;
+use acorn_schema::hardware::Memory;
 #[cfg(target_os = "linux")]
 use std::ffi::OsString;
 use std::fs::{create_dir_all, remove_dir_all, write};
@@ -343,6 +345,14 @@ fn test_execution_plan_reports_validated_memory_fallback() {
     assert!(memory.inputs[0].fallback.is_some());
     assert_eq!(memory.inputs[0].input_bytes, None);
     assert_eq!(memory.inputs[0].reservation, None);
+    let evidence = RunMemoryEvidence::try_from(&memory).expect("durable fallback evidence");
+    assert_eq!(evidence.mode, MemoryEvidenceMode::FixedFallback);
+    assert_eq!(evidence.inputs[0].fallback, Some(MemoryFallbackEvidence::NoInput));
+    let serialized_evidence = serde_json::to_value(&evidence).expect("serialize durable fallback evidence");
+    assert!(serialized_evidence["inputs"][0]["estimated"].is_null());
+    assert!(serialized_evidence["inputs"][0]["observed_peak"].is_null());
+    assert!(serialized_evidence["inputs"][0]["reservation"].is_null());
+    assert!(serialized_evidence["inputs"][0]["safety_reserve"].is_null());
     let serialized = serde_json::to_value(second).expect("serialize memory plan");
     assert_eq!(serialized["memory"]["estimator"]["identity"], "custom-modules-v1");
     assert_eq!(serialized["memory"]["estimator"]["slope_millionths"], 0);
@@ -384,6 +394,11 @@ fn test_execution_plan_uses_memory_aware_reservations() {
         Some(3 * 1024)
     );
     assert_eq!(memory.reservations().expect("active reservations")[0].checked_bytes(), Some(3 * 1024));
+    let evidence = RunMemoryEvidence::try_from(&memory).expect("durable memory evidence");
+    assert_eq!(evidence.mode, MemoryEvidenceMode::MemoryAware);
+    assert_eq!(evidence.inputs[0].estimated.as_ref().and_then(Memory::checked_bytes), Some(3 * 1024));
+    assert_eq!(evidence.inputs[0].safety_reserve.as_ref().and_then(Memory::checked_bytes), Some(0));
+    assert_eq!(evidence.inputs[0].reservation.as_ref().and_then(Memory::checked_bytes), Some(3 * 1024));
     remove_dir_all(root).expect("remove memory plan directory");
 }
 #[cfg(target_os = "linux")]

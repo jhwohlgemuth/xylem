@@ -66,11 +66,14 @@ declarations. The runtime requires both non-empty declared outputs and an exact
 canonical marker identity, and records skips as `skipped_existing`. Execution
 plans use schema version 10, including per-input memory sizing, reservation,
 and fallback decisions when memory-aware execution is configured. Journals and
-recovered summaries remain on
-schema version 8 with the durable `cancelled` state and explicit sandbox-mode
-evidence. Journal evidence carries both the leaf display name and its qualified
-`module_path`. Dry-run uses a separate in-memory execution plan and performs no
-filesystem writes.
+recovered summaries use schema version 9 with the durable `cancelled` state,
+explicit sandbox-mode evidence, and nullable memory evidence. Configured runs
+record the estimator identity, budget, base estimate, safety reserve, enforced
+reservation, and structured fallback for every input. Optional observed peaks
+are separate journal events so platform telemetry does not alter portable
+admission. Journal evidence carries both the leaf display name and its
+qualified `module_path`. Dry-run uses a separate in-memory execution plan and
+performs no filesystem writes.
 
 See
 [ARCHITECTURE.md](https://code.ornl.gov/research-enablement/xylem/-/blob/main/ARCHITECTURE.md)
