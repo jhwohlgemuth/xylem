@@ -20,7 +20,7 @@ mod completion;
 mod error;
 mod plan;
 
-const FIXTURES: &str = "../tests/fixtures";
+const FIXTURES: &str = "../../tests/fixtures";
 
 #[derive(Clone)]
 struct SharedWriter(Arc<Mutex<Vec<u8>>>);

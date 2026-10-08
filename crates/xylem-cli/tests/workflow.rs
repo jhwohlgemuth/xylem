@@ -3,6 +3,7 @@ use acorn_schema::hardware::Memory;
 use std::fs::{create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 #[cfg(not(target_os = "windows"))]
 fn managed_keep_alive_config() -> serde_json::Value {
@@ -30,7 +31,7 @@ fn managed_keep_alive_config() -> serde_json::Value {
     })
 }
 #[cfg(not(target_os = "windows"))]
-fn write_fake_docker(root: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+fn write_fake_docker(root: &Path) -> (PathBuf, PathBuf) {
     let executable = root.join("docker");
     let log = root.join("docker.log");
     write(
@@ -64,7 +65,7 @@ esac
     (executable, log)
 }
 #[cfg(not(target_os = "windows"))]
-fn write_fake_nvidia_smi(root: &std::path::Path) -> std::path::PathBuf {
+fn write_fake_nvidia_smi(root: &Path) -> PathBuf {
     let executable = root.join("nvidia-smi");
     write(&executable, "#!/bin/sh\nprintf '0, GPU-test, NVIDIA Test, 8192, 50, 1024\\n'\n").expect("write fake nvidia-smi");
     let mut permissions = executable.metadata().expect("inspect fake nvidia-smi").permissions();
@@ -185,8 +186,9 @@ fn test_configuration_read_failures_use_distinct_exit_codes() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_configured_batch_caps_active_inputs_in_the_compiled_cli() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let test_root = std::env::temp_dir().join(format!(
         "xylem-batch-{}-{}",
@@ -232,13 +234,7 @@ fn test_configured_batch_caps_active_inputs_in_the_compiled_cli() {
     let mut completed = read_to_string(state.join("completed"))
         .expect("completed inputs")
         .lines()
-        .map(|input| {
-            std::path::Path::new(input)
-                .file_name()
-                .expect("top-level input name")
-                .to_string_lossy()
-                .to_string()
-        })
+        .map(|input| Path::new(input).file_name().expect("top-level input name").to_string_lossy().to_string())
         .collect::<Vec<_>>();
     completed.sort();
     assert_eq!(completed, ["four", "one", "three", "two"]);
@@ -247,8 +243,9 @@ fn test_configured_batch_caps_active_inputs_in_the_compiled_cli() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_dry_run_plans_managed_container_without_starting_runtime() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let test_root = std::env::temp_dir().join(format!("xylem-managed-plan-{}", std::process::id()));
     let _ = remove_dir_all(&test_root);
@@ -298,8 +295,9 @@ fn test_dry_run_plans_managed_container_without_starting_runtime() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_dry_run_renders_a_plan_without_writing_files() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let output_directory = std::env::temp_dir().join(format!("xylem-write-free-dry-run-{}", std::process::id()));
     let _ = remove_dir_all(&output_directory);
@@ -448,8 +446,9 @@ input:
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let test_root = std::env::temp_dir().join(format!("xylem-durable-failure-{}", std::process::id()));
     let output_directory = test_root.join("reports");
@@ -578,8 +577,9 @@ fn test_gpu_monitoring_journals_samples_and_reports_aggregates() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_json_stdout_is_not_corrupted_by_diagnostics() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let mut command = xylem_command();
     let output = command
@@ -594,7 +594,7 @@ fn test_json_stdout_is_not_corrupted_by_diagnostics() {
     let journal_path = stderr
         .lines()
         .find_map(|line| line.strip_prefix("Journal: "))
-        .map(std::path::PathBuf::from)
+        .map(PathBuf::from)
         .expect("stderr should identify the durable journal");
     let run_directory = journal_path.parent().expect("journal should have a parent");
     assert!(journal_path.is_file());
@@ -603,8 +603,9 @@ fn test_json_stdout_is_not_corrupted_by_diagnostics() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_keep_alive_runtime_reports_early_exit_and_timeout() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let test_root = std::env::temp_dir().join(format!("xylem-keep-alive-failures-{}", std::process::id()));
     let _ = remove_dir_all(&test_root);
@@ -655,8 +656,9 @@ fn test_keep_alive_runtime_reports_early_exit_and_timeout() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_keep_alive_runtime_uses_exact_arguments_and_cleanup_override() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let test_root = std::env::temp_dir().join(format!("xylem-keep-alive-success-{}", std::process::id()));
     let _ = remove_dir_all(&test_root);
@@ -710,8 +712,9 @@ fn test_keep_alive_runtime_uses_exact_arguments_and_cleanup_override() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_loads_an_explicit_dotenv_without_overriding_process_values() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let env_path = std::env::temp_dir().join(format!("xylem-dotenv-{}.env", std::process::id()));
     write(&env_path, "XYLEM_DOTENV_TEST=from-file\n").expect("write dotenv fixture");
@@ -846,8 +849,9 @@ fn test_memory_intent_plans_and_runs_with_a_fixed_batching_warning() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_memory_runtime_admission_caps_the_compiled_cli() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let test_root = std::env::temp_dir().join(format!(
         "xylem-memory-admission-{}-{}",
@@ -1078,8 +1082,9 @@ fn test_native_rootless_sandbox_conformance() {
 }
 #[test]
 fn test_offline_dry_run_skips_reachability_but_still_enforces_allowlist() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let config = "tests/e2e/offline-remote-config.json";
     let mut allowed = xylem_command();
@@ -1099,8 +1104,9 @@ fn test_offline_dry_run_skips_reachability_but_still_enforces_allowlist() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_offline_smoke_example_runs_from_a_clean_directory() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let test_root = std::env::temp_dir().join(format!(
         "xylem-offline-smoke-{}-{}",
@@ -1304,8 +1310,9 @@ fn test_rejects_a_missing_explicit_dotenv_file() {
 }
 #[test]
 fn test_resume_logs_when_a_module_has_no_completion_declaration() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let mut command = xylem_command();
     let output = command
@@ -1324,8 +1331,9 @@ fn test_resume_logs_when_a_module_has_no_completion_declaration() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_resume_skips_a_complete_module_without_spawning_it() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let test_root = std::env::temp_dir().join(format!("xylem-resume-{}", std::process::id()));
     let artifacts = test_root.join("artifacts");
@@ -1387,8 +1395,9 @@ fn test_resume_skips_a_complete_module_without_spawning_it() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_resume_skips_early_complete_module_and_runs_later_incomplete_module() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let test_root = std::env::temp_dir().join(format!("xylem-resume-partial-{}", std::process::id()));
     let artifacts = test_root.join("artifacts");
@@ -1412,7 +1421,7 @@ fn test_resume_skips_early_complete_module_and_runs_later_incomplete_module() {
         artifacts.display(),
         artifacts.display()
     );
-    let module = |name: &str, uri: &std::path::Path, marker: &str, output: &str, command: String| {
+    let module = |name: &str, uri: &Path, marker: &str, output: &str, command: String| {
         serde_json::json!({
             "completion": {
                 "marker": format!("{{{{ OUTPUT_DIRECTORY }}}}/.xylem/{marker}.json"),
@@ -1485,8 +1494,9 @@ fn test_resume_skips_early_complete_module_and_runs_later_incomplete_module() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_returns_failure_when_a_fixture_module_fails() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let mut command = xylem_command();
     command
@@ -1499,8 +1509,9 @@ fn test_returns_failure_when_a_fixture_module_fails() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_runs_fixture_modules_in_order_with_interpolated_environment() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     for threads in ["1", "3"] {
         let mut command = xylem_command();
@@ -1668,8 +1679,9 @@ fn test_tui_rejects_a_missing_explicit_configuration() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_writes_versioned_journal_and_json_report_from_the_same_summary() {
-    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .expect("CLI crate should be inside the workspace");
     let output_directory = std::env::temp_dir().join(format!("xylem-durable-success-{}", std::process::id()));
     create_dir_all(&output_directory).expect("create durable output directory");

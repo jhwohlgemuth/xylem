@@ -56,8 +56,8 @@ test:
       when: never
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
-        - ${BINARY_NAME}-cli/**/*
-        - ${BINARY_NAME}-lib/**/*
+        - crates/${BINARY_NAME}-cli/**/*
+        - crates/${BINARY_NAME}-lib/**/*
         - Cargo.toml
   before_script:
     - rustup component add rustfmt clippy
@@ -85,8 +85,8 @@ sandbox-docker-conformance:
         - Cargo.lock
         - Cargo.toml
         - sandbox/runner/**/*
-        - xylem-cli/**/*
-        - xylem-lib/**/*
+        - crates/xylem-cli/**/*
+        - crates/xylem-lib/**/*
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
     - test "$(uname -s)" = Linux
@@ -111,8 +111,8 @@ sandbox-podman-conformance:
         - Cargo.lock
         - Cargo.toml
         - sandbox/runner/**/*
-        - xylem-cli/**/*
-        - xylem-lib/**/*
+        - crates/xylem-cli/**/*
+        - crates/xylem-lib/**/*
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
     - test "$(uname -s)" = Linux

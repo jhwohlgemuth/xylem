@@ -156,7 +156,7 @@ versions from the landed current baseline when their implementations begin.
 
 ## 2. Policy and fake provider boundary
 
-- Maintain `xylem-lib/src/sandbox/` with strict parsing, validation, hashing,
+- Maintain `crates/xylem-lib/src/sandbox/` with strict parsing, validation, hashing,
   path roles, capability negotiation, sealed provider and session contracts,
   typed errors, and a fake provider with deterministic failure injection.
 - Keep host execution outside the sandbox provider registry. An omitted or

@@ -3,7 +3,7 @@
     "description": "Test workflow configuration with path input",
     "requirements": [],
     "keywords": [],
-    "input": "../tests/fixtures/input",
+    "input": "../../tests/fixtures/input",
     "modules": [
         {
             "name": "Local Binary Module",

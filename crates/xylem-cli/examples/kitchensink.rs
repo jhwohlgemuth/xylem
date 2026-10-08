@@ -8,6 +8,7 @@ use std::process::Command;
 fn build_binary() -> xylem_cli::Void {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .ok_or_else(|| eyre!("the CLI crate should be a member of the workspace"))
         .and_then(|workspace| {
             let binary = workspace.join("examples/kitchensink/binary/finalize");

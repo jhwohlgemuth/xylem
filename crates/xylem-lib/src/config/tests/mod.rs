@@ -10,7 +10,7 @@ use std::process::Command as ProcessCommand;
 use std::sync::Mutex;
 use std::thread;
 
-const FIXTURES: &str = "../tests/fixtures";
+const FIXTURES: &str = "../../tests/fixtures";
 struct CancelledExecutor;
 #[derive(Default)]
 struct RecordingProgress {
@@ -784,8 +784,8 @@ fn test_configuration_version_must_be_semantic() {
 }
 #[test]
 fn test_every_example_configuration_passes_semantic_validation() {
-    let mut configurations = configuration_files(Path::new("../examples"));
-    configurations.extend(configuration_files(Path::new("../tests")));
+    let mut configurations = configuration_files(Path::new("../../examples"));
+    configurations.extend(configuration_files(Path::new("../../tests")));
     configurations.sort();
     assert!(!configurations.is_empty());
     configurations.into_iter().for_each(|path| {
@@ -1115,7 +1115,7 @@ fn test_preparation_and_execution_emit_progress_updates() {
             "name": "probe",
             "type": "script",
             "programmingLanguage": "generic",
-            "uri": "file:../tests/e2e/modules/environment-probe",
+            "uri": "file:../../tests/e2e/modules/environment-probe",
             "template": { "command": "sh", "arguments": ["run.sh"] }
         }],
         "options": { "dry_run": true }

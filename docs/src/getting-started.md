@@ -38,7 +38,7 @@ Xylem requires the Rust toolchain declared by the workspace:
 ```shell
 git clone https://code.ornl.gov/research-enablement/xylem.git
 cd xylem
-cargo install --locked --path xylem-cli
+cargo install --locked --path crates/xylem-cli
 xylem --version
 ```
 

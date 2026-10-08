@@ -71,7 +71,7 @@ files, and executes the offline smoke workflow from a clean temporary
 directory. Keep deployment-only paths clearly labeled as placeholders.
 
 Workspace lints deny missing documentation for public APIs. A small set of
-legacy modules has explicit module-level exceptions in `xylem-lib/src/lib.rs`;
+legacy modules has explicit module-level exceptions in `crates/xylem-lib/src/lib.rs`;
 do not broaden those exceptions when adding public API.
 
 ## Coverage, release, and Homebrew tasks

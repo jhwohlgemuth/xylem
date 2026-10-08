@@ -41,7 +41,7 @@ Xylem adapts `Script` to the ACORN API and owns configuration, variable preceden
 
 # Project code boundaries
 
-- **Update:** `Cargo.toml`, `Cargo.lock`, `xylem-lib/Cargo.toml`, configuration, plan, progress, outcome, execution, and script modules in `xylem-lib/src/`; run orchestration and CLI arguments in `xylem-cli/src/`; schemas, fixtures, tests, and user documentation.
+- **Update:** `Cargo.toml`, `Cargo.lock`, `crates/xylem-lib/Cargo.toml`, configuration, plan, progress, outcome, execution, and script modules in `crates/xylem-lib/src/`; run orchestration and CLI arguments in `crates/xylem-cli/src/`; schemas, fixtures, tests, and user documentation.
 - **Create:** immutable `RunContext` and `WorkflowContext`; `FailurePolicy`, `CancellationReason`, `RunWorkspace`, and `DispatchReport<T>`; the next coordinated schema version; per-input workspace and fake-process fixtures.
 - **Delete:** production process-environment mutation APIs, the combined `Vec<String>` script result, whitespace-only shell-format parsing, leaked temporary roots, and any Xylem-local child-process lifecycle implementation superseded by `acorn-cmd`.
 
@@ -49,7 +49,7 @@ Xylem adapts `Script` to the ACORN API and owns configuration, variable preceden
 
 1. Preserve the landed ACORN v0.3.4 managed-process contract so ACORN consumers can migrate separately.
 2. Keep Xylem's ACORN versions and Git revisions together. Published Xylem crates must resolve the same process contract from crates.io; a Git-only prerequisite is insufficient.
-3. Land the Xylem context, workspace, scheduler, journal, and CLI changes as one coordinated runtime boundary. `xylem-lib/src/script/mod.rs`, run-state files, manifests, and `xylem-cli/src/commands/run/mod.rs` remain single-writer integration surfaces.
+3. Land the Xylem context, workspace, scheduler, journal, and CLI changes as one coordinated runtime boundary. `crates/xylem-lib/src/script/mod.rs`, run-state files, manifests, and `crates/xylem-cli/src/commands/run/mod.rs` remain single-writer integration surfaces.
 4. Allocate a new coordinated runtime schema version above the dashboard's version 7, preserving CEL selection provenance, cancellation, and canonical run-store compatibility. Coordinate the next number with Kubernetes before implementation.
 
 This plan follows the typed workflow-outcome contract and preserves the existing `options.batch` rolling ceiling. Its durable outcomes feed the journal and reporters. Memory-aware scheduling remains a follow-on policy at the admission seam.

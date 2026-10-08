@@ -10,16 +10,16 @@ This guide overlays write ownership on the [plan dependency network](plan-networ
 
 | Lock | Files | Owner rule |
 |---|---|---|
-| Manifest lock | `Cargo.toml`, `Cargo.lock`, `xylem-*/Cargo.toml`, `deny.toml` | One remaining migration or dependency-gate owner at a time. |
-| Configuration lock | `xylem-lib/src/config/mod.rs` and its future extracted modules | Preserve typed errors, validation, `options.batch`, and resume while acquisition, Kubernetes targeting, sandboxing, or memory work extends them. |
-| Process adapter lock | `xylem-lib/src/script/mod.rs` and process fixtures | Environment/concurrency owns Xylem's adapter to the published `acorn-cmd` contract; later Kubernetes worker and sandbox work consume it. |
-| Scheduler lock | `xylem-lib/src/execution.rs`, input admission in `xylem-cli/src/commands/run/mod.rs` | Preserve fixed batching and resume; environment, Kubernetes, sandbox, and memory work consume the boundary serially rather than adding competing admission loops. |
-| Sandbox lock | `xylem-lib/src/sandbox/`, sandbox policy and conformance fixtures | Sandboxed execution owns policy resolution, capability negotiation, session lifecycle, and provider adapters. |
+| Manifest lock | `Cargo.toml`, `Cargo.lock`, `crates/xylem-*/Cargo.toml`, `deny.toml` | One remaining migration or dependency-gate owner at a time. |
+| Configuration lock | `crates/xylem-lib/src/config/mod.rs` and its future extracted modules | Preserve typed errors, validation, `options.batch`, and resume while acquisition, Kubernetes targeting, sandboxing, or memory work extends them. |
+| Process adapter lock | `crates/xylem-lib/src/script/mod.rs` and process fixtures | Environment/concurrency owns Xylem's adapter to the published `acorn-cmd` contract; later Kubernetes worker and sandbox work consume it. |
+| Scheduler lock | `crates/xylem-lib/src/execution.rs`, input admission in `crates/xylem-cli/src/commands/run/mod.rs` | Preserve fixed batching and resume; environment, Kubernetes, sandbox, and memory work consume the boundary serially rather than adding competing admission loops. |
+| Sandbox lock | `crates/xylem-lib/src/sandbox/`, sandbox policy and conformance fixtures | Sandboxed execution owns policy resolution, capability negotiation, session lifecycle, and provider adapters. |
 | Kubernetes target lock | target/profile/protocol modules, native client adapter, Job fixtures, and runner image | Kubernetes execution owns the outer controller/worker and shared-PVC contracts; it may not redefine sandbox or module-container semantics. |
-| Run-state lock | `xylem-lib/src/progress.rs`, journal/outcome modules, reporter adapters | Preserve the journal, reporter, resume, and execution-target vocabulary without redefining durable states. |
+| Run-state lock | `crates/xylem-lib/src/progress.rs`, journal/outcome modules, reporter adapters | Preserve the journal, reporter, resume, and execution-target vocabulary without redefining durable states. |
 | Run-store lock | runner, run-store, telemetry, task-log, and projection modules plus current schemas | The dashboard baseline has landed. Later runtime and scheduler plans must preserve or explicitly version its bundle contracts. |
-| CLI lock | `xylem-cli/src/{main,cli}.rs`, `xylem-cli/src/commands/run/mod.rs` | One owner for argument registration, pool/scheduler setup, journal lifecycle, CLI-owned exit mapping, and generated help. |
-| TUI lock | `xylem-tui/` and dashboard state | One dashboard owner at a time; rendering work may split by tab only after the app-state and shared-widget contracts land. |
+| CLI lock | `crates/xylem-cli/src/{main,cli}.rs`, `crates/xylem-cli/src/commands/run/mod.rs` | One owner for argument registration, pool/scheduler setup, journal lifecycle, CLI-owned exit mapping, and generated help. |
+| TUI lock | `crates/xylem-tui/` and dashboard state | One dashboard owner at a time; rendering work may split by tab only after the app-state and shared-widget contracts land. |
 | Delivery lock | `Makefile`, `.gitlab-ci.yml`, release exporters | Security commands land before CI/release wiring; package and Kubernetes image export consume the immutable release contract. |
 | Documentation lock | top-level Markdown and `examples/` | Final updates occur after behavior and command names are stable. |
 | MCP integration lock | MCP configuration, ACORN client adapter, tool fixtures, and plan/journal evidence | MCP tenant tools own the allowlist and policy bridge; they may not bypass the runner, sandbox, or durable evidence contracts. |
@@ -41,7 +41,7 @@ Secure acquisition owns generic transport behavior.
 2. [Kubernetes workflow execution backend](features/kubernetes-workflow-backend.md), after process and immutable environment contracts land
 3. [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md), after process and immutable environment contracts land
 4. [Memory-aware scheduling](features/memory-aware-scheduling.md), whose scoped estimator gates, planning, runtime admission, and durable estimator evidence are complete
-The `options.batch` rolling input ceiling and landed CEL selection snapshot are baselines these steps must preserve, along with the peak-concurrency tests in `xylem-lib/src/execution.rs`. Memory-aware scheduling next adds optional platform peak collection and operational validation. A new fifth imagery case may qualify the reviewed imagery profiles for concurrent admission only after fresh individual and mix measurements.
+The `options.batch` rolling input ceiling and landed CEL selection snapshot are baselines these steps must preserve, along with the peak-concurrency tests in `crates/xylem-lib/src/execution.rs`. Memory-aware scheduling next adds optional platform peak collection and operational validation. A new fifth imagery case may qualify the reviewed imagery profiles for concurrent admission only after fresh individual and mix measurements.
 
 ### Lane C: CLI and verification
 

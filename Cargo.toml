@@ -1,5 +1,5 @@
 [workspace]
-members = ["tools/memory-spike", "xtask", "xylem-cli", "xylem-lib", "xylem-tui"]
+members = ["crates/xylem-cli", "crates/xylem-lib", "crates/xylem-tui", "tools/memory-spike", "xtask"]
 resolver = "2"
 
 [workspace.package]

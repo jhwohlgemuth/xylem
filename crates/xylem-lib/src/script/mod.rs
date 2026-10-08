@@ -823,7 +823,7 @@ impl Script {
     /// use xylem_lib::script::*;
     /// use std::path::PathBuf;
     ///
-    /// let path = PathBuf::from("../tests/fixtures/template.json");
+    /// let path = PathBuf::from("../../tests/fixtures/template.json");
     /// let script = Script::from_path(path).expect("valid template");
     /// assert_eq!(script.command.name, "python");
     /// ```

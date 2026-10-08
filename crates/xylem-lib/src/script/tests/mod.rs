@@ -5,7 +5,7 @@ use crate::script::{
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-const FIXTURES: &str = "../tests/fixtures";
+const FIXTURES: &str = "../../tests/fixtures";
 
 #[test]
 fn test_add_dot_slash() {

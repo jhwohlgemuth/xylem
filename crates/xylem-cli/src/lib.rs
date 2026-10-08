@@ -112,6 +112,7 @@ pub fn run_example(config: &str) -> Void {
     };
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
+        .and_then(Path::parent)
         .ok_or_else(|| eyre!("the CLI crate should be a member of the workspace"))?;
     let configuration = workspace.join(config);
     let directory = configuration

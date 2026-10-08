@@ -9,7 +9,7 @@ fn help(arguments: &[&str]) -> String {
 
 #[test]
 fn test_generated_help_is_current() {
-    assert_eq!(help(&["--help"]), include_str!("../../docs/src/generated/xylem-help.txt"));
-    assert_eq!(help(&["run", "--help"]), include_str!("../../docs/src/generated/xylem-run-help.txt"));
-    assert_eq!(help(&["tui", "--help"]), include_str!("../../docs/src/generated/xylem-tui-help.txt"));
+    assert_eq!(help(&["--help"]), include_str!("../../../docs/src/generated/xylem-help.txt"));
+    assert_eq!(help(&["run", "--help"]), include_str!("../../../docs/src/generated/xylem-run-help.txt"));
+    assert_eq!(help(&["tui", "--help"]), include_str!("../../../docs/src/generated/xylem-tui-help.txt"));
 }

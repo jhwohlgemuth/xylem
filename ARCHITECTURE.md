@@ -5,7 +5,7 @@
 - `xylem-cli` (CLI Application)
   - Depends on `xylem-lib`
   - Depends on [clap](https://docs.rs/clap/latest/clap/) crate for CLI arguments
-  - Contains code for CLI [commands](./xylem-cli/src/commands/) (e.g., `run`, `check`, etc...)
+  - Contains code for CLI [commands](./crates/xylem-cli/src/commands/) (e.g., `run`, `check`, etc...)
 - `xylem-lib` (Rust code)
   - Utility functions
   - Code for handling user input, ingesting configuration data, running workflows, persisting versioned execution journals, and rendering console and JSON run summaries via `RunSummary`

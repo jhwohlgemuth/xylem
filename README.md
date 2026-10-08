@@ -55,7 +55,7 @@ cargo install --locked xylem-cli
 
 - Install `xylem` command
   ```shell
-  cargo install --path ./xylem-cli
+  cargo install --path ./crates/xylem-cli
   ```
 
 - Test the installation

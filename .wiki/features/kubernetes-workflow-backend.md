@@ -58,7 +58,7 @@ The first release does not:
 Rechecked against the 2026-09-30 worktree, including the in-progress GPU
 monitoring changes.
 
-- `xylem-cli/src/commands/run/mod.rs` currently owns configuration precedence,
+- `crates/xylem-cli/src/commands/run/mod.rs` currently owns configuration precedence,
   run-ID creation, the temporary workspace, planning, journal creation, module
   preparation, container lifecycle, input dispatch, monitoring, reporting, and
   final exit mapping in one function. There is no reusable controller/worker

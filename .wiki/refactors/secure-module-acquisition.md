@@ -34,7 +34,7 @@ for remote configuration wrappers are the baseline. The remaining gaps are:
 
 # Project code boundaries
 
-- **Update:** `xylem-lib/src/remote.rs`, acquisition and preparation logic in `xylem-lib/src/config/mod.rs` and `script/mod.rs`, location/checksum and options types, CLI security options, typed outcomes/journal metadata, tests, schemas, and user-facing configuration/module documentation.
+- **Update:** `crates/xylem-lib/src/remote.rs`, acquisition and preparation logic in `crates/xylem-lib/src/config/mod.rs` and `script/mod.rs`, location/checksum and options types, CLI security options, typed outcomes/journal metadata, tests, schemas, and user-facing configuration/module documentation.
 - **Create:** an acquisition planner/executor boundary, explicit source-policy and limit types, safe staging/cache/materialization helpers, fake HTTP/Git fixtures, and provenance records.
 - **Delete:** routine configuration-controlled checksum bypasses; network probes during dry-run; unbounded response and Git operations; floating Git checkout behavior; direct writes to caller-selected roots; and unsupported remote source fallbacks.
 
