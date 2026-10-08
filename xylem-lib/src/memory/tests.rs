@@ -1,4 +1,7 @@
 use super::*;
+use std::fs::{create_dir_all, remove_dir_all, write};
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 
 const MODULE_A_P_ESTIMATOR: &str = "module-a-p-v1";
 const MODULE_A_P_O_ESTIMATOR: &str = "module-a-p-o-v1";
@@ -199,6 +202,34 @@ fn invariant_sequences_never_exceed_budget_or_batch() {
             assert_eq!(queue.reserved().checked_bytes(), Some(0));
         });
     });
+}
+#[test]
+fn planning_aggregates_nested_regular_files() {
+    let root = std::env::temp_dir().join(format!("xylem-memory-size-{}", std::process::id()));
+    let nested = root.join("nested");
+    create_dir_all(&nested).expect("create nested input");
+    write(root.join("first.bin"), vec![0_u8; 1024]).expect("write first input");
+    write(nested.join("second.bin"), vec![0_u8; 2048]).expect("write second input");
+    let estimator = MemoryEstimator::new("directory-v1", memory(2048), memory(1), memory(4096), 0, 1_000_000).expect("valid directory estimator");
+    let planned = estimator.plan(&[Some(root.display().to_string())]).expect("plan directory input");
+    assert_eq!(planned[0].input_bytes, Some(3072));
+    assert_eq!(planned[0].reservation.as_ref().and_then(Memory::checked_bytes), Some(2048));
+    assert_eq!(planned[0].fallback, None);
+    remove_dir_all(root).expect("remove nested input");
+}
+#[cfg(unix)]
+#[test]
+fn planning_falls_back_without_following_symbolic_links() {
+    let root = std::env::temp_dir().join(format!("xylem-memory-symlink-{}", std::process::id()));
+    create_dir_all(&root).expect("create symlink input");
+    let target = root.join("target.bin");
+    write(&target, vec![0_u8; 1024]).expect("write symlink target");
+    symlink(&target, root.join("linked.bin")).expect("create input symlink");
+    let estimator = MemoryEstimator::new("symlink-v1", memory(2048), memory(1), memory(4096), 0, 1_000_000).expect("valid symlink estimator");
+    let planned = estimator.plan(&[Some(root.display().to_string())]).expect("plan symlink input");
+    assert_eq!(planned[0].input_bytes, None);
+    assert!(matches!(planned[0].fallback, Some(PlannedMemoryFallback::InputUnavailable { .. })));
+    remove_dir_all(root).expect("remove symlink input");
 }
 #[test]
 fn release_admits_waiting_work_immediately_and_only_once() {

@@ -251,15 +251,22 @@ impl Validate for MemoryOptions {
             estimator.slope_millionths,
             estimator.safety_millionths,
         );
-        if let Err(error) = memory_estimator {
-            let (path, code) = match &error {
-                | MemoryEstimatorError::EmptyIdentity => ("estimator.identity".to_string(), "nonempty"),
-                | MemoryEstimatorError::InvalidInputRange { .. } => ("estimator.maximum_input".to_string(), "range"),
-                | MemoryEstimatorError::InvalidMemory { attribute, .. } => (format!("estimator.{attribute}"), "finite"),
-                | MemoryEstimatorError::UnsafeMultiplier { .. } => ("estimator.safety_millionths".to_string(), "minimum"),
-                | MemoryEstimatorError::ZeroPrediction => ("estimator".to_string(), "nonzero"),
-            };
-            report.add(path, validation_error(code, error.to_string()));
+        match memory_estimator {
+            | Err(error) => {
+                let (path, code) = match &error {
+                    | MemoryEstimatorError::EmptyIdentity => ("estimator.identity".to_string(), "nonempty"),
+                    | MemoryEstimatorError::InvalidInputRange { .. } => ("estimator.maximum_input".to_string(), "range"),
+                    | MemoryEstimatorError::InvalidMemory { attribute, .. } => (format!("estimator.{attribute}"), "finite"),
+                    | MemoryEstimatorError::UnsafeMultiplier { .. } => ("estimator.safety_millionths".to_string(), "minimum"),
+                    | MemoryEstimatorError::ZeroPrediction => ("estimator".to_string(), "nonzero"),
+                };
+                report.add(path, validation_error(code, error.to_string()));
+            }
+            | Ok(estimator) => {
+                if let Err(error) = estimator.estimate(self.estimator.maximum_input.clone()) {
+                    report.add("estimator.maximum_input", validation_error("overflow", error.to_string()));
+                }
+            }
         }
         report.finish()
     }

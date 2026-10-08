@@ -4,6 +4,7 @@ extern crate alloc;
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
 use crate::config::{Config, InputAttribute, MemoryEstimatorOptions, MemoryOptions};
 use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
+use crate::memory::{MemoryAdmissionError, MemoryCalculationError, MemoryEstimator, MemoryEstimatorError, PlannedMemoryInput};
 use crate::sandbox::{IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard, SandboxProviderKind, SandboxResources};
 use crate::script::{
     module_working_directory, ContainerCleanup, ContainerEnvironment, ContainerRuntime, ContainerStartup, Module, ModuleType, ModuleUri, Script,
@@ -25,8 +26,10 @@ use tracing::debug;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryPlanMode {
-    /// Retain fixed batching until memory-aware admission is activated.
+    /// Retain fixed batching because at least one input cannot be estimated safely.
     FixedFallback,
+    /// Admit inputs using their planned memory reservations.
+    MemoryAware,
 }
 /// Failure to validate or render an execution plan.
 #[derive(Debug)]
@@ -35,10 +38,16 @@ pub enum PlanError {
     Completion(CompletionError),
     /// Input discovery could not produce a deterministic input set.
     Input(String),
-    /// Scripted input selection failed.
-    Selection(SelectionError),
+    /// A planned reservation exceeds the configured budget.
+    MemoryAdmission(MemoryAdmissionError),
+    /// A reservation could not be calculated safely.
+    MemoryCalculation(MemoryCalculationError),
+    /// The configured estimator could not be constructed.
+    MemoryEstimator(MemoryEstimatorError),
     /// Required sandbox policy was not resolved by the trusted caller.
     Sandbox(String),
+    /// Scripted input selection failed.
+    Selection(SelectionError),
     /// Semantic configuration validation failed.
     Validation(ValidationReport),
 }
@@ -141,6 +150,8 @@ pub struct PlannedMemory {
     pub budget: Memory,
     /// Validated module-agnostic estimator definition.
     pub estimator: MemoryEstimatorOptions,
+    /// Ordered read-only sizing and reservation decisions.
+    pub inputs: Vec<PlannedMemoryInput>,
     /// Runtime behavior for this plan.
     pub mode: MemoryPlanMode,
 }
@@ -266,7 +277,7 @@ impl ContainerEnvironment {
     }
 }
 impl ExecutionPlan {
-    /// Build a plan using only configuration and explicitly labeled read-only completion observations.
+    /// Build a plan using only configuration and explicitly labeled read-only filesystem observations.
     pub fn build(config: &Config, path: String, inputs: &[Option<String>], resume: bool) -> Result<Self, PlanError> {
         let source = match config.input.clone() {
             | Some(InputAttribute::Select(_)) => Err(PlanError::Input(
@@ -285,49 +296,53 @@ impl ExecutionPlan {
         PlannedSandbox::try_from(config.clone())
             .and_then(|sandbox| config.validate_for_inputs(&inputs.values).map_err(PlanError::from).map(|()| sandbox))
             .and_then(|sandbox| {
-                inputs
-                    .values
-                    .iter()
-                    .enumerate()
-                    .try_fold(Vec::new(), |modules, (input_index, input)| {
-                        config
-                            .modules
+                config
+                    .options
+                    .as_ref()
+                    .and_then(|options| options.memory.as_ref())
+                    .map(|memory| PlannedMemory::build(memory, &inputs.values))
+                    .transpose()
+                    .and_then(|memory| {
+                        inputs
+                            .values
                             .iter()
                             .enumerate()
-                            .try_fold(modules, |mut modules, (module_index, module)| {
-                                module.plan(config, input, input_index, module_index, resume).map(|planned| {
-                                    modules.push(planned);
-                                    modules
-                                })
+                            .try_fold(Vec::new(), |modules, (input_index, input)| {
+                                config
+                                    .modules
+                                    .iter()
+                                    .enumerate()
+                                    .try_fold(modules, |mut modules, (module_index, module)| {
+                                        module.plan(config, input, input_index, module_index, resume).map(|planned| {
+                                            modules.push(planned);
+                                            modules
+                                        })
+                                    })
                             })
-                    })
-                    .map(|modules| Self {
-                        containers: PlannedContainer::from_modules(config, &modules),
-                        configuration: PlanConfiguration {
-                            id: config.id.clone(),
-                            output: config.output.clone(),
-                            path,
-                            version: config.version.clone(),
-                        },
-                        gpu_monitoring: config
-                            .options
-                            .as_ref()
-                            .and_then(|options| options.gpu_monitor)
-                            .unwrap_or_default()
-                            .then(|| PlannedGpuMonitoring {
-                                interval: GPU_SAMPLE_INTERVAL_MS,
-                                source: "nvidia-smi".to_string(),
-                            }),
-                        inputs: inputs.clone(),
-                        memory: config
-                            .options
-                            .as_ref()
-                            .and_then(|options| options.memory.as_ref())
-                            .map(PlannedMemory::from),
-                        modules,
-                        resume,
-                        sandbox,
-                        schema_version: 9,
+                            .map(|modules| Self {
+                                containers: PlannedContainer::from_modules(config, &modules),
+                                configuration: PlanConfiguration {
+                                    id: config.id.clone(),
+                                    output: config.output.clone(),
+                                    path,
+                                    version: config.version.clone(),
+                                },
+                                gpu_monitoring: config
+                                    .options
+                                    .as_ref()
+                                    .and_then(|options| options.gpu_monitor)
+                                    .unwrap_or_default()
+                                    .then(|| PlannedGpuMonitoring {
+                                        interval: GPU_SAMPLE_INTERVAL_MS,
+                                        source: "nvidia-smi".to_string(),
+                                    }),
+                                inputs: inputs.clone(),
+                                memory,
+                                modules,
+                                resume,
+                                sandbox,
+                                schema_version: 10,
+                            })
                     })
             })
     }
@@ -436,6 +451,9 @@ impl core::error::Error for PlanError {
         match self {
             | Self::Completion(error) => Some(error),
             | Self::Input(_) => None,
+            | Self::MemoryAdmission(error) => Some(error),
+            | Self::MemoryCalculation(error) => Some(error),
+            | Self::MemoryEstimator(error) => Some(error),
             | Self::Sandbox(_) => None,
             | Self::Selection(error) => Some(error),
             | Self::Validation(error) => Some(error),
@@ -447,6 +465,9 @@ impl fmt::Display for PlanError {
         match self {
             | Self::Completion(error) => error.fmt(formatter),
             | Self::Input(error) => formatter.write_str(error),
+            | Self::MemoryAdmission(error) => error.fmt(formatter),
+            | Self::MemoryCalculation(error) => error.fmt(formatter),
+            | Self::MemoryEstimator(error) => error.fmt(formatter),
             | Self::Sandbox(error) => formatter.write_str(error),
             | Self::Selection(error) => error.fmt(formatter),
             | Self::Validation(error) => error.fmt(formatter),
@@ -456,6 +477,21 @@ impl fmt::Display for PlanError {
 impl From<CompletionError> for PlanError {
     fn from(error: CompletionError) -> Self {
         Self::Completion(error)
+    }
+}
+impl From<MemoryAdmissionError> for PlanError {
+    fn from(error: MemoryAdmissionError) -> Self {
+        Self::MemoryAdmission(error)
+    }
+}
+impl From<MemoryCalculationError> for PlanError {
+    fn from(error: MemoryCalculationError) -> Self {
+        Self::MemoryCalculation(error)
+    }
+}
+impl From<MemoryEstimatorError> for PlanError {
+    fn from(error: MemoryEstimatorError) -> Self {
+        Self::MemoryEstimator(error)
     }
 }
 impl From<SelectionError> for PlanError {
@@ -524,13 +560,58 @@ impl PlannedContainer {
             .collect()
     }
 }
-impl From<&MemoryOptions> for PlannedMemory {
-    fn from(memory: &MemoryOptions) -> Self {
-        Self {
-            budget: memory.budget.clone(),
-            estimator: memory.estimator.clone(),
-            mode: MemoryPlanMode::FixedFallback,
-        }
+impl PlannedMemory {
+    fn build(memory: &MemoryOptions, inputs: &[Option<String>]) -> Result<Self, PlanError> {
+        let estimator = MemoryEstimator::new(
+            memory.estimator.identity.clone(),
+            memory.estimator.intercept.clone(),
+            memory.estimator.minimum_input.clone(),
+            memory.estimator.maximum_input.clone(),
+            memory.estimator.slope_millionths,
+            memory.estimator.safety_millionths,
+        );
+        estimator
+            .map_err(PlanError::from)
+            .and_then(|estimator| estimator.plan(inputs).map_err(PlanError::from))
+            .and_then(|inputs| {
+                let budget_bytes = memory.budget.checked_bytes().unwrap_or_default();
+                inputs
+                    .iter()
+                    .find_map(|input| {
+                        input
+                            .reservation
+                            .as_ref()
+                            .filter(|reservation| reservation.checked_bytes().is_some_and(|reservation| reservation > budget_bytes))
+                            .map(|reservation| (input.input_index, reservation.clone()))
+                    })
+                    .map_or_else(
+                        || {
+                            let mode = match inputs.iter().any(|input| input.fallback.is_some()) {
+                                | true => MemoryPlanMode::FixedFallback,
+                                | false => MemoryPlanMode::MemoryAware,
+                            };
+                            Ok(Self {
+                                budget: memory.budget.clone(),
+                                estimator: memory.estimator.clone(),
+                                inputs,
+                                mode,
+                            })
+                        },
+                        |(index, reservation)| {
+                            Err(PlanError::from(MemoryAdmissionError::Oversized {
+                                budget: memory.budget.clone(),
+                                index,
+                                reservation,
+                            }))
+                        },
+                    )
+            })
+    }
+    /// Return ordered reservations when memory-aware admission is active.
+    pub fn reservations(&self) -> Option<Vec<Memory>> {
+        (self.mode == MemoryPlanMode::MemoryAware)
+            .then(|| self.inputs.iter().map(|input| input.reservation.clone()).collect::<Option<Vec<_>>>())
+            .flatten()
     }
 }
 impl TryFrom<Config> for PlannedSandbox {

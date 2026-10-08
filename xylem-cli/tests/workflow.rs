@@ -319,7 +319,7 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
         .expect("run dry-run plan");
     assert!(output.status.success(), "dry run failed: {}", String::from_utf8_lossy(&output.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid dry-run plan");
-    assert_eq!(plan["schema_version"], 9);
+    assert_eq!(plan["schema_version"], 10);
     assert!(plan["memory"].is_null());
     assert_eq!(plan["sandbox"]["mode"], "off");
     assert_eq!(plan["gpu_monitoring"]["interval"], 1000);
@@ -384,7 +384,7 @@ input:
     assert_eq!(repeated.stdout, output.stdout);
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid selection plan");
     let inputs = std::fs::canonicalize(inputs).expect("canonical selection inputs");
-    assert_eq!(plan["schema_version"], 9);
+    assert_eq!(plan["schema_version"], 10);
     assert!(plan["memory"].is_null());
     assert_eq!(plan["sandbox"]["mode"], "off");
     assert_eq!(plan["inputs"]["source"]["kind"], "selection");
@@ -807,12 +807,13 @@ fn test_memory_intent_plans_and_runs_with_a_fixed_batching_warning() {
         .expect("render memory intent plan");
     assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&dry_run.stdout).expect("valid memory intent plan");
-    assert_eq!(plan["schema_version"], 9);
+    assert_eq!(plan["schema_version"], 10);
     assert_eq!(plan["memory"]["budget"], "64GB");
     assert_eq!(plan["memory"]["estimator"]["identity"], "custom-modules-v1");
+    assert_eq!(plan["memory"]["inputs"][0]["fallback"]["kind"], "no_input");
     assert_eq!(plan["memory"]["estimator"]["slope_millionths"], 0);
     assert_eq!(plan["memory"]["mode"], "fixed_fallback");
-    assert!(!String::from_utf8_lossy(&dry_run.stderr).contains("Memory-aware admission is not enabled"));
+    assert!(!String::from_utf8_lossy(&dry_run.stderr).contains("fell back to fixed input batching"));
     let run = xylem_command()
         .args(["--no-progress", "run", memory_path.to_str().expect("UTF-8 memory configuration")])
         .output()
@@ -821,7 +822,9 @@ fn test_memory_intent_plans_and_runs_with_a_fixed_batching_warning() {
     let stderr = String::from_utf8_lossy(&run.stderr);
     assert_eq!(
         stderr
-            .matches("Memory-aware admission is not enabled for estimator custom-modules-v1; using fixed input batching")
+            .matches(
+                "Memory-aware admission for estimator custom-modules-v1 fell back to fixed input batching: the workflow has no concrete input to size"
+            )
             .count(),
         1
     );
@@ -836,8 +839,148 @@ fn test_memory_intent_plans_and_runs_with_a_fixed_batching_warning() {
         .output()
         .expect("run fixed batching fixture");
     assert!(fixed.status.success(), "{}", String::from_utf8_lossy(&fixed.stderr));
-    assert!(!String::from_utf8_lossy(&fixed.stderr).contains("Memory-aware admission is not enabled"));
+    assert!(!String::from_utf8_lossy(&fixed.stderr).contains("fell back to fixed input batching"));
     remove_dir_all(test_root).expect("remove memory intent fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_memory_runtime_admission_caps_the_compiled_cli() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!(
+        "xylem-memory-admission-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should follow the Unix epoch")
+            .as_nanos()
+    ));
+    let inputs = [("large-one", 3 * 1024), ("small", 2 * 1024), ("large-two", 3 * 1024)]
+        .into_iter()
+        .map(|(name, bytes)| {
+            let input = test_root.join("inputs").join(name);
+            create_dir_all(&input).expect("create memory-aware input");
+            write(input.join("payload.bin"), vec![0_u8; bytes]).expect("write memory-aware input");
+            input
+        })
+        .collect::<Vec<_>>();
+    let state = test_root.join("state");
+    create_dir_all(&state).expect("create memory-aware state");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "version": "1.0.0",
+        "requirements": ["sh"],
+        "input": inputs.iter().map(|input| input.display().to_string()).collect::<Vec<_>>(),
+        "options": {
+            "batch": 3,
+            "memory": {
+                "budget": "5KB",
+                "estimator": {
+                    "identity": "compiled-cli-v1",
+                    "intercept": "0KB",
+                    "maximum_input": "4KB",
+                    "minimum_input": "1KB",
+                    "safety_millionths": 1_000_000,
+                    "slope_millionths": 1_000_000
+                }
+            }
+        },
+        "modules": [{
+            "name": "Concurrency Probe",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:./tests/e2e/modules/concurrency-probe",
+            "template": {
+                "command": "sh",
+                "arguments": ["run.sh", state.to_string_lossy()]
+            }
+        }]
+    });
+    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize memory-aware fixture")).expect("write memory-aware fixture");
+    let dry_run = xylem_command()
+        .current_dir(workspace)
+        .args([
+            "run",
+            config_path.to_str().expect("UTF-8 memory-aware config"),
+            "--dry-run",
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("render memory-aware plan");
+    assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&dry_run.stdout).expect("valid memory-aware plan");
+    assert_eq!(plan["memory"]["mode"], "memory_aware");
+    assert_eq!(plan["memory"]["inputs"][0]["input_bytes"], 3 * 1024);
+    assert_eq!(plan["memory"]["inputs"][1]["reservation"], "2KB");
+    let run = xylem_command()
+        .current_dir(workspace)
+        .args([
+            "--threads",
+            "10",
+            "--no-progress",
+            "run",
+            config_path.to_str().expect("UTF-8 memory-aware config"),
+        ])
+        .output()
+        .expect("run memory-aware workflow");
+    let logs = format!("{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
+    assert!(run.status.success(), "memory-aware workflow failed:\n{logs}");
+    assert!(!logs.contains("fell back to fixed input batching"));
+    assert_eq!(read_to_string(state.join("peak")).expect("peak memory-aware concurrency").trim(), "2");
+    remove_dir_all(test_root).expect("remove memory-aware fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_memory_runtime_rejects_oversized_reservations_before_work_begins() {
+    let test_root = std::env::temp_dir().join(format!("xylem-memory-oversized-{}", std::process::id()));
+    create_dir_all(&test_root).expect("create oversized memory fixture");
+    let input = test_root.join("input.bin");
+    let marker = test_root.join("module-ran");
+    write(&input, vec![0_u8; 2 * 1024]).expect("write oversized memory input");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "version": "1.0.0",
+        "requirements": ["sh"],
+        "input": [input.display().to_string()],
+        "options": {
+            "memory": {
+                "budget": "2KB",
+                "estimator": {
+                    "identity": "oversized-cli-v1",
+                    "intercept": "1KB",
+                    "maximum_input": "3KB",
+                    "minimum_input": "1KB",
+                    "safety_millionths": 1_000_000,
+                    "slope_millionths": 1_000_000
+                }
+            }
+        },
+        "modules": [{
+            "name": "Must Not Run",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "file:.",
+            "template": {
+                "command": "sh",
+                "arguments": ["-c", format!("touch {}", marker.display())]
+            }
+        }]
+    });
+    write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("serialize oversized memory fixture"),
+    )
+    .expect("write oversized memory fixture");
+    let run = xylem_command()
+        .args(["--no-progress", "run", config_path.to_str().expect("UTF-8 oversized memory config")])
+        .output()
+        .expect("run oversized memory workflow");
+    assert_eq!(run.status.code(), Some(exitcode::DATAERR));
+    assert!(String::from_utf8_lossy(&run.stderr).contains("input 0 requires 3072 memory bytes, exceeding the 2048-byte budget"));
+    assert!(!marker.exists(), "module work must not begin after an oversized reservation");
+    remove_dir_all(test_root).expect("remove oversized memory fixture");
 }
 #[test]
 #[ignore = "requires a native rootless OCI runtime and digest-pinned sandbox workload"]

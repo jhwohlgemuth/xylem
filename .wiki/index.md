@@ -31,7 +31,7 @@ effort.
 | [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md) | 4/5 | Critical | Very high | Very high | This is the runtime foundation for every advanced target. Its contracts and tests are strong, but process adaptation, immutable contexts, workspaces, scheduling, cancellation, and a breaking schema revision make it too large for one undivided landing. Keep its six phases as separately gated changes. |
 | [Secure module acquisition](refactors/secure-module-acquisition.md) | 5/5 | Critical | High | Very high | The scope is focused, with a clear threat boundary, typed failure behavior, offline semantics, and adversarial validation. Implement planner and cache primitives independently, then serialize integration across the shared configuration and process locks. |
 | [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md) | 4/5 | Critical | Very high | High | The threat model and capability negotiation are well specified. The plan spans fake, OCI, separate-kernel, and default-on rollout horizons; deliver through OCI and lifecycle hardening first, then require a new decision before the stronger-provider rollout. |
-| [Memory-aware adaptive scheduling](features/memory-aware-scheduling.md) | 5/5 | High | Medium | High | Independent estimators passed for the pinned A+P and A+P+O workflows over the measured range, and the pure admission model landed. Add validated configuration and dry-run planning next. A fifth imagery case makes the missing concurrent holdout gate possible, but production concurrency remains one until new individual and mix evidence passes. |
+| [Memory-aware adaptive scheduling](features/memory-aware-scheduling.md) | 5/5 | High | Medium | High | Independent estimators passed for the pinned A+P and A+P+O workflows over the measured range. Validated configuration, execution-plan v10, input sizing, and runtime admission have landed. Measure the fifth imagery case, add durable estimator evidence, and complete operational validation; production imagery concurrency remains one until new individual and mix evidence passes. |
 | [MCP-enabled tenant tools](features/mcp-tenant-tools.md) | 5/5 | High | High | High | The workflow configuration, caller approvals, deterministic postlude, cancellation, result artifact, schema-v8 evidence, and test contracts are specified. Implementation waits for ACORN to narrow `mcp-client` and add direct construction plus cancellation-aware operations. |
 | [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) | 4/5 | Critical | Very high | Conditional high | The plan specifies the controller/worker, PVC, protocol, and failure contracts in detail. Delivery depends on shared-filesystem semantics, cluster runners, release images, and confirmed operator demand. Keep it separate from sandboxing and validate those deployment assumptions before implementation. |
 
@@ -47,7 +47,7 @@ impact and difficulty explicitly.
 |---:|---|---|---:|---:|---|
 | 1 | Release activation | Homebrew release activation | High | Low | Very high. Resume the nearly complete tap activation. |
 | 2 | MCP-enabled tenant tools | MCP-enabled tenant tools | High | High | High. The Xylem contract is ready; the remaining external dependency is the planned ACORN 0.4.0 embedder interface and narrow feature graph. |
-| 3 | Memory-aware scheduling | Memory-aware adaptive scheduling | High | Medium | High. The scoped measurement gates and pure model are complete; add validated configuration and versioned dry-run planning while expanded concurrent evidence is gathered. |
+| 3 | Memory-aware scheduling | Memory-aware adaptive scheduling | High | Medium | High. Runtime admission and versioned planning are complete; finish the expanded concurrent measurement gate, durable evidence, and operational validation. |
 | 4 | Trusted local execution | Environment/concurrency + secure acquisition + sandboxing | Critical | Very high | High. These remain independent hardening plans. Sequence their integrations after preserving the landed runtime contracts. |
 | 5 | Kubernetes execution target | Kubernetes workflow execution | Critical | Very high | Conditional high. It remains an orthogonal execution target with its own approval gate. Start from the landed execution boundary only when a supported cluster, shared PVC semantics, image pipeline, and user demand are confirmed. |
 
@@ -55,7 +55,7 @@ impact and difficulty explicitly.
 
 1. Resume Homebrew activation and publish the verified installation path.
 2. Land the ACORN 0.4.0 narrow MCP feature and embedder interface, then implement MCP-enabled tenant tools in the recorded Xylem runner.
-3. Add validated memory configuration and versioned dry-run planning; measure the fifth imagery case before allowing concurrent production admission, and claim CLI and durable run-state locks only in later slices.
+3. Measure the fifth imagery case before allowing concurrent production admission, then add durable memory evidence and finish operational validation.
 4. Reassess environment/concurrency, secure acquisition, sandboxing, and Kubernetes against demonstrated operator demand and the landed execution boundary.
 
 ## Planning gaps

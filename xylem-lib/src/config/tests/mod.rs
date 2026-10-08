@@ -1077,6 +1077,13 @@ fn test_memory_configuration_rejects_invalid_estimators() {
         .intercept = Memory::gb(f64::INFINITY);
     let nonfinite = nonfinite.validate().expect_err("nonfinite estimator memory must fail");
     assert!(nonfinite.iter().any(|issue| issue.path == "options.memory.estimator.intercept"));
+    let mut overflowing = memory_estimator("overflowing-v1");
+    overflowing["safety_millionths"] = serde_json::json!(u64::MAX);
+    overflowing["slope_millionths"] = serde_json::json!(u64::MAX);
+    let overflowing = memory_configuration(overflowing, vec![memory_module("Anything")], "64GB")
+        .validate()
+        .expect_err("estimator overflow at the calibrated maximum must fail");
+    assert!(overflowing.iter().any(|issue| issue.path == "options.memory.estimator.maximum_input"));
 }
 #[test]
 fn test_memory_configuration_round_trips_through_json_and_yaml() {

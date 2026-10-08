@@ -6,6 +6,9 @@ use acorn_schema::hardware::Memory;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use core::fmt;
+use serde::Serialize;
+use std::fs::{read_dir, symlink_metadata};
+use std::path::{Path, PathBuf};
 
 const FIXED_POINT_SCALE: u64 = 1_000_000;
 
@@ -105,6 +108,25 @@ pub enum MemoryFallback {
         minimum: Memory,
     },
 }
+/// Per-input reason that a run must retain fixed batching.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PlannedMemoryFallback {
+    /// The input size is outside the estimator's calibrated range.
+    InputOutOfRange {
+        /// Largest calibrated aggregate input size.
+        maximum_input_bytes: u64,
+        /// Smallest calibrated aggregate input size.
+        minimum_input_bytes: u64,
+    },
+    /// The input could not be measured safely.
+    InputUnavailable {
+        /// Stable diagnostic explaining why sizing was unavailable.
+        detail: String,
+    },
+    /// The workflow has no concrete input to size.
+    NoInput,
+}
 /// One newly admitted input and its reservation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MemoryAdmission {
@@ -130,6 +152,18 @@ pub struct MemoryEstimator {
     minimum_input: Memory,
     safety_millionths: u64,
     slope_millionths: u64,
+}
+/// Read-only sizing and reservation result for one resolved input.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PlannedMemoryInput {
+    /// Reason memory-aware admission cannot cover this input.
+    pub fallback: Option<PlannedMemoryFallback>,
+    /// Aggregate logical bytes across regular files.
+    pub input_bytes: Option<u64>,
+    /// Stable position in resolved input order.
+    pub input_index: usize,
+    /// Estimated peak memory including the configured safety multiplier.
+    pub reservation: Option<Memory>,
 }
 
 impl MemoryAdmission {
@@ -237,11 +271,14 @@ impl MemoryAdmissionQueue {
     }
     /// Release one active reservation and immediately admit the next FIFO prefix.
     pub fn release(&mut self, index: usize) -> Result<Vec<MemoryAdmission>, MemoryAdmissionError> {
+        self.release_only(index).map(|()| self.admit())
+    }
+    pub(crate) fn release_only(&mut self, index: usize) -> Result<(), MemoryAdmissionError> {
         self.active.remove(&index).map_or_else(
             || Err(MemoryAdmissionError::NotActive { index }),
             |reservation| {
                 self.reserved = self.reserved.saturating_sub(reservation.checked_bytes().unwrap_or_default());
-                Ok(self.admit())
+                Ok(())
             },
         )
     }
@@ -336,7 +373,10 @@ impl MemoryEstimator {
             })
             .and_then(|reservation| u64::try_from(reservation).ok())
             .filter(|reservation| *reservation > 0)
-            .map(|reservation| Memory::kb(reservation as f64 / 1024.0))
+            .and_then(|reservation| {
+                let memory = Memory::kb(reservation as f64 / 1024.0);
+                memory.checked_bytes().filter(|value| *value > 0).map(|_| memory)
+            })
             .ok_or(MemoryCalculationError::Overflow {
                 estimator: self.identity.clone(),
                 input,
@@ -359,9 +399,69 @@ impl MemoryEstimator {
             },
         }
     }
+    /// Inspect resolved inputs and calculate deterministic memory reservations.
+    pub fn plan(&self, inputs: &[Option<String>]) -> Result<Vec<PlannedMemoryInput>, MemoryCalculationError> {
+        inputs
+            .iter()
+            .enumerate()
+            .map(|(input_index, input)| match input {
+                | None => Ok(PlannedMemoryInput {
+                    fallback: Some(PlannedMemoryFallback::NoInput),
+                    input_bytes: None,
+                    input_index,
+                    reservation: None,
+                }),
+                | Some(input) => match aggregate_input_bytes(Path::new(input)) {
+                    | Err(detail) => Ok(PlannedMemoryInput {
+                        fallback: Some(PlannedMemoryFallback::InputUnavailable { detail }),
+                        input_bytes: None,
+                        input_index,
+                        reservation: None,
+                    }),
+                    | Ok(input_bytes) if input_bytes == 0 => Ok(PlannedMemoryInput {
+                        fallback: Some(PlannedMemoryFallback::InputOutOfRange {
+                            maximum_input_bytes: self.maximum_input_bytes(),
+                            minimum_input_bytes: self.minimum_input_bytes(),
+                        }),
+                        input_bytes: Some(input_bytes),
+                        input_index,
+                        reservation: None,
+                    }),
+                    | Ok(input_bytes) => {
+                        let input_memory = Memory::kb(input_bytes as f64 / 1024.0);
+                        self.estimate(input_memory).map(|estimate| match estimate {
+                            | MemoryEstimate::Fallback(MemoryFallback::InputOutOfRange { maximum, minimum, .. }) => PlannedMemoryInput {
+                                fallback: Some(PlannedMemoryFallback::InputOutOfRange {
+                                    maximum_input_bytes: maximum.checked_bytes().unwrap_or_default(),
+                                    minimum_input_bytes: minimum.checked_bytes().unwrap_or_default(),
+                                }),
+                                input_bytes: Some(input_bytes),
+                                input_index,
+                                reservation: None,
+                            },
+                            | MemoryEstimate::Reservation(reservation) => PlannedMemoryInput {
+                                fallback: None,
+                                input_bytes: Some(input_bytes),
+                                input_index,
+                                reservation: Some(reservation),
+                            },
+                        })
+                    }
+                },
+            })
+            .collect()
+    }
     /// Return the estimator identity used for plans and telemetry.
     pub fn identity(&self) -> &str {
         &self.identity
+    }
+    /// Return the largest calibrated aggregate input size in bytes.
+    pub fn maximum_input_bytes(&self) -> u64 {
+        self.maximum_input.checked_bytes().unwrap_or_default()
+    }
+    /// Return the smallest calibrated aggregate input size in bytes.
+    pub fn minimum_input_bytes(&self) -> u64 {
+        self.minimum_input.checked_bytes().unwrap_or_default()
     }
 }
 impl core::error::Error for MemoryEstimatorError {}
@@ -383,6 +483,63 @@ impl fmt::Display for MemoryEstimatorError {
             | Self::ZeroPrediction => formatter.write_str("memory estimator intercept and slope cannot both be zero"),
         }
     }
+}
+impl fmt::Display for PlannedMemoryFallback {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            | Self::InputOutOfRange {
+                maximum_input_bytes,
+                minimum_input_bytes,
+            } => write!(
+                formatter,
+                "input size is outside the calibrated range {minimum_input_bytes}..={maximum_input_bytes} bytes"
+            ),
+            | Self::InputUnavailable { detail } => formatter.write_str(detail),
+            | Self::NoInput => formatter.write_str("the workflow has no concrete input to size"),
+        }
+    }
+}
+fn aggregate_input_bytes(root: &Path) -> Result<u64, String> {
+    let mut pending = vec![root.to_path_buf()];
+    let mut total = 0_u64;
+    while let Some(path) = pending.pop() {
+        let metadata = match symlink_metadata(&path) {
+            | Ok(metadata) => metadata,
+            | Err(error) => return Err(format!("inspect {}: {error}", path.display())),
+        };
+        let file_type = metadata.file_type();
+        match (file_type.is_symlink(), file_type.is_file(), file_type.is_dir()) {
+            | (true, _, _) => return Err(format!("symbolic links are not supported at {}", path.display())),
+            | (false, true, _) => {
+                total = match total.checked_add(metadata.len()) {
+                    | Some(total) => total,
+                    | None => return Err(format!("aggregate input size overflow at {}", path.display())),
+                };
+            }
+            | (false, false, true) => {
+                let mut children = match read_dir(&path) {
+                    | Ok(entries) => {
+                        let paths = entries
+                            .map(|entry| {
+                                entry
+                                    .map(|entry| entry.path())
+                                    .map_err(|error| format!("inspect {}: {error}", path.display()))
+                            })
+                            .collect::<Result<Vec<PathBuf>, _>>();
+                        match paths {
+                            | Ok(children) => children,
+                            | Err(error) => return Err(error),
+                        }
+                    }
+                    | Err(error) => return Err(format!("inspect {}: {error}", path.display())),
+                };
+                children.sort();
+                pending.extend(children.into_iter().rev());
+            }
+            | (false, false, false) => return Err(format!("unsupported filesystem entry at {}", path.display())),
+        }
+    }
+    Ok(total)
 }
 #[cfg(test)]
 mod tests;

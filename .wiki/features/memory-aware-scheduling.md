@@ -19,14 +19,15 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 - The current execution model assigns equal scheduling weight to every input regardless of input size or module behavior.
 - `--threads` bounds Rayon workers and `options.batch` bounds active inputs, but neither represents memory demand.
 - Workflow `resources` remain string values verified as host requirements.
-  Quantitative intent now lives only in validated `options.memory` and does not
-  activate scheduler admission.
+  Quantitative admission is configured independently through validated
+  `options.memory`.
 - Xylem's durable runtime does not yet record peak child-process memory; the
   accepted spike evidence remains separate from production telemetry.
 - Inputs may be files or directories of heterogeneous contents, and different modules can have different peak-memory curves for the same input.
 - The pure estimator and FIFO admission model landed in commit `4df056c`.
-  Validated configuration and execution-plan v9 now record estimator intent,
-  while scheduling and durable-state integration remain pending.
+  Validated configuration, read-only input sizing, execution-plan v10, and the
+  fail-fast runtime admission integration are now implemented. Durable-state
+  integration and production measurement follow-up remain pending.
 
 # Project code boundaries
 
@@ -132,7 +133,7 @@ configured modules. The fifth case makes a concurrent holdout gate possible for
 the measured imagery workflows, but does not satisfy it by existing. Synthetic
 scheduler work can proceed while the expanded measurements run.
 
-# Landed configuration and planning slice
+# Landed configuration, planning, and runtime slices
 
 The configuration and execution-plan slice is implemented on the sandbox
 lifecycle baseline `b7caa55`. It adds `options.memory` with an explicit positive
@@ -141,25 +142,30 @@ module list can use the option; validation covers the estimator identity,
 coefficients, safety multiplier, and calibrated input range without inspecting
 module names, order, count, or revisions.
 
-Execution-plan schema v9 adds nullable memory intent. A configured plan records
-the budget, complete estimator, and `fixed_fallback` mode; an unconfigured plan
-records `memory: null`. Real configured runs emit one warning and retain fixed
-batching. No memory reservations, host-memory detection, CLI override, journal
-fields, or run-store fields are active.
+Execution-plan schema v10 adds nullable memory intent and ordered per-input
+sizing decisions. Xylem recursively totals logical regular-file bytes without
+following symbolic links, calculates checked reservations for inputs inside the
+calibrated range, and rejects a valid reservation larger than the run budget
+before work begins. Any missing, unsafe, zero, or out-of-range input selects
+`fixed_fallback` for the whole run and produces one warning during a real run.
+Otherwise, the existing fail-fast rolling scheduler admits the FIFO prefix that
+fits the memory budget, `options.batch`, and `--threads`; it releases each
+reservation once at terminal input completion and admits no new work after a
+failure or cancellation. An unconfigured plan records `memory: null` and keeps
+the original fixed batching path. Host-memory detection, a CLI override,
+journal fields, and run-store fields are not active.
 
-## Landing order after configuration and planning
+## Remaining landing order
 
-1. In parallel, inventory the fifth test case, add candidate holdout entries
+1. Inventory the fifth test case, add candidate holdout entries
    and compatible two-case mixes to both measurement manifests, and rerun the
    A/P and A/P/O gates without overwriting accepted evidence.
-2. Integrate admission into the existing fail-fast rolling input loop while
-   preserving `options.batch`, `--threads`, cancellation, resume, and ordered
-   outcomes. The generic scheduler may use any valid caller-supplied estimator;
-   keep the reviewed imagery profile's real input concurrency at one unless its
+   The generic scheduler accepts any valid caller-supplied estimator, but keep
+   the reviewed imagery profile's real input concurrency at one unless its
    concurrent holdout gate is GO.
-3. Version journal/report evidence for estimator identity, estimated bytes,
+2. Version journal/report evidence for estimator identity, estimated bytes,
    budget, safety reserve, fallback reason, and optional observed peak.
-4. Add operational documentation and rerun accepted workflows to compare
+3. Add operational examples and rerun accepted workflows to compare
    estimates with observed peaks.
 
 # Recommendation

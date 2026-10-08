@@ -80,6 +80,11 @@ child module failures to software errors, and journal/report persistence
 failures to I/O or creation errors. Diagnostics retain the relevant
 configuration path, module name, command, and working directory.
 
+Configured memory-aware runs reject any per-input reservation larger than the
+run budget as a data error before module work begins. If any input cannot be
+sized safely or falls outside the estimator's calibrated range, the run emits
+one warning and uses fixed input batching for the whole run.
+
 Dry-run is write-free. It renders a deterministic execution-plan document to
 the console or JSON standard output without creating a workspace, journal,
 report, marker, or artifact. Consequently, `--report-output` is rejected with

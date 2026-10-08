@@ -118,7 +118,7 @@ Explicit input lists preserve their declared order and duplicate values keep
 their first occurrence. Directory-derived inputs are sorted by path. CLI
 `--input` replaces configured input values rather than appending to them.
 
-## Memory-aware intent
+## Memory-aware admission
 
 Any workflow can declare a positive memory budget and a complete estimator.
 The estimator is independent of module names, order, count, and revisions:
@@ -146,11 +146,19 @@ fixed reservation for any module combination. Xylem validates the model's
 values and arithmetic, but the workflow author remains responsible for
 calibrating it for the configured modules and inputs.
 
-Execution-plan schema v9 records the budget, estimator, and
-`mode: fixed_fallback`. Memory-aware admission is not active yet, so real runs
-emit a warning and retain the existing `options.batch` limit. Omitting
-`options.memory` preserves fixed batching without a warning. There is no CLI
-override or automatic host-memory detection.
+Execution-plan schema v10 records the budget, complete estimator, and one
+read-only sizing decision per resolved input. A regular file is sized by its
+logical length; a directory is sized as the checked sum of its recursively
+contained regular files. Symbolic links, special entries, missing metadata,
+zero-input workflows, and sizes outside the calibrated range cause the entire
+run to use `mode: fixed_fallback`. Real runs emit one warning for that fallback.
+
+When every input can be sized, `mode: memory_aware` reserves the planned bytes
+before admitting it. The sum of active reservations cannot exceed `budget`,
+and `options.batch` and `--threads` remain independent upper bounds. A
+reservation larger than the full budget is rejected before module work begins.
+Omitting `options.memory` preserves fixed batching without a warning. There is
+no CLI override or automatic host-memory detection.
 
 ## CEL input selection
 
@@ -218,7 +226,7 @@ MiB per scalar. Exceeding any limit fails before workflow execution.
 
 A non-empty CLI `--input` list has precedence and bypasses selection request
 validation, root access, discovery, compilation, and evaluation. Dry-run uses
-the same read-only selection snapshot as execution. Execution-plan schema v9
+the same read-only selection snapshot as execution. Execution-plan schema v10
 records canonical options, limits, engine/interpreter identity, counts, and
 SHA-256 script and inventory digests without recording the script, configured
 variable values, or unselected inventory.

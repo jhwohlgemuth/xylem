@@ -26,7 +26,7 @@ use xylem_lib::journal::{
     SandboxEvidence,
 };
 use xylem_lib::outcome::WorkflowOutcome;
-use xylem_lib::plan::ExecutionPlan;
+use xylem_lib::plan::{ExecutionPlan, MemoryPlanMode};
 use xylem_lib::progress::{ProgressObserver, ProgressPhase, ProgressState, ProgressUpdate};
 use xylem_lib::remote::RemotePolicy;
 use xylem_lib::run::store::{Bundle, Manifest, Store, TaskLogSink};
@@ -475,9 +475,19 @@ pub fn run(
             }
         },
         | Ok((preview, inputs, plan)) => {
-            if let Some(memory) = &plan.memory {
+            if let Some((memory, fallback)) = plan.memory.as_ref().and_then(|memory| {
+                (memory.mode == MemoryPlanMode::FixedFallback)
+                    .then(|| {
+                        memory
+                            .inputs
+                            .iter()
+                            .find_map(|input| input.fallback.as_ref())
+                            .map(|fallback| (memory, fallback))
+                    })
+                    .flatten()
+            }) {
                 eprintln!(
-                    "Warning: Memory-aware admission is not enabled for estimator {}; using fixed input batching",
+                    "Warning: Memory-aware admission for estimator {} fell back to fixed input batching: {fallback}",
                     memory.estimator.identity
                 );
             }
@@ -843,14 +853,52 @@ pub fn run(
                                                                                 }
                                                                             };
                                                                             let failed = |outcome: &WorkflowOutcome| !outcome.is_success();
-                                                                            let dispatched = execution
-                                                                                .dispatch_inputs_fail_fast(&inputs, options.batch, operation, failed)
-                                                                                .map_err(|why| {
-                                                                                    RunFailure::new(
-                                                                                        exitcode::OSERR,
-                                                                                        format!("initialize Xylem input worker pool — {why}"),
+                                                                            let dispatched = match plan.memory.as_ref() {
+                                                                                | Some(memory) if memory.mode == MemoryPlanMode::MemoryAware => {
+                                                                                    memory.reservations().map_or_else(
+                                                                                        || {
+                                                                                            Err(RunFailure::new(
+                                                                                                exitcode::SOFTWARE,
+                                                                                                "memory-aware plan is missing an input reservation",
+                                                                                            ))
+                                                                                        },
+                                                                                        |reservations| {
+                                                                                            execution
+                                                                                                .dispatch_inputs_fail_fast_memory(
+                                                                                                    &inputs,
+                                                                                                    options.batch,
+                                                                                                    memory.budget.clone(),
+                                                                                                    reservations,
+                                                                                                    operation,
+                                                                                                    failed,
+                                                                                                )
+                                                                                                .map_err(|why| {
+                                                                                                    RunFailure::new(
+                                                                                                        exitcode::OSERR,
+                                                                                                        format!(
+                                                                                                            "run memory-aware input dispatcher — {why}"
+                                                                                                        ),
+                                                                                                    )
+                                                                                                })
+                                                                                        },
                                                                                     )
-                                                                                });
+                                                                                }
+                                                                                | Some(_) | None => execution
+                                                                                    .dispatch_inputs_fail_fast(
+                                                                                        &inputs,
+                                                                                        options.batch,
+                                                                                        operation,
+                                                                                        failed,
+                                                                                    )
+                                                                                    .map_err(|why| {
+                                                                                        RunFailure::new(
+                                                                                            exitcode::OSERR,
+                                                                                            format!(
+                                                                                                "initialize Xylem input worker pool — {why}"
+                                                                                            ),
+                                                                                        )
+                                                                                    }),
+                                                                            };
                                                                             let succeeded = dispatched.as_ref().is_ok_and(|outcomes| {
                                                                                 outcomes.iter().flatten().all(WorkflowOutcome::is_success)
                                                                             });

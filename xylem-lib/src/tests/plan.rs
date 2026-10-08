@@ -128,7 +128,7 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
     let first = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("build plan");
     let second = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("rebuild plan");
     assert_eq!(first, second);
-    assert_eq!(first.schema_version, 9);
+    assert_eq!(first.schema_version, 10);
     assert!(first.memory.is_none());
     assert_eq!(first.sandbox.mode, "off");
     assert_eq!(first.inputs.source, InputSource::List);
@@ -149,6 +149,81 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
         [output.join("input-a").join("*.txt").display().to_string()]
     );
     assert!(!output.exists());
+}
+#[test]
+fn test_execution_plan_falls_back_for_the_whole_run_when_one_input_is_out_of_range() {
+    let root = std::env::temp_dir().join(format!("xylem-memory-range-plan-{}", std::process::id()));
+    create_dir_all(&root).expect("create memory range plan directory");
+    let covered = root.join("covered.bin");
+    let oversized = root.join("oversized.bin");
+    write(&covered, vec![0_u8; 2 * 1024]).expect("write covered memory input");
+    write(&oversized, vec![0_u8; 4 * 1024]).expect("write out-of-range memory input");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [],
+        "options": {
+            "memory": {
+                "budget": "8KB",
+                "estimator": {
+                    "identity": "memory-range-plan-v1",
+                    "intercept": "1KB",
+                    "maximum_input": "3KB",
+                    "minimum_input": "1KB",
+                    "safety_millionths": 1_000_000,
+                    "slope_millionths": 1_000_000
+                }
+            }
+        }
+    }))
+    .expect("memory range plan configuration");
+    let plan = ExecutionPlan::build(
+        &config,
+        "config.json".to_string(),
+        &[Some(covered.display().to_string()), Some(oversized.display().to_string())],
+        false,
+    )
+    .expect("build memory range plan");
+    let memory = plan.memory.expect("planned memory range admission");
+    assert_eq!(memory.mode, MemoryPlanMode::FixedFallback);
+    assert_eq!(
+        memory.inputs[0].reservation.as_ref().and_then(|reservation| reservation.checked_bytes()),
+        Some(3 * 1024)
+    );
+    assert!(memory.inputs[1].fallback.is_some());
+    assert_eq!(memory.inputs[1].input_bytes, Some(4 * 1024));
+    assert_eq!(memory.reservations(), None);
+    remove_dir_all(root).expect("remove memory range plan directory");
+}
+#[test]
+fn test_execution_plan_rejects_a_reservation_larger_than_the_budget() {
+    let root = std::env::temp_dir().join(format!("xylem-memory-budget-plan-{}", std::process::id()));
+    create_dir_all(&root).expect("create memory budget plan directory");
+    let input = root.join("input.bin");
+    write(&input, vec![0_u8; 2 * 1024]).expect("write memory budget input");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [],
+        "options": {
+            "memory": {
+                "budget": "2KB",
+                "estimator": {
+                    "identity": "memory-budget-plan-v1",
+                    "intercept": "1KB",
+                    "maximum_input": "3KB",
+                    "minimum_input": "1KB",
+                    "safety_millionths": 1_000_000,
+                    "slope_millionths": 1_000_000
+                }
+            }
+        }
+    }))
+    .expect("memory budget plan configuration");
+    let result = ExecutionPlan::build(&config, "config.json".to_string(), &[Some(input.display().to_string())], false);
+    remove_dir_all(root).expect("remove memory budget plan directory");
+    assert_eq!(
+        result.expect_err("oversized reservation must fail").to_string(),
+        "input 0 requires 3072 memory bytes, exceeding the 2048-byte budget"
+    );
 }
 #[test]
 fn test_execution_plan_reports_container_startup_strategies() {
@@ -206,7 +281,7 @@ fn test_execution_plan_reports_container_startup_strategies() {
             .find(|container| container.name == name)
             .and_then(|container| container.startup)
     };
-    assert_eq!(plan.schema_version, 9);
+    assert_eq!(plan.schema_version, 10);
     assert_eq!(plan.sandbox.mode, "off");
     assert_eq!(startup("explicit"), Some(ContainerStartup::ExplicitCommand));
     assert_eq!(startup("external"), None);
@@ -264,11 +339,52 @@ fn test_execution_plan_reports_validated_memory_fallback() {
     assert_eq!(memory.budget.checked_bytes(), Some(64 * 1024 * 1024 * 1024));
     assert_eq!(memory.estimator.identity, "custom-modules-v1");
     assert_eq!(memory.mode, MemoryPlanMode::FixedFallback);
+    assert_eq!(memory.inputs.len(), 1);
+    assert!(memory.inputs[0].fallback.is_some());
+    assert_eq!(memory.inputs[0].input_bytes, None);
+    assert_eq!(memory.inputs[0].reservation, None);
     let serialized = serde_json::to_value(second).expect("serialize memory plan");
     assert_eq!(serialized["memory"]["estimator"]["identity"], "custom-modules-v1");
     assert_eq!(serialized["memory"]["estimator"]["slope_millionths"], 0);
+    assert_eq!(serialized["memory"]["inputs"][0]["fallback"]["kind"], "no_input");
     assert_eq!(serialized["memory"]["mode"], "fixed_fallback");
-    assert_eq!(serialized["schema_version"], 9);
+    assert_eq!(serialized["schema_version"], 10);
+}
+#[test]
+fn test_execution_plan_uses_memory_aware_reservations() {
+    let root = std::env::temp_dir().join(format!("xylem-memory-plan-{}", std::process::id()));
+    create_dir_all(&root).expect("create memory plan directory");
+    let input = root.join("input.bin");
+    write(&input, vec![0_u8; 2 * 1024]).expect("write memory plan input");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [],
+        "options": {
+            "memory": {
+                "budget": "4KB",
+                "estimator": {
+                    "identity": "memory-plan-v1",
+                    "intercept": "1KB",
+                    "maximum_input": "3KB",
+                    "minimum_input": "1KB",
+                    "safety_millionths": 1_000_000,
+                    "slope_millionths": 1_000_000
+                }
+            }
+        }
+    }))
+    .expect("memory-aware plan configuration");
+    let plan =
+        ExecutionPlan::build(&config, "config.json".to_string(), &[Some(input.display().to_string())], false).expect("build memory-aware plan");
+    let memory = plan.memory.expect("planned memory admission");
+    assert_eq!(memory.mode, MemoryPlanMode::MemoryAware);
+    assert_eq!(memory.inputs[0].input_bytes, Some(2 * 1024));
+    assert_eq!(
+        memory.inputs[0].reservation.as_ref().and_then(|reservation| reservation.checked_bytes()),
+        Some(3 * 1024)
+    );
+    assert_eq!(memory.reservations().expect("active reservations")[0].checked_bytes(), Some(3 * 1024));
+    remove_dir_all(root).expect("remove memory plan directory");
 }
 #[cfg(target_os = "linux")]
 #[test]

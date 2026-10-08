@@ -1,11 +1,16 @@
 //! Execution limits and the scoped worker pool used by Xylem orchestration
+extern crate alloc;
+
+use crate::memory::{MemoryAdmissionError, MemoryAdmissionQueue};
+use acorn_schema::hardware::Memory;
+use alloc::collections::VecDeque;
 use core::fmt;
 use core::num::NonZeroUsize;
 use core::str::FromStr;
 use rayon::prelude::*;
 use rayon::{ThreadPool, ThreadPoolBuildError, ThreadPoolBuilder};
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Condvar, Mutex, PoisonError};
 
 /// Default maximum number of Rayon workers used by one Xylem run.
 pub const DEFAULT_THREADS: usize = 10;
@@ -35,6 +40,24 @@ pub struct InvalidInputBatch;
 /// Error returned when a thread limit is zero.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct InvalidThreadCount;
+/// Failure while constructing or running memory-aware input dispatch.
+#[derive(Debug, thiserror::Error)]
+pub enum MemoryDispatchError {
+    /// The memory admission queue rejected its budget or reservations.
+    #[error(transparent)]
+    Admission(MemoryAdmissionError),
+    /// The input and reservation vectors do not describe the same work.
+    #[error("memory plan contains {reservations} reservations for {inputs} inputs")]
+    ReservationCount {
+        /// Number of workflow inputs.
+        inputs: usize,
+        /// Number of planned reservations.
+        reservations: usize,
+    },
+    /// The scoped input worker pool could not be constructed.
+    #[error(transparent)]
+    ThreadPool(ThreadPoolBuildError),
+}
 impl ExecutionContext {
     /// Build a run-local worker pool using the supplied limits.
     pub fn new(limits: ExecutionLimits) -> Result<Self, ThreadPoolBuildError> {
@@ -135,6 +158,116 @@ impl ExecutionContext {
                     .map(|output| output.into_inner().unwrap_or_else(PoisonError::into_inner))
                     .collect()
             })
+    }
+    /// Apply an operation using FIFO memory admission and stop after the first failed output.
+    ///
+    /// Work admitted before a failure is allowed to settle.
+    /// Results retain input order, and entries that were never admitted remain `None`.
+    pub fn dispatch_inputs_fail_fast_memory<I, OUTPUT, OPERATION, FAILED>(
+        &self,
+        inputs: &[I],
+        batch: Option<InputBatch>,
+        budget: Memory,
+        reservations: Vec<Memory>,
+        operation: OPERATION,
+        failed: FAILED,
+    ) -> Result<Vec<Option<OUTPUT>>, MemoryDispatchError>
+    where
+        I: Sync,
+        OUTPUT: Send,
+        OPERATION: Fn(usize, &I) -> OUTPUT + Send + Sync,
+        FAILED: Fn(&OUTPUT) -> bool + Send + Sync,
+    {
+        struct AdmissionState {
+            error: Option<MemoryAdmissionError>,
+            queue: MemoryAdmissionQueue,
+            ready: VecDeque<usize>,
+            stopped: bool,
+        }
+        match inputs.len() == reservations.len() {
+            | false => Err(MemoryDispatchError::ReservationCount {
+                inputs: inputs.len(),
+                reservations: reservations.len(),
+            }),
+            | true => {
+                let workers = self.input_concurrency(batch).min(inputs.len().max(1));
+                let queue_batch = InputBatch(NonZeroUsize::new(workers).unwrap_or(NonZeroUsize::MIN));
+                MemoryAdmissionQueue::new(budget, queue_batch, reservations)
+                    .map_err(MemoryDispatchError::Admission)
+                    .and_then(|mut queue| {
+                        let ready = queue.admit().into_iter().map(|admission| admission.index()).collect();
+                        ThreadPoolBuilder::new()
+                            .num_threads(workers)
+                            .thread_name(|index| format!("xylem-input-{index}"))
+                            .build()
+                            .map_err(MemoryDispatchError::ThreadPool)
+                            .map(|pool| {
+                                let admission = Mutex::new(AdmissionState {
+                                    error: None,
+                                    queue,
+                                    ready,
+                                    stopped: false,
+                                });
+                                let available = Condvar::new();
+                                let outputs = (0..inputs.len()).map(|_| Mutex::new(None)).collect::<Vec<_>>();
+                                pool.scope(|scope| {
+                                    for _ in 0..workers {
+                                        scope.spawn(|_| loop {
+                                            let index = {
+                                                let mut state = admission.lock().unwrap_or_else(PoisonError::into_inner);
+                                                loop {
+                                                    match state.ready.pop_front() {
+                                                        | Some(index) => break Some(index),
+                                                        | None if state.stopped || state.error.is_some() || state.queue.is_complete() => break None,
+                                                        | None => {
+                                                            state = available.wait(state).unwrap_or_else(PoisonError::into_inner);
+                                                        }
+                                                    }
+                                                }
+                                            };
+                                            match index {
+                                                | None => break,
+                                                | Some(index) => {
+                                                    let output = operation(index, &inputs[index]);
+                                                    let should_stop = failed(&output);
+                                                    *outputs[index].lock().unwrap_or_else(PoisonError::into_inner) = Some(output);
+                                                    let mut state = admission.lock().unwrap_or_else(PoisonError::into_inner);
+                                                    let released = match should_stop || state.stopped {
+                                                        | true => state.queue.release_only(index).map(|()| Vec::new()),
+                                                        | false => state.queue.release(index),
+                                                    };
+                                                    if should_stop {
+                                                        state.stopped = true;
+                                                    }
+                                                    match released {
+                                                        | Ok(admissions) => {
+                                                            state.ready.extend(admissions.into_iter().map(|admission| admission.index()))
+                                                        }
+                                                        | Err(error) => {
+                                                            state.error = Some(error);
+                                                            state.stopped = true;
+                                                        }
+                                                    }
+                                                    available.notify_all();
+                                                }
+                                            }
+                                        });
+                                    }
+                                });
+                                let error = admission.into_inner().unwrap_or_else(PoisonError::into_inner).error;
+                                let outputs = outputs
+                                    .into_iter()
+                                    .map(|output| output.into_inner().unwrap_or_else(PoisonError::into_inner))
+                                    .collect::<Vec<_>>();
+                                (error, outputs)
+                            })
+                            .and_then(|(error, outputs)| match error {
+                                | Some(error) => Err(MemoryDispatchError::Admission(error)),
+                                | None => Ok(outputs),
+                            })
+                    })
+            }
+        }
     }
 }
 impl Default for ExecutionLimits {
@@ -343,6 +476,61 @@ mod tests {
             assert_eq!(peak, threads);
             assert!(peak <= context.limits().threads());
         }
+    }
+    #[test]
+    fn memory_dispatch_enforces_budget_and_batch_without_losing_order() {
+        let context = ExecutionContext::new(ExecutionLimits::try_from(3).expect("valid thread limit")).expect("execution context");
+        let batch = InputBatch::try_from(3).expect("valid input batch");
+        let active = AtomicUsize::new(0);
+        let peak = AtomicUsize::new(0);
+        let started = Barrier::new(2);
+        let outputs = context
+            .dispatch_inputs_fail_fast_memory(
+                &[0, 1, 2],
+                Some(batch),
+                Memory::kb(10.0 / 1024.0),
+                [6_u64, 4, 6].into_iter().map(|bytes| Memory::kb(bytes as f64 / 1024.0)).collect(),
+                |_, input| {
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(current, Ordering::SeqCst);
+                    if *input < 2 {
+                        started.wait();
+                    }
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    input * 2
+                },
+                |_| false,
+            )
+            .expect("memory-aware input pool should run");
+        assert_eq!(outputs, [Some(0), Some(2), Some(4)]);
+        assert_eq!(peak.load(Ordering::SeqCst), 2);
+    }
+    #[test]
+    fn memory_dispatch_stops_new_admission_after_failure() {
+        let context = ExecutionContext::new(ExecutionLimits::try_from(4).expect("valid thread limit")).expect("execution context");
+        let batch = InputBatch::try_from(2).expect("valid input batch");
+        let both_started = Barrier::new(2);
+        let outputs = context
+            .dispatch_inputs_fail_fast_memory(
+                &[0, 1, 2, 3],
+                Some(batch),
+                Memory::kb(2.0 / 1024.0),
+                (0..4).map(|_| Memory::kb(1.0 / 1024.0)).collect(),
+                |_, input| {
+                    if *input < 2 {
+                        both_started.wait();
+                    }
+                    if *input == 1 {
+                        thread::sleep(Duration::from_millis(50));
+                    }
+                    (*input, *input == 0)
+                },
+                |(_, failed)| *failed,
+            )
+            .expect("memory-aware input pool should run");
+        assert_eq!(outputs[0], Some((0, true)));
+        assert_eq!(outputs[1], Some((1, false)));
+        assert!(outputs[2..].iter().all(Option::is_none));
     }
     #[test]
     fn rejects_zero_threads() {
