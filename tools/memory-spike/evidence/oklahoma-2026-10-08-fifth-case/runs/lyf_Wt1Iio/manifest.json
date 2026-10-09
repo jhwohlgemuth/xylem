@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "f2cc72604877ebc7dd55bb8424defbe8b9eeab34d0f4799c60615d39f9585237",
+  "configuration_path": "/measurement/work/1-wv02-concurrent-holdout-warmup-0/config.json",
+  "journal_schema_version": 9,
+  "process_id": 75293,
+  "run_id": "lyf_Wt1Iio",
+  "started_at": 1791500036838,
+  "threads": 2
+}

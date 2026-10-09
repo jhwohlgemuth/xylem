@@ -3,6 +3,7 @@ extern crate alloc;
 
 mod archive;
 mod lifecycle;
+mod memory;
 
 use crate::config::{Config, InputAttribute};
 use crate::error::ProcessError;
@@ -12,6 +13,7 @@ use acorn_cmd::{args, CommandSpec, ExecutionOptions, ExecutionResult};
 use acorn_core::util::MimeType;
 use acorn_core::validation::ValidationError;
 use acorn_core::Location;
+use acorn_schema::hardware::Memory;
 use acorn_schema::validation::{Validate, ValidationReport};
 use alloc::collections::{BTreeSet, VecDeque};
 use alloc::sync::Arc;
@@ -37,6 +39,9 @@ mod private {
 pub(super) trait PreparedSandboxBackend: Send + Sync {
     fn execute(&self, script: &Script, module_index: usize, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError>;
     fn finish(&self, succeeded: bool) -> Result<(), SandboxError>;
+    fn observed_memory_peak(&self) -> Result<Option<Memory>, SandboxError> {
+        Ok(None)
+    }
     fn prepared_config(&self) -> &Config;
     fn prepared_input(&self) -> Option<&str>;
     fn resources(&self) -> &SandboxResources;
@@ -988,6 +993,10 @@ impl SandboxInput<Prepared> {
     /// Finish the input and remove its provider resources.
     pub fn finish(&self, succeeded: bool) -> Result<(), SandboxError> {
         self.state.backend.finish(succeeded)
+    }
+    /// Return the exact provider-attributed peak memory when the platform exposes it.
+    pub fn observed_memory_peak(&self) -> Result<Option<Memory>, SandboxError> {
+        self.state.backend.observed_memory_peak()
     }
     /// Return the host-staged configuration used to resolve module templates.
     pub fn prepared_config(&self) -> &Config {

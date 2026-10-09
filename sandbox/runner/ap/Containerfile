@@ -1,0 +1,42 @@
+FROM mambaorg/micromamba@sha256:5681ae3caa12844c41d31e1d70f636fbaba31b01bdfd1b5b521742d7e490614d
+
+USER 0
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+        ca-certificates=20250419 \
+        curl=8.14.1-2+deb13u5 \
+        git=1:2.47.3-0+deb13u1 \
+        tar=1.35+dfsg-3.1 && \
+    rm -rf /var/lib/apt/lists/*
+
+USER 57439:57439
+COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/environment.yml
+RUN micromamba install --yes --name base --file /tmp/environment.yml && \
+    micromamba clean --all --yes
+
+USER 0
+RUN groupadd --gid 65532 xylem && \
+    useradd --uid 65532 --gid 65532 --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin xylem && \
+    install -d -o 65532 -g 65532 /xylem /xylem/input /xylem/modules /xylem/output /xylem/prepared /xylem/tmp
+
+ENV PATH=/opt/conda/bin:$PATH \
+    PROJ_DATA=/opt/conda/share/proj \
+    PROJ_LIB=/opt/conda/share/proj \
+    PYTHONDONTWRITEBYTECODE=1
+
+USER 65532:65532
+WORKDIR /xylem
+RUN test "$(id -u)" = 65532 && \
+    test "$(id -g)" = 65532 && \
+    command -v cp && \
+    command -v curl && \
+    command -v git && \
+    command -v mkdir && \
+    command -v python && \
+    command -v rm && \
+    command -v sh && \
+    command -v tar && \
+    python -c 'from osgeo import gdal; import numba, numpy, sklearn'
+
+ENTRYPOINT []
+CMD ["/bin/sh"]

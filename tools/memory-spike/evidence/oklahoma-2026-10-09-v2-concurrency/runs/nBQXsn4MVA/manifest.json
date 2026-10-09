@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "58f9abf7621af4d94817284e42874b3344f1762de0dcf3a69ce05bb1e496f254",
+  "configuration_path": "/measurement/work/1-wv02-large-low-mid-run-3/config.json",
+  "journal_schema_version": 9,
+  "process_id": 40846,
+  "run_id": "nBQXsn4MVA",
+  "started_at": 1791557618978,
+  "threads": 1
+}

@@ -1,0 +1,114 @@
+{
+  "schema_version": 9,
+  "run_id": "X110ljMr1R",
+  "configuration": {
+    "path": "/opt/xylem-memory/real/canary-module-a-p-v2.json",
+    "id": "module-a-p-v2-canary",
+    "version": "1.0.3"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "mode": "off"
+  },
+  "started_at": 1791565333533,
+  "finished_at": 1791565684373,
+  "duration": 350840,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": "/workload/corpus/test-case-WV02-medium-mid-high",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791565333539,
+      "updated_at": 1791565570012,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791565333542,
+          "updated_at": 1791565368076
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791565368078,
+          "updated_at": 1791565570011
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "input_id": "input-000001",
+      "value": "/workload/corpus/test-case-wv03-large-mid-low",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791565333540,
+      "updated_at": 1791565684343,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791565333544,
+          "updated_at": 1791565383671
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791565383674,
+          "updated_at": 1791565684342
+        }
+      ]
+    }
+  ],
+  "memory": {
+    "budget": "72GB",
+    "estimator_identity": "module-a-p-v2",
+    "inputs": [
+      {
+        "estimated": "24315929.419921875KB",
+        "fallback": null,
+        "input": "662323.8447265625KB",
+        "input_index": 0,
+        "observed_peak": null,
+        "reservation": "27963318.833007813KB",
+        "safety_reserve": "3647389.4130859375KB"
+      },
+      {
+        "estimated": "34919154.50292969KB",
+        "fallback": null,
+        "input": "1117005.0419921875KB",
+        "input_index": 1,
+        "observed_peak": null,
+        "reservation": "40157027.67871094KB",
+        "safety_reserve": "5237873.17578125KB"
+      }
+    ],
+    "mode": "memory_aware",
+    "safety_millionths": 1150000
+  }
+}

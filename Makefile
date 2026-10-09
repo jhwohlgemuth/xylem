@@ -38,7 +38,8 @@ coverage: cover
 lint:
 	@cargo fmt --verbose
 	@cargo clippy --no-deps --all-targets --fix --allow-dirty
-	@hadolint sandbox/runner/Containerfile
+	@hadolint sandbox/runner/Containerfile sandbox/runner/ap/Containerfile
+	@sh -n scripts/check-rootless-sandbox.sh
 
 test:
 	@cargo nextest run

@@ -1,5 +1,7 @@
 //! End-to-end command-line workflow tests.
 use acorn_schema::hardware::Memory;
+#[cfg(target_os = "linux")]
+use std::fs::copy;
 use std::fs::{create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
@@ -1014,17 +1016,31 @@ fn test_native_rootless_sandbox_conformance() {
     let artifacts = test_root.join("artifacts");
     let inputs = test_root.join("inputs");
     let modules = test_root.join("modules");
+    let reports = test_root.join("reports");
     create_dir_all(&artifacts).expect("create sandbox artifact root");
     create_dir_all(&inputs).expect("create sandbox input root");
     create_dir_all(&modules).expect("create sandbox module root");
     let input = inputs.join("sample.txt");
-    write(&input, "sample").expect("write sandbox input");
+    write(&input, vec![0_u8; 1024]).expect("write sandbox input");
     let config = test_root.join("config.json");
     write(
         &config,
         serde_json::to_vec_pretty(&serde_json::json!({
             "input": [input],
             "requirements": ["curl", "python", "sh", "tar"],
+            "options": {
+                "memory": {
+                    "budget": "1GB",
+                    "estimator": {
+                        "identity": "native-sandbox-conformance-v1",
+                        "intercept": "128MB",
+                        "maximum_input": "1MB",
+                        "minimum_input": "1KB",
+                        "safety_millionths": 1_000_000,
+                        "slope_millionths": 0
+                    }
+                }
+            },
             "modules": [{
                 "name": "native-conformance",
                 "type": "script",
@@ -1072,12 +1088,40 @@ fn test_native_rootless_sandbox_conformance() {
             "run",
             config.to_str().expect("UTF-8 config path"),
             "--no-progress",
+            "--report-output",
+            reports.to_str().expect("UTF-8 report path"),
+            "--reporter",
+            "json",
             "--sandbox-policy",
             policy.to_str().expect("UTF-8 policy path"),
         ])
         .output()
         .expect("run native sandbox conformance workflow");
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    #[cfg(target_os = "linux")]
+    {
+        let report_path = read_dir(&reports)
+            .expect("read sandbox report directory")
+            .map(|entry| entry.expect("sandbox report entry").path())
+            .find(|path| path.extension().is_some_and(|extension| extension == "json"))
+            .expect("sandbox JSON report");
+        let report: xylem_lib::journal::RunSummary =
+            serde_json::from_slice(&read(&report_path).expect("read sandbox JSON report")).expect("valid sandbox JSON report");
+        assert!(
+            report.memory.as_ref().expect("sandbox memory evidence").inputs[0]
+                .observed_peak
+                .as_ref()
+                .and_then(Memory::checked_bytes)
+                .is_some_and(|bytes| bytes > 0),
+            "Linux native sandbox run should record a positive cgroup v2 peak"
+        );
+        if let Some(evidence) = std::env::var_os("XYLEM_SANDBOX_EVIDENCE_DIR").map(PathBuf::from) {
+            let journal_path = reports.join(format!("{}.journal.jsonl", report.run_id));
+            create_dir_all(&evidence).expect("create sandbox evidence directory");
+            copy(&journal_path, evidence.join(format!("{runtime}-journal.jsonl"))).expect("retain sandbox journal evidence");
+            copy(&report_path, evidence.join(format!("{runtime}-summary.json"))).expect("retain sandbox summary evidence");
+        }
+    }
     remove_dir_all(test_root).expect("remove native sandbox fixture");
 }
 #[test]

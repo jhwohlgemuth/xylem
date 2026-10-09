@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "44417bdebe5585971dcb84dd66dab55c2d32cf8130e94409d12cc395a26baef3",
+  "configuration_path": "/measurement/work/1-wv03-large-high-mid-run-3/config.json",
+  "journal_schema_version": 9,
+  "process_id": 60427,
+  "run_id": "jCEpVrs800",
+  "started_at": 1791559763408,
+  "threads": 1
+}

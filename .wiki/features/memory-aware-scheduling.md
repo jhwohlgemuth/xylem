@@ -21,15 +21,17 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 - Workflow `resources` remain string values verified as host requirements.
   Quantitative admission is configured independently through validated
   `options.memory`.
-- Journal/report schema v9 accepts optional per-input observed peaks, but no
-  platform collector is active; accepted spike evidence therefore remains
-  separate from production telemetry.
+- Journal/report schema v9 accepts optional per-input observed peaks. On Linux,
+  OCI-sandboxed runs with configured memory evidence collect the exact cgroup
+  v2 `memory.peak` before input cleanup; unsupported and unsandboxed runs leave
+  the observation null.
 - Inputs may be files or directories of heterogeneous contents, and different modules can have different peak-memory curves for the same input.
 - The pure estimator and FIFO admission model landed in commit `4df056c`.
   Validated configuration, read-only input sizing, execution-plan v10, and the
   fail-fast runtime admission integration and durable journal/report evidence
-  are now implemented. Platform observation and production measurement
-  follow-up remain pending.
+  are now implemented. Narrow Linux sandbox observation is implemented; the
+  expanded fifth-case measurement is complete, while operational
+  observed-versus-estimated follow-up remains pending.
 
 # Project code boundaries
 
@@ -64,6 +66,10 @@ configuration, plan, journal, or report contracts.
   raster dimensions, bands, bit depths, formats, and compression modes.
 - Individual cases receive one warm-up and five recorded runs. Concurrent
   holdout mixes receive one warm-up and three recorded runs.
+- Each measurement uses a generated per-run configuration. Concurrent subjects
+  resolve `OUTPUT_DIRECTORY` beneath a distinct input-name subdirectory so the
+  single multi-input Xylem invocation retains real concurrency without output
+  or completion-marker collisions.
 - Analysis compares input-byte, decoded-byte, and conservative size-bucket
   estimators. Training determines a 5%-step safety multiplier plus one extra
   5% guard; holdout extrapolation is rejected.
@@ -85,15 +91,13 @@ On 2026-10-07, a fifth private test case,
 `GSED/common/imagery-processing/test-cases/test-case-wv02-large-low-mid`, became
 available at commit `fc4cd2647bdc8ca9c561c44bb038ab71bb9c1cb7`. Its README
 describes four WorldView-2 PAN/MUL tile pairs, and GitLab reports approximately
-2.58 GB of LFS objects. This case is not part of either accepted manifest or
-decision. Before using it, materialize a Git-free copy, record its exact file
-count, input bytes, and checked raster features, and run it as a candidate
-second holdout under both pinned workflows. If its individual observation is
-compatible, pair it with `wv02-medium-mid-high` in a two-case holdout mix. Keep
-production input concurrency at one until both the individual and concurrent
-holdout gates pass. If the accepted coefficients or measured range change,
-publish a new estimator identity rather than changing either `*-v1` identity
-in place.
+2.58 GB of LFS objects. A clean, Git-free copy on Oklahoma contains 139 regular
+files and 2,588,922,236 logical bytes, with aggregate SHA-256
+`cf899764c2243b2539d7878ebef5f368d8b1c34fc298286433e0cb92ce0c8f1f`.
+Its eight checked UInt16 JPEG2000 NITF rasters total 11,666,456,576 decoded
+bytes. The initial expanded candidates placed it in the holdout partition for
+both pinned workflows and paired it with `wv02-medium-mid-high` in two-case
+concurrent holdout mixes. Those runs did not alter either accepted v1 identity.
 
 On 2026-10-03, the scoped Module A plus Module P run completed on Oklahoma with
 five recorded repetitions per case. The sanitized artifacts and operator
@@ -126,14 +130,98 @@ and operator scope are retained under
   fixed worst case.
 - Non-baseline five-run peak ranges were 0.002%–0.242% of each case median.
 
+On 2026-10-08 and 2026-10-09, the expanded candidate gates completed without
+overwriting either accepted evidence set. The sanitized NO-GO artifacts and
+operator notes are retained under
+`tools/memory-spike/evidence/oklahoma-2026-10-08-fifth-case/` and
+`tools/memory-spike/evidence/oklahoma-2026-10-08-fifth-case-module-o/`.
+
+- All five recorded repetitions of the new large holdout and all three
+  concurrent holdout repetitions succeeded under both workflows, with zero OOM
+  events. The large individual and concurrent peaks were approximately 64 GiB.
+- Every candidate covered the individual held-out cases, but the new
+  2,588,922,236-byte case was one extrapolation beyond the
+  1,143,813,163-byte training maximum and each concurrent mix was
+  underpredicted.
+- For A/P, the input-byte candidate used a 3,753,780,717.734-byte intercept,
+  29.681 bytes per input byte, and a 1.10 safety multiplier. Its median
+  reservation reduction was 61.8% versus the 68,717,719,552-byte fixed worst
+  case, but the decision was **NO-GO**.
+- For A/P/O, the input-byte candidate used a 3,697,283,379.507-byte intercept,
+  29.775 bytes per input byte, and a 1.10 safety multiplier. Its median
+  reservation reduction was 61.8% versus the 68,715,487,232-byte fixed worst
+  case, but the independent decision was also **NO-GO**.
+- Neither accepted v1 estimator identity changes, and production input
+  concurrency remains one.
+
+On 2026-10-09, a second A/P gate promoted the fifth case to training, moved
+`wv03-large-mid-low` to the holdout partition, and paired that holdout with
+`wv02-medium-mid-high`. The sanitized artifacts and operator scope are retained
+under `tools/memory-spike/evidence/oklahoma-2026-10-09-v2-concurrency/`.
+
+- The `module-a-p-v2` decision is **GO** for the pinned, ordered Module A plus
+  Module P workflow and the expanded 529,854,516–2,588,922,236-byte range.
+- Both decoded-byte and input-byte candidates had zero individual or mix
+  underpredictions and zero extrapolations. The analyzer selected decoded bytes
+  by mean absolute error; the portable runtime configuration uses the accepted
+  input-byte candidate because Xylem can size that feature generically.
+- The input-byte candidate uses a 9,083,341,409.049-byte intercept, a
+  23.320130499 slope, and a 1.15 safety multiplier. Its median reservation
+  reduction is 49.2% versus the 68,718,493,696-byte fixed worst case.
+- The two holdouts reserve 69,755,234,828 bytes together. All three recorded
+  two-input runs succeeded with no OOM events and peaked at
+  52,209,172,480–52,842,696,704 bytes.
+- The conservative fixed-point coefficients and a 72 GiB, `batch: 2` example
+  are documented in the configuration guide. A/P/O remains independently
+  gated and must not reuse the A/P identity.
+
+An A/P/O v2 run started on 2026-10-09 but was intentionally stopped during its
+first recorded GE01 repetition, after warm-up, to prioritize A/P activation.
+Its partial observations are diagnostic only: they produce no gate decision
+and do not change the A/P/O v1 operating scope. Start a fresh A/P/O run when
+that workflow becomes the active rollout target.
+
+The controlled A/P activation canary then passed on Oklahoma. Run
+`X110ljMr1R` selected `memory_aware` mode and retained exact reservations of
+28,634,438,485 and 41,120,796,343 bytes. Both inputs entered `running` before the
+first module terminal event, both Module A executions overlapped, both Module P
+executions overlapped, and every module succeeded. The parent container's live
+cgroup v2 `memory.peak` counter reached 52,214,681,600 bytes, within the earlier
+concurrent holdout range and below the 69,755,234,828-byte combined
+reservation. The durable evidence is retained under
+`tools/memory-spike/evidence/oklahoma-2026-10-09-v2-canary/`.
+
+Because the canary was an unsandboxed Xylem run inside the measurement
+container, its per-input `observed_peak` values are correctly null. Durable
+per-input peak collection remains gated on the rootless native Linux OCI path.
+
+That remaining work is split into two independent gates:
+
+1. **Collector conformance:** run the synthetic native rootless Docker and
+   Podman conformance jobs. Each must retain a successful summary and journal
+   with a positive per-input `observed_peak`. This proves cgroup discovery and
+   durable telemetry without making a claim about the imagery estimator.
+2. **A/P sandbox comparison:** run the two measured holdouts with the
+   A/P-capable digest-pinned workload and compare each sandbox cgroup peak with
+   its reservation. This gate must wait for bounded disk-backed private output.
+   The current tmpfs-only execution path would charge the 11.6 GB and 18.1 GB
+   imagery products to resident memory and would not be comparable to the
+   accepted disk-output measurements.
+
+The checked-in rootless preflight now verifies native x86_64 Linux, a local
+rootless Docker or Podman runtime, cgroup v2 memory enforcement, a canonical
+Linux/amd64 workload, and caller-selected available capacity. CI retains the
+synthetic summary and journal as job artifacts. The A/P workload definition is
+staged under `sandbox/runner/ap/`; publishing its canonical digest remains a
+deployment action.
+
 These decisions establish evidence only for the measured A/P and A/P/O
 revisions, order, and input range. They do not make those combinations a
 production registry or prevent another workflow from declaring its own model.
 Each estimator definition carries its complete coefficients and calibrated
 range; its author is responsible for making the identity and evidence match the
-configured modules. The fifth case makes a concurrent holdout gate possible for
-the measured imagery workflows, but does not satisfy it by existing. Synthetic
-scheduler work can proceed while the expanded measurements run.
+configured modules. The expanded v2 A/P gate now supports measured two-input
+admission; the A/P/O v1 result remains single-input evidence only.
 
 # Landed configuration, planning, runtime, and durable-evidence slices
 
@@ -160,21 +248,35 @@ Journal and run-summary schema v9 records the estimator identity, configured
 budget, safety multiplier, and ordered per-input base estimate, safety reserve,
 enforced reservation, or structured fallback. A separate one-shot journal
 event can record a positive observed peak after an input starts; underprediction
-is retained as evidence and does not change the run result. Unconfigured
-summaries record `memory: null`. Host-memory detection, a CLI override, and a
-platform peak collector are not active.
+is retained as evidence and does not change the run result. Linux OCI sandbox
+inputs with configured memory evidence read the input container's cgroup v2
+`memory.peak` after workflow execution and before cleanup. Collection remains
+optional: an unavailable platform peak emits a warning and leaves the value
+null, while a collected peak must be durably journaled. Unconfigured and
+unsandboxed summaries record no observed peak. Host-memory detection and a CLI
+override are not active.
+
+On 2026-10-09, the ignored live Linux collector test passed on Oklahoma's
+cgroup v2 hierarchy and returned a positive exact `memory.peak`. The existing
+native sandbox conformance test now also requires a durable positive observed
+peak on Linux. Oklahoma's daemon is rootful, so that deliberately rootless
+end-to-end conformance path remains a CI or production-runtime gate.
 
 ## Remaining landing order
 
-1. Inventory the fifth test case, add candidate holdout entries
-   and compatible two-case mixes to both measurement manifests, and rerun the
-   A/P and A/P/O gates without overwriting accepted evidence.
-   The generic scheduler accepts any valid caller-supplied estimator, but keep
-   the reviewed imagery profile's real input concurrency at one unless its
-   concurrent holdout gate is GO.
-2. Add a narrowly gated platform collector for optional per-input peak memory
-   without changing the portable reservation contract.
-3. Add operational examples and rerun accepted workflows to compare
+The measured A/P example and pinned operational canary are landed. The dry-run
+retained the expected plan, and the controlled canary passed with two
+concurrent admissions.
+
+1. Provision the native x86_64 Linux runners and close synthetic collector
+   conformance for rootless Docker and Podman with retained evidence.
+2. Add bounded disk-backed private sandbox output, publish the A/P workload by
+   canonical digest, and run the A/P rootless comparison without tmpfs output
+   inflation.
+3. Defer the expanded A/P/O rerun until after the A/P rootless comparison
+   gate. Keep that workflow's production input concurrency at one until a fresh
+   run's individual and concurrent holdout gates are GO.
+4. Rerun accepted workflows to compare
    estimates with observed peaks.
 
 # Recommendation

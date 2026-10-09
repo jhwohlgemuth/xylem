@@ -1,0 +1,111 @@
+{
+  "schema_version": 9,
+  "run_id": "uet4cZGz7y",
+  "configuration": {
+    "path": "/measurement/work/1-wv02-concurrent-holdout-module-a-p-o-run-1/config.json",
+    "id": "memory-spike-module-a-p-o",
+    "version": "1.0.3"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "mode": "off"
+  },
+  "started_at": 1791526141043,
+  "finished_at": 1791527015754,
+  "duration": 874711,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": "/workload/corpus/test-case-WV02-medium-mid-high",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791526141051,
+      "updated_at": 1791526993510,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791526141053,
+          "updated_at": 1791526192438
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791526192440,
+          "updated_at": 1791526577445
+        },
+        {
+          "index": 2,
+          "name": "Module O",
+          "module_path": [
+            "Module O"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791526577447,
+          "updated_at": 1791526993509
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "input_id": "input-000001",
+      "value": "/workload/corpus/test-case-wv02-large-low-mid",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791526141052,
+      "updated_at": 1791527015746,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791526141055,
+          "updated_at": 1791526202497
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791526202498,
+          "updated_at": 1791526660725
+        },
+        {
+          "index": 2,
+          "name": "Module O",
+          "module_path": [
+            "Module O"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791526660728,
+          "updated_at": 1791527015746
+        }
+      ]
+    }
+  ],
+  "memory": null
+}

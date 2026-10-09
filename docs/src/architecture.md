@@ -71,9 +71,11 @@ explicit sandbox-mode evidence, and nullable memory evidence. Configured runs
 record the estimator identity, budget, base estimate, safety reserve, enforced
 reservation, and structured fallback for every input. Optional observed peaks
 are separate journal events so platform telemetry does not alter portable
-admission. Journal evidence carries both the leaf display name and its
-qualified `module_path`. Dry-run uses a separate in-memory execution plan and
-performs no filesystem writes.
+admission. On Linux, OCI-sandboxed inputs with configured memory evidence read
+the container cgroup v2 `memory.peak` before cleanup; unavailable or unsupported
+collection leaves the optional observation null. Journal evidence carries both
+the leaf display name and its qualified `module_path`. Dry-run uses a separate
+in-memory execution plan and performs no filesystem writes.
 
 See
 [ARCHITECTURE.md](https://code.ornl.gov/research-enablement/xylem/-/blob/main/ARCHITECTURE.md)

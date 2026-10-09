@@ -5,6 +5,7 @@ use std::os::unix::fs::symlink;
 
 const MODULE_A_P_ESTIMATOR: &str = "module-a-p-v1";
 const MODULE_A_P_O_ESTIMATOR: &str = "module-a-p-o-v1";
+const MODULE_A_P_V2_ESTIMATOR: &str = "module-a-p-v2";
 
 fn batch(value: usize) -> InputBatch {
     InputBatch::try_from(value).expect("positive batch")
@@ -30,6 +31,17 @@ fn measured_estimators() -> [MemoryEstimator; 2] {
         )
         .expect("valid Module A/P/O estimator"),
     ]
+}
+fn measured_module_a_p_v2_estimator() -> MemoryEstimator {
+    MemoryEstimator::new(
+        MODULE_A_P_V2_ESTIMATOR,
+        memory(9_083_341_410),
+        memory(529_854_516),
+        memory(2_588_922_236),
+        23_320_131,
+        1_150_000,
+    )
+    .expect("valid Module A/P v2 estimator")
 }
 fn memory(value: u64) -> Memory {
     Memory::kb(value as f64 / 1024.0)
@@ -186,6 +198,16 @@ fn estimators_use_conservative_fixed_point_coefficients() {
         reservation(estimators[1].estimate(memory(678_219_617)).expect("estimate")),
         26_280_407_688
     );
+}
+#[test]
+fn measured_v2_estimator_admits_two_holdouts_within_budget() {
+    let estimator = measured_module_a_p_v2_estimator();
+    let reservations = [678_219_617, 1_143_813_163].map(|input| reservation(estimator.estimate(memory(input)).expect("in-range estimate")));
+    assert_eq!(reservations, [28_634_438_485, 41_120_796_343]);
+
+    let mut queue = MemoryAdmissionQueue::new(Memory::gb(72.0), batch(2), reservations.map(memory).to_vec()).expect("valid queue");
+    assert_eq!(queue.admit().iter().map(|admission| admission.index()).collect::<Vec<_>>(), vec![0, 1]);
+    assert_eq!(queue.reserved().checked_bytes(), Some(69_755_234_828));
 }
 #[test]
 fn exact_budget_fit_is_admitted() {

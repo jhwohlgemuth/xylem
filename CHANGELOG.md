@@ -6,6 +6,9 @@
 ### 🚀 Features
 
 - Add journal and run-summary schema v9 with durable memory estimator, reservation, fallback, and optional peak-observation evidence.
+- Collect optional per-input cgroup v2 peak memory for configured Linux OCI-sandboxed runs before sandbox cleanup.
+- Document the measured `module-a-p-v2` estimator and two-input admission profile after its individual and concurrent holdout gates passed.
+- Add native rootless OCI preflight checks, retained conformance evidence, and an A/P-capable sandbox workload definition.
 - Complete reusable local, HTTP(S), and Git-backed configuration modules with recursive policy-constrained flattening and qualified runtime identities.
 
 ### 📦 Dependencies

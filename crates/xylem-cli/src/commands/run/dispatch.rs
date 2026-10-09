@@ -5,7 +5,7 @@ use acorn_host::terminal::Label;
 use alloc::collections::BTreeSet;
 use alloc::sync::Arc;
 use std::path::Path;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use xylem_lib::config::{Config, ConfigOptions};
 use xylem_lib::container::ContainerLifecycle;
 use xylem_lib::execution::ExecutionContext;
@@ -157,6 +157,27 @@ fn execute_active_input(context: &DispatchContext<'_>, index: usize, input: &Opt
                         index,
                     );
                     if let Some(sandbox_input) = sandbox_input {
+                        if context.plan.memory.is_some() {
+                            match sandbox_input.observed_memory_peak() {
+                                | Ok(Some(peak)) => {
+                                    if let Err(why) = context.journal.record_memory_peak(index, peak) {
+                                        let observation = format!("record sandbox input {index} peak memory — {why}");
+                                        outcome.state = ExecutionState::Failed;
+                                        outcome.error = Some(match outcome.error {
+                                            | Some(primary) => format!("{primary}; additionally, {observation}"),
+                                            | None => observation,
+                                        });
+                                    }
+                                }
+                                | Ok(None) => {}
+                                | Err(why) => warn!(
+                                    target: "xylem_cli::commands::run",
+                                    input_index = index,
+                                    error = %why,
+                                    "=> Sandbox peak memory is unavailable"
+                                ),
+                            }
+                        }
                         if let Err(why) = sandbox_input.finish(outcome.is_success()) {
                             let cleanup = format!("finish sandbox input {index} — {why}");
                             outcome.state = ExecutionState::Failed;

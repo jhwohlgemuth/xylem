@@ -1,0 +1,204 @@
+{"sequence":0,"stream":"stdout","text":"Found 4 pair(s) of MUL and PAN images.","timestamp":1791512535479}
+{"sequence":1,"stream":"stdout","text":"Using max_pool = 4 and num_workers = 4 ","timestamp":1791512535481}
+{"sequence":2,"stream":"stdout","text":"Loading PAN image: /measurement/work/1-wv02-large-low-mid-module-a-p-o-run-4/artifacts/wv2llm_image_P004_PIPE/output_MODA/output_MODA_PAN/14JAN25025808-P1BS-507797717080_01_P004_MODA.TIF","timestamp":1791512916817}
+{"sequence":3,"stream":"stdout","text":"Loading MUL image: /measurement/work/1-wv02-large-low-mid-module-a-p-o-run-4/artifacts/wv2llm_image_P004_PIPE/output_MODA/output_MODA_MUL/14JAN25025808-M1BS-507797717080_01_P004_MODA.TIF","timestamp":1791512916820}
+{"sequence":4,"stream":"stdout","text":"Have images and RPCs loaded...","timestamp":1791512916820}
+{"sequence":5,"stream":"stdout","text":"Size of panchromatic image: (1, 14336, 35840)","timestamp":1791512916821}
+{"sequence":6,"stream":"stdout","text":"Size of multispectral image: (4, 4096, 9216)","timestamp":1791512916821}
+{"sequence":7,"stream":"stdout","text":"Computing transformation between images...","timestamp":1791512916822}
+{"sequence":8,"stream":"stdout","text":"Downsampling PAN to align with MUL...","timestamp":1791512916822}
+{"sequence":9,"stream":"stdout","text":"Downsampled (aligned) PAN Image Shape: ","timestamp":1791512916823}
+{"sequence":10,"stream":"stdout","text":" (1, 4096, 9216)","timestamp":1791512916823}
+{"sequence":11,"stream":"stdout","text":"Calculating spectral band contributions (T)...","timestamp":1791512916824}
+{"sequence":12,"stream":"stdout","text":"Spectral band contributions (T): [0.37325844 0.00512976 0.31599906 0.3054621 ]","timestamp":1791512916824}
+{"sequence":13,"stream":"stdout","text":"Generating and saving pansharpened image...","timestamp":1791512916825}
+{"sequence":14,"stream":"stdout","text":"Dynamic chunk size: 921","timestamp":1791512916825}
+{"sequence":15,"stream":"stdout","text":"Calculating spatial weights and offsets...","timestamp":1791512916826}
+{"sequence":16,"stream":"stdout","text":"Processing tile: 1 of 15","timestamp":1791512916826}
+{"sequence":17,"stream":"stdout","text":"Processing tile: 2 of 15","timestamp":1791512916827}
+{"sequence":18,"stream":"stdout","text":"Processing tile: 3 of 15","timestamp":1791512916827}
+{"sequence":19,"stream":"stdout","text":"Processing tile: 4 of 15","timestamp":1791512916828}
+{"sequence":20,"stream":"stdout","text":"Processing tile: 5 of 15","timestamp":1791512916828}
+{"sequence":21,"stream":"stdout","text":"Processing tile: 6 of 15","timestamp":1791512916829}
+{"sequence":22,"stream":"stdout","text":"Processing tile: 7 of 15","timestamp":1791512916829}
+{"sequence":23,"stream":"stdout","text":"Processing tile: 8 of 15","timestamp":1791512916830}
+{"sequence":24,"stream":"stdout","text":"Processing tile: 9 of 15","timestamp":1791512916830}
+{"sequence":25,"stream":"stdout","text":"Processing tile: 10 of 15","timestamp":1791512916831}
+{"sequence":26,"stream":"stdout","text":"Processing tile: 11 of 15","timestamp":1791512916831}
+{"sequence":27,"stream":"stdout","text":"Processing tile: 12 of 15","timestamp":1791512916832}
+{"sequence":28,"stream":"stdout","text":"Processing tile: 13 of 15","timestamp":1791512916832}
+{"sequence":29,"stream":"stdout","text":"Processing tile: 14 of 15","timestamp":1791512916833}
+{"sequence":30,"stream":"stdout","text":"Processing tile: 15 of 15","timestamp":1791512916833}
+{"sequence":31,"stream":"stdout","text":"Processing tile: 16 of 15","timestamp":1791512916834}
+{"sequence":32,"stream":"stdout","text":"Have pansharpened image! (HM) ","timestamp":1791512916834}
+{"sequence":33,"stream":"stdout","text":"Loading PAN image: /measurement/work/1-wv02-large-low-mid-module-a-p-o-run-4/artifacts/wv2llm_image_P001_PIPE/output_MODA/output_MODA_PAN/14JAN25025804-P1BS-507797717080_01_P001_MODA.TIF","timestamp":1791512916835}
+{"sequence":34,"stream":"stdout","text":"Loading MUL image: /measurement/work/1-wv02-large-low-mid-module-a-p-o-run-4/artifacts/wv2llm_image_P001_PIPE/output_MODA/output_MODA_MUL/14JAN25025804-M1BS-507797717080_01_P001_MODA.TIF","timestamp":1791512916835}
+{"sequence":35,"stream":"stdout","text":"Have images and RPCs loaded...","timestamp":1791512916836}
+{"sequence":36,"stream":"stdout","text":"Size of panchromatic image: (1, 35840, 35840)","timestamp":1791512916836}
+{"sequence":37,"stream":"stdout","text":"Size of multispectral image: (4, 9216, 9216)","timestamp":1791512916837}
+{"sequence":38,"stream":"stdout","text":"Computing transformation between images...","timestamp":1791512916837}
+{"sequence":39,"stream":"stdout","text":"Downsampling PAN to align with MUL...","timestamp":1791512916838}
+{"sequence":40,"stream":"stdout","text":"Downsampled (aligned) PAN Image Shape: ","timestamp":1791512916838}
+{"sequence":41,"stream":"stdout","text":" (1, 9216, 9216)","timestamp":1791512916839}
+{"sequence":42,"stream":"stdout","text":"Calculating spectral band contributions (T)...","timestamp":1791512916839}
+{"sequence":43,"stream":"stdout","text":"Spectral band contributions (T): [-1.324932    2.872953   -0.5336991  -0.01432246]","timestamp":1791512916840}
+{"sequence":44,"stream":"stdout","text":"Generating and saving pansharpened image...","timestamp":1791512916840}
+{"sequence":45,"stream":"stdout","text":"Dynamic chunk size: 921","timestamp":1791512916841}
+{"sequence":46,"stream":"stdout","text":"Calculating spatial weights and offsets...","timestamp":1791512916841}
+{"sequence":47,"stream":"stdout","text":"Processing tile: 1 of 38","timestamp":1791512916842}
+{"sequence":48,"stream":"stdout","text":"Processing tile: 2 of 38","timestamp":1791512916842}
+{"sequence":49,"stream":"stdout","text":"Processing tile: 3 of 38","timestamp":1791512916843}
+{"sequence":50,"stream":"stdout","text":"Processing tile: 4 of 38","timestamp":1791512916843}
+{"sequence":51,"stream":"stdout","text":"Processing tile: 5 of 38","timestamp":1791512916844}
+{"sequence":52,"stream":"stdout","text":"Processing tile: 6 of 38","timestamp":1791512916844}
+{"sequence":53,"stream":"stdout","text":"Processing tile: 7 of 38","timestamp":1791512916845}
+{"sequence":54,"stream":"stdout","text":"Processing tile: 8 of 38","timestamp":1791512916845}
+{"sequence":55,"stream":"stdout","text":"Processing tile: 9 of 38","timestamp":1791512916846}
+{"sequence":56,"stream":"stdout","text":"Processing tile: 10 of 38","timestamp":1791512916846}
+{"sequence":57,"stream":"stdout","text":"Processing tile: 11 of 38","timestamp":1791512916847}
+{"sequence":58,"stream":"stdout","text":"Processing tile: 12 of 38","timestamp":1791512916847}
+{"sequence":59,"stream":"stdout","text":"Processing tile: 13 of 38","timestamp":1791512916851}
+{"sequence":60,"stream":"stdout","text":"Processing tile: 14 of 38","timestamp":1791512916851}
+{"sequence":61,"stream":"stdout","text":"Processing tile: 15 of 38","timestamp":1791512916852}
+{"sequence":62,"stream":"stdout","text":"Processing tile: 16 of 38","timestamp":1791512916852}
+{"sequence":63,"stream":"stdout","text":"Processing tile: 17 of 38","timestamp":1791512916853}
+{"sequence":64,"stream":"stdout","text":"Processing tile: 18 of 38","timestamp":1791512916853}
+{"sequence":65,"stream":"stdout","text":"Processing tile: 19 of 38","timestamp":1791512916854}
+{"sequence":66,"stream":"stdout","text":"Processing tile: 20 of 38","timestamp":1791512916854}
+{"sequence":67,"stream":"stdout","text":"Processing tile: 21 of 38","timestamp":1791512916855}
+{"sequence":68,"stream":"stdout","text":"Processing tile: 22 of 38","timestamp":1791512916855}
+{"sequence":69,"stream":"stdout","text":"Processing tile: 23 of 38","timestamp":1791512916856}
+{"sequence":70,"stream":"stdout","text":"Processing tile: 24 of 38","timestamp":1791512916856}
+{"sequence":71,"stream":"stdout","text":"Processing tile: 25 of 38","timestamp":1791512916857}
+{"sequence":72,"stream":"stdout","text":"Processing tile: 26 of 38","timestamp":1791512916857}
+{"sequence":73,"stream":"stdout","text":"Processing tile: 27 of 38","timestamp":1791512916858}
+{"sequence":74,"stream":"stdout","text":"Processing tile: 28 of 38","timestamp":1791512916858}
+{"sequence":75,"stream":"stdout","text":"Processing tile: 29 of 38","timestamp":1791512916859}
+{"sequence":76,"stream":"stdout","text":"Processing tile: 30 of 38","timestamp":1791512916859}
+{"sequence":77,"stream":"stdout","text":"Processing tile: 31 of 38","timestamp":1791512916860}
+{"sequence":78,"stream":"stdout","text":"Processing tile: 32 of 38","timestamp":1791512916860}
+{"sequence":79,"stream":"stdout","text":"Processing tile: 33 of 38","timestamp":1791512916861}
+{"sequence":80,"stream":"stdout","text":"Processing tile: 34 of 38","timestamp":1791512916861}
+{"sequence":81,"stream":"stdout","text":"Processing tile: 35 of 38","timestamp":1791512916862}
+{"sequence":82,"stream":"stdout","text":"Processing tile: 36 of 38","timestamp":1791512916862}
+{"sequence":83,"stream":"stdout","text":"Processing tile: 37 of 38","timestamp":1791512916863}
+{"sequence":84,"stream":"stdout","text":"Processing tile: 38 of 38","timestamp":1791512916863}
+{"sequence":85,"stream":"stdout","text":"Processing tile: 39 of 38","timestamp":1791512916864}
+{"sequence":86,"stream":"stdout","text":"Have pansharpened image! (HM) ","timestamp":1791512916864}
+{"sequence":87,"stream":"stdout","text":"Loading PAN image: /measurement/work/1-wv02-large-low-mid-module-a-p-o-run-4/artifacts/wv2llm_image_P002_PIPE/output_MODA/output_MODA_PAN/14JAN25025805-P1BS-507797717080_01_P002_MODA.TIF","timestamp":1791512916864}
+{"sequence":88,"stream":"stdout","text":"Loading MUL image: /measurement/work/1-wv02-large-low-mid-module-a-p-o-run-4/artifacts/wv2llm_image_P002_PIPE/output_MODA/output_MODA_MUL/14JAN25025805-M1BS-507797717080_01_P002_MODA.TIF","timestamp":1791512916865}
+{"sequence":89,"stream":"stdout","text":"Have images and RPCs loaded...","timestamp":1791512916865}
+{"sequence":90,"stream":"stdout","text":"Size of panchromatic image: (1, 38912, 35840)","timestamp":1791512916866}
+{"sequence":91,"stream":"stdout","text":"Size of multispectral image: (4, 10240, 9216)","timestamp":1791512916866}
+{"sequence":92,"stream":"stdout","text":"Computing transformation between images...","timestamp":1791512916867}
+{"sequence":93,"stream":"stdout","text":"Downsampling PAN to align with MUL...","timestamp":1791512916867}
+{"sequence":94,"stream":"stdout","text":"Downsampled (aligned) PAN Image Shape: ","timestamp":1791512916868}
+{"sequence":95,"stream":"stdout","text":" (1, 10240, 9216)","timestamp":1791512916868}
+{"sequence":96,"stream":"stdout","text":"Calculating spectral band contributions (T)...","timestamp":1791512916869}
+{"sequence":97,"stream":"stdout","text":"Spectral band contributions (T): [-0.40979743  1.2595915  -0.09165814  0.24191007]","timestamp":1791512916869}
+{"sequence":98,"stream":"stdout","text":"Generating and saving pansharpened image...","timestamp":1791512916870}
+{"sequence":99,"stream":"stdout","text":"Dynamic chunk size: 921","timestamp":1791512916870}
+{"sequence":100,"stream":"stdout","text":"Calculating spatial weights and offsets...","timestamp":1791512916871}
+{"sequence":101,"stream":"stdout","text":"Processing tile: 1 of 42","timestamp":1791512916871}
+{"sequence":102,"stream":"stdout","text":"Processing tile: 2 of 42","timestamp":1791512916872}
+{"sequence":103,"stream":"stdout","text":"Processing tile: 3 of 42","timestamp":1791512916872}
+{"sequence":104,"stream":"stdout","text":"Processing tile: 4 of 42","timestamp":1791512916873}
+{"sequence":105,"stream":"stdout","text":"Processing tile: 5 of 42","timestamp":1791512916873}
+{"sequence":106,"stream":"stdout","text":"Processing tile: 6 of 42","timestamp":1791512916874}
+{"sequence":107,"stream":"stdout","text":"Processing tile: 7 of 42","timestamp":1791512916874}
+{"sequence":108,"stream":"stdout","text":"Processing tile: 8 of 42","timestamp":1791512916875}
+{"sequence":109,"stream":"stdout","text":"Processing tile: 9 of 42","timestamp":1791512916875}
+{"sequence":110,"stream":"stdout","text":"Processing tile: 10 of 42","timestamp":1791512916876}
+{"sequence":111,"stream":"stdout","text":"Processing tile: 11 of 42","timestamp":1791512916876}
+{"sequence":112,"stream":"stdout","text":"Processing tile: 12 of 42","timestamp":1791512916877}
+{"sequence":113,"stream":"stdout","text":"Processing tile: 13 of 42","timestamp":1791512916877}
+{"sequence":114,"stream":"stdout","text":"Processing tile: 14 of 42","timestamp":1791512916877}
+{"sequence":115,"stream":"stdout","text":"Processing tile: 15 of 42","timestamp":1791512916878}
+{"sequence":116,"stream":"stdout","text":"Processing tile: 16 of 42","timestamp":1791512916879}
+{"sequence":117,"stream":"stdout","text":"Processing tile: 17 of 42","timestamp":1791512916879}
+{"sequence":118,"stream":"stdout","text":"Processing tile: 18 of 42","timestamp":1791512916879}
+{"sequence":119,"stream":"stdout","text":"Processing tile: 19 of 42","timestamp":1791512916880}
+{"sequence":120,"stream":"stdout","text":"Processing tile: 20 of 42","timestamp":1791512916880}
+{"sequence":121,"stream":"stdout","text":"Processing tile: 21 of 42","timestamp":1791512916881}
+{"sequence":122,"stream":"stdout","text":"Processing tile: 22 of 42","timestamp":1791512916881}
+{"sequence":123,"stream":"stdout","text":"Processing tile: 23 of 42","timestamp":1791512916882}
+{"sequence":124,"stream":"stdout","text":"Processing tile: 24 of 42","timestamp":1791512916882}
+{"sequence":125,"stream":"stdout","text":"Processing tile: 25 of 42","timestamp":1791512916883}
+{"sequence":126,"stream":"stdout","text":"Processing tile: 26 of 42","timestamp":1791512916883}
+{"sequence":127,"stream":"stdout","text":"Processing tile: 27 of 42","timestamp":1791512916884}
+{"sequence":128,"stream":"stdout","text":"Processing tile: 28 of 42","timestamp":1791512916884}
+{"sequence":129,"stream":"stdout","text":"Processing tile: 29 of 42","timestamp":1791512916884}
+{"sequence":130,"stream":"stdout","text":"Processing tile: 30 of 42","timestamp":1791512916885}
+{"sequence":131,"stream":"stdout","text":"Processing tile: 31 of 42","timestamp":1791512916885}
+{"sequence":132,"stream":"stdout","text":"Processing tile: 32 of 42","timestamp":1791512916886}
+{"sequence":133,"stream":"stdout","text":"Processing tile: 33 of 42","timestamp":1791512916886}
+{"sequence":134,"stream":"stdout","text":"Processing tile: 34 of 42","timestamp":1791512916887}
+{"sequence":135,"stream":"stdout","text":"Processing tile: 35 of 42","timestamp":1791512916887}
+{"sequence":136,"stream":"stdout","text":"Processing tile: 36 of 42","timestamp":1791512916888}
+{"sequence":137,"stream":"stdout","text":"Processing tile: 37 of 42","timestamp":1791512916888}
+{"sequence":138,"stream":"stdout","text":"Processing tile: 38 of 42","timestamp":1791512916889}
+{"sequence":139,"stream":"stdout","text":"Processing tile: 39 of 42","timestamp":1791512916889}
+{"sequence":140,"stream":"stdout","text":"Processing tile: 40 of 42","timestamp":1791512916890}
+{"sequence":141,"stream":"stdout","text":"Processing tile: 41 of 42","timestamp":1791512916890}
+{"sequence":142,"stream":"stdout","text":"Processing tile: 42 of 42","timestamp":1791512916890}
+{"sequence":143,"stream":"stdout","text":"Processing tile: 43 of 42","timestamp":1791512916891}
+{"sequence":144,"stream":"stdout","text":"Have pansharpened image! (HM) ","timestamp":1791512916891}
+{"sequence":145,"stream":"stdout","text":"Loading PAN image: /measurement/work/1-wv02-large-low-mid-module-a-p-o-run-4/artifacts/wv2llm_image_P003_PIPE/output_MODA/output_MODA_PAN/14JAN25025807-P1BS-507797717080_01_P003_MODA.TIF","timestamp":1791512916892}
+{"sequence":146,"stream":"stdout","text":"Loading MUL image: /measurement/work/1-wv02-large-low-mid-module-a-p-o-run-4/artifacts/wv2llm_image_P003_PIPE/output_MODA/output_MODA_MUL/14JAN25025807-M1BS-507797717080_01_P003_MODA.TIF","timestamp":1791512916892}
+{"sequence":147,"stream":"stdout","text":"Have images and RPCs loaded...","timestamp":1791512916893}
+{"sequence":148,"stream":"stdout","text":"Size of panchromatic image: (1, 38912, 35840)","timestamp":1791512916893}
+{"sequence":149,"stream":"stdout","text":"Size of multispectral image: (4, 10240, 9216)","timestamp":1791512916894}
+{"sequence":150,"stream":"stdout","text":"Computing transformation between images...","timestamp":1791512916894}
+{"sequence":151,"stream":"stdout","text":"Downsampling PAN to align with MUL...","timestamp":1791512916895}
+{"sequence":152,"stream":"stdout","text":"Downsampled (aligned) PAN Image Shape: ","timestamp":1791512916895}
+{"sequence":153,"stream":"stdout","text":" (1, 10240, 9216)","timestamp":1791512916896}
+{"sequence":154,"stream":"stdout","text":"Calculating spectral band contributions (T)...","timestamp":1791512916896}
+{"sequence":155,"stream":"stdout","text":"Spectral band contributions (T): [0.15320136 0.22620983 0.30492374 0.31568658]","timestamp":1791512916897}
+{"sequence":156,"stream":"stdout","text":"Generating and saving pansharpened image...","timestamp":1791512916897}
+{"sequence":157,"stream":"stdout","text":"Dynamic chunk size: 921","timestamp":1791512916897}
+{"sequence":158,"stream":"stdout","text":"Calculating spatial weights and offsets...","timestamp":1791512916898}
+{"sequence":159,"stream":"stdout","text":"Processing tile: 1 of 42","timestamp":1791512916899}
+{"sequence":160,"stream":"stdout","text":"Processing tile: 2 of 42","timestamp":1791512916899}
+{"sequence":161,"stream":"stdout","text":"Processing tile: 3 of 42","timestamp":1791512916899}
+{"sequence":162,"stream":"stdout","text":"Processing tile: 4 of 42","timestamp":1791512916900}
+{"sequence":163,"stream":"stdout","text":"Processing tile: 5 of 42","timestamp":1791512916900}
+{"sequence":164,"stream":"stdout","text":"Processing tile: 6 of 42","timestamp":1791512916901}
+{"sequence":165,"stream":"stdout","text":"Processing tile: 7 of 42","timestamp":1791512916901}
+{"sequence":166,"stream":"stdout","text":"Processing tile: 8 of 42","timestamp":1791512916902}
+{"sequence":167,"stream":"stdout","text":"Processing tile: 9 of 42","timestamp":1791512916902}
+{"sequence":168,"stream":"stdout","text":"Processing tile: 10 of 42","timestamp":1791512916903}
+{"sequence":169,"stream":"stdout","text":"Processing tile: 11 of 42","timestamp":1791512916903}
+{"sequence":170,"stream":"stdout","text":"Processing tile: 12 of 42","timestamp":1791512916904}
+{"sequence":171,"stream":"stdout","text":"Processing tile: 13 of 42","timestamp":1791512916904}
+{"sequence":172,"stream":"stdout","text":"Processing tile: 14 of 42","timestamp":1791512916905}
+{"sequence":173,"stream":"stdout","text":"Processing tile: 15 of 42","timestamp":1791512916905}
+{"sequence":174,"stream":"stdout","text":"Processing tile: 16 of 42","timestamp":1791512916906}
+{"sequence":175,"stream":"stdout","text":"Processing tile: 17 of 42","timestamp":1791512916906}
+{"sequence":176,"stream":"stdout","text":"Processing tile: 18 of 42","timestamp":1791512916906}
+{"sequence":177,"stream":"stdout","text":"Processing tile: 19 of 42","timestamp":1791512916907}
+{"sequence":178,"stream":"stdout","text":"Processing tile: 20 of 42","timestamp":1791512916907}
+{"sequence":179,"stream":"stdout","text":"Processing tile: 21 of 42","timestamp":1791512916908}
+{"sequence":180,"stream":"stdout","text":"Processing tile: 22 of 42","timestamp":1791512916908}
+{"sequence":181,"stream":"stdout","text":"Processing tile: 23 of 42","timestamp":1791512916909}
+{"sequence":182,"stream":"stdout","text":"Processing tile: 24 of 42","timestamp":1791512916909}
+{"sequence":183,"stream":"stdout","text":"Processing tile: 25 of 42","timestamp":1791512916910}
+{"sequence":184,"stream":"stdout","text":"Processing tile: 26 of 42","timestamp":1791512916910}
+{"sequence":185,"stream":"stdout","text":"Processing tile: 27 of 42","timestamp":1791512916911}
+{"sequence":186,"stream":"stdout","text":"Processing tile: 28 of 42","timestamp":1791512916911}
+{"sequence":187,"stream":"stdout","text":"Processing tile: 29 of 42","timestamp":1791512916912}
+{"sequence":188,"stream":"stdout","text":"Processing tile: 30 of 42","timestamp":1791512916912}
+{"sequence":189,"stream":"stdout","text":"Processing tile: 31 of 42","timestamp":1791512916912}
+{"sequence":190,"stream":"stdout","text":"Processing tile: 32 of 42","timestamp":1791512916913}
+{"sequence":191,"stream":"stdout","text":"Processing tile: 33 of 42","timestamp":1791512916913}
+{"sequence":192,"stream":"stdout","text":"Processing tile: 34 of 42","timestamp":1791512916914}
+{"sequence":193,"stream":"stdout","text":"Processing tile: 35 of 42","timestamp":1791512916914}
+{"sequence":194,"stream":"stdout","text":"Processing tile: 36 of 42","timestamp":1791512916915}
+{"sequence":195,"stream":"stdout","text":"Processing tile: 37 of 42","timestamp":1791512916916}
+{"sequence":196,"stream":"stdout","text":"Processing tile: 38 of 42","timestamp":1791512916916}
+{"sequence":197,"stream":"stdout","text":"Processing tile: 39 of 42","timestamp":1791512916917}
+{"sequence":198,"stream":"stdout","text":"Processing tile: 40 of 42","timestamp":1791512916917}
+{"sequence":199,"stream":"stdout","text":"Processing tile: 41 of 42","timestamp":1791512916917}
+{"sequence":200,"stream":"stdout","text":"Processing tile: 42 of 42","timestamp":1791512916918}
+{"sequence":201,"stream":"stdout","text":"Processing tile: 43 of 42","timestamp":1791512916918}
+{"sequence":202,"stream":"stdout","text":"Have pansharpened image! (HM) ","timestamp":1791512916919}
+{"sequence":203,"stream":"stdout","text":"Total pansharpening processing time: 381.45 seconds","timestamp":1791512916923}

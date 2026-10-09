@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "c3e44000748da754ab0823fefeed4b374aecfdefa768447813ed072851a9ab7d",
+  "configuration_path": "/measurement/work/1-wv03-large-high-mid-module-a-p-o-run-2/config.json",
+  "journal_schema_version": 9,
+  "process_id": 68106,
+  "run_id": "SwD8CIIMJT",
+  "started_at": 1791516091278,
+  "threads": 1
+}

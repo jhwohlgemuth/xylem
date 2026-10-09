@@ -21,7 +21,7 @@ if [ -z "${EARTHDATA_API_TOKEN}" ]; then
   exit 1
 fi
 
-MEASUREMENT_MANIFEST=manifest-module-o.json
-RESULTS_DIRECTORY=results-module-o
+MEASUREMENT_MANIFEST=${MEASUREMENT_MANIFEST:-manifest-module-o.json}
+RESULTS_DIRECTORY=${RESULTS_DIRECTORY:-results-module-o}
 export MEASUREMENT_MANIFEST RESULTS_DIRECTORY
 exec "${repository}/tools/memory-spike/docker-measure.sh"

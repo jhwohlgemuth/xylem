@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "5c65c77f7fbc105a4cccaf55938581c6742aa98737a6e4bbe2edc68fefbbee19",
+  "configuration_path": "/measurement/work/1-wv02-concurrent-holdout-run-0/config.json",
+  "journal_schema_version": 9,
+  "process_id": 82893,
+  "run_id": "X5UOptINZ4",
+  "started_at": 1791500553484,
+  "threads": 2
+}

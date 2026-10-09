@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "1834c3f90d493d761f9989e231499aa3e57e996aebe31ddff5688dc467a541c5",
+  "configuration_path": "/measurement/work/1-wv02-large-low-mid-run-1/config.json",
+  "journal_schema_version": 9,
+  "process_id": 28698,
+  "run_id": "UWiTlatNC7",
+  "started_at": 1791556744176,
+  "threads": 1
+}

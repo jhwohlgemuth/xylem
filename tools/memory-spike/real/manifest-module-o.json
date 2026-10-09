@@ -2,7 +2,7 @@
   "schema_version": 1,
   "estimators": [
     {
-      "key": "module-a-p-o-v1",
+      "key": "module-a-p-o-v2",
       "required_for_go": true,
       "baseline_case_id": "baseline-module-a-p-o",
       "modules": [
@@ -27,7 +27,7 @@
   "cases": [
     {
       "case_id": "baseline-module-a-p-o",
-      "estimator_key": "module-a-p-o-v1",
+      "estimator_key": "module-a-p-o-v2",
       "partition": "baseline",
       "config": "baseline.json",
       "input": null,
@@ -40,7 +40,7 @@
     },
     {
       "case_id": "ge01-medium-low-mid-module-a-p-o",
-      "estimator_key": "module-a-p-o-v1",
+      "estimator_key": "module-a-p-o-v2",
       "partition": "training",
       "config": "workflow-module-o.json",
       "input": "/workload/corpus/test-case-GE01-medium-low-mid",
@@ -70,7 +70,7 @@
     },
     {
       "case_id": "wv02-medium-mid-high-module-a-p-o",
-      "estimator_key": "module-a-p-o-v1",
+      "estimator_key": "module-a-p-o-v2",
       "partition": "holdout",
       "config": "workflow-module-o.json",
       "input": "/workload/corpus/test-case-WV02-medium-mid-high",
@@ -99,8 +99,86 @@
       }
     },
     {
+      "case_id": "wv02-large-low-mid-module-a-p-o",
+      "estimator_key": "module-a-p-o-v2",
+      "partition": "training",
+      "config": "workflow-module-o.json",
+      "input": "/workload/corpus/test-case-wv02-large-low-mid",
+      "features": {
+        "file_count": 139,
+        "input_bytes": 2588922236,
+        "decoded_bytes": 11666456576,
+        "rasters": [
+          {
+            "width": 9216,
+            "height": 9216,
+            "bands": 4,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          },
+          {
+            "width": 35840,
+            "height": 35840,
+            "bands": 1,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          },
+          {
+            "width": 9216,
+            "height": 10240,
+            "bands": 4,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          },
+          {
+            "width": 35840,
+            "height": 38912,
+            "bands": 1,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          },
+          {
+            "width": 9216,
+            "height": 10240,
+            "bands": 4,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          },
+          {
+            "width": 35840,
+            "height": 38912,
+            "bands": 1,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          },
+          {
+            "width": 9216,
+            "height": 4096,
+            "bands": 4,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          },
+          {
+            "width": 35840,
+            "height": 14336,
+            "bands": 1,
+            "bits_per_sample": 16,
+            "format": "NITF",
+            "compression": "JPEG2000"
+          }
+        ]
+      }
+    },
+    {
       "case_id": "wv03-large-high-mid-module-a-p-o",
-      "estimator_key": "module-a-p-o-v1",
+      "estimator_key": "module-a-p-o-v2",
       "partition": "training",
       "config": "workflow-module-o.json",
       "input": "/workload/corpus/test-case-wv03-large-high-mid",
@@ -130,8 +208,8 @@
     },
     {
       "case_id": "wv03-large-mid-low-module-a-p-o",
-      "estimator_key": "module-a-p-o-v1",
-      "partition": "training",
+      "estimator_key": "module-a-p-o-v2",
+      "partition": "holdout",
       "config": "workflow-module-o.json",
       "input": "/workload/corpus/test-case-wv03-large-mid-low",
       "features": {
@@ -159,5 +237,15 @@
       }
     }
   ],
-  "mixes": []
+  "mixes": [
+    {
+      "mix_id": "wv02-wv03-concurrent-holdout-module-a-p-o",
+      "estimator_key": "module-a-p-o-v2",
+      "partition": "holdout",
+      "case_ids": [
+        "wv02-medium-mid-high-module-a-p-o",
+        "wv03-large-mid-low-module-a-p-o"
+      ]
+    }
+  ]
 }

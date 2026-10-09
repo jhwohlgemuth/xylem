@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "3e72e1539d09268b5d1bec521ce458ad088a0aa84c8acaa9567ff1c2208a201b",
+  "configuration_path": "/measurement/work/1-ge01-medium-low-mid-warmup-0/config.json",
+  "journal_schema_version": 9,
+  "process_id": 36,
+  "run_id": "xYfjAHpj8u",
+  "started_at": 1791491605587,
+  "threads": 1
+}

@@ -114,3 +114,9 @@ xylem -vvvv run
 The atmospheric-correction, pansharpening, and orthorectification examples show
 how ordered modules exchange paths through variables. Their module URIs are
 deployment-specific placeholders and must be updated before use.
+
+The
+[`atmospheric_correction-pansharpening`](https://code.ornl.gov/research-enablement/xylem/-/tree/main/examples/atmospheric_correction-pansharpening)
+variant removes Module O and includes the measured `module-a-p-v2` estimator,
+`batch: 2`, and a 72 GiB memory budget. Its calibrated logical-input range and
+pinned module revisions are documented in that example's README.

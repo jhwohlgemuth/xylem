@@ -4,9 +4,10 @@ use crate::model::{
 #[cfg(target_os = "linux")]
 use core::time::Duration;
 use serde::Serialize;
-use std::fs::{create_dir, create_dir_all, read_to_string, remove_dir_all};
+use serde_json::{Map, Value};
 #[cfg(target_os = "linux")]
-use std::fs::{remove_dir, write};
+use std::fs::remove_dir;
+use std::fs::{create_dir, create_dir_all, read_to_string, remove_dir_all, write};
 #[cfg(target_os = "linux")]
 use std::io::Write;
 use std::path::Path;
@@ -76,10 +77,10 @@ struct Subject<'a> {
     subject_type: SubjectType,
 }
 
-fn build_arguments(cases: &[&Case], artifact_root: &Path, report_root: &Path) -> Result<Vec<String>, String> {
+fn build_arguments(cases: &[&Case], config: &Path, report_root: &Path) -> Result<Vec<String>, String> {
     cases.first().map_or_else(
         || Err("measurement subject must contain a case".to_string()),
-        |first| {
+        |_| {
             let inputs = cases.iter().filter_map(|case| case.input.as_ref()).collect::<Vec<_>>();
             let comma_path = inputs.iter().find(|input| input.to_string_lossy().contains(','));
             match comma_path {
@@ -90,9 +91,7 @@ fn build_arguments(cases: &[&Case], artifact_root: &Path, report_root: &Path) ->
                         cases.len().max(1).to_string(),
                         "--no-progress".to_string(),
                         "run".to_string(),
-                        first.config.display().to_string(),
-                        "--artifact-output".to_string(),
-                        artifact_root.display().to_string(),
+                        config.display().to_string(),
                         "--report-output".to_string(),
                         report_root.display().to_string(),
                     ];
@@ -105,6 +104,63 @@ fn build_arguments(cases: &[&Case], artifact_root: &Path, report_root: &Path) ->
             }
         },
     )
+}
+
+fn set_output_variable(object: &mut Map<String, Value>, output: &str, context: &str) -> Result<(), String> {
+    let variables = object.entry("variables").or_insert_with(|| Value::Object(Map::new()));
+    if variables.is_null() {
+        *variables = Value::Object(Map::new());
+    }
+    variables.as_object_mut().map_or_else(
+        || Err(format!("measurement config {context} variables must be an object")),
+        |variables| {
+            variables.insert("OUTPUT_DIRECTORY".to_string(), Value::String(output.to_string()));
+            Ok(())
+        },
+    )
+}
+
+fn write_subject_config(source: &Path, destination: &Path, artifact_root: &Path, concurrent: bool) -> Result<(), String> {
+    read_to_string(source)
+        .map_err(|error| format!("read measurement config {}: {error}", source.display()))
+        .and_then(|content| {
+            serde_json::from_str::<Value>(&content).map_err(|error| format!("parse measurement config {}: {error}", source.display()))
+        })
+        .and_then(|mut configuration| {
+            let artifact_root = artifact_root.display().to_string();
+            let output = match concurrent {
+                | true => format!("{artifact_root}/{{{{ PARENT_DIRECTORY }}}}"),
+                | false => artifact_root.clone(),
+            };
+            configuration
+                .as_object_mut()
+                .ok_or_else(|| format!("measurement config {} must contain a JSON object", source.display()))
+                .and_then(|object| {
+                    object.insert("output".to_string(), Value::String(artifact_root));
+                    set_output_variable(object, &output, "root")
+                })
+                .and_then(|()| {
+                    configuration
+                        .get_mut("modules")
+                        .and_then(Value::as_array_mut)
+                        .ok_or_else(|| format!("measurement config {} modules must be an array", source.display()))
+                })
+                .and_then(|modules| {
+                    modules.iter_mut().enumerate().try_for_each(|(index, module)| {
+                        module
+                            .as_object_mut()
+                            .ok_or_else(|| format!("measurement config module {index} must be an object"))
+                            .and_then(|module| set_output_variable(module, &output, &format!("module {index}")))
+                    })
+                })
+                .and_then(|()| {
+                    serde_json::to_vec_pretty(&configuration)
+                        .map_err(|error| format!("serialize measurement config {}: {error}", destination.display()))
+                })
+                .and_then(|content| {
+                    write(destination, content).map_err(|error| format!("write measurement config {}: {error}", destination.display()))
+                })
+        })
 }
 
 fn config_checksum(path: &Path) -> Result<String, String> {
@@ -430,6 +486,7 @@ fn run_subject(
     let run_id = format!("{}-{subject_id}-{suffix}", std::process::id());
     let run_root = options.work_root.join(&run_id);
     let artifact_root = run_root.join("artifacts");
+    let config = run_root.join("config.json");
     let report_root = run_root.join("reports");
     create_dir(&run_root)
         .map_err(|error| format!("create measurement run directory {}: {error}", run_root.display()))
@@ -437,7 +494,13 @@ fn run_subject(
             let result = create_dir(&artifact_root)
                 .map_err(|error| format!("create artifact directory {}: {error}", artifact_root.display()))
                 .and_then(|()| create_dir(&report_root).map_err(|error| format!("create report directory {}: {error}", report_root.display())))
-                .and_then(|()| build_arguments(cases, &artifact_root, &report_root))
+                .and_then(|()| {
+                    cases
+                        .first()
+                        .ok_or_else(|| "measurement subject must contain a case".to_string())
+                        .and_then(|first| write_subject_config(&first.config, &config, &artifact_root, cases.len() > 1))
+                })
+                .and_then(|()| build_arguments(cases, &config, &report_root))
                 .and_then(|arguments| run_in_cgroup(options.xylem, &arguments, options.cgroup_root, &format!("xylem-memory-{run_id}")));
             let cleanup = remove_dir_all(&run_root).map_err(|error| format!("remove measurement run directory {}: {error}", run_root.display()));
             match (result, cleanup) {
@@ -584,7 +647,7 @@ mod tests {
         let first = test_case(Some("one"));
         let mut second = test_case(Some("two"));
         second.case_id = "second".to_string();
-        let arguments = build_arguments(&[&first, &second], Path::new("artifacts"), Path::new("reports")).expect("valid arguments");
+        let arguments = build_arguments(&[&first, &second], Path::new("resolved.json"), Path::new("reports")).expect("valid arguments");
         assert_eq!(
             arguments,
             [
@@ -592,9 +655,7 @@ mod tests {
                 "2",
                 "--no-progress",
                 "run",
-                "config.json",
-                "--artifact-output",
-                "artifacts",
+                "resolved.json",
                 "--report-output",
                 "reports",
                 "--input",
@@ -605,7 +666,35 @@ mod tests {
     #[test]
     fn arguments_reject_comma_delimited_paths() {
         let case = test_case(Some("one,two"));
-        assert!(build_arguments(&[&case], Path::new("artifacts"), Path::new("reports")).is_err());
+        assert!(build_arguments(&[&case], Path::new("resolved.json"), Path::new("reports")).is_err());
+    }
+    #[test]
+    fn concurrent_config_isolates_outputs_by_input_name() {
+        let root = std::env::temp_dir().join(format!("xylem-memory-config-{}", std::process::id()));
+        create_dir_all(&root).expect("create config test directory");
+        let source = root.join("source.json");
+        let destination = root.join("resolved.json");
+        write(
+            &source,
+            r#"{"modules":[{"name":"one","variables":{"EXISTING":"value"}},{"name":"two","variables":null}],"requirements":[]}"#,
+        )
+        .expect("write source config");
+
+        write_subject_config(&source, &destination, Path::new("/work/artifacts"), true).expect("write concurrent config");
+
+        let config: Value = serde_json::from_str(&read_to_string(&destination).expect("read concurrent config")).expect("parse concurrent config");
+        assert_eq!(config["output"], "/work/artifacts");
+        assert_eq!(config["variables"]["OUTPUT_DIRECTORY"], "/work/artifacts/{{ PARENT_DIRECTORY }}");
+        assert_eq!(config["modules"][0]["variables"]["EXISTING"], "value");
+        assert_eq!(
+            config["modules"][0]["variables"]["OUTPUT_DIRECTORY"],
+            "/work/artifacts/{{ PARENT_DIRECTORY }}"
+        );
+        assert_eq!(
+            config["modules"][1]["variables"]["OUTPUT_DIRECTORY"],
+            "/work/artifacts/{{ PARENT_DIRECTORY }}"
+        );
+        remove_dir_all(root).expect("remove config test directory");
     }
     #[test]
     fn metric_parser_rejects_malformed_content() {

@@ -1,0 +1,33 @@
+{
+  "schema_version": 9,
+  "run_id": "rCDrUHxont",
+  "configuration": {
+    "path": "/measurement/work/1-baseline-warmup-0/config.json",
+    "id": "memory-spike-baseline",
+    "version": "1.0.3"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "mode": "off"
+  },
+  "started_at": 1791553795913,
+  "finished_at": 1791553795920,
+  "duration": 7,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": null,
+      "state": "skipped_existing",
+      "error": null,
+      "started_at": 1791553795916,
+      "updated_at": 1791553795916,
+      "modules": []
+    }
+  ],
+  "memory": null
+}

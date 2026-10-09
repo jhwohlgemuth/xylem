@@ -1,0 +1,56 @@
+{
+  "schema_version": 9,
+  "run_id": "WZ5Y_4ov2r",
+  "configuration": {
+    "path": "/measurement/work/1-ge01-medium-low-mid-run-0/config.json",
+    "id": "memory-spike-module-a-p",
+    "version": "1.0.3"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "mode": "off"
+  },
+  "started_at": 1791553957696,
+  "finished_at": 1791554116949,
+  "duration": 159253,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": "/workload/corpus/test-case-GE01-medium-low-mid",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791553957700,
+      "updated_at": 1791554116870,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791553957702,
+          "updated_at": 1791553981991
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791553981992,
+          "updated_at": 1791554116870
+        }
+      ]
+    }
+  ],
+  "memory": null
+}

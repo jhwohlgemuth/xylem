@@ -1,0 +1,56 @@
+{
+  "schema_version": 9,
+  "run_id": "Guu_GdtHf4",
+  "configuration": {
+    "path": "/measurement/work/1-ge01-medium-low-mid-run-3/config.json",
+    "id": "memory-spike-module-a-p",
+    "version": "1.0.3"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "mode": "off"
+  },
+  "started_at": 1791554438106,
+  "finished_at": 1791554596695,
+  "duration": 158589,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": "/workload/corpus/test-case-GE01-medium-low-mid",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791554438112,
+      "updated_at": 1791554596691,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791554438114,
+          "updated_at": 1791554462409
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791554462410,
+          "updated_at": 1791554596690
+        }
+      ]
+    }
+  ],
+  "memory": null
+}

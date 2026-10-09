@@ -1,0 +1,91 @@
+{
+  "version": "1.0.3",
+  "id": "module-a-p-v2-canary",
+  "description": "Measured two-input Module A and P memory-aware canary",
+  "requirements": ["python"],
+  "keywords": ["memory-canary"],
+  "input": [
+    "/workload/corpus/test-case-WV02-medium-mid-high",
+    "/workload/corpus/test-case-wv03-large-mid-low"
+  ],
+  "output": "/measurement/artifacts",
+  "variables": {
+    "OUTPUT_ROOT": "/measurement/artifacts"
+  },
+  "options": {
+    "batch": 2,
+    "memory": {
+      "budget": "72GB",
+      "estimator": {
+        "identity": "module-a-p-v2",
+        "intercept": "8870450.595703125KB",
+        "maximum_input": "2528244.37109375KB",
+        "minimum_input": "517436.05078125KB",
+        "safety_millionths": 1150000,
+        "slope_millionths": 23320131
+      }
+    }
+  },
+  "modules": [
+    {
+      "name": "Module A",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:///workload/modules/module-a",
+      "variables": {
+        "METHOD": "boa_reflectance",
+        "OUTPUT_DIRECTORY": "{{ OUTPUT_ROOT }}/{{ PARENT_DIRECTORY }}",
+        "PROFILE": "urban"
+      },
+      "completion": {
+        "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/module-a.json",
+        "outputs": ["{{ OUTPUT_DIRECTORY }}/**/*_MODA.TIF"]
+      },
+      "template": {
+        "command": "python",
+        "arguments": [
+          "-m",
+          "lib",
+          "--input_directory",
+          "{{ INPUT }}",
+          "--output_directory",
+          "{{ OUTPUT_DIRECTORY }}",
+          "--method",
+          "{{ METHOD }}",
+          "--profile",
+          "{{ PROFILE }}"
+        ]
+      }
+    },
+    {
+      "name": "Module P",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:///workload/modules/module-p",
+      "variables": {
+        "METHOD": "nn_diffuse",
+        "OUTPUT_DIRECTORY": "{{ OUTPUT_ROOT }}/{{ PARENT_DIRECTORY }}",
+        "SOURCE_DIRECTORY": "{{ OUTPUT_DIRECTORY }}"
+      },
+      "completion": {
+        "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/module-p.json",
+        "outputs": ["{{ OUTPUT_DIRECTORY }}/**/*_MODA_MODP.TIF"]
+      },
+      "template": {
+        "command": "python",
+        "arguments": [
+          "-m",
+          "lib",
+          "--source_directory",
+          "{{ SOURCE_DIRECTORY }}",
+          "--output_directory",
+          "{{ OUTPUT_DIRECTORY }}",
+          "--method",
+          "{{ METHOD }}",
+          "--module_list",
+          "MODA, MODP"
+        ]
+      }
+    }
+  ]
+}

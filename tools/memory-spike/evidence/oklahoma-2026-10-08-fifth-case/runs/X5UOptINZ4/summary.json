@@ -1,0 +1,89 @@
+{
+  "schema_version": 9,
+  "run_id": "X5UOptINZ4",
+  "configuration": {
+    "path": "/measurement/work/1-wv02-concurrent-holdout-run-0/config.json",
+    "id": "memory-spike-module-a-p",
+    "version": "1.0.3"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "mode": "off"
+  },
+  "started_at": 1791500553489,
+  "finished_at": 1791501066158,
+  "duration": 512669,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": "/workload/corpus/test-case-WV02-medium-mid-high",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791500553495,
+      "updated_at": 1791500981904,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791500553497,
+          "updated_at": 1791500606070
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791500606072,
+          "updated_at": 1791500981903
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "input_id": "input-000001",
+      "value": "/workload/corpus/test-case-wv02-large-low-mid",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791500553496,
+      "updated_at": 1791501066131,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791500553499,
+          "updated_at": 1791500618416
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791500618417,
+          "updated_at": 1791501066130
+        }
+      ]
+    }
+  ],
+  "memory": null
+}

@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "b9cc5093fe0e2a35d8f44a7f58fd26cf77fb48908be8b67019b649412e8dcddd",
+  "configuration_path": "/measurement/work/1-ge01-medium-low-mid-module-a-p-o-run-1/config.json",
+  "journal_schema_version": 9,
+  "process_id": 2866,
+  "run_id": "RxR2PJCWDM",
+  "started_at": 1791503354028,
+  "threads": 1
+}

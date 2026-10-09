@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "5e6e5185d7fa2b39b92aa9d999cddc6269cfffba206e5bdb50b6bb1baa662c08",
+  "configuration_path": "/opt/xylem-memory/real/canary-module-a-p-v2.json",
+  "journal_schema_version": 9,
+  "process_id": 1,
+  "run_id": "X110ljMr1R",
+  "started_at": 1791565333531,
+  "threads": 2
+}

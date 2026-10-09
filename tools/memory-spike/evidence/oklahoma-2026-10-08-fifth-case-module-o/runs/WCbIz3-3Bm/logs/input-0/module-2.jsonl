@@ -1,0 +1,24 @@
+{"sequence":0,"stream":"stdout","text":"---------------------------------------------","timestamp":1791521959613}
+{"sequence":1,"stream":"stdout","text":"Found 1 image(s) for processing.","timestamp":1791521959622}
+{"sequence":2,"stream":"stdout","text":"Using max_pool = 4 and num_workers = 1 ","timestamp":1791521959633}
+{"sequence":3,"stream":"stdout","text":"Loading input image: /measurement/work/1-wv03-large-mid-low-module-a-p-o-run-2/artifacts/wv3lml_image_P001_PIPE/output_MODP/21AUG28055717-S3XS-507458888090_01_P001_MODA_MODP.TIF","timestamp":1791522569992}
+{"sequence":4,"stream":"stdout","text":"Have image, metadata, GCPs, and RPCs loaded...","timestamp":1791522569993}
+{"sequence":5,"stream":"stdout","text":"---------------------------------------------","timestamp":1791522569994}
+{"sequence":6,"stream":"stdout","text":"Found 1 SRTM tiles:","timestamp":1791522569994}
+{"sequence":7,"stream":"stdout","text":"['N36E071'] ","timestamp":1791522569995}
+{"sequence":8,"stream":"stdout","text":"---------------------------------------------","timestamp":1791522569995}
+{"sequence":9,"stream":"stdout","text":"UTM zone: EPSG:32642","timestamp":1791522569996}
+{"sequence":10,"stream":"stdout","text":"Ground sampling distance: 0.37","timestamp":1791522569996}
+{"sequence":11,"stream":"stdout","text":"---------------------------------------------","timestamp":1791522569997}
+{"sequence":12,"stream":"stdout","text":"Downloading SRTM DEM tile: N36E071 ","timestamp":1791522569997}
+{"sequence":13,"stream":"stdout","text":"Unable to download SRTM DEM data. ","timestamp":1791522569998}
+{"sequence":14,"stream":"stdout","text":"Accessing ASTER DEM data...","timestamp":1791522569998}
+{"sequence":15,"stream":"stdout","text":"Opening ASTER DEM directory: ../data/DEM/ASTER","timestamp":1791522569999}
+{"sequence":16,"stream":"stdout","text":"ASTER DEM tif name: ASTGTMV003_N36E071_dem","timestamp":1791522569999}
+{"sequence":17,"stream":"stdout","text":"ASTER DEM tif previously downloaded.","timestamp":1791522570000}
+{"sequence":18,"stream":"stdout","text":"Merged ASTER DEM already exists as: ../data/DEM/ASTER/21AUG28055717-S3XS-507458888090_01_P001_MODA_MODP_merged-ASTER.TIF ","timestamp":1791522570000}
+{"sequence":19,"stream":"stdout","text":"---------------------------------------------","timestamp":1791522570001}
+{"sequence":20,"stream":"stdout","text":"Applying GCP refinement...","timestamp":1791522570001}
+{"sequence":21,"stream":"stdout","text":"Running orthorectification...","timestamp":1791522570002}
+{"sequence":22,"stream":"stdout","text":"Orthorectified image saved as: /measurement/work/1-wv03-large-mid-low-module-a-p-o-run-2/artifacts/wv3lml_image_P001_PIPE/output_MODO/21AUG28055717-S3XS-507458888090_01_P001_MODA_MODP_MODO.TIF","timestamp":1791522570002}
+{"sequence":23,"stream":"stdout","text":"Total orthorectification processing time: 610.43 seconds","timestamp":1791522570039}

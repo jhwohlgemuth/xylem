@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "6d1edcbef0999783db1ccc0b9106b8165c5c80d8b57b661a7abe52cee52b1f63",
+  "configuration_path": "/measurement/work/1-wv02-large-low-mid-warmup-0/config.json",
+  "journal_schema_version": 9,
+  "process_id": 16550,
+  "run_id": "TluQAxgjat",
+  "started_at": 1791555866610,
+  "threads": 1
+}

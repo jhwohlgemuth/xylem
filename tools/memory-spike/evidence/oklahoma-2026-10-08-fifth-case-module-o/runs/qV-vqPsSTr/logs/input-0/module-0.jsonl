@@ -1,0 +1,380 @@
+{"sequence":0,"stream":"stdout","text":"---------------------------------------------","timestamp":1791514207916}
+{"sequence":1,"stream":"stdout","text":"Found 1 pair(s) of MUL and PAN images.","timestamp":1791514207918}
+{"sequence":2,"stream":"stdout","text":"Using max_pool = 4 and num_workers = 1 ","timestamp":1791514207919}
+{"sequence":3,"stream":"stdout","text":"Source Image: /workload/corpus/test-case-wv03-large-high-mid/wv3lhm_image/wv3lhm_P001_MUL/22FEB06020111-M1BS-507761489060_01_P001.NTF","timestamp":1791514209231}
+{"sequence":4,"stream":"stdout","text":"Source IMD: /workload/corpus/test-case-wv03-large-high-mid/wv3lhm_image/wv3lhm_P001_MUL/22FEB06020111-M1BS-507761489060_01_P001.IMD","timestamp":1791514209232}
+{"sequence":5,"stream":"stdout","text":"---------------------------------------------","timestamp":1791514209233}
+{"sequence":6,"stream":"stdout","text":"Determining atmospheric intrinsic reflectance values...","timestamp":1791514209234}
+{"sequence":7,"stream":"stdout","text":"---------------------------------------------","timestamp":1791514209234}
+{"sequence":8,"stream":"stdout","text":"Image centroid, (lat, lon), is 41.794550425 129.72475851000002","timestamp":1791514209235}
+{"sequence":9,"stream":"stdout","text":"Accessing DEM data...","timestamp":1791514209235}
+{"sequence":10,"stream":"stdout","text":"Opening DEM directory: ../data/DEM","timestamp":1791514209236}
+{"sequence":11,"stream":"stdout","text":"DEM tif name: ASTGTMV003_N41E129_dem","timestamp":1791514209236}
+{"sequence":12,"stream":"stdout","text":"DEM tif previously downloaded.","timestamp":1791514209237}
+{"sequence":13,"stream":"stdout","text":"Merged DEM already exists as: ../data/DEM/22FEB06020111-M1BS-507761489060_01_P001_merged-DEM.TIF ","timestamp":1791514209237}
+{"sequence":14,"stream":"stdout","text":"Calculated elevation is 0.272 km ","timestamp":1791514209238}
+{"sequence":15,"stream":"stdout","text":"Aerosol profile: urban","timestamp":1791514209238}
+{"sequence":16,"stream":"stdout","text":"Accessing MODIS data...","timestamp":1791514209238}
+{"sequence":17,"stream":"stdout","text":"Opening MODIS directory: ../data/MODIS","timestamp":1791514209239}
+{"sequence":18,"stream":"stdout","text":"MODIS filename: MOD08_D3.A2022037.061.2022039134057.hdf","timestamp":1791514209240}
+{"sequence":19,"stream":"stdout","text":"MODIS file previously downloaded.","timestamp":1791514209240}
+{"sequence":20,"stream":"stdout","text":"MODIS data are accessible.","timestamp":1791514209241}
+{"sequence":21,"stream":"stdout","text":"AOT (MODIS) is 0.11966666666666667","timestamp":1791514209241}
+{"sequence":22,"stream":"stdout","text":"Output variables of Py6S: ","timestamp":1791514209242}
+{"sequence":23,"stream":"stdout","text":"******************************* 6SV version 1.1 *******************************","timestamp":1791514209242}
+{"sequence":24,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209243}
+{"sequence":25,"stream":"stdout","text":"*                       geometrical conditions identity                       *","timestamp":1791514209243}
+{"sequence":26,"stream":"stdout","text":"*                       -------------------------------                       *","timestamp":1791514209244}
+{"sequence":27,"stream":"stdout","text":"*                       user defined conditions                               *","timestamp":1791514209244}
+{"sequence":28,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209245}
+{"sequence":29,"stream":"stdout","text":"*   month:  2 day :   6                                                       *","timestamp":1791514209245}
+{"sequence":30,"stream":"stdout","text":"*   solar zenith angle:   61.20 deg  solar azimuthal angle:      154.00 deg   *","timestamp":1791514209246}
+{"sequence":31,"stream":"stdout","text":"*   view zenith angle:    34.80 deg  view azimuthal angle:        87.80 deg   *","timestamp":1791514209246}
+{"sequence":32,"stream":"stdout","text":"*   scattering angle:    126.68 deg  azimuthal angle difference:  66.20 deg   *","timestamp":1791514209247}
+{"sequence":33,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209248}
+{"sequence":34,"stream":"stdout","text":"*                       atmospheric model description                         *","timestamp":1791514209248}
+{"sequence":35,"stream":"stdout","text":"*                       -----------------------------                         *","timestamp":1791514209249}
+{"sequence":36,"stream":"stdout","text":"*           atmospheric model identity :                                      *","timestamp":1791514209249}
+{"sequence":37,"stream":"stdout","text":"*               subarctic  summer   (uh2o=2.10g/cm2,uo3=.480cm-atm)           *","timestamp":1791514209250}
+{"sequence":38,"stream":"stdout","text":"*           aerosols type identity :                                          *","timestamp":1791514209252}
+{"sequence":39,"stream":"stdout","text":"*               Urban aerosol model                                           *","timestamp":1791514209252}
+{"sequence":40,"stream":"stdout","text":"*           optical condition identity :                                      *","timestamp":1791514209253}
+{"sequence":41,"stream":"stdout","text":"*               visibility : 50.85 km  opt. thick. 550 nm :  0.1197           *","timestamp":1791514209253}
+{"sequence":42,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209254}
+{"sequence":43,"stream":"stdout","text":"*                       spectral condition                                    *","timestamp":1791514209254}
+{"sequence":44,"stream":"stdout","text":"*                       ------------------                                    *","timestamp":1791514209255}
+{"sequence":45,"stream":"stdout","text":"*            monochromatic calculation at wl 0.832 micron                     *","timestamp":1791514209256}
+{"sequence":46,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209256}
+{"sequence":47,"stream":"stdout","text":"*                       Surface polarization parameters                       *","timestamp":1791514209257}
+{"sequence":48,"stream":"stdout","text":"*                       ----------------------------------                    *","timestamp":1791514209257}
+{"sequence":49,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209258}
+{"sequence":50,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209259}
+{"sequence":51,"stream":"stdout","text":"* Surface Polarization Q,U,Rop,Chi    0.00000  0.00000  0.00000     0.00      *","timestamp":1791514209259}
+{"sequence":52,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209259}
+{"sequence":53,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209260}
+{"sequence":54,"stream":"stdout","text":"*                       target type                                           *","timestamp":1791514209260}
+{"sequence":55,"stream":"stdout","text":"*                       -----------                                           *","timestamp":1791514209261}
+{"sequence":56,"stream":"stdout","text":"*           homogeneous ground                                                *","timestamp":1791514209261}
+{"sequence":57,"stream":"stdout","text":"*             monochromatic reflectance  0.000                                *","timestamp":1791514209262}
+{"sequence":58,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209262}
+{"sequence":59,"stream":"stdout","text":"*                       target elevation description                          *","timestamp":1791514209263}
+{"sequence":60,"stream":"stdout","text":"*                       ----------------------------                          *","timestamp":1791514209263}
+{"sequence":61,"stream":"stdout","text":"*           ground pressure  [mb]  977.63                                     *","timestamp":1791514209264}
+{"sequence":62,"stream":"stdout","text":"*           ground altitude  [km] 0.272                                       *","timestamp":1791514209264}
+{"sequence":63,"stream":"stdout","text":"*                gaseous content at target level:                             *","timestamp":1791514209265}
+{"sequence":64,"stream":"stdout","text":"*                uh2o= 1.863 g/cm2        uo3= 0.344 cm-atm                   *","timestamp":1791514209265}
+{"sequence":65,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209266}
+{"sequence":66,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514209266}
+{"sequence":67,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514209267}
+{"sequence":68,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209267}
+{"sequence":69,"stream":"stdout","text":"*                         integrated values of  :                             *","timestamp":1791514209267}
+{"sequence":70,"stream":"stdout","text":"*                         --------------------                                *","timestamp":1791514209268}
+{"sequence":71,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209268}
+{"sequence":72,"stream":"stdout","text":"*       apparent reflectance  0.0161577  appar. rad.(w/m2/sr/mic)    2.699    *","timestamp":1791514209269}
+{"sequence":73,"stream":"stdout","text":"*                   total gaseous transmittance  0.736                        *","timestamp":1791514209269}
+{"sequence":74,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209270}
+{"sequence":75,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514209270}
+{"sequence":76,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209271}
+{"sequence":77,"stream":"stdout","text":"*                         coupling aerosol -wv  :                             *","timestamp":1791514209271}
+{"sequence":78,"stream":"stdout","text":"*                         --------------------                                *","timestamp":1791514209272}
+{"sequence":79,"stream":"stdout","text":"*           wv above aerosol :   0.016     wv mixed with aerosol :   0.016    *","timestamp":1791514209272}
+{"sequence":80,"stream":"stdout","text":"*                       wv under aerosol :   0.018                            *","timestamp":1791514209273}
+{"sequence":81,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514209273}
+{"sequence":82,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209274}
+{"sequence":83,"stream":"stdout","text":"*                         integrated values of  :                             *","timestamp":1791514209274}
+{"sequence":84,"stream":"stdout","text":"*                         --------------------                                *","timestamp":1791514209275}
+{"sequence":85,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209275}
+{"sequence":86,"stream":"stdout","text":"*       app. polarized refl.  0.0063    app. pol. rad. (w/m2/sr/mic)    1.049 *","timestamp":1791514209276}
+{"sequence":87,"stream":"stdout","text":"*             direction of the plane of polarization  0.95                    *","timestamp":1791514209276}
+{"sequence":88,"stream":"stdout","text":"*                   total polarization ratio     0.389                        *","timestamp":1791514209276}
+{"sequence":89,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209277}
+{"sequence":90,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514209277}
+{"sequence":91,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209278}
+{"sequence":92,"stream":"stdout","text":"*                         int. normalized  values  of  :                      *","timestamp":1791514209278}
+{"sequence":93,"stream":"stdout","text":"*                         ---------------------------                         *","timestamp":1791514209279}
+{"sequence":94,"stream":"stdout","text":"*                      % of irradiance at ground level                        *","timestamp":1791514209279}
+{"sequence":95,"stream":"stdout","text":"*     % of direct  irr.    % of diffuse irr.    % of enviro. irr              *","timestamp":1791514209280}
+{"sequence":96,"stream":"stdout","text":"*               0.920               0.080               0.000                 *","timestamp":1791514209280}
+{"sequence":97,"stream":"stdout","text":"*                       reflectance at satellite level                        *","timestamp":1791514209281}
+{"sequence":98,"stream":"stdout","text":"*     atm. intrin. ref.   background  ref.  pixel  reflectance                *","timestamp":1791514209281}
+{"sequence":99,"stream":"stdout","text":"*               0.016               0.000               0.000                 *","timestamp":1791514209282}
+{"sequence":100,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209282}
+{"sequence":101,"stream":"stdout","text":"*                         int. absolute values of                             *","timestamp":1791514209283}
+{"sequence":102,"stream":"stdout","text":"*                         -----------------------                             *","timestamp":1791514209283}
+{"sequence":103,"stream":"stdout","text":"*                      irr. at ground level (w/m2/mic)                        *","timestamp":1791514209284}
+{"sequence":104,"stream":"stdout","text":"*     direct solar irr.    atm. diffuse irr.    environment  irr              *","timestamp":1791514209284}
+{"sequence":105,"stream":"stdout","text":"*             347.996              30.194               0.000                 *","timestamp":1791514209285}
+{"sequence":106,"stream":"stdout","text":"*                      rad at satel. level (w/m2/sr/mic)                      *","timestamp":1791514209286}
+{"sequence":107,"stream":"stdout","text":"*     atm. intrin. rad.    background  rad.    pixel  radiance                *","timestamp":1791514209286}
+{"sequence":108,"stream":"stdout","text":"*               2.699               0.000               0.000                 *","timestamp":1791514209286}
+{"sequence":109,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209287}
+{"sequence":110,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209287}
+{"sequence":111,"stream":"stdout","text":"*                      sol. spect (in w/m2/mic)                               *","timestamp":1791514209288}
+{"sequence":112,"stream":"stdout","text":"*                                1089.223                                     *","timestamp":1791514209288}
+{"sequence":113,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209289}
+{"sequence":114,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514209289}
+{"sequence":115,"stream":"stdout","text":" ","timestamp":1791514209290}
+{"sequence":116,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514209290}
+{"sequence":117,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209291}
+{"sequence":118,"stream":"stdout","text":"*                          integrated values of  :                            *","timestamp":1791514209291}
+{"sequence":119,"stream":"stdout","text":"*                          --------------------                               *","timestamp":1791514209292}
+{"sequence":120,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209292}
+{"sequence":121,"stream":"stdout","text":"*                             downward        upward          total           *","timestamp":1791514209293}
+{"sequence":122,"stream":"stdout","text":"*      global gas. trans. :     0.79035        0.84353        0.73617         *","timestamp":1791514209293}
+{"sequence":123,"stream":"stdout","text":"*      water   \"     \"    :     0.79035        0.84353        0.73617         *","timestamp":1791514209294}
+{"sequence":124,"stream":"stdout","text":"*      ozone   \"     \"    :     1.00000        1.00000        1.00000         *","timestamp":1791514209294}
+{"sequence":125,"stream":"stdout","text":"*      co2     \"     \"    :     1.00000        1.00000        1.00000         *","timestamp":1791514209295}
+{"sequence":126,"stream":"stdout","text":"*      oxyg    \"     \"    :     1.00000        1.00000        1.00000         *","timestamp":1791514209295}
+{"sequence":127,"stream":"stdout","text":"*      no2     \"     \"    :     1.00000        1.00000        1.00000         *","timestamp":1791514209296}
+{"sequence":128,"stream":"stdout","text":"*      ch4     \"     \"    :     1.00000        1.00000        1.00000         *","timestamp":1791514209296}
+{"sequence":129,"stream":"stdout","text":"*      co      \"     \"    :     1.00000        1.00000        1.00000         *","timestamp":1791514209297}
+{"sequence":130,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209297}
+{"sequence":131,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209298}
+{"sequence":132,"stream":"stdout","text":"*      rayl.  sca. trans. :     0.98166        0.98916        0.97102         *","timestamp":1791514209298}
+{"sequence":133,"stream":"stdout","text":"*      aeros. sca.   \"    :     0.92913        0.96227        0.89408         *","timestamp":1791514209299}
+{"sequence":134,"stream":"stdout","text":"*      total  sca.   \"    :     0.91190        0.95138        0.86756         *","timestamp":1791514209299}
+{"sequence":135,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209300}
+{"sequence":136,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209300}
+{"sequence":137,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209301}
+{"sequence":138,"stream":"stdout","text":"*                             rayleigh       aerosols         total           *","timestamp":1791514209301}
+{"sequence":139,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209301}
+{"sequence":140,"stream":"stdout","text":"*      spherical albedo   :     0.01677        0.01833        0.03186         *","timestamp":1791514209302}
+{"sequence":141,"stream":"stdout","text":"*      optical depth total:     0.01755        0.06697        0.08451         *","timestamp":1791514209303}
+{"sequence":142,"stream":"stdout","text":"*      optical depth plane:     0.01755        0.06697        0.08451         *","timestamp":1791514209303}
+{"sequence":143,"stream":"stdout","text":"*      reflectance I      :     0.01136        0.00629        0.01788         *","timestamp":1791514209304}
+{"sequence":144,"stream":"stdout","text":"*      reflectance Q      :     0.00512        0.00156        0.00669         *","timestamp":1791514209304}
+{"sequence":145,"stream":"stdout","text":"*      reflectance U      :     0.00016        0.00000        0.00022         *","timestamp":1791514209305}
+{"sequence":146,"stream":"stdout","text":"*      polarized reflect. :     0.00512        0.00156        0.00669         *","timestamp":1791514209305}
+{"sequence":147,"stream":"stdout","text":"*      degree of polar.   :       45.09          24.78          37.44         *","timestamp":1791514209306}
+{"sequence":148,"stream":"stdout","text":"*      dir. plane polar.  :        0.91           0.00           0.96         *","timestamp":1791514209306}
+{"sequence":149,"stream":"stdout","text":"*      phase function I   :     1.01695        0.22403        0.38866         *","timestamp":1791514209307}
+{"sequence":150,"stream":"stdout","text":"*      phase function Q   :    -0.46242       -0.05643       -0.14073         *","timestamp":1791514209307}
+{"sequence":151,"stream":"stdout","text":"*      phase function U   :    -0.85913       -0.07814       -0.24030         *","timestamp":1791514209308}
+{"sequence":152,"stream":"stdout","text":"*      primary deg. of pol:    -0.45471       -0.25191       -0.36208         *","timestamp":1791514209308}
+{"sequence":153,"stream":"stdout","text":"*      sing. scat. albedo :     1.00000        0.63838        0.71346         *","timestamp":1791514209309}
+{"sequence":154,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209309}
+{"sequence":155,"stream":"stdout","text":"*                                                                             *","timestamp":1791514209310}
+{"sequence":156,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514209310}
+{"sequence":157,"stream":"stdout","text":"Atmospheric intrinsic reflectance(s):","timestamp":1791514217967}
+{"sequence":158,"stream":"stdout","text":"   wavelength  atmospheric intrinsic reflectance","timestamp":1791514217970}
+{"sequence":159,"stream":"stdout","text":"0       0.481                              0.114","timestamp":1791514217971}
+{"sequence":160,"stream":"stdout","text":"1       0.547                              0.067","timestamp":1791514217971}
+{"sequence":161,"stream":"stdout","text":"2       0.661                              0.036","timestamp":1791514217972}
+{"sequence":162,"stream":"stdout","text":"3       0.832                              0.016","timestamp":1791514217972}
+{"sequence":163,"stream":"stdout","text":"---------------------------------------------","timestamp":1791514217973}
+{"sequence":164,"stream":"stdout","text":"Calculating boa_reflectance for input image...","timestamp":1791514217973}
+{"sequence":165,"stream":"stdout","text":"Size of input image: 10240 11264","timestamp":1791514217974}
+{"sequence":166,"stream":"stdout","text":"Processing tile: 1 of 10","timestamp":1791514217974}
+{"sequence":167,"stream":"stdout","text":"Processing tile: 2 of 10","timestamp":1791514217975}
+{"sequence":168,"stream":"stdout","text":"Processing tile: 3 of 10","timestamp":1791514217975}
+{"sequence":169,"stream":"stdout","text":"Processing tile: 4 of 10","timestamp":1791514217976}
+{"sequence":170,"stream":"stdout","text":"Processing tile: 5 of 10","timestamp":1791514217976}
+{"sequence":171,"stream":"stdout","text":"Processing tile: 6 of 10","timestamp":1791514217977}
+{"sequence":172,"stream":"stdout","text":"Processing tile: 7 of 10","timestamp":1791514217977}
+{"sequence":173,"stream":"stdout","text":"Processing tile: 8 of 10","timestamp":1791514217978}
+{"sequence":174,"stream":"stdout","text":"Processing tile: 9 of 10","timestamp":1791514217978}
+{"sequence":175,"stream":"stdout","text":"Processing tile: 10 of 10","timestamp":1791514217979}
+{"sequence":176,"stream":"stdout","text":"Reflectance image saved to: /measurement/work/1-wv03-large-high-mid-module-a-p-o-run-0/artifacts/wv3lhm_image_P001_PIPE/output_MODA/output_MODA_MUL/22FEB06020111-M1BS-507761489060_01_P001_MODA.TIF","timestamp":1791514217979}
+{"sequence":177,"stream":"stdout","text":"---------------------------------------------","timestamp":1791514217980}
+{"sequence":178,"stream":"stdout","text":"Source Image: /workload/corpus/test-case-wv03-large-high-mid/wv3lhm_image/wv3lhm_P001_PAN/22FEB06020111-P1BS-507761489060_01_P001.NTF","timestamp":1791514217980}
+{"sequence":179,"stream":"stdout","text":"Source IMD: /workload/corpus/test-case-wv03-large-high-mid/wv3lhm_image/wv3lhm_P001_PAN/22FEB06020111-P1BS-507761489060_01_P001.IMD","timestamp":1791514217981}
+{"sequence":180,"stream":"stdout","text":"---------------------------------------------","timestamp":1791514217981}
+{"sequence":181,"stream":"stdout","text":"Determining atmospheric intrinsic reflectance values...","timestamp":1791514217982}
+{"sequence":182,"stream":"stdout","text":"---------------------------------------------","timestamp":1791514217982}
+{"sequence":183,"stream":"stdout","text":"Image centroid, (lat, lon), is 41.79455063 129.72476146","timestamp":1791514217983}
+{"sequence":184,"stream":"stdout","text":"Accessing DEM data...","timestamp":1791514217983}
+{"sequence":185,"stream":"stdout","text":"Opening DEM directory: ../data/DEM","timestamp":1791514217984}
+{"sequence":186,"stream":"stdout","text":"DEM tif name: ASTGTMV003_N41E129_dem","timestamp":1791514217984}
+{"sequence":187,"stream":"stdout","text":"DEM tif previously downloaded.","timestamp":1791514217985}
+{"sequence":188,"stream":"stdout","text":"Merged DEM already exists as: ../data/DEM/22FEB06020111-P1BS-507761489060_01_P001_merged-DEM.TIF ","timestamp":1791514217985}
+{"sequence":189,"stream":"stdout","text":"Calculated elevation is 0.272 km ","timestamp":1791514217986}
+{"sequence":190,"stream":"stdout","text":"Aerosol profile: urban","timestamp":1791514217986}
+{"sequence":191,"stream":"stdout","text":"Accessing MODIS data...","timestamp":1791514217987}
+{"sequence":192,"stream":"stdout","text":"Opening MODIS directory: ../data/MODIS","timestamp":1791514217987}
+{"sequence":193,"stream":"stdout","text":"MODIS filename: MOD08_D3.A2022037.061.2022039134057.hdf","timestamp":1791514217988}
+{"sequence":194,"stream":"stdout","text":"MODIS file previously downloaded.","timestamp":1791514217988}
+{"sequence":195,"stream":"stdout","text":"MODIS data are accessible.","timestamp":1791514217989}
+{"sequence":196,"stream":"stdout","text":"AOT (MODIS) is 0.11966666666666667","timestamp":1791514217989}
+{"sequence":197,"stream":"stdout","text":"Output variables of Py6S: ","timestamp":1791514217990}
+{"sequence":198,"stream":"stdout","text":"******************************* 6SV version 1.1 *******************************","timestamp":1791514217991}
+{"sequence":199,"stream":"stdout","text":"*                                                                             *","timestamp":1791514217991}
+{"sequence":200,"stream":"stdout","text":"*                       geometrical conditions identity                       *","timestamp":1791514217995}
+{"sequence":201,"stream":"stdout","text":"*                       -------------------------------                       *","timestamp":1791514217996}
+{"sequence":202,"stream":"stdout","text":"*                       user defined conditions                               *","timestamp":1791514217996}
+{"sequence":203,"stream":"stdout","text":"*                                                                             *","timestamp":1791514217997}
+{"sequence":204,"stream":"stdout","text":"*   month:  2 day :   6                                                       *","timestamp":1791514217998}
+{"sequence":205,"stream":"stdout","text":"*   solar zenith angle:   61.20 deg  solar azimuthal angle:      154.00 deg   *","timestamp":1791514217998}
+{"sequence":206,"stream":"stdout","text":"*   view zenith angle:    34.80 deg  view azimuthal angle:        87.70 deg   *","timestamp":1791514217999}
+{"sequence":207,"stream":"stdout","text":"*   scattering angle:    126.63 deg  azimuthal angle difference:  66.30 deg   *","timestamp":1791514218000}
+{"sequence":208,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218001}
+{"sequence":209,"stream":"stdout","text":"*                       atmospheric model description                         *","timestamp":1791514218001}
+{"sequence":210,"stream":"stdout","text":"*                       -----------------------------                         *","timestamp":1791514218002}
+{"sequence":211,"stream":"stdout","text":"*           atmospheric model identity :                                      *","timestamp":1791514218002}
+{"sequence":212,"stream":"stdout","text":"*               subarctic  summer   (uh2o=2.10g/cm2,uo3=.480cm-atm)           *","timestamp":1791514218003}
+{"sequence":213,"stream":"stdout","text":"*           aerosols type identity :                                          *","timestamp":1791514218004}
+{"sequence":214,"stream":"stdout","text":"*               Urban aerosol model                                           *","timestamp":1791514218004}
+{"sequence":215,"stream":"stdout","text":"*           optical condition identity :                                      *","timestamp":1791514218005}
+{"sequence":216,"stream":"stdout","text":"*               visibility : 50.85 km  opt. thick. 550 nm :  0.1197           *","timestamp":1791514218005}
+{"sequence":217,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218006}
+{"sequence":218,"stream":"stdout","text":"*                       spectral condition                                    *","timestamp":1791514218010}
+{"sequence":219,"stream":"stdout","text":"*                       ------------------                                    *","timestamp":1791514218011}
+{"sequence":220,"stream":"stdout","text":"*            monochromatic calculation at wl 0.627 micron                     *","timestamp":1791514218012}
+{"sequence":221,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218012}
+{"sequence":222,"stream":"stdout","text":"*                       Surface polarization parameters                       *","timestamp":1791514218013}
+{"sequence":223,"stream":"stdout","text":"*                       ----------------------------------                    *","timestamp":1791514218014}
+{"sequence":224,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218014}
+{"sequence":225,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218015}
+{"sequence":226,"stream":"stdout","text":"* Surface Polarization Q,U,Rop,Chi    0.00000  0.00000  0.00000     0.00      *","timestamp":1791514218016}
+{"sequence":227,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218022}
+{"sequence":228,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218026}
+{"sequence":229,"stream":"stdout","text":"*                       target type                                           *","timestamp":1791514218026}
+{"sequence":230,"stream":"stdout","text":"*                       -----------                                           *","timestamp":1791514218027}
+{"sequence":231,"stream":"stdout","text":"*           homogeneous ground                                                *","timestamp":1791514218027}
+{"sequence":232,"stream":"stdout","text":"*             monochromatic reflectance  0.000                                *","timestamp":1791514218028}
+{"sequence":233,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218028}
+{"sequence":234,"stream":"stdout","text":"*                       target elevation description                          *","timestamp":1791514218031}
+{"sequence":235,"stream":"stdout","text":"*                       ----------------------------                          *","timestamp":1791514218031}
+{"sequence":236,"stream":"stdout","text":"*           ground pressure  [mb]  977.63                                     *","timestamp":1791514218032}
+{"sequence":237,"stream":"stdout","text":"*           ground altitude  [km] 0.272                                       *","timestamp":1791514218034}
+{"sequence":238,"stream":"stdout","text":"*                gaseous content at target level:                             *","timestamp":1791514218035}
+{"sequence":239,"stream":"stdout","text":"*                uh2o= 1.863 g/cm2        uo3= 0.344 cm-atm                   *","timestamp":1791514218035}
+{"sequence":240,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218036}
+{"sequence":241,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514218036}
+{"sequence":242,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514218037}
+{"sequence":243,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218037}
+{"sequence":244,"stream":"stdout","text":"*                         integrated values of  :                             *","timestamp":1791514218038}
+{"sequence":245,"stream":"stdout","text":"*                         --------------------                                *","timestamp":1791514218038}
+{"sequence":246,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218039}
+{"sequence":247,"stream":"stdout","text":"*       apparent reflectance  0.0408449  appar. rad.(w/m2/sr/mic)   10.774    *","timestamp":1791514218040}
+{"sequence":248,"stream":"stdout","text":"*                   total gaseous transmittance  0.882                        *","timestamp":1791514218040}
+{"sequence":249,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218041}
+{"sequence":250,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514218041}
+{"sequence":251,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218042}
+{"sequence":252,"stream":"stdout","text":"*                         coupling aerosol -wv  :                             *","timestamp":1791514218042}
+{"sequence":253,"stream":"stdout","text":"*                         --------------------                                *","timestamp":1791514218043}
+{"sequence":254,"stream":"stdout","text":"*           wv above aerosol :   0.041     wv mixed with aerosol :   0.041    *","timestamp":1791514218043}
+{"sequence":255,"stream":"stdout","text":"*                       wv under aerosol :   0.041                            *","timestamp":1791514218044}
+{"sequence":256,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514218044}
+{"sequence":257,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218045}
+{"sequence":258,"stream":"stdout","text":"*                         integrated values of  :                             *","timestamp":1791514218046}
+{"sequence":259,"stream":"stdout","text":"*                         --------------------                                *","timestamp":1791514218046}
+{"sequence":260,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218047}
+{"sequence":261,"stream":"stdout","text":"*       app. polarized refl.  0.0156    app. pol. rad. (w/m2/sr/mic)    4.122 *","timestamp":1791514218047}
+{"sequence":262,"stream":"stdout","text":"*             direction of the plane of polarization  0.66                    *","timestamp":1791514218048}
+{"sequence":263,"stream":"stdout","text":"*                   total polarization ratio     0.383                        *","timestamp":1791514218048}
+{"sequence":264,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218049}
+{"sequence":265,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514218049}
+{"sequence":266,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218050}
+{"sequence":267,"stream":"stdout","text":"*                         int. normalized  values  of  :                      *","timestamp":1791514218050}
+{"sequence":268,"stream":"stdout","text":"*                         ---------------------------                         *","timestamp":1791514218051}
+{"sequence":269,"stream":"stdout","text":"*                      % of irradiance at ground level                        *","timestamp":1791514218051}
+{"sequence":270,"stream":"stdout","text":"*     % of direct  irr.    % of diffuse irr.    % of enviro. irr              *","timestamp":1791514218052}
+{"sequence":271,"stream":"stdout","text":"*               0.848               0.152               0.000                 *","timestamp":1791514218052}
+{"sequence":272,"stream":"stdout","text":"*                       reflectance at satellite level                        *","timestamp":1791514218053}
+{"sequence":273,"stream":"stdout","text":"*     atm. intrin. ref.   background  ref.  pixel  reflectance                *","timestamp":1791514218053}
+{"sequence":274,"stream":"stdout","text":"*               0.041               0.000               0.000                 *","timestamp":1791514218054}
+{"sequence":275,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218054}
+{"sequence":276,"stream":"stdout","text":"*                         int. absolute values of                             *","timestamp":1791514218055}
+{"sequence":277,"stream":"stdout","text":"*                         -----------------------                             *","timestamp":1791514218055}
+{"sequence":278,"stream":"stdout","text":"*                      irr. at ground level (w/m2/mic)                        *","timestamp":1791514218056}
+{"sequence":279,"stream":"stdout","text":"*     direct solar irr.    atm. diffuse irr.    environment  irr              *","timestamp":1791514218056}
+{"sequence":280,"stream":"stdout","text":"*             553.913              98.969               0.000                 *","timestamp":1791514218057}
+{"sequence":281,"stream":"stdout","text":"*                      rad at satel. level (w/m2/sr/mic)                      *","timestamp":1791514218057}
+{"sequence":282,"stream":"stdout","text":"*     atm. intrin. rad.    background  rad.    pixel  radiance                *","timestamp":1791514218058}
+{"sequence":283,"stream":"stdout","text":"*              10.774               0.000               0.000                 *","timestamp":1791514218058}
+{"sequence":284,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218059}
+{"sequence":285,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218059}
+{"sequence":286,"stream":"stdout","text":"*                      sol. spect (in w/m2/mic)                               *","timestamp":1791514218060}
+{"sequence":287,"stream":"stdout","text":"*                                1720.219                                     *","timestamp":1791514218060}
+{"sequence":288,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218061}
+{"sequence":289,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514218061}
+{"sequence":290,"stream":"stdout","text":" ","timestamp":1791514218062}
+{"sequence":291,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514218062}
+{"sequence":292,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218063}
+{"sequence":293,"stream":"stdout","text":"*                          integrated values of  :                            *","timestamp":1791514218063}
+{"sequence":294,"stream":"stdout","text":"*                          --------------------                               *","timestamp":1791514218064}
+{"sequence":295,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218064}
+{"sequence":296,"stream":"stdout","text":"*                             downward        upward          total           *","timestamp":1791514218065}
+{"sequence":297,"stream":"stdout","text":"*      global gas. trans. :     0.92342        0.95423        0.88159         *","timestamp":1791514218066}
+{"sequence":298,"stream":"stdout","text":"*      water   \"     \"    :     0.98995        0.99398        0.98448         *","timestamp":1791514218066}
+{"sequence":299,"stream":"stdout","text":"*      ozone   \"     \"    :     0.93280        0.96001        0.89549         *","timestamp":1791514218066}
+{"sequence":300,"stream":"stdout","text":"*      co2     \"     \"    :     1.00000        1.00000        1.00000         *","timestamp":1791514218067}
+{"sequence":301,"stream":"stdout","text":"*      oxyg    \"     \"    :     1.00000        1.00000        1.00000         *","timestamp":1791514218068}
+{"sequence":302,"stream":"stdout","text":"*      no2     \"     \"    :     1.00000        1.00000        1.00000         *","timestamp":1791514218068}
+{"sequence":303,"stream":"stdout","text":"*      ch4     \"     \"    :     1.00000        1.00000        1.00000         *","timestamp":1791514218071}
+{"sequence":304,"stream":"stdout","text":"*      co      \"     \"    :     1.00000        1.00000        1.00000         *","timestamp":1791514218077}
+{"sequence":305,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218089}
+{"sequence":306,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218099}
+{"sequence":307,"stream":"stdout","text":"*      rayl.  sca. trans. :     0.94574        0.96742        0.91493         *","timestamp":1791514218102}
+{"sequence":308,"stream":"stdout","text":"*      aeros. sca.   \"    :     0.90220        0.94822        0.85548         *","timestamp":1791514218107}
+{"sequence":309,"stream":"stdout","text":"*      total  sca.   \"    :     0.85315        0.91584        0.78135         *","timestamp":1791514218112}
+{"sequence":310,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218118}
+{"sequence":311,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218124}
+{"sequence":312,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218130}
+{"sequence":313,"stream":"stdout","text":"*                             rayleigh       aerosols         total           *","timestamp":1791514218136}
+{"sequence":314,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218142}
+{"sequence":315,"stream":"stdout","text":"*      spherical albedo   :     0.04928        0.02679        0.06490         *","timestamp":1791514218149}
+{"sequence":316,"stream":"stdout","text":"*      optical depth total:     0.05505        0.10066        0.15570         *","timestamp":1791514218158}
+{"sequence":317,"stream":"stdout","text":"*      optical depth plane:     0.05505        0.10066        0.15570         *","timestamp":1791514218165}
+{"sequence":318,"stream":"stdout","text":"*      reflectance I      :     0.03580        0.00972        0.04577         *","timestamp":1791514218173}
+{"sequence":319,"stream":"stdout","text":"*      reflectance Q      :     0.01593        0.00176        0.01747         *","timestamp":1791514218183}
+{"sequence":320,"stream":"stdout","text":"*      reflectance U      :     0.00027        0.00000        0.00040         *","timestamp":1791514218195}
+{"sequence":321,"stream":"stdout","text":"*      polarized reflect. :     0.01593        0.00176        0.01747         *","timestamp":1791514218208}
+{"sequence":322,"stream":"stdout","text":"*      degree of polar.   :       44.49          18.10          38.18         *","timestamp":1791514218219}
+{"sequence":323,"stream":"stdout","text":"*      dir. plane polar.  :        0.48           0.00           0.66         *","timestamp":1791514218233}
+{"sequence":324,"stream":"stdout","text":"*      phase function I   :     1.01626        0.21225        0.49650         *","timestamp":1791514218244}
+{"sequence":325,"stream":"stdout","text":"*      phase function Q   :    -0.46310       -0.03856       -0.18865         *","timestamp":1791514218254}
+{"sequence":326,"stream":"stdout","text":"*      phase function U   :    -0.85798       -0.05123       -0.33645         *","timestamp":1791514218260}
+{"sequence":327,"stream":"stdout","text":"*      primary deg. of pol:    -0.45569       -0.18167       -0.37996         *","timestamp":1791514218264}
+{"sequence":328,"stream":"stdout","text":"*      sing. scat. albedo :     1.00000        0.68048        0.79344         *","timestamp":1791514218265}
+{"sequence":329,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218265}
+{"sequence":330,"stream":"stdout","text":"*                                                                             *","timestamp":1791514218266}
+{"sequence":331,"stream":"stdout","text":"*******************************************************************************","timestamp":1791514218266}
+{"sequence":332,"stream":"stdout","text":"Atmospheric intrinsic reflectance(s):","timestamp":1791514245617}
+{"sequence":333,"stream":"stdout","text":"   wavelength  atmospheric intrinsic reflectance","timestamp":1791514245618}
+{"sequence":334,"stream":"stdout","text":"0       0.627                              0.041","timestamp":1791514245619}
+{"sequence":335,"stream":"stdout","text":"---------------------------------------------","timestamp":1791514245620}
+{"sequence":336,"stream":"stdout","text":"Calculating boa_reflectance for input image...","timestamp":1791514245620}
+{"sequence":337,"stream":"stdout","text":"Size of input image: 39936 43008","timestamp":1791514245621}
+{"sequence":338,"stream":"stdout","text":"Processing tile: 1 of 39","timestamp":1791514245621}
+{"sequence":339,"stream":"stdout","text":"Processing tile: 2 of 39","timestamp":1791514245622}
+{"sequence":340,"stream":"stdout","text":"Processing tile: 3 of 39","timestamp":1791514245622}
+{"sequence":341,"stream":"stdout","text":"Processing tile: 4 of 39","timestamp":1791514245623}
+{"sequence":342,"stream":"stdout","text":"Processing tile: 5 of 39","timestamp":1791514245623}
+{"sequence":343,"stream":"stdout","text":"Processing tile: 6 of 39","timestamp":1791514245624}
+{"sequence":344,"stream":"stdout","text":"Processing tile: 7 of 39","timestamp":1791514245624}
+{"sequence":345,"stream":"stdout","text":"Processing tile: 8 of 39","timestamp":1791514245625}
+{"sequence":346,"stream":"stdout","text":"Processing tile: 9 of 39","timestamp":1791514245625}
+{"sequence":347,"stream":"stdout","text":"Processing tile: 10 of 39","timestamp":1791514245626}
+{"sequence":348,"stream":"stdout","text":"Processing tile: 11 of 39","timestamp":1791514245626}
+{"sequence":349,"stream":"stdout","text":"Processing tile: 12 of 39","timestamp":1791514245627}
+{"sequence":350,"stream":"stdout","text":"Processing tile: 13 of 39","timestamp":1791514245627}
+{"sequence":351,"stream":"stdout","text":"Processing tile: 14 of 39","timestamp":1791514245627}
+{"sequence":352,"stream":"stdout","text":"Processing tile: 15 of 39","timestamp":1791514245628}
+{"sequence":353,"stream":"stdout","text":"Processing tile: 16 of 39","timestamp":1791514245628}
+{"sequence":354,"stream":"stdout","text":"Processing tile: 17 of 39","timestamp":1791514245629}
+{"sequence":355,"stream":"stdout","text":"Processing tile: 18 of 39","timestamp":1791514245629}
+{"sequence":356,"stream":"stdout","text":"Processing tile: 19 of 39","timestamp":1791514245630}
+{"sequence":357,"stream":"stdout","text":"Processing tile: 20 of 39","timestamp":1791514245630}
+{"sequence":358,"stream":"stdout","text":"Processing tile: 21 of 39","timestamp":1791514245631}
+{"sequence":359,"stream":"stdout","text":"Processing tile: 22 of 39","timestamp":1791514245631}
+{"sequence":360,"stream":"stdout","text":"Processing tile: 23 of 39","timestamp":1791514245632}
+{"sequence":361,"stream":"stdout","text":"Processing tile: 24 of 39","timestamp":1791514245632}
+{"sequence":362,"stream":"stdout","text":"Processing tile: 25 of 39","timestamp":1791514245633}
+{"sequence":363,"stream":"stdout","text":"Processing tile: 26 of 39","timestamp":1791514245633}
+{"sequence":364,"stream":"stdout","text":"Processing tile: 27 of 39","timestamp":1791514245633}
+{"sequence":365,"stream":"stdout","text":"Processing tile: 28 of 39","timestamp":1791514245634}
+{"sequence":366,"stream":"stdout","text":"Processing tile: 29 of 39","timestamp":1791514245634}
+{"sequence":367,"stream":"stdout","text":"Processing tile: 30 of 39","timestamp":1791514245635}
+{"sequence":368,"stream":"stdout","text":"Processing tile: 31 of 39","timestamp":1791514245635}
+{"sequence":369,"stream":"stdout","text":"Processing tile: 32 of 39","timestamp":1791514245636}
+{"sequence":370,"stream":"stdout","text":"Processing tile: 33 of 39","timestamp":1791514245636}
+{"sequence":371,"stream":"stdout","text":"Processing tile: 34 of 39","timestamp":1791514245637}
+{"sequence":372,"stream":"stdout","text":"Processing tile: 35 of 39","timestamp":1791514245637}
+{"sequence":373,"stream":"stdout","text":"Processing tile: 36 of 39","timestamp":1791514245638}
+{"sequence":374,"stream":"stdout","text":"Processing tile: 37 of 39","timestamp":1791514245638}
+{"sequence":375,"stream":"stdout","text":"Processing tile: 38 of 39","timestamp":1791514245639}
+{"sequence":376,"stream":"stdout","text":"Processing tile: 39 of 39","timestamp":1791514245639}
+{"sequence":377,"stream":"stdout","text":"Reflectance image saved to: /measurement/work/1-wv03-large-high-mid-module-a-p-o-run-0/artifacts/wv3lhm_image_P001_PIPE/output_MODA/output_MODA_PAN/22FEB06020111-P1BS-507761489060_01_P001_MODA.TIF","timestamp":1791514245640}
+{"sequence":378,"stream":"stdout","text":"---------------------------------------------","timestamp":1791514245640}
+{"sequence":379,"stream":"stdout","text":"Total atmospheric correction processing time: 37.79 seconds","timestamp":1791514245705}

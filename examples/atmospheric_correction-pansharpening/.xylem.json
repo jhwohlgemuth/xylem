@@ -1,0 +1,98 @@
+{
+    "version": "0.0.9",
+    "description": "Measured two-input atmospheric correction and pansharpening workflow",
+    "requirements": [
+        "python",
+        "conda"
+    ],
+    "keywords": [],
+    "input": "/data/test-cases",
+    "output": "/data/output",
+    "variables": {
+        "OUTPUT_ROOT": "/data/output"
+    },
+    "options": {
+        "batch": 2,
+        "memory": {
+            "budget": "72GB",
+            "estimator": {
+                "identity": "module-a-p-v2",
+                "intercept": "8870450.595703125KB",
+                "maximum_input": "2528244.37109375KB",
+                "minimum_input": "517436.05078125KB",
+                "safety_millionths": 1150000,
+                "slope_millionths": 23320131
+            }
+        }
+    },
+    "modules": [
+        {
+            "name": "Module A (local)",
+            "type": "script",
+            "programmingLanguage": "python",
+            "uri": "file:///path/to/module-a",
+            "completion": {
+                "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/module-a.json",
+                "outputs": ["{{ OUTPUT_DIRECTORY }}/*_MODA.tif"]
+            },
+            "variables": {
+                "METHOD": "boa_reflectance",
+                "OUTPUT_DIRECTORY": "{{ OUTPUT_ROOT }}/{{ PARENT_DIRECTORY }}",
+                "PROFILE": "urban"
+            },
+            "template": {
+                "command": "python",
+                "environment": {
+                    "name": "module-a",
+                    "manager": "conda"
+                },
+                "arguments": [
+                    "-m",
+                    "lib",
+                    "--input_directory",
+                    "{{ INPUT }}",
+                    "--output_directory",
+                    "{{ OUTPUT_DIRECTORY }}",
+                    "--method",
+                    "{{ METHOD }}",
+                    "--profile",
+                    "{{ PROFILE }}"
+                ]
+            }
+        },
+        {
+            "name": "Module P (local)",
+            "type": "script",
+            "programmingLanguage": "python",
+            "uri": "file:///path/to/module-p",
+            "completion": {
+                "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/module-p.json",
+                "outputs": ["{{ OUTPUT_DIRECTORY }}/*_MODA_MODP.tif"]
+            },
+            "variables": {
+                "METHOD": "nn_diffuse",
+                "OUTPUT_DIRECTORY": "{{ OUTPUT_ROOT }}/{{ PARENT_DIRECTORY }}",
+                "SOURCE_DIRECTORY": "{{ OUTPUT_DIRECTORY }}"
+            },
+            "template": {
+                "command": "python",
+                "environment": {
+                    "name": "module-p",
+                    "manager": "conda"
+                },
+                "arguments": [
+                    "-m",
+                    "lib",
+                    "--source_directory",
+                    "{{ SOURCE_DIRECTORY }}",
+                    "--output_directory",
+                    "{{ OUTPUT_DIRECTORY }}",
+                    "--method",
+                    "{{ METHOD }}",
+                    "--module_list",
+                    "{{ MODULE_LIST }}"
+                ]
+            }
+        }
+    ]
+}

@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "2625ab0d46e187d0471e6b1f33531c3a5de0fb22f839b4f21c30e0a35d683b42",
+  "configuration_path": "/measurement/work/1-baseline-module-a-p-o-run-4/config.json",
+  "journal_schema_version": 9,
+  "process_id": 31,
+  "run_id": "Z1awHqVEcU",
+  "started_at": 1791502414245,
+  "threads": 1
+}

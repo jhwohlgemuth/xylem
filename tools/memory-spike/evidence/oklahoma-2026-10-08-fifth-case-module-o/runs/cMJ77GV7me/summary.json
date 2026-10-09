@@ -1,0 +1,67 @@
+{
+  "schema_version": 9,
+  "run_id": "cMJ77GV7me",
+  "configuration": {
+    "path": "/measurement/work/1-ge01-medium-low-mid-module-a-p-o-run-4/config.json",
+    "id": "memory-spike-module-a-p-o",
+    "version": "1.0.3"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "mode": "off"
+  },
+  "started_at": 1791504754324,
+  "finished_at": 1791505219384,
+  "duration": 465060,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": "/workload/corpus/test-case-GE01-medium-low-mid",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791504754329,
+      "updated_at": 1791505219381,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791504754331,
+          "updated_at": 1791504774790
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791504774792,
+          "updated_at": 1791504909862
+        },
+        {
+          "index": 2,
+          "name": "Module O",
+          "module_path": [
+            "Module O"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791504909864,
+          "updated_at": 1791505219380
+        }
+      ]
+    }
+  ],
+  "memory": null
+}

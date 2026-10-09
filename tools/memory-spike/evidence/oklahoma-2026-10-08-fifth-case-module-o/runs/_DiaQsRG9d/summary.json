@@ -1,0 +1,67 @@
+{
+  "schema_version": 9,
+  "run_id": "_DiaQsRG9d",
+  "configuration": {
+    "path": "/measurement/work/1-wv02-large-low-mid-module-a-p-o-run-1/config.json",
+    "id": "memory-spike-module-a-p-o",
+    "version": "1.0.3"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "mode": "off"
+  },
+  "started_at": 1791510158310,
+  "finished_at": 1791510930592,
+  "duration": 772282,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": "/workload/corpus/test-case-wv02-large-low-mid",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791510158317,
+      "updated_at": 1791510930558,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791510158319,
+          "updated_at": 1791510210303
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791510210305,
+          "updated_at": 1791510593084
+        },
+        {
+          "index": 2,
+          "name": "Module O",
+          "module_path": [
+            "Module O"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791510593086,
+          "updated_at": 1791510930557
+        }
+      ]
+    }
+  ],
+  "memory": null
+}

@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "beef4217a1726b6b481221146664d906760b161f5acb292b836eb54a694c7b16",
+  "configuration_path": "/measurement/work/1-wv03-large-mid-low-module-a-p-o-run-4/config.json",
+  "journal_schema_version": 9,
+  "process_id": 86496,
+  "run_id": "MpPj4vGlkA",
+  "started_at": 1791523481192,
+  "threads": 1
+}

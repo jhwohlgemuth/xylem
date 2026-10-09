@@ -1,0 +1,56 @@
+{
+  "schema_version": 9,
+  "run_id": "Rrcpt1LKNR",
+  "configuration": {
+    "path": "/measurement/work/1-wv03-large-mid-low-run-4/config.json",
+    "id": "memory-spike-module-a-p",
+    "version": "1.0.3"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "mode": "off"
+  },
+  "started_at": 1791561911461,
+  "finished_at": 1791562213510,
+  "duration": 302049,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": "/workload/corpus/test-case-wv03-large-mid-low",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791561911466,
+      "updated_at": 1791562213454,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791561911468,
+          "updated_at": 1791561954556
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791561954558,
+          "updated_at": 1791562213453
+        }
+      ]
+    }
+  ],
+  "memory": null
+}

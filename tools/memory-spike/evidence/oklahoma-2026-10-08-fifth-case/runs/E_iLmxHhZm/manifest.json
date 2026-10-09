@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "958741b5b633883018d97a5ae7a8420e2dcb466e648184a5623e9332316e3ec9",
+  "configuration_path": "/measurement/work/1-baseline-warmup-0/config.json",
+  "journal_schema_version": 9,
+  "process_id": 11,
+  "run_id": "E_iLmxHhZm",
+  "started_at": 1791491605185,
+  "threads": 1
+}

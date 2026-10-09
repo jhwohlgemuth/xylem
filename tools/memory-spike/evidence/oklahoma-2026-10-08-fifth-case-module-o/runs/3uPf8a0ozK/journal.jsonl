@@ -1,0 +1,6 @@
+{"schema_version":9,"sequence":0,"timestamp":1791502414176,"run_id":"3uPf8a0ozK","event":"run_started","metadata":{"run_id":"3uPf8a0ozK","configuration":{"path":"/measurement/work/1-baseline-module-a-p-o-run-3/config.json","id":"memory-spike-baseline","version":"1.0.3"},"dry_run":false,"sandbox":{"mode":"off"},"started_at":1791502414176}}
+{"schema_version":9,"sequence":1,"timestamp":1791502414177,"run_id":"3uPf8a0ozK","event":"input_state","input":{"index":0,"input_id":"input-000000"},"state":"not_started"}
+{"schema_version":9,"sequence":2,"timestamp":1791502414178,"run_id":"3uPf8a0ozK","event":"input_state","input":{"index":0,"input_id":"input-000000"},"state":"pending"}
+{"schema_version":9,"sequence":3,"timestamp":1791502414178,"run_id":"3uPf8a0ozK","event":"input_state","input":{"index":0,"input_id":"input-000000"},"state":"running"}
+{"schema_version":9,"sequence":4,"timestamp":1791502414179,"run_id":"3uPf8a0ozK","event":"input_state","input":{"index":0,"input_id":"input-000000"},"state":"skipped_existing"}
+{"schema_version":9,"sequence":5,"timestamp":1791502414181,"run_id":"3uPf8a0ozK","event":"run_finished","status":"succeeded"}

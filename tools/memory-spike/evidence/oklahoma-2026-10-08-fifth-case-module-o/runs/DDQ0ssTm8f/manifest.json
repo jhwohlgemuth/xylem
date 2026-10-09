@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "510140e45f6e394a3a68ad176f07ffdefe2bd4a06afa92be8ffbf67d3939b850",
+  "configuration_path": "/measurement/work/1-wv02-concurrent-holdout-module-a-p-o-warmup-0/config.json",
+  "journal_schema_version": 9,
+  "process_id": 88877,
+  "run_id": "DDQ0ssTm8f",
+  "started_at": 1791524391221,
+  "threads": 2
+}

@@ -1,0 +1,40 @@
+{"sequence":0,"stream":"stdout","text":"Found 1 pair(s) of MUL and PAN images.","timestamp":1791503842594}
+{"sequence":1,"stream":"stdout","text":"Using max_pool = 4 and num_workers = 1 ","timestamp":1791503842596}
+{"sequence":2,"stream":"stdout","text":"Loading PAN image: /measurement/work/1-ge01-medium-low-mid-module-a-p-o-run-2/artifacts/geomlm_image_P001_PIPE/output_MODA/output_MODA_PAN/23JUN06085307-P1BS-507563639090_01_P001_MODA.TIF","timestamp":1791503977870}
+{"sequence":3,"stream":"stdout","text":"Loading MUL image: /measurement/work/1-ge01-medium-low-mid-module-a-p-o-run-2/artifacts/geomlm_image_P001_PIPE/output_MODA/output_MODA_MUL/23JUN06085307-M1BS-507563639090_01_P001_MODA.TIF","timestamp":1791503977872}
+{"sequence":4,"stream":"stdout","text":"Have images and RPCs loaded...","timestamp":1791503977873}
+{"sequence":5,"stream":"stdout","text":"Size of panchromatic image: (1, 22528, 37888)","timestamp":1791503977873}
+{"sequence":6,"stream":"stdout","text":"Size of multispectral image: (4, 6144, 10240)","timestamp":1791503977874}
+{"sequence":7,"stream":"stdout","text":"Computing transformation between images...","timestamp":1791503977875}
+{"sequence":8,"stream":"stdout","text":"Downsampling PAN to align with MUL...","timestamp":1791503977875}
+{"sequence":9,"stream":"stdout","text":"Downsampled (aligned) PAN Image Shape: ","timestamp":1791503977875}
+{"sequence":10,"stream":"stdout","text":" (1, 6144, 10240)","timestamp":1791503977876}
+{"sequence":11,"stream":"stdout","text":"Calculating spectral band contributions (T)...","timestamp":1791503977876}
+{"sequence":12,"stream":"stdout","text":"Spectral band contributions (T): [-0.39433753  1.0011522   0.21837737  0.17480822]","timestamp":1791503977877}
+{"sequence":13,"stream":"stdout","text":"Generating and saving pansharpened image...","timestamp":1791503977877}
+{"sequence":14,"stream":"stdout","text":"Dynamic chunk size: 1024","timestamp":1791503977878}
+{"sequence":15,"stream":"stdout","text":"Calculating spatial weights and offsets...","timestamp":1791503977878}
+{"sequence":16,"stream":"stdout","text":"Processing tile: 1 of 22","timestamp":1791503977879}
+{"sequence":17,"stream":"stdout","text":"Processing tile: 2 of 22","timestamp":1791503977879}
+{"sequence":18,"stream":"stdout","text":"Processing tile: 3 of 22","timestamp":1791503977880}
+{"sequence":19,"stream":"stdout","text":"Processing tile: 4 of 22","timestamp":1791503977880}
+{"sequence":20,"stream":"stdout","text":"Processing tile: 5 of 22","timestamp":1791503977881}
+{"sequence":21,"stream":"stdout","text":"Processing tile: 6 of 22","timestamp":1791503977881}
+{"sequence":22,"stream":"stdout","text":"Processing tile: 7 of 22","timestamp":1791503977882}
+{"sequence":23,"stream":"stdout","text":"Processing tile: 8 of 22","timestamp":1791503977882}
+{"sequence":24,"stream":"stdout","text":"Processing tile: 9 of 22","timestamp":1791503977883}
+{"sequence":25,"stream":"stdout","text":"Processing tile: 10 of 22","timestamp":1791503977883}
+{"sequence":26,"stream":"stdout","text":"Processing tile: 11 of 22","timestamp":1791503977884}
+{"sequence":27,"stream":"stdout","text":"Processing tile: 12 of 22","timestamp":1791503977884}
+{"sequence":28,"stream":"stdout","text":"Processing tile: 13 of 22","timestamp":1791503977885}
+{"sequence":29,"stream":"stdout","text":"Processing tile: 14 of 22","timestamp":1791503977885}
+{"sequence":30,"stream":"stdout","text":"Processing tile: 15 of 22","timestamp":1791503977886}
+{"sequence":31,"stream":"stdout","text":"Processing tile: 16 of 22","timestamp":1791503977886}
+{"sequence":32,"stream":"stdout","text":"Processing tile: 17 of 22","timestamp":1791503977886}
+{"sequence":33,"stream":"stdout","text":"Processing tile: 18 of 22","timestamp":1791503977887}
+{"sequence":34,"stream":"stdout","text":"Processing tile: 19 of 22","timestamp":1791503977888}
+{"sequence":35,"stream":"stdout","text":"Processing tile: 20 of 22","timestamp":1791503977888}
+{"sequence":36,"stream":"stdout","text":"Processing tile: 21 of 22","timestamp":1791503977888}
+{"sequence":37,"stream":"stdout","text":"Processing tile: 22 of 22","timestamp":1791503977889}
+{"sequence":38,"stream":"stdout","text":"Have pansharpened image! (HM) ","timestamp":1791503977890}
+{"sequence":39,"stream":"stdout","text":"Total pansharpening processing time: 135.34 seconds","timestamp":1791503977933}

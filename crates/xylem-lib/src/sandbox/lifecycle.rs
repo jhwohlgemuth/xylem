@@ -29,6 +29,8 @@
 //! ```
 extern crate alloc;
 
+#[cfg(target_os = "linux")]
+use super::memory;
 use super::{
     archive, private, rewrite_path, validate_granted_path, validate_mount_separation, EffectiveSandboxPolicy, OciSandboxSession, PreparationNetwork,
     Prepared, PreparedSandboxBackend, Requested, SandboxError, SandboxInput, SandboxPreparation, SandboxResources,
@@ -40,6 +42,7 @@ use acorn_cmd::{args, CommandError, CommandSpec, ExecutionOptions, ExecutionResu
 use acorn_core::util::Checksum;
 use acorn_core::Location;
 use acorn_host::fs::file_checksum;
+use acorn_schema::hardware::Memory;
 use acorn_schema::validation::Validate;
 use alloc::collections::BTreeSet;
 use alloc::sync::Arc;
@@ -530,6 +533,34 @@ impl OciPreparedInput {
             ]
         })
     }
+    #[cfg(target_os = "linux")]
+    fn process_id(&self) -> Result<u32, SandboxError> {
+        self.policy.runtime().and_then(|runtime| {
+            Command::new(runtime.to_string())
+                .args(["inspect", "--format", "{{.State.Pid}}", &self.container_name])
+                .output()
+                .map_err(|why| SandboxError::Runtime(format!("inspect sandbox input {}: {why}", self.container_name)))
+                .and_then(|output| match output.status.success() {
+                    | true => String::from_utf8(output.stdout)
+                        .map_err(|why| SandboxError::Runtime(format!("decode sandbox input {} process id: {why}", self.container_name)))
+                        .and_then(|value| {
+                            value
+                                .trim()
+                                .parse::<u32>()
+                                .map_err(|why| SandboxError::Runtime(format!("parse sandbox input {} process id: {why}", self.container_name)))
+                        })
+                        .and_then(|process_id| match process_id {
+                            | 0 => Err(SandboxError::Runtime(format!("sandbox input {} is not running", self.container_name))),
+                            | process_id => Ok(process_id),
+                        }),
+                    | false => Err(SandboxError::Runtime(format!(
+                        "inspect sandbox input {}: {}",
+                        self.container_name,
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ))),
+                })
+        })
+    }
 }
 impl PreparedSandboxBackend for OciPreparedInput {
     fn execute(&self, script: &Script, module_index: usize, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError> {
@@ -555,9 +586,6 @@ impl PreparedSandboxBackend for OciPreparedInput {
                             .map_err(|source| script.sandbox_process_error(&working_directory, source))
                     })
             })
-            .inspect_err(|_| {
-                let _ = self.finish(false);
-            })
     }
     fn finish(&self, succeeded: bool) -> Result<(), SandboxError> {
         match self.finished.swap(true, Ordering::AcqRel) {
@@ -572,6 +600,17 @@ impl PreparedSandboxBackend for OciPreparedInput {
                     | (Ok(()), Err(workspace)) => Err(workspace),
                 }
             }
+        }
+    }
+    fn observed_memory_peak(&self) -> Result<Option<Memory>, SandboxError> {
+        #[cfg(target_os = "linux")]
+        {
+            self.process_id()
+                .and_then(|process_id| memory::observed_peak(process_id).map_err(SandboxError::Runtime))
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Ok(None)
         }
     }
     fn prepared_config(&self) -> &Config {

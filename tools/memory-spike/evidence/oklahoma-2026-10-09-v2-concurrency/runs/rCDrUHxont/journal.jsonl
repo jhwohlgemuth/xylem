@@ -1,0 +1,6 @@
+{"schema_version":9,"sequence":0,"timestamp":1791553795913,"run_id":"rCDrUHxont","event":"run_started","metadata":{"run_id":"rCDrUHxont","configuration":{"path":"/measurement/work/1-baseline-warmup-0/config.json","id":"memory-spike-baseline","version":"1.0.3"},"dry_run":false,"sandbox":{"mode":"off"},"started_at":1791553795913}}
+{"schema_version":9,"sequence":1,"timestamp":1791553795914,"run_id":"rCDrUHxont","event":"input_state","input":{"index":0,"input_id":"input-000000"},"state":"not_started"}
+{"schema_version":9,"sequence":2,"timestamp":1791553795915,"run_id":"rCDrUHxont","event":"input_state","input":{"index":0,"input_id":"input-000000"},"state":"pending"}
+{"schema_version":9,"sequence":3,"timestamp":1791553795916,"run_id":"rCDrUHxont","event":"input_state","input":{"index":0,"input_id":"input-000000"},"state":"running"}
+{"schema_version":9,"sequence":4,"timestamp":1791553795916,"run_id":"rCDrUHxont","event":"input_state","input":{"index":0,"input_id":"input-000000"},"state":"skipped_existing"}
+{"schema_version":9,"sequence":5,"timestamp":1791553795920,"run_id":"rCDrUHxont","event":"run_finished","status":"succeeded"}

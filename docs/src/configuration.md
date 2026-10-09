@@ -91,6 +91,29 @@ The reproducible baseline runner is published to
 references for operator policy. Custom workloads remain supported when they
 satisfy the same metadata and bootstrap contract.
 
+Before running native conformance, pull the exact digest and run the checked-in
+preflight with the runtime, workload, and required available bytes:
+
+```bash
+docker pull "$XYLEM_SANDBOX_WORKLOAD"
+sh scripts/check-rootless-sandbox.sh \
+  docker \
+  "$XYLEM_SANDBOX_WORKLOAD" \
+  1073741824
+```
+
+The preflight rejects non-Linux and non-x86_64 hosts, rootful or remote
+runtimes, non-v2 cgroups, an unavailable memory controller, insufficient
+available memory, noncanonical workload references, non-amd64 images, and a
+runtime that cannot enforce a memory limit. Use `podman` as the first argument
+for the Podman provider.
+
+Set `XYLEM_SANDBOX_EVIDENCE_DIR` when running the ignored native conformance
+test to retain deterministic `<runtime>-summary.json` and
+`<runtime>-journal.jsonl` files outside its temporary fixture. The GitLab
+Docker and Podman conformance jobs set this automatically and upload those
+files even when a job fails after creating them.
+
 The OCI lifecycle uses a separate preparation container and execution
 container for every admitted input. Preparation verifies workflow requirements
 inside the pinned workload and supports local or HTTP(S) generic scripts,
@@ -113,6 +136,13 @@ memory limits do not alter the scheduler's independent memory estimate.
 Nested-configuration, application-container, GPU, completion-marker, and
 artifact-publication features fail closed in sandbox mode while their existing
 host behavior remains available when sandboxing is disabled.
+
+The A/P-specific workload under `sandbox/runner/ap/` contains the dependency
+set used by the measured imagery workflow. It does not make the current A/P
+memory estimator sandbox-compatible: execution writes are presently backed by
+tmpfs, so multi-gigabyte imagery products would be charged to cgroup memory.
+A bounded disk-backed private output path is required before comparing a
+sandboxed A/P peak with the disk-output calibration.
 
 Explicit input lists preserve their declared order and duplicate values keep
 their first occurrence. Directory-derived inputs are sorted by path. CLI
@@ -146,6 +176,29 @@ fixed reservation for any module combination. Xylem validates the model's
 values and arithmetic, but the workflow author remains responsible for
 calibrating it for the configured modules and inputs.
 
+For example, the measured `module-a-p-v2` input-byte model supports two-way
+admission for the pinned Module A then Module P workflow over its calibrated
+529,854,516–2,588,922,236-byte input range:
+
+```yaml
+options:
+  batch: 2
+  memory:
+    budget: 72GB
+    estimator:
+      identity: module-a-p-v2
+      intercept: 8870450.595703125KB
+      maximum_input: 2528244.37109375KB
+      minimum_input: 517436.05078125KB
+      safety_millionths: 1150000
+      slope_millionths: 23320131
+```
+
+The two measured holdouts reserve 28,634,438,485 and 41,120,796,343 bytes,
+so both fit concurrently within this budget. Reuse this model only for the
+measured module revisions and order; a different workflow needs its own
+identity and evidence.
+
 Execution-plan schema v10 records the budget, complete estimator, and one
 read-only sizing decision per resolved input. A regular file is sized by its
 logical length; a directory is sized as the checked sum of its recursively
@@ -159,6 +212,14 @@ and `options.batch` and `--threads` remain independent upper bounds. A
 reservation larger than the full budget is rejected before module work begins.
 Omitting `options.memory` preserves fixed batching without a warning. There is
 no CLI override or automatic host-memory detection.
+
+When a configured run also uses an OCI sandbox policy on Linux, Xylem attempts
+to record each input container's exact cgroup v2 `memory.peak` after execution
+and before cleanup. The observation is telemetry only: it does not change the
+reservation or admission decision. Unsupported platforms, host execution, and
+unavailable cgroup files leave the observed peak null and do not fail the
+workflow. Once collected, however, the peak must be written to the durable
+journal or the input is failed rather than silently losing evidence.
 
 ## CEL input selection
 

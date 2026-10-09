@@ -1,0 +1,33 @@
+{
+  "schema_version": 9,
+  "run_id": "3uPf8a0ozK",
+  "configuration": {
+    "path": "/measurement/work/1-baseline-module-a-p-o-run-3/config.json",
+    "id": "memory-spike-baseline",
+    "version": "1.0.3"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "mode": "off"
+  },
+  "started_at": 1791502414176,
+  "finished_at": 1791502414181,
+  "duration": 5,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": null,
+      "state": "skipped_existing",
+      "error": null,
+      "started_at": 1791502414178,
+      "updated_at": 1791502414179,
+      "modules": []
+    }
+  ],
+  "memory": null
+}

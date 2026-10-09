@@ -1,0 +1,94 @@
+{
+  "decision": "no_go",
+  "estimators": [
+    {
+      "baseline_bytes": 2248704,
+      "candidates": [
+        {
+          "accepted": false,
+          "bucket_training_peaks": {},
+          "extrapolations": 1,
+          "feature_maximum": 4357881856,
+          "feature_minimum": 2210398208,
+          "intercept": 1586290044.0,
+          "maximum_underprediction_bytes": 0,
+          "mean_absolute_error_bytes": 2583810048.0,
+          "median_reservation_reduction": 0.6170403784705618,
+          "mix_underpredictions": 1,
+          "model": "decoded_bytes",
+          "p95_overreservation_bytes": 2583810048,
+          "safety_multiplier": 1.1,
+          "slope": 7.960524559020996,
+          "underpredictions": 0
+        },
+        {
+          "accepted": false,
+          "bucket_training_peaks": {},
+          "extrapolations": 1,
+          "feature_maximum": 1143813163,
+          "feature_minimum": 529854516,
+          "intercept": 3753780717.733986,
+          "maximum_underprediction_bytes": 0,
+          "mean_absolute_error_bytes": 2540818432.0,
+          "median_reservation_reduction": 0.6176660048196356,
+          "mix_underpredictions": 1,
+          "model": "input_bytes",
+          "p95_overreservation_bytes": 2540818432,
+          "safety_multiplier": 1.1,
+          "slope": 29.6813383468485,
+          "underpredictions": 0
+        },
+        {
+          "accepted": false,
+          "bucket_training_peaks": {
+            "536870912": 19182219264,
+            "1073741824": 36277997568,
+            "2147483648": 36276633600
+          },
+          "extrapolations": 1,
+          "feature_maximum": 1143813163,
+          "feature_minimum": 529854516,
+          "intercept": 0.0,
+          "maximum_underprediction_bytes": 0,
+          "mean_absolute_error_bytes": 14360367104.0,
+          "median_reservation_reduction": 0.44566453636205794,
+          "mix_underpredictions": 1,
+          "model": "size_bucket",
+          "p95_overreservation_bytes": 14360367104,
+          "safety_multiplier": 1.05,
+          "slope": 0.0,
+          "underpredictions": 0
+        }
+      ],
+      "decision": "no_go",
+      "fixed_worst_case_bytes": 68717719552,
+      "key": "module-a-p-v1",
+      "modules": [
+        {
+          "name": "module-a",
+          "revision": "2396c36644a89170bde2da2f29a65a364b21338c",
+          "version": "unversioned"
+        },
+        {
+          "name": "module-p",
+          "revision": "a80b166736e8174171e398653fda925d3c124fae",
+          "version": "unversioned"
+        }
+      ],
+      "required_for_go": true,
+      "selected_model": null
+    }
+  ],
+  "host": {
+    "architecture": "x86_64",
+    "available_parallelism": 32,
+    "cgroup_version": 2,
+    "cpu_model": "13th Gen Intel(R) Core(TM) i9-13900K",
+    "kernel_release": "6.8.0-138-generic",
+    "page_size_bytes": 4096,
+    "total_memory_bytes": 134739816448,
+    "xylem_version": "xylem-cli 1.0.3"
+  },
+  "observation_schema_version": 1,
+  "schema_version": 1
+}

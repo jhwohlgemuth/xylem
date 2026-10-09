@@ -363,6 +363,7 @@ fn fake_provider_injects_each_lifecycle_failure() {
                         prepared.execute(&script, 0, &ExecutionOptions::new()).is_err(),
                         failure == FakeFailure::Execute
                     );
+                    assert_eq!(prepared.observed_memory_peak().expect("read optional peak"), None);
                     assert_eq!(prepared.finish(false).is_err(), failure == FakeFailure::InputFinish);
                 });
                 assert_eq!(

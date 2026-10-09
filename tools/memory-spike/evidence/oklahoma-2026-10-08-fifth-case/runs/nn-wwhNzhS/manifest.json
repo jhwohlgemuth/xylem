@@ -1,0 +1,10 @@
+{
+  "bundle_version": 1,
+  "configuration_digest": "2f630f135eea5a4402e92e2a84276770b3f12eb07fa6e1c5fa921ee1b8546a5e",
+  "configuration_path": "/measurement/work/1-wv02-medium-mid-high-run-1/config.json",
+  "journal_schema_version": 9,
+  "process_id": 10437,
+  "run_id": "nn-wwhNzhS",
+  "started_at": 1791492944091,
+  "threads": 1
+}

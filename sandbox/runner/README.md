@@ -22,3 +22,7 @@ The mandatory native rootless Docker and Podman conformance jobs consume the
 digest-pinned reference from the protected `XYLEM_SANDBOX_WORKLOAD` CI
 variable. Their dedicated Linux amd64 runners must expose the matching runtime
 and must not use a remote engine, Docker Desktop, or a Podman machine.
+
+The [`ap`](ap/) variant adds the pinned dependencies needed to prepare the
+measured Module A plus Module P workflow. It is a separate workload because the
+baseline conformance image deliberately remains small.

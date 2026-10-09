@@ -11,8 +11,11 @@ Examples are grouped by the dependencies they require:
   environments.
 - [`multi-module`](./multi-module/) and [`kitchensink`](./kitchensink/) exercise
   composed workflows and optional environment/container integrations.
-- The geospatial directories are deployment templates. Their `/data/...` inputs
-  and `file:///path/to/...` module URIs must be replaced before execution.
+- The [`atmospheric_correction-pansharpening`](./atmospheric_correction-pansharpening/)
+  deployment template includes the measured two-input A/P memory profile. The
+  other geospatial directories remain deployment templates. Their `/data/...`
+  inputs and `file:///path/to/...` module URIs must be replaced before
+  execution.
 - [`inception`](./inception/) demonstrates a pinned remote binary and therefore
   is not an offline example.
 
