@@ -58,7 +58,11 @@ image_architecture=$($runtime image inspect --format '{{.Architecture}}' "$workl
 [ "$image_architecture" = amd64 ] || fail "workload architecture is ${image_architecture}, expected amd64"
 # shellcheck disable=SC2016
 $runtime run \
+    --cap-drop ALL \
+    --cpus 1.000 \
     --entrypoint /bin/sh \
+    --init \
+    --ipc private \
     --memory 67108864 \
     --memory-swap 67108864 \
     --network none \
@@ -66,9 +70,11 @@ $runtime run \
     --pull never \
     --read-only \
     --rm \
+    --security-opt no-new-privileges \
+    --tmpfs /xylem/prepared:rw,nosuid,nodev,size=16777216,mode=1777 \
     --user 65532:65532 \
     "$workload" \
-    -c 'test -r /sys/fs/cgroup/cgroup.controllers && test -r /sys/fs/cgroup/memory.max && test "$(cat /sys/fs/cgroup/memory.max)" != max' \
+    -c 'test -r /sys/fs/cgroup/cgroup.controllers && test -r /sys/fs/cgroup/memory.max && test "$(cat /sys/fs/cgroup/memory.max)" != max && mkdir /xylem/prepared/probe' \
     >/dev/null
 
 printf 'rootless sandbox preflight: PASS runtime=%s workload=%s available_bytes=%s\n' "$runtime" "$workload" "$available_bytes"

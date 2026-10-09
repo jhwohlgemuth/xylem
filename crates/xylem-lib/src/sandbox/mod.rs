@@ -460,71 +460,77 @@ impl EffectiveSandboxPolicy {
     }
     /// Reject workflow features that cannot yet cross the OCI boundary safely.
     pub fn validate_workflow(&self, config: &Config, inputs: &[Option<String>]) -> Result<(), SandboxError> {
-        config.validate().map_err(|why| SandboxError::Validation(why.to_string())).and_then(|()| {
-            RemotePolicy::from_hosts(config.options.as_ref().and_then(|options| options.allowed.as_deref()))
-                .map_err(|why| SandboxError::Validation(format!("invalid remote module allowlist: {why}")))
-                .and_then(|remote_policy| {
-                    config
-                        .modules
-                        .iter()
-                        .map(|module| {
-                            module.sandbox_source().and_then(|location| match ModuleUri::from(&location) {
-                                | ModuleUri::File(path) => {
-                                    validate_granted_path(&path, &self.policy.paths.module_roots, "module").and_then(|module_source| {
-                                        validate_template_path(module, &module_source).and_then(|()| {
-                                            Script::from_module(module.clone(), None)
-                                                .map_err(|why| {
-                                                    SandboxError::Validation(format!(
-                                                        "module {} cannot be loaded for sandbox execution: {why}",
-                                                        module.name
-                                                    ))
-                                                })
-                                                .and_then(|script| script.validate().map_err(|why| SandboxError::Validation(why.to_string())))
-                                                .map(|()| Some(module_source))
+        let validation = config
+            .options
+            .clone()
+            .map_or_else(|| config.clone(), |options| config.clone().with_options(options.with_root(None)));
+        validation
+            .validate()
+            .map_err(|why| SandboxError::Validation(why.to_string()))
+            .and_then(|()| {
+                RemotePolicy::from_hosts(config.options.as_ref().and_then(|options| options.allowed.as_deref()))
+                    .map_err(|why| SandboxError::Validation(format!("invalid remote module allowlist: {why}")))
+                    .and_then(|remote_policy| {
+                        config
+                            .modules
+                            .iter()
+                            .map(|module| {
+                                module.sandbox_source().and_then(|location| match ModuleUri::from(&location) {
+                                    | ModuleUri::File(path) => {
+                                        validate_granted_path(&path, &self.policy.paths.module_roots, "module").and_then(|module_source| {
+                                            validate_template_path(module, &module_source).and_then(|()| {
+                                                Script::from_module(module.clone(), None)
+                                                    .map_err(|why| {
+                                                        SandboxError::Validation(format!(
+                                                            "module {} cannot be loaded for sandbox execution: {why}",
+                                                            module.name
+                                                        ))
+                                                    })
+                                                    .and_then(|script| script.validate().map_err(|why| SandboxError::Validation(why.to_string())))
+                                                    .map(|()| Some(module_source))
+                                            })
+                                        })
+                                    }
+                                    | ModuleUri::Url(url) => match (
+                                        config.options.as_ref().and_then(|options| options.offline).unwrap_or_default(),
+                                        self.policy.preparation_network,
+                                    ) {
+                                        | (true, _) => Err(SandboxError::Validation(format!(
+                                            "module {} remote source is unavailable in offline sandbox mode",
+                                            module.name
+                                        ))),
+                                        | (_, PreparationNetwork::Deny) => Err(SandboxError::Validation(format!(
+                                            "module {} requires preparation networking denied by sandbox policy",
+                                            module.name
+                                        ))),
+                                        | (false, PreparationNetwork::Unrestricted) => {
+                                            let url = url.to_string();
+                                            remote_policy.ensure_allowed(&url).map(|_| None).map_err(|why| {
+                                                SandboxError::Validation(format!("module {} remote source failed: {why}", module.name))
+                                            })
+                                        }
+                                    },
+                                    | ModuleUri::Unknown(value) => Err(SandboxError::Validation(format!(
+                                        "module {} has invalid sandbox source {value}",
+                                        module.name
+                                    ))),
+                                })
+                            })
+                            .collect::<Result<Vec<Option<PathBuf>>, _>>()
+                            .and_then(|modules| {
+                                inputs
+                                    .iter()
+                                    .flatten()
+                                    .map(|input| validate_granted_path(Path::new(input), &self.policy.paths.input_roots, "input"))
+                                    .collect::<Result<Vec<_>, _>>()
+                                    .and_then(|inputs| {
+                                        inputs.iter().try_for_each(|input| {
+                                            modules.iter().flatten().try_for_each(|module| validate_mount_separation(module, input))
                                         })
                                     })
-                                }
-                                | ModuleUri::Url(url) => match (
-                                    config.options.as_ref().and_then(|options| options.offline).unwrap_or_default(),
-                                    self.policy.preparation_network,
-                                ) {
-                                    | (true, _) => Err(SandboxError::Validation(format!(
-                                        "module {} remote source is unavailable in offline sandbox mode",
-                                        module.name
-                                    ))),
-                                    | (_, PreparationNetwork::Deny) => Err(SandboxError::Validation(format!(
-                                        "module {} requires preparation networking denied by sandbox policy",
-                                        module.name
-                                    ))),
-                                    | (false, PreparationNetwork::Unrestricted) => {
-                                        let url = url.to_string();
-                                        remote_policy
-                                            .ensure_allowed(&url)
-                                            .map(|_| None)
-                                            .map_err(|why| SandboxError::Validation(format!("module {} remote source failed: {why}", module.name)))
-                                    }
-                                },
-                                | ModuleUri::Unknown(value) => Err(SandboxError::Validation(format!(
-                                    "module {} has invalid sandbox source {value}",
-                                    module.name
-                                ))),
                             })
-                        })
-                        .collect::<Result<Vec<Option<PathBuf>>, _>>()
-                        .and_then(|modules| {
-                            inputs
-                                .iter()
-                                .flatten()
-                                .map(|input| validate_granted_path(Path::new(input), &self.policy.paths.input_roots, "input"))
-                                .collect::<Result<Vec<_>, _>>()
-                                .and_then(|inputs| {
-                                    inputs.iter().try_for_each(|input| {
-                                        modules.iter().flatten().try_for_each(|module| validate_mount_separation(module, input))
-                                    })
-                                })
-                        })
-                })
-        })
+                    })
+            })
     }
     /// Perform terminal cleanup for a named sandbox.
     fn cleanup(&self, container_name: &str, succeeded: bool) -> Result<(), SandboxError> {
@@ -586,7 +592,7 @@ impl EffectiveSandboxPolicy {
             "--read-only",
             "--cap-drop=ALL",
             "--security-opt=no-new-privileges",
-            "--ipc=none",
+            "--ipc=private",
             ("--pids-limit", resources.pids.to_string()),
             ("--memory", resources.memory_bytes.to_string()),
             ("--memory-swap", resources.memory_bytes.to_string()),

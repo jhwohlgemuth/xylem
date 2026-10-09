@@ -105,8 +105,9 @@ sh scripts/check-rootless-sandbox.sh \
 The preflight rejects non-Linux and non-x86_64 hosts, rootful or remote
 runtimes, non-v2 cgroups, an unavailable memory controller, insufficient
 available memory, noncanonical workload references, non-amd64 images, and a
-runtime that cannot enforce a memory limit. Use `podman` as the first argument
-for the Podman provider.
+runtime that cannot enforce the hardened private-IPC, CPU, memory, PID, and
+read-only-root contract or provide non-root-writable private preparation
+storage. Use `podman` as the first argument for the Podman provider.
 
 Set `XYLEM_SANDBOX_EVIDENCE_DIR` when running the ignored native conformance
 test to retain deterministic `<runtime>-summary.json` and

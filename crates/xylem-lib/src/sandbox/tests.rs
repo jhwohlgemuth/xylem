@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::ConfigOptions;
 use crate::script::Command;
 use acorn_cmd::args;
 use alloc::sync::Arc;
@@ -216,7 +217,7 @@ fn invocation(policy: &EffectiveSandboxPolicy, script: &Script, container_name: 
                 "--read-only",
                 "--cap-drop=ALL",
                 "--security-opt=no-new-privileges",
-                "--ipc=none",
+                "--ipc=private",
                 ("--pids-limit", resources.pids.to_string()),
                 ("--memory", resources.memory_bytes.to_string()),
                 ("--memory-swap", resources.memory_bytes.to_string()),
@@ -584,6 +585,31 @@ fn sandbox_session_open_respects_optional_policy() {
     assert!(<dyn SandboxSession>::open("run", None, WorkloadAcquisition::LocalOnly)
         .expect("open host mode")
         .is_none());
+}
+#[test]
+fn validate_workflow_accepts_managed_run_root() {
+    let directory = root("managed-run-root");
+    let modules = directory.join("modules");
+    create_dir_all(&modules).expect("create module root");
+    let policy_path = directory.join("policy.json");
+    write(&policy_path, policy("json")).expect("write sandbox policy");
+    let policy = EffectiveSandboxPolicy::read(&policy_path).expect("read sandbox policy");
+    let config = serde_json::from_value::<Config>(serde_json::json!({
+        "requirements": [],
+        "modules": [{
+            "name": "managed-root",
+            "type": "script",
+            "uri": format!("file:{}", modules.display()),
+            "template": { "command": "true", "arguments": [] }
+        }],
+        "sandbox": true
+    }))
+    .expect("parse sandbox configuration");
+    let options = ConfigOptions::init().root(directory.clone()).build();
+    let config = config.with_options(options);
+    assert!(config.validate().is_err());
+    assert!(policy.validate_workflow(&config, &[]).is_ok());
+    remove_dir_all(directory).expect("remove sandbox fixture");
 }
 #[test]
 fn workload_acquisition_is_local_first_and_fail_closed() {

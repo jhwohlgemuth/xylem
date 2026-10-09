@@ -192,15 +192,20 @@ reservation. The durable evidence is retained under
 `tools/memory-spike/evidence/oklahoma-2026-10-09-v2-canary/`.
 
 Because the canary was an unsandboxed Xylem run inside the measurement
-container, its per-input `observed_peak` values are correctly null. Durable
-per-input peak collection remains gated on the rootless native Linux OCI path.
+container, its per-input `observed_peak` values are correctly null. The
+rootless native Linux OCI path has since passed synthetic collector conformance
+on both supported runtimes.
 
-That remaining work is split into two independent gates:
+That work is split into two independent gates:
 
-1. **Collector conformance:** run the synthetic native rootless Docker and
-   Podman conformance jobs. Each must retain a successful summary and journal
-   with a positive per-input `observed_peak`. This proves cgroup discovery and
-   durable telemetry without making a claim about the imagery estimator.
+1. **Collector conformance:** native rootless Podman run `FsifEzCO84` and Docker
+   run `ZksTg4eTQ8` passed on Oklahoma. Their retained summaries and journals
+   record per-input `observed_peak` values of 3,056 KB and 5,792 KB,
+   respectively, against 131,072 KB reservations. Evidence is under
+   `tools/memory-spike/evidence/oklahoma-2026-10-09-rootless-podman/` and
+   `tools/memory-spike/evidence/oklahoma-2026-10-09-rootless-docker/`. This gate
+   is closed: it proves cgroup discovery and durable telemetry without making
+   a claim about the imagery estimator.
 2. **A/P sandbox comparison:** run the two measured holdouts with the
    A/P-capable digest-pinned workload and compare each sandbox cgroup peak with
    its reservation. This gate must wait for bounded disk-backed private output.
@@ -209,11 +214,12 @@ That remaining work is split into two independent gates:
    accepted disk-output measurements.
 
 The checked-in rootless preflight now verifies native x86_64 Linux, a local
-rootless Docker or Podman runtime, cgroup v2 memory enforcement, a canonical
-Linux/amd64 workload, and caller-selected available capacity. CI retains the
-synthetic summary and journal as job artifacts. The A/P workload definition is
-staged under `sandbox/runner/ap/`; publishing its canonical digest remains a
-deployment action.
+rootless Docker or Podman runtime, cgroup v2 memory and CPU enforcement, the
+hardened IPC and process flags, a canonical Linux/amd64 workload, and
+caller-selected available capacity. CI retains the synthetic summary and
+journal as job artifacts. The A/P workload definition is staged under
+`sandbox/runner/ap/`; publishing its canonical digest remains a deployment
+action.
 
 These decisions establish evidence only for the measured A/P and A/P/O
 revisions, order, and input range. They do not make those combinations a
@@ -257,10 +263,10 @@ unsandboxed summaries record no observed peak. Host-memory detection and a CLI
 override are not active.
 
 On 2026-10-09, the ignored live Linux collector test passed on Oklahoma's
-cgroup v2 hierarchy and returned a positive exact `memory.peak`. The existing
-native sandbox conformance test now also requires a durable positive observed
-peak on Linux. Oklahoma's daemon is rootful, so that deliberately rootless
-end-to-end conformance path remains a CI or production-runtime gate.
+cgroup v2 hierarchy and returned a positive exact `memory.peak`. The native
+sandbox conformance test, which requires a durable positive observed peak on
+Linux, then passed against local rootless Podman and Docker daemons. The
+retained evidence closes the synthetic collector gate for both runtimes.
 
 ## Remaining landing order
 
@@ -268,16 +274,13 @@ The measured A/P example and pinned operational canary are landed. The dry-run
 retained the expected plan, and the controlled canary passed with two
 concurrent admissions.
 
-1. Provision the native x86_64 Linux runners and close synthetic collector
-   conformance for rootless Docker and Podman with retained evidence.
-2. Add bounded disk-backed private sandbox output, publish the A/P workload by
+1. Add bounded disk-backed private sandbox output, publish the A/P workload by
    canonical digest, and run the A/P rootless comparison without tmpfs output
    inflation.
-3. Defer the expanded A/P/O rerun until after the A/P rootless comparison
+2. Defer the expanded A/P/O rerun until after the A/P rootless comparison
    gate. Keep that workflow's production input concurrency at one until a fresh
    run's individual and concurrent holdout gates are GO.
-4. Rerun accepted workflows to compare
-   estimates with observed peaks.
+3. Rerun accepted workflows to compare estimates with observed peaks.
 
 # Recommendation
 

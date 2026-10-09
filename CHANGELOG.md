@@ -11,6 +11,10 @@
 - Add native rootless OCI preflight checks, retained conformance evidence, and an A/P-capable sandbox workload definition.
 - Complete reusable local, HTTP(S), and Git-backed configuration modules with recursive policy-constrained flattening and qualified runtime identities.
 
+### 🐛 Bug Fixes
+
+- Preserve prepared sandbox workspaces through execution, accept Xylem's managed run root during lifecycle revalidation, use portable private IPC isolation for Podman, and make private tmpfs storage non-root writable across Docker and Podman.
+
 ### 📦 Dependencies
 
 - Upgrade the ACORN crates from the pinned 0.2.0 Git revision to the published 0.3.2 packages while continuing to use ACORN's canonical path-conversion APIs.

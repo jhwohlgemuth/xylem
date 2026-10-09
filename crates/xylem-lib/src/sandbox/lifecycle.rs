@@ -106,7 +106,7 @@ impl EffectiveSandboxPolicy {
             "--read-only",
             "--cap-drop=ALL",
             "--security-opt=no-new-privileges",
-            "--ipc=none",
+            "--ipc=private",
             ("--pids-limit", resources.pids.to_string()),
             ("--memory", resources.memory_bytes.to_string()),
             ("--memory-swap", resources.memory_bytes.to_string()),
@@ -126,7 +126,7 @@ impl EffectiveSandboxPolicy {
                 ..self.container_base(name, Some("none")),
                 (
                     "--tmpfs",
-                    format!("/xylem/tmp:rw,noexec,nosuid,nodev,size={}", self.policy.resources.scratch_bytes)
+                    format!("/xylem/tmp:rw,noexec,nosuid,nodev,size={},mode=1777", self.policy.resources.scratch_bytes)
                 ),
                 ("--mount", prepared_mount),
                 ..input_mount.map(|mount| args!["--mount", mount]).unwrap_or_default(),
@@ -176,7 +176,7 @@ impl EffectiveSandboxPolicy {
                             ..self.container_base(name, network),
                             (
                                 "--tmpfs",
-                                format!("/xylem/prepared:rw,nosuid,nodev,size={}", self.policy.resources.scratch_bytes)
+                                format!("/xylem/prepared:rw,nosuid,nodev,size={},mode=1777", self.policy.resources.scratch_bytes)
                             ),
                             ..mounts,
                             "--workdir=/xylem/prepared",
@@ -367,8 +367,8 @@ impl Drop for OciPreparation {
     fn drop(&mut self) {
         if self.active {
             let _ = self.policy.cleanup(&self.container_name, false);
+            let _ = remove_dir_all(&self.workspace);
         }
-        let _ = remove_dir_all(&self.workspace);
     }
 }
 impl OciPreparation {

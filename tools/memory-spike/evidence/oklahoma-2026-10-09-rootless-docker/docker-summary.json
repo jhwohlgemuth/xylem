@@ -1,0 +1,85 @@
+{
+  "schema_version": 9,
+  "run_id": "ZksTg4eTQ8",
+  "configuration": {
+    "path": "/tmp/xylem-native-sandbox-757136/config.json"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "minimum_isolation": "shared_kernel",
+    "mode": "required",
+    "policy_digest": "sha256:2a400e3ab0ddc5f93d572c01822b793139afea0473f2caa1f6391143b28ab7ff",
+    "preparation_network": "deny",
+    "process_guards": [],
+    "provider": "oci",
+    "realized_capabilities": {
+      "isolation": "shared_kernel",
+      "network_deny": true,
+      "provider": "oci",
+      "resource_limits": true,
+      "read_only_root": true,
+      "rootless": true
+    },
+    "resources": {
+      "artifact_bytes": 1048576,
+      "artifact_files": 1000,
+      "captured_output_bytes": 65536,
+      "cpu_millis": 1000,
+      "memory_bytes": 536870912,
+      "pids": 128,
+      "scratch_bytes": 134217728,
+      "wall_time_seconds": 60
+    },
+    "runtime": "docker",
+    "session_model": "per_input",
+    "workload": "localhost/xylem-sandbox-runner@sha256:be1ac40b4674dc8f0da7eafc509c05b83132ebb8478cde4152028d60d14072d8"
+  },
+  "started_at": 1791576533452,
+  "finished_at": 1791576534925,
+  "duration": 1473,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": "/tmp/xylem-native-sandbox-757136/inputs/sample.txt",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791576533852,
+      "updated_at": 1791576534873,
+      "modules": [
+        {
+          "index": 0,
+          "name": "native-conformance",
+          "module_path": [
+            "native-conformance"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791576534712,
+          "updated_at": 1791576534772
+        }
+      ]
+    }
+  ],
+  "memory": {
+    "budget": "1GB",
+    "estimator_identity": "native-sandbox-conformance-v1",
+    "inputs": [
+      {
+        "estimated": "131072KB",
+        "fallback": null,
+        "input": "1KB",
+        "input_index": 0,
+        "observed_peak": "5792KB",
+        "reservation": "131072KB",
+        "safety_reserve": "0KB"
+      }
+    ],
+    "mode": "memory_aware",
+    "safety_millionths": 1000000
+  }
+}
