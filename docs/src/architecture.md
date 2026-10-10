@@ -64,9 +64,9 @@ classification to a process exit code and renders the terminal diagnostic.
 Resume decisions are made before module preparation from explicit completion
 declarations. The runtime requires both non-empty declared outputs and an exact
 canonical marker identity, and records skips as `skipped_existing`. Execution
-plans use schema version 10, including per-input memory sizing, reservation,
+plans use schema version 11, including per-input memory sizing, reservation,
 and fallback decisions when memory-aware execution is configured. Journals and
-recovered summaries use schema version 9 with the durable `cancelled` state,
+recovered summaries use schema version 10 with the durable `cancelled` state,
 explicit sandbox-mode evidence, and nullable memory evidence. Configured runs
 record the estimator identity, budget, base estimate, safety reserve, enforced
 reservation, and structured fallback for every input. Optional observed peaks
@@ -76,6 +76,14 @@ the container cgroup v2 `memory.peak` before cleanup; unavailable or unsupported
 collection leaves the optional observation null. Journal evidence carries both
 the leaf display name and its qualified `module_path`. Dry-run uses a separate
 in-memory execution plan and performs no filesystem writes.
+
+Sandbox artifacts use host-owned, disk-backed staging shared by the run
+session. Each input writes only to its private mount; after the container is
+quiescent, Xylem exports and validates the bounded archive. Successful input
+trees are merged deterministically, declared output globs must resolve to
+non-empty regular files, and completion markers are synthesized before one
+atomic rename publishes the whole run. Any execution, validation, merge, or
+publication failure removes staging and leaves the final destination absent.
 
 See
 [ARCHITECTURE.md](https://code.ornl.gov/research-enablement/xylem/-/blob/main/ARCHITECTURE.md)

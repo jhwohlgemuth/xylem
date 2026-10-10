@@ -13,6 +13,8 @@ variables:
   IS_VERSION_TAGGED: '$CI_COMMIT_TAG =~ /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/'
   SANDBOX_RUNNER_GHCR_IMAGE: ghcr.io/jhwohlgemuth/xylem
   SANDBOX_RUNNER_SAVANNAH_IMAGE: savannah.ornl.gov/research-enablement/xylem/runner
+  SANDBOX_GEOSPATIAL_GHCR_IMAGE: ghcr.io/jhwohlgemuth/xylem-geospatial
+  SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE: savannah.ornl.gov/research-enablement/xylem/geospatial
 
 stages:
   - prepare
@@ -300,6 +302,40 @@ build-sandbox-runner:
       - sandbox-runner-metadata.json
       - sandbox-runner.tar
 
+build-geospatial-sandbox-workload:
+  stage: build
+  image:
+    name: moby/buildkit:rootless@sha256:f8a833b2de9d68e27f0815e4a737abdfaf8a2e4c615650557df11025101557b4
+    entrypoint: [""]
+  tags:
+    - amd64
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+    SOURCE_DATE_EPOCH: "1789689600"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - sandbox/runner/geospatial/**/*
+  script:
+    - >-
+      buildctl-daemonless.sh build
+      --frontend dockerfile.v0
+      --local context=sandbox/runner/geospatial
+      --local dockerfile=sandbox/runner/geospatial
+      --opt filename=Containerfile
+      --opt platform=linux/amd64
+      --opt build-arg:SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}"
+      --metadata-file geospatial-sandbox-metadata.json
+      --output type=oci,dest=geospatial-sandbox.tar,oci-mediatypes=true,rewrite-timestamp=true,compatibility-version=30
+    - digest="$(awk -F '"' '$2 == "containerimage.digest" { print $4 }' geospatial-sandbox-metadata.json)"
+    - test -n "${digest}"
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - geospatial-sandbox-metadata.json
+      - geospatial-sandbox.tar
+
 publish-release-linux:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
@@ -380,6 +416,56 @@ publish-sandbox-runner:
       dotenv: sandbox-runner.env
     paths:
       - sandbox-runner-metadata.json
+
+publish-geospatial-sandbox-workload:
+  stage: release
+  image:
+    name: moby/buildkit:rootless@sha256:f8a833b2de9d68e27f0815e4a737abdfaf8a2e4c615650557df11025101557b4
+    entrypoint: [""]
+  tags:
+    - amd64
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+    DOCKER_CONFIG: /tmp/xylem-geospatial-docker
+    SOURCE_DATE_EPOCH: "1789689600"
+  interruptible: false
+  resource_group: sandbox-geospatial-workload
+  retry: 0
+  rules:
+    - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
+    - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - .gitlab-ci.yml
+        - sandbox/runner/geospatial/**/*
+  before_script:
+    - test -n "${GHCR_TOKEN:-}"
+    - mkdir -p "${DOCKER_CONFIG}"
+    - ghcr_auth="$(printf '%s:%s' "${GHCR_USER}" "${GHCR_TOKEN}" | base64 | tr -d '\n')"
+    - savannah_auth="$(printf '%s:%s' "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')"
+    - printf '{"auths":{"ghcr.io":{"auth":"%s"},"%s":{"auth":"%s"}}}\n' "${ghcr_auth}" "${CI_REGISTRY}" "${savannah_auth}" > "${DOCKER_CONFIG}/config.json"
+  script:
+    - image_names="${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}:${CI_COMMIT_SHA},${SANDBOX_GEOSPATIAL_GHCR_IMAGE}:${CI_COMMIT_SHA},${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}:latest,${SANDBOX_GEOSPATIAL_GHCR_IMAGE}:latest"
+    - if [ -n "${CI_COMMIT_TAG:-}" ]; then version="${CI_COMMIT_TAG#v}"; image_names="${image_names},${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}:${version},${SANDBOX_GEOSPATIAL_GHCR_IMAGE}:${version}"; fi
+    - >-
+      buildctl-daemonless.sh build
+      --frontend dockerfile.v0
+      --local context=sandbox/runner/geospatial
+      --local dockerfile=sandbox/runner/geospatial
+      --opt filename=Containerfile
+      --opt platform=linux/amd64
+      --opt build-arg:SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}"
+      --metadata-file geospatial-sandbox-metadata.json
+      --output type=image,name="${image_names}",push=true,name-canonical=true,oci-mediatypes=true,rewrite-timestamp=true,compatibility-version=30
+    - digest="$(awk -F '"' '$2 == "containerimage.digest" { print $4 }' geospatial-sandbox-metadata.json)"
+    - test -n "${digest}"
+    - printf 'XYLEM_SANDBOX_GEOSPATIAL_WORKLOAD=%s@%s\n' "${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}" "${digest}" > geospatial-sandbox.env
+    - printf 'XYLEM_SANDBOX_GEOSPATIAL_WORKLOAD_GHCR=%s@%s\n' "${SANDBOX_GEOSPATIAL_GHCR_IMAGE}" "${digest}" >> geospatial-sandbox.env
+    - printf 'XYLEM_SANDBOX_GEOSPATIAL_WORKLOAD_SAVANNAH=%s@%s\n' "${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}" "${digest}" >> geospatial-sandbox.env
+  artifacts:
+    reports:
+      dotenv: geospatial-sandbox.env
+    paths:
+      - geospatial-sandbox-metadata.json
 
 upload-binaries:
   stage: release

@@ -116,9 +116,10 @@ fn execute_active_input(context: &DispatchContext<'_>, index: usize, input: &Opt
             let sandbox_input = context
                 .sandbox
                 .map(|session| {
-                    SandboxInput::new(
+                    SandboxInput::new_with_input_count(
                         context.config.clone(),
                         index,
+                        context.inputs.len(),
                         context.required_modules.iter().copied(),
                         context.root.join("sandbox"),
                         input.clone(),

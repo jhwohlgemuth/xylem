@@ -1,0 +1,63 @@
+diff --git a/lib/util.py b/lib/util.py
+--- a/lib/util.py
++++ b/lib/util.py
+@@ -233,9 +233,14 @@ def download_and_merge_dem_tiles(p00_file_name: str, ll_lon: float, ll_lat: flo
+ 
+     """
+     base_url_dem = "https://cmr.earthdata.nasa.gov/search/granules.json?short_name=ASTGTM&version=003&page_size=2000&pageNum=1&bounding_box="
++    dest = Path(__file__).resolve().parents[1] / "data" / "DEM"
++    merged_dem = dest / f"{p00_file_name}_merged-DEM.TIF"
++    if merged_dem.is_file():
++        print(f"Using cached merged DEM: {merged_dem} \n")
++        return merged_dem
++
+     location = f"{ll_lon},{ll_lat},{ur_lon},{ur_lat}"
+     location_url = base_url_dem + location
+-    dest = "../data/DEM"
+     token = str(os.getenv("EARTHDATA_API_TOKEN"))
+     dem_paths = []
+     req = get(location_url).json()["feed"]["entry"]
+@@ -266,7 +271,6 @@ def download_and_merge_dem_tiles(p00_file_name: str, ll_lon: float, ll_lat: flo
+         print("Unable to access DEM data.\n")
+         return None
+ 
+-    merged_dem = Path(dest) / f"{p00_file_name}_merged-DEM.TIF"
+     if not Path.is_file(merged_dem):
+         print(f"Merging DEM TIFs to save as: {merged_dem} \n")
+         merged_dataset = gdal.Warp(destNameOrDestDS=merged_dem, srcDSOrSrcDSTab=dem_paths, format="GTiff")
+@@ -316,9 +320,15 @@ def download_modis_terra_data(date: str) -> Path | None:
+ 
+     try:
+         print("Accessing MODIS data...")
+-        files = [f for f in DictReader(StringIO(get_url("%s.csv" % date_url, token)), skipinitialspace=True)]
++        listing = get_url("%s.csv" % date_url, token)
++        if listing is None:
++            return None
++        files = [f for f in DictReader(StringIO(listing), skipinitialspace=True)]
+     except ImportError:
+-        files = loads(get_url(date_url + ".json", token))
++        listing = get_url(date_url + ".json", token)
++        if listing is None:
++            return None
++        files = loads(listing)
+     if files is not None:
+         for f in files:
+             modis_file = f["name"]
+@@ -427,9 +437,15 @@ def download_viirs_data(date: str) -> str | None:
+ 
+     try:
+         print("Accessing VIIRS data...")
+-        files = [f for f in DictReader(StringIO(get_url("%s.csv" % date_url, token)), skipinitialspace=True)]
++        listing = get_url("%s.csv" % date_url, token)
++        if listing is None:
++            return None
++        files = [f for f in DictReader(StringIO(listing), skipinitialspace=True)]
+     except ImportError:
+-        files = loads(get_url(date_url + ".json", token))
++        listing = get_url(date_url + ".json", token)
++        if listing is None:
++            return None
++        files = loads(listing)
+     for f in files:
+         viirs_file = f["name"]
+         viirs_path = Path(dest) / f["name"]

@@ -320,7 +320,7 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
         .expect("run dry-run plan");
     assert!(output.status.success(), "dry run failed: {}", String::from_utf8_lossy(&output.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid dry-run plan");
-    assert_eq!(plan["schema_version"], 10);
+    assert_eq!(plan["schema_version"], 11);
     assert!(plan["memory"].is_null());
     assert_eq!(plan["sandbox"]["mode"], "off");
     assert_eq!(plan["gpu_monitoring"]["interval"], 1000);
@@ -385,7 +385,7 @@ input:
     assert_eq!(repeated.stdout, output.stdout);
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid selection plan");
     let inputs = std::fs::canonicalize(inputs).expect("canonical selection inputs");
-    assert_eq!(plan["schema_version"], 10);
+    assert_eq!(plan["schema_version"], 11);
     assert!(plan["memory"].is_null());
     assert_eq!(plan["sandbox"]["mode"], "off");
     assert_eq!(plan["inputs"]["source"]["kind"], "selection");
@@ -813,7 +813,7 @@ fn test_memory_intent_plans_and_runs_with_a_fixed_batching_warning() {
         .expect("render memory intent plan");
     assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&dry_run.stdout).expect("valid memory intent plan");
-    assert_eq!(plan["schema_version"], 10);
+    assert_eq!(plan["schema_version"], 11);
     assert_eq!(plan["memory"]["budget"], "64GB");
     assert_eq!(plan["memory"]["estimator"]["identity"], "custom-modules-v1");
     assert_eq!(plan["memory"]["inputs"][0]["fallback"]["kind"], "no_input");
@@ -1014,6 +1014,7 @@ fn test_native_rootless_sandbox_conformance() {
     let workload = std::env::var("XYLEM_SANDBOX_WORKLOAD").expect("XYLEM_SANDBOX_WORKLOAD must be digest-pinned");
     let test_root = std::env::temp_dir().join(format!("xylem-native-sandbox-{}", std::process::id()));
     let artifacts = test_root.join("artifacts");
+    let published = artifacts.join("published");
     let inputs = test_root.join("inputs");
     let modules = test_root.join("modules");
     let reports = test_root.join("reports");
@@ -1027,6 +1028,7 @@ fn test_native_rootless_sandbox_conformance() {
         &config,
         serde_json::to_vec_pretty(&serde_json::json!({
             "input": [input],
+            "output": published.display().to_string(),
             "requirements": ["curl", "python", "sh", "tar"],
             "options": {
                 "memory": {
@@ -1046,8 +1048,12 @@ fn test_native_rootless_sandbox_conformance() {
                 "type": "script",
                 "programmingLanguage": "generic",
                 "uri": format!("file:{}", modules.display()),
+                "completion": {
+                    "marker": "{{OUTPUT_DIRECTORY}}/.complete.json",
+                    "outputs": ["{{OUTPUT_DIRECTORY}}/result.txt"]
+                },
                 "template": {
-                    "arguments": ["-c", "test -r \"$_XYLEM_INPUT\" && test ! -w \"$_XYLEM_INPUT\" && test -d /xylem/prepared && test -w /xylem/tmp && ! touch /xylem/prepared/forbidden && ! curl --connect-timeout 1 https://example.invalid"],
+                    "arguments": ["-c", "test -r \"$_XYLEM_INPUT\" && test ! -w \"$_XYLEM_INPUT\" && test -d /xylem/prepared && test -w /xylem/tmp && test -w /xylem/output && ! touch /xylem/prepared/forbidden && ! curl --connect-timeout 1 https://example.invalid && printf 'published\\n' > /xylem/output/result.txt"],
                     "command": "sh"
                 }
             }],
@@ -1060,7 +1066,27 @@ fn test_native_rootless_sandbox_conformance() {
     write(
         &policy,
         serde_json::to_vec_pretty(&serde_json::json!({
-            "environment": { "allow": ["PATH", "_XYLEM_INPUT", "_XYLEM_MODULE_LIST", "_XYLEM_PARENT_DIRECTORY"] },
+            "environment": {
+                "allow": [
+                    "CONDA_OVERRIDE_CUDA",
+                    "ENV_NAME",
+                    "LANG",
+                    "LC_ALL",
+                    "MAMBA_EXE",
+                    "MAMBA_ROOT_PREFIX",
+                    "MAMBA_USER",
+                    "MAMBA_USER_GID",
+                    "MAMBA_USER_ID",
+                    "OUTPUT_DIRECTORY",
+                    "PATH",
+                    "PROJ_DATA",
+                    "PROJ_LIB",
+                    "PYTHONDONTWRITEBYTECODE",
+                    "_XYLEM_INPUT",
+                    "_XYLEM_MODULE_LIST",
+                    "_XYLEM_PARENT_DIRECTORY"
+                ]
+            },
             "lifecycle": { "retention": "delete", "stale_after_seconds": 3600 },
             "minimum_isolation": "shared_kernel",
             "paths": { "artifact_roots": [artifacts], "input_roots": [inputs], "module_roots": [modules] },
@@ -1098,6 +1124,11 @@ fn test_native_rootless_sandbox_conformance() {
         .output()
         .expect("run native sandbox conformance workflow");
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        read_to_string(published.join("result.txt")).expect("read published sandbox artifact"),
+        "published\n"
+    );
+    assert!(published.join(".complete.json").is_file());
     #[cfg(target_os = "linux")]
     {
         let report_path = read_dir(&reports)
@@ -1107,6 +1138,10 @@ fn test_native_rootless_sandbox_conformance() {
             .expect("sandbox JSON report");
         let report: xylem_lib::journal::RunSummary =
             serde_json::from_slice(&read(&report_path).expect("read sandbox JSON report")).expect("valid sandbox JSON report");
+        assert_eq!(
+            report.artifacts.as_ref().expect("sandbox artifact evidence").status,
+            xylem_lib::sandbox::ArtifactPublicationStatus::Published
+        );
         assert!(
             report.memory.as_ref().expect("sandbox memory evidence").inputs[0]
                 .observed_peak

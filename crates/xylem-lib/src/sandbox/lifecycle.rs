@@ -32,8 +32,9 @@ extern crate alloc;
 #[cfg(target_os = "linux")]
 use super::memory;
 use super::{
-    archive, private, rewrite_path, validate_granted_path, validate_mount_separation, EffectiveSandboxPolicy, OciSandboxSession, PreparationNetwork,
-    Prepared, PreparedSandboxBackend, Requested, SandboxError, SandboxInput, SandboxPreparation, SandboxResources,
+    archive, artifact::ArtifactInput, artifact::ArtifactManager, private, rewrite_path, validate_granted_path, validate_mount_separation,
+    EffectiveSandboxPolicy, OciSandboxSession, PreparationNetwork, Prepared, PreparedSandboxBackend, Requested, SandboxError, SandboxInput,
+    SandboxPreparation, SandboxResources,
 };
 use crate::config::Config;
 use crate::error::ProcessError;
@@ -59,6 +60,8 @@ const PREPARATION_ENVIRONMENT: &str = "if [ -f environment.yml ]; then if comman
 
 pub(super) struct OciPreparation {
     active: bool,
+    artifact: Option<ArtifactInput>,
+    artifacts: Arc<ArtifactManager>,
     container_name: String,
     policy: EffectiveSandboxPolicy,
     prepared: BTreeSet<usize>,
@@ -66,6 +69,8 @@ pub(super) struct OciPreparation {
     workspace: PathBuf,
 }
 struct OciPreparedInput {
+    artifact: Option<ArtifactInput>,
+    artifacts: Arc<ArtifactManager>,
     config: Config,
     container_name: String,
     finished: AtomicBool,
@@ -75,7 +80,7 @@ struct OciPreparedInput {
     workspace: PathBuf,
 }
 impl Config {
-    fn with_sandbox_paths(mut self, prepared_root: &Path, module_indices: &[usize]) -> Self {
+    fn with_sandbox_paths(mut self, prepared_root: &Path, artifact_root: Option<&Path>, module_indices: &[usize]) -> Self {
         module_indices.iter().for_each(|index| {
             if let Some(module) = self.modules.get_mut(*index) {
                 let path = match &module.module_type {
@@ -86,8 +91,23 @@ impl Config {
                 match &mut module.module_type {
                     | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => *uri = location,
                 }
+                if artifact_root.is_some() {
+                    module.completion = None;
+                }
             }
         });
+        if let Some(artifact_root) = artifact_root.and_then(Path::to_str) {
+            self.output = Some(artifact_root.to_string());
+            self.variables
+                .get_or_insert_default()
+                .insert("OUTPUT_DIRECTORY".to_string(), serde_json::Value::String(artifact_root.to_string()));
+            self.modules.iter_mut().for_each(|module| {
+                module
+                    .variables
+                    .get_or_insert_default()
+                    .insert("OUTPUT_DIRECTORY".to_string(), serde_json::Value::String(artifact_root.to_string()));
+            });
+        }
         self
     }
 }
@@ -114,7 +134,13 @@ impl EffectiveSandboxPolicy {
             "--user=65532:65532"
         ]
     }
-    fn create_execution_container(&self, name: &str, prepared_root: &Path, input: Option<&str>) -> Result<(), SandboxError> {
+    fn create_execution_container(
+        &self,
+        name: &str,
+        prepared_root: &Path,
+        input: Option<&str>,
+        artifact_root: Option<&Path>,
+    ) -> Result<(), SandboxError> {
         let prepared_mount = format!("type=bind,source={},target=/xylem/prepared,readonly", prepared_root.display());
         let input_mount = input
             .map(Path::new)
@@ -122,6 +148,7 @@ impl EffectiveSandboxPolicy {
             .transpose()
             .map(|input| input.map(|path| format!("type=bind,source={},target=/xylem/input/current,readonly", path.display())));
         input_mount.and_then(|input_mount| {
+            let artifact_mount = artifact_root.map(|path| format!("type=bind,source={},target=/xylem/output", path.display()));
             let arguments = args![
                 ..self.container_base(name, Some("none")),
                 (
@@ -130,6 +157,7 @@ impl EffectiveSandboxPolicy {
                 ),
                 ("--mount", prepared_mount),
                 ..input_mount.map(|mount| args!["--mount", mount]).unwrap_or_default(),
+                ..artifact_mount.map(|mount| args!["--mount", mount]).unwrap_or_default(),
                 "--workdir=/xylem/prepared",
                 ("--entrypoint", "sleep"),
                 &self.workload,
@@ -219,7 +247,7 @@ impl EffectiveSandboxPolicy {
     }
 }
 impl EffectiveSandboxPolicy {
-    fn export_archive(&self, container_name: &str, archive_path: &Path) -> Result<(), SandboxError> {
+    fn export_archive(&self, container_name: &str, archive_path: &Path, source: &str, maximum_bytes: u64) -> Result<(), SandboxError> {
         let stderr_path = archive_path.with_extension("stderr");
         self.runtime().and_then(|runtime| {
             File::create(archive_path)
@@ -229,7 +257,7 @@ impl EffectiveSandboxPolicy {
                         .map_err(|why| SandboxError::Runtime(format!("create prepared archive diagnostics {}: {why}", stderr_path.display())))
                         .and_then(|stderr| {
                             Command::new(runtime.to_string())
-                                .args(["exec", container_name, "tar", "-C", "/xylem/prepared", "-cf", "-", "."])
+                                .args(["exec", container_name, "tar", "-C", source, "-cf", "-", "."])
                                 .stdin(Stdio::null())
                                 .stdout(Stdio::from(stdout))
                                 .stderr(Stdio::from(stderr))
@@ -245,7 +273,7 @@ impl EffectiveSandboxPolicy {
                         .resources
                         .artifact_files
                         .checked_mul(4096)
-                        .and_then(|overhead| self.policy.resources.scratch_bytes.checked_add(overhead))
+                        .and_then(|overhead| maximum_bytes.checked_add(overhead))
                         .unwrap_or(u64::MAX);
                     loop {
                         let size = metadata(archive_path).map(|value| value.len()).unwrap_or_default();
@@ -405,7 +433,12 @@ impl SandboxPreparation for OciPreparation {
             | true => {
                 let archive_path = self.workspace.join("prepared.tar");
                 self.policy
-                    .export_archive(&self.container_name, &archive_path)
+                    .export_archive(
+                        &self.container_name,
+                        &archive_path,
+                        "/xylem/prepared",
+                        self.policy.policy.resources.scratch_bytes,
+                    )
                     .and_then(|()| {
                         self.active = false;
                         self.policy.cleanup(&self.container_name, true)
@@ -423,16 +456,23 @@ impl SandboxPreparation for OciPreparation {
                     })
                     .and_then(|prepared_root| {
                         self.request.verify_binary_checksums(&prepared_root).and_then(|()| {
-                            let config = self
-                                .request
-                                .config()
-                                .clone()
-                                .with_sandbox_paths(&prepared_root, self.request.module_indices());
+                            let config = self.request.config().clone().with_sandbox_paths(
+                                &prepared_root,
+                                self.artifact.as_ref().map(|artifact| artifact.raw.as_path()),
+                                self.request.module_indices(),
+                            );
                             let execution_name = format!("xylem-{}-{}-exec", self.policy_run_id(), self.request.input_index());
                             self.policy
-                                .create_execution_container(&execution_name, &prepared_root, self.request.input())
+                                .create_execution_container(
+                                    &execution_name,
+                                    &prepared_root,
+                                    self.request.input(),
+                                    self.artifact.as_ref().map(|artifact| artifact.raw.as_path()),
+                                )
                                 .map(|()| {
                                     SandboxInput::from_backend(Arc::new(OciPreparedInput {
+                                        artifact: self.artifact.clone(),
+                                        artifacts: Arc::clone(&self.artifacts),
                                         config,
                                         container_name: execution_name,
                                         finished: AtomicBool::new(false),
@@ -481,6 +521,9 @@ impl Drop for OciPreparedInput {
 impl OciPreparedInput {
     fn execution_invocation(&self, script: &Script, module_index: usize) -> Result<Vec<OsString>, SandboxError> {
         let mut replacements = vec![(self.prepared_root.display().to_string(), "/xylem/prepared".to_string())];
+        if let Some(artifact) = self.artifact.as_ref() {
+            replacements.push((artifact.raw.display().to_string(), "/xylem/output".to_string()));
+        }
         if let Some(value) = self.input.as_ref() {
             replacements.push((value.clone(), "/xylem/input/current".to_string()));
             if let Ok(resolved) = std::fs::canonicalize(value) {
@@ -591,13 +634,25 @@ impl PreparedSandboxBackend for OciPreparedInput {
         match self.finished.swap(true, Ordering::AcqRel) {
             | true => Ok(()),
             | false => {
+                let artifacts = match (&self.artifact, succeeded) {
+                    | (Some(artifact), true) => self
+                        .policy
+                        .export_archive(
+                            &self.container_name,
+                            &artifact.archive,
+                            "/xylem/output",
+                            self.policy.policy.resources.artifact_bytes,
+                        )
+                        .map(|()| Some(artifact.clone())),
+                    | _ => Ok(None),
+                };
                 let cleanup = self.policy.cleanup(&self.container_name, succeeded);
+                let staged = artifacts.and_then(|artifact| artifact.map_or(Ok(()), |artifact| self.artifacts.stage(&artifact)));
                 let workspace = remove_dir_all(&self.workspace)
                     .map_err(|why| SandboxError::Runtime(format!("remove sandbox staging workspace {}: {why}", self.workspace.display())));
-                match (cleanup, workspace) {
-                    | (Ok(()), Ok(())) => Ok(()),
-                    | (Err(primary), _) => Err(primary),
-                    | (Ok(()), Err(workspace)) => Err(workspace),
+                match (staged, cleanup, workspace) {
+                    | (Ok(()), Ok(()), Ok(())) => Ok(()),
+                    | (Err(primary), _, _) | (Ok(()), Err(primary), _) | (Ok(()), Ok(()), Err(primary)) => Err(primary),
                 }
             }
         }
@@ -690,17 +745,27 @@ pub(super) fn start(session: &OciSandboxSession, request: SandboxInput<Requested
         .policy
         .validate_workflow(request.config(), &[request.input().map(str::to_string)])
         .and_then(|()| {
+            session
+                .artifacts
+                .prepare(request.config(), request.input(), request.input_index(), request.input_count())
+        })
+        .and_then(|artifact| {
             create_dir_all(request.staging_root())
                 .map_err(|why| SandboxError::Runtime(format!("create sandbox staging root {}: {why}", request.staging_root().display())))
+                .map(|()| artifact)
         })
-        .and_then(|()| {
-            create_dir(&workspace).map_err(|why| SandboxError::Runtime(format!("create sandbox input workspace {}: {why}", workspace.display())))
+        .and_then(|artifact| {
+            create_dir(&workspace)
+                .map_err(|why| SandboxError::Runtime(format!("create sandbox input workspace {}: {why}", workspace.display())))
+                .map(|()| artifact)
         })
-        .and_then(|()| {
+        .and_then(|artifact| {
             let container_name = format!("xylem-{}-{}-prep", session.run_id, request.input_index());
             session.policy.create_preparation_container(&container_name, &request).map(|()| {
                 Box::new(OciPreparation {
                     active: true,
+                    artifact,
+                    artifacts: Arc::clone(&session.artifacts),
                     container_name,
                     policy: session.policy.clone(),
                     prepared: BTreeSet::new(),

@@ -25,6 +25,7 @@ fn memory_evidence() -> RunMemoryEvidence {
 }
 fn metadata(run_id: &str) -> RunMetadata {
     RunMetadata {
+        artifacts: None,
         run_id: run_id.to_string(),
         configuration: ConfigurationIdentity {
             path: "config.json".to_string(),
@@ -44,6 +45,38 @@ fn path(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("xylem-journal-{label}-{}-{}.jsonl", std::process::id(), timestamp()))
 }
 
+#[test]
+fn test_artifact_finalization_is_exactly_once_and_recovered() {
+    let path = path("artifacts");
+    let pending = ArtifactPublication {
+        bytes: memory(0),
+        bytes_per_input: memory(1024),
+        destination: "/artifacts/run".to_string(),
+        entries: 0,
+        entries_per_input: 10,
+        error: None,
+        status: ArtifactPublicationStatus::Pending,
+    };
+    let journal = RunJournal::create(
+        path.clone(),
+        metadata("run-artifacts").with_artifacts(pending.clone()),
+        vec![JournalInput::new(0, None)],
+        Vec::new(),
+    )
+    .expect("create artifact journal");
+    journal.transition_input(0, ExecutionState::Running, None).expect("start input");
+    journal.transition_input(0, ExecutionState::Failed, Some("failed")).expect("fail input");
+    let publication = ArtifactPublication {
+        error: None,
+        status: ArtifactPublicationStatus::Discarded,
+        ..pending
+    };
+    journal.finalize_artifacts(publication.clone()).expect("finalize artifacts");
+    assert!(journal.finalize_artifacts(publication.clone()).is_err());
+    journal.finish(FinalStatus::Failed, Some("failed")).expect("finish run");
+    assert_eq!(RunJournal::read(&path).expect("recover summary").artifacts, Some(publication));
+    remove_file(path).expect("remove journal");
+}
 #[test]
 fn test_concurrent_writes_remain_valid_and_sequenced() {
     let path = path("concurrent");
@@ -251,6 +284,7 @@ fn test_json_report_is_atomic_and_refuses_overwrite() {
     let directory = std::env::temp_dir().join(format!("xylem-journal-report-{}-{}.jsonl", std::process::id(), timestamp()));
     create_dir_all(&directory).expect("create reporter test directory");
     let summary = RunSummary {
+        artifacts: None,
         schema_version: JOURNAL_SCHEMA_VERSION,
         containers: Vec::new(),
         run_id: "atomic-report".to_string(),

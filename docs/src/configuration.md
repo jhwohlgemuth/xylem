@@ -134,16 +134,27 @@ bounded writable tmpfs, and always disables networking. Preparation and module
 execution stay within the same scheduler admission for an input; sandbox
 memory limits do not alter the scheduler's independent memory estimate.
 
-Nested-configuration, application-container, GPU, completion-marker, and
-artifact-publication features fail closed in sandbox mode while their existing
-host behavior remains available when sandboxing is disabled.
+When `output` or `--artifact-output` is configured, each input receives a
+private disk-backed `/xylem/output` mount. Xylem bounds exported bytes and
+entries with `resources.artifact_bytes` and `resources.artifact_files`,
+validates archives after the execution container is quiescent, merges inputs
+deterministically, verifies that every declared output glob matches a non-empty
+regular file, synthesizes completion markers, and atomically renames the
+complete tree to the absent final destination. The destination is never mounted
+into a workload. Missing or empty declared outputs fail publication, and a
+failed run leaves the destination absent. Sandbox artifact publication rejects
+resume and requires enough free staging space for twice the per-input
+byte-plus-entry allowance.
 
-The A/P-specific workload under `sandbox/runner/ap/` contains the dependency
-set used by the measured imagery workflow. It does not make the current A/P
-memory estimator sandbox-compatible: execution writes are presently backed by
-tmpfs, so multi-gigabyte imagery products would be charged to cgroup memory.
-A bounded disk-backed private output path is required before comparing a
-sandboxed A/P peak with the disk-output calibration.
+Nested-configuration, application-container, and GPU features fail closed in
+sandbox mode while their existing host behavior remains available when
+sandboxing is disabled.
+
+The reusable geospatial workload under `sandbox/runner/geospatial/` contains
+the dependency set used by the measured imagery workflow. Release pipelines
+publish it as `savannah.ornl.gov/research-enablement/xylem/geospatial` and
+`ghcr.io/jhwohlgemuth/xylem-geospatial`, with canonical digest references in
+the `XYLEM_SANDBOX_GEOSPATIAL_WORKLOAD*` dotenv variables.
 
 Explicit input lists preserve their declared order and duplicate values keep
 their first occurrence. Directory-derived inputs are sorted by path. CLI
@@ -200,7 +211,8 @@ so both fit concurrently within this budget. Reuse this model only for the
 measured module revisions and order; a different workflow needs its own
 identity and evidence.
 
-Execution-plan schema v10 records the budget, complete estimator, and one
+Execution-plan schema v11 records artifact publication intent, the budget,
+complete estimator, and one
 read-only sizing decision per resolved input. A regular file is sized by its
 logical length; a directory is sized as the checked sum of its recursively
 contained regular files. Symbolic links, special entries, missing metadata,
@@ -288,7 +300,7 @@ MiB per scalar. Exceeding any limit fails before workflow execution.
 
 A non-empty CLI `--input` list has precedence and bypasses selection request
 validation, root access, discovery, compilation, and evaluation. Dry-run uses
-the same read-only selection snapshot as execution. Execution-plan schema v10
+the same read-only selection snapshot as execution. Execution-plan schema v11
 records canonical options, limits, engine/interpreter identity, counts, and
 SHA-256 script and inventory digests without recording the script, configured
 variable values, or unselected inventory.

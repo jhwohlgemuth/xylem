@@ -54,6 +54,8 @@ pub enum PlanError {
 /// Versioned dry-run plan rendered without mutating the host.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ExecutionPlan {
+    /// Whole-run sandbox artifact publication intent.
+    pub artifacts: Option<PlannedArtifactPublication>,
     /// Configuration used to build the plan.
     pub configuration: PlanConfiguration,
     /// Deduplicated containers required by modules that would run.
@@ -92,6 +94,18 @@ pub struct PlannedAcquisition {
     pub action: String,
     /// Configured module source URI.
     pub source: String,
+}
+/// Bounded whole-run artifact publication intent.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PlannedArtifactPublication {
+    /// Maximum artifact bytes accepted from each input.
+    pub bytes_per_input: Memory,
+    /// Resolved final destination.
+    pub destination: String,
+    /// Maximum artifact entries accepted from each input.
+    pub entries_per_input: u64,
+    /// Stable publication strategy.
+    pub mode: String,
 }
 /// Command information known without acquiring or mutating the host.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -320,6 +334,15 @@ impl ExecutionPlan {
                                     })
                             })
                             .map(|modules| Self {
+                                artifacts: match (&config.output, sandbox.resources.as_ref()) {
+                                    | (Some(destination), Some(resources)) => Some(PlannedArtifactPublication {
+                                        bytes_per_input: Memory::kb(resources.artifact_bytes as f64 / 1024.0),
+                                        destination: destination.clone(),
+                                        entries_per_input: resources.artifact_files,
+                                        mode: "whole_run_atomic".to_string(),
+                                    }),
+                                    | _ => None,
+                                },
                                 containers: PlannedContainer::from_modules(config, &modules),
                                 configuration: PlanConfiguration {
                                     id: config.id.clone(),
@@ -341,7 +364,7 @@ impl ExecutionPlan {
                                 modules,
                                 resume,
                                 sandbox,
-                                schema_version: 10,
+                                schema_version: 11,
                             })
                     })
             })

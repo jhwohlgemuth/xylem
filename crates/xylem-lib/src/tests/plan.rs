@@ -130,7 +130,7 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
     let first = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("build plan");
     let second = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("rebuild plan");
     assert_eq!(first, second);
-    assert_eq!(first.schema_version, 10);
+    assert_eq!(first.schema_version, 11);
     assert!(first.memory.is_none());
     assert_eq!(first.sandbox.mode, "off");
     assert_eq!(first.inputs.source, InputSource::List);
@@ -283,7 +283,7 @@ fn test_execution_plan_reports_container_startup_strategies() {
             .find(|container| container.name == name)
             .and_then(|container| container.startup)
     };
-    assert_eq!(plan.schema_version, 10);
+    assert_eq!(plan.schema_version, 11);
     assert_eq!(plan.sandbox.mode, "off");
     assert_eq!(startup("explicit"), Some(ContainerStartup::ExplicitCommand));
     assert_eq!(startup("external"), None);
@@ -358,7 +358,7 @@ fn test_execution_plan_reports_validated_memory_fallback() {
     assert_eq!(serialized["memory"]["estimator"]["slope_millionths"], 0);
     assert_eq!(serialized["memory"]["inputs"][0]["fallback"]["kind"], "no_input");
     assert_eq!(serialized["memory"]["mode"], "fixed_fallback");
-    assert_eq!(serialized["schema_version"], 10);
+    assert_eq!(serialized["schema_version"], 11);
 }
 #[test]
 fn test_execution_plan_uses_memory_aware_reservations() {

@@ -21,13 +21,14 @@ Vary workflow input concurrency according to estimated peak resident memory whil
 - Workflow `resources` remain string values verified as host requirements.
   Quantitative admission is configured independently through validated
   `options.memory`.
-- Journal/report schema v9 accepts optional per-input observed peaks. On Linux,
+- Journal/report schema v10 accepts optional per-input observed peaks and
+  typed whole-run artifact finalization. On Linux,
   OCI-sandboxed runs with configured memory evidence collect the exact cgroup
   v2 `memory.peak` before input cleanup; unsupported and unsandboxed runs leave
   the observation null.
 - Inputs may be files or directories of heterogeneous contents, and different modules can have different peak-memory curves for the same input.
 - The pure estimator and FIFO admission model landed in commit `4df056c`.
-  Validated configuration, read-only input sizing, execution-plan v10, and the
+  Validated configuration, read-only input sizing, execution-plan v11, and the
   fail-fast runtime admission integration and durable journal/report evidence
   are now implemented. Narrow Linux sandbox observation is implemented; the
   expanded fifth-case measurement is complete, while operational
@@ -206,20 +207,27 @@ That work is split into two independent gates:
    `tools/memory-spike/evidence/oklahoma-2026-10-09-rootless-docker/`. This gate
    is closed: it proves cgroup discovery and durable telemetry without making
    a claim about the imagery estimator.
-2. **A/P sandbox comparison:** run the two measured holdouts with the
-   A/P-capable digest-pinned workload and compare each sandbox cgroup peak with
-   its reservation. This gate must wait for bounded disk-backed private output.
-   The current tmpfs-only execution path would charge the 11.6 GB and 18.1 GB
-   imagery products to resident memory and would not be comparable to the
-   accepted disk-output measurements.
+2. **Geospatial sandbox comparison:** the Linux/amd64 workload was published as
+   `savannah.ornl.gov/research-enablement/xylem/geospatial@sha256:d0a3e444817303f418e5829ba805b945476932e456f966b8fc9d80eeee21ac03`.
+   Its disk-backed publication path passed native rootless Docker and Podman
+   conformance, including non-empty declared-output validation, atomic
+   publication, durable artifact evidence, and positive cgroup peaks. Evidence
+   is retained under
+   `tools/memory-spike/evidence/oklahoma-2026-10-09-geospatial-sandbox-artifacts/`.
+   The real A/P comparison remains operationally gated because pinned Module A
+   requests ASTER DEM metadata during execution while execution networking is
+   intentionally denied. Docker run `exCLF1uRav` failed publication and left
+   the destination absent when `*_MODA.TIF` matched no files. Pre-stage the DEM
+   dependency or independently pin an offline-compatible Module A revision;
+   do not weaken execution isolation.
 
 The checked-in rootless preflight now verifies native x86_64 Linux, a local
 rootless Docker or Podman runtime, cgroup v2 memory and CPU enforcement, the
 hardened IPC and process flags, a canonical Linux/amd64 workload, and
 caller-selected available capacity. CI retains the synthetic summary and
-journal as job artifacts. The A/P workload definition is staged under
-`sandbox/runner/ap/`; publishing its canonical digest remains a deployment
-action.
+journal as job artifacts. The reusable workload definition is staged under
+`sandbox/runner/geospatial/`; CI publishes canonical Savannah and GHCR digest
+references.
 
 These decisions establish evidence only for the measured A/P and A/P/O
 revisions, order, and input range. They do not make those combinations a
@@ -238,7 +246,7 @@ module list can use the option; validation covers the estimator identity,
 coefficients, safety multiplier, and calibrated input range without inspecting
 module names, order, count, or revisions.
 
-Execution-plan schema v10 adds nullable memory intent and ordered per-input
+Execution-plan schema v11 adds nullable artifact and memory intent and ordered per-input
 sizing decisions. Xylem recursively totals logical regular-file bytes without
 following symbolic links, calculates checked reservations for inputs inside the
 calibrated range, and rejects a valid reservation larger than the run budget
@@ -250,7 +258,7 @@ reservation once at terminal input completion and admits no new work after a
 failure or cancellation. An unconfigured plan records `memory: null` and keeps
 the original fixed batching path.
 
-Journal and run-summary schema v9 records the estimator identity, configured
+Journal and run-summary schema v10 records artifact finalization, the estimator identity, configured
 budget, safety multiplier, and ordered per-input base estimate, safety reserve,
 enforced reservation, or structured fallback. A separate one-shot journal
 event can record a positive observed peak after an input starts; underprediction
@@ -274,9 +282,9 @@ The measured A/P example and pinned operational canary are landed. The dry-run
 retained the expected plan, and the controlled canary passed with two
 concurrent admissions.
 
-1. Add bounded disk-backed private sandbox output, publish the A/P workload by
-   canonical digest, and run the A/P rootless comparison without tmpfs output
-   inflation.
+1. Pre-stage Module A's DEM dependency, or pin an independently reviewed
+   offline-compatible revision, then run the A/P rootless peak comparison
+   through the already-qualified disk-backed output path on Docker and Podman.
 2. Defer the expanded A/P/O rerun until after the A/P rootless comparison
    gate. Keep that workflow's production input concurrency at one until a fresh
    run's individual and concurrent holdout gates are GO.

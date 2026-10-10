@@ -2,9 +2,11 @@
 extern crate alloc;
 
 mod archive;
+mod artifact;
 mod lifecycle;
 mod memory;
 
+use self::artifact::ArtifactManager;
 use crate::config::{Config, InputAttribute};
 use crate::error::ProcessError;
 use crate::remote::RemotePolicy;
@@ -25,10 +27,13 @@ use std::env::current_dir;
 use std::ffi::OsString;
 use std::fs::{canonicalize, metadata, read_dir, read_to_string, symlink_metadata};
 use std::path::{Component, Path, PathBuf};
+use strum::EnumIs;
 
 const MAX_MOUNT_ENTRIES: usize = 100_000;
 /// Current operator sandbox policy schema version.
 pub const SANDBOX_POLICY_VERSION: u32 = 1;
+/// Optional artifact result returned when a sandbox session finishes.
+pub type SandboxSessionOutcome = Option<ArtifactPublication>;
 /// Internal sealing support for the public sandbox traits.
 mod private {
     /// Marker implemented only by in-tree provider and session types.
@@ -67,9 +72,22 @@ pub trait SandboxSession: private::Sealed + Send + Sync {
     /// Begin one isolated input preparation phase.
     fn start_input(&self, request: SandboxInput<Requested>) -> Result<Box<dyn SandboxPreparation>, SandboxError>;
     /// Finish the logical session after all admitted inputs settle.
-    fn finish(&self, succeeded: bool) -> Result<(), SandboxError>;
+    fn finish(&self, succeeded: bool) -> Result<SandboxSessionOutcome, SandboxError>;
     /// Return the resource ceilings enforced for each command.
     fn resources(&self) -> &SandboxResources;
+}
+/// Terminal state of whole-run sandbox artifact publication.
+#[derive(Clone, Copy, Debug, Deserialize, EnumIs, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtifactPublicationStatus {
+    /// Private artifacts were removed because the run did not succeed.
+    Discarded,
+    /// Artifact publication failed before an atomic commit.
+    Failed,
+    /// Publication is declared but has not reached a terminal state.
+    Pending,
+    /// Artifacts were atomically published to the requested destination.
+    Published,
 }
 /// Minimum isolation boundary required by a trusted operator policy, ordered from weakest to strongest.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -184,6 +202,24 @@ pub enum WorkloadAcquisition {
     /// Pull the immutable workload when it is absent from local provider storage.
     PullIfMissing,
 }
+/// Typed whole-run sandbox artifact result.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ArtifactPublication {
+    /// Total bytes in the published tree.
+    pub bytes: Memory,
+    /// Maximum artifact bytes accepted from each input.
+    pub bytes_per_input: Memory,
+    /// Resolved final destination.
+    pub destination: String,
+    /// Total filesystem entries in the published tree.
+    pub entries: u64,
+    /// Maximum artifact entries accepted from each input.
+    pub entries_per_input: u64,
+    /// Bounded terminal error, when publication failed.
+    pub error: Option<String>,
+    /// Terminal publication status.
+    pub status: ArtifactPublicationStatus,
+}
 /// Validated immutable sandbox policy with its canonical identity.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct EffectiveSandboxPolicy {
@@ -220,6 +256,7 @@ struct OciImageInspection {
 }
 #[derive(Clone, Debug)]
 struct OciSandboxSession {
+    artifacts: Arc<ArtifactManager>,
     policy: EffectiveSandboxPolicy,
     run_id: String,
 }
@@ -259,6 +296,7 @@ pub struct Requested {
     config: Config,
     input: Option<String>,
     input_index: usize,
+    input_count: usize,
     module_indices: Vec<usize>,
     staging_root: PathBuf,
 }
@@ -343,10 +381,10 @@ pub struct SandboxWorkload {
 impl Config {
     pub(crate) fn validate_sandbox(&self) -> Result<(), ValidationReport> {
         let mut report = ValidationReport::new();
-        if self.output.is_some() {
+        if self.output.is_some() && self.options.as_ref().and_then(|options| options.resume).unwrap_or_default() {
             report.add(
-                "output",
-                validation_error("unsupported", "artifact publication is not yet supported in sandbox mode"),
+                "options.resume",
+                validation_error("unsupported", "resume is not supported with sandbox artifact publication"),
             );
         }
         if self.options.as_ref().and_then(|options| options.gpu_monitor).unwrap_or_default() {
@@ -376,12 +414,6 @@ impl Config {
                 ),
                 | (_, true) => (),
             }
-            if module.completion.is_some() {
-                report.add(
-                    format!("{path}.completion"),
-                    validation_error("unsupported", "completion markers are not yet supported in sandbox mode"),
-                );
-            }
             if matches!(&module.template, Some(TemplateAttribute::Template(template)) if template.container.is_some()) {
                 report.add(
                     format!("{path}.template"),
@@ -396,6 +428,16 @@ impl Config {
             }
         });
         report.finish()
+    }
+}
+impl dyn SandboxSession {
+    /// Open the selected provider session, or return host mode when no policy is active.
+    pub fn open(
+        run_id: &str,
+        policy: Option<&EffectiveSandboxPolicy>,
+        acquisition: WorkloadAcquisition,
+    ) -> Result<Option<Arc<dyn SandboxSession>>, SandboxError> {
+        policy.map_or(Ok(None), |policy| SandboxProvider::open(policy, run_id, acquisition).map(Some))
     }
 }
 impl EffectiveSandboxPolicy {
@@ -468,6 +510,11 @@ impl EffectiveSandboxPolicy {
             .validate()
             .map_err(|why| SandboxError::Validation(why.to_string()))
             .and_then(|()| {
+                config.output.as_ref().map_or(Ok(()), |output| {
+                    validate_granted_destination(Path::new(output), &self.policy.paths.artifact_roots).map(|_| ())
+                })
+            })
+            .and_then(|()| {
                 RemotePolicy::from_hosts(config.options.as_ref().and_then(|options| options.allowed.as_deref()))
                     .map_err(|why| SandboxError::Validation(format!("invalid remote module allowlist: {why}")))
                     .and_then(|remote_policy| {
@@ -524,9 +571,23 @@ impl EffectiveSandboxPolicy {
                                     .map(|input| validate_granted_path(Path::new(input), &self.policy.paths.input_roots, "input"))
                                     .collect::<Result<Vec<_>, _>>()
                                     .and_then(|inputs| {
-                                        inputs.iter().try_for_each(|input| {
-                                            modules.iter().flatten().try_for_each(|module| validate_mount_separation(module, input))
-                                        })
+                                        inputs
+                                            .iter()
+                                            .try_for_each(|input| {
+                                                modules.iter().flatten().try_for_each(|module| validate_mount_separation(module, input))
+                                            })
+                                            .and_then(|()| {
+                                                config.output.as_ref().map_or(Ok(()), |output| {
+                                                    validate_granted_destination(Path::new(output), &self.policy.paths.artifact_roots).and_then(
+                                                        |destination| {
+                                                            inputs
+                                                                .iter()
+                                                                .chain(modules.iter().flatten())
+                                                                .try_for_each(|source| validate_artifact_separation(&destination, source))
+                                                        },
+                                                    )
+                                                })
+                                            })
                                     })
                             })
                     })
@@ -707,6 +768,11 @@ impl SandboxProvider for EffectiveSandboxPolicy {
             | true => Err(SandboxError::Validation("sandbox run identifier must not be empty".to_string())),
             | false => self.prepare_workload(run_id, acquisition).map(|()| {
                 Arc::new(OciSandboxSession {
+                    artifacts: ArtifactManager::new(
+                        run_id.to_string(),
+                        self.policy.paths.artifact_roots.clone(),
+                        self.policy.resources.clone(),
+                    ),
                     policy: self.clone(),
                     run_id: run_id.to_string(),
                 }) as Arc<dyn SandboxSession>
@@ -821,8 +887,8 @@ impl SandboxSession for OciSandboxSession {
     fn start_input(&self, request: SandboxInput<Requested>) -> Result<Box<dyn SandboxPreparation>, SandboxError> {
         lifecycle::start(self, request)
     }
-    fn finish(&self, _succeeded: bool) -> Result<(), SandboxError> {
-        Ok(())
+    fn finish(&self, succeeded: bool) -> Result<SandboxSessionOutcome, SandboxError> {
+        self.artifacts.finish(succeeded)
     }
     fn resources(&self) -> &SandboxResources {
         &self.policy.policy.resources
@@ -1026,20 +1092,33 @@ impl SandboxInput<Requested> {
         staging_root: PathBuf,
         input: Option<String>,
     ) -> Result<Self, SandboxError> {
+        Self::new_with_input_count(config, input_index, 1, module_indices, staging_root, input)
+    }
+    /// Build a request that also declares the total resolved input count for artifact capacity planning.
+    pub fn new_with_input_count(
+        config: Config,
+        input_index: usize,
+        input_count: usize,
+        module_indices: impl IntoIterator<Item = usize>,
+        staging_root: PathBuf,
+        input: Option<String>,
+    ) -> Result<Self, SandboxError> {
         let module_indices = module_indices.into_iter().collect::<Vec<_>>();
         let ordered = module_indices.windows(2).all(|pair| pair[0] < pair[1]);
         let indices = module_indices.iter().all(|index| *index < config.modules.len());
         let root = staging_root.as_os_str().is_empty();
-        match (ordered, indices, root) {
-            | (false, _, _) => Err(SandboxError::Validation(
+        match (ordered, indices, root, input_count > input_index) {
+            | (false, _, _, _) => Err(SandboxError::Validation(
                 "sandbox input module indices must be strictly increasing".to_string(),
             )),
-            | (_, false, _) => Err(SandboxError::Validation("sandbox input contains an invalid module index".to_string())),
-            | (_, _, true) => Err(SandboxError::Validation("sandbox staging root must not be empty".to_string())),
-            | (true, true, false) => Ok(Self {
+            | (_, false, _, _) => Err(SandboxError::Validation("sandbox input contains an invalid module index".to_string())),
+            | (_, _, true, _) => Err(SandboxError::Validation("sandbox staging root must not be empty".to_string())),
+            | (_, _, _, false) => Err(SandboxError::Validation("sandbox input count must include the input index".to_string())),
+            | (true, true, false, true) => Ok(Self {
                 state: Requested {
                     config,
                     input,
+                    input_count,
                     input_index,
                     module_indices,
                     staging_root,
@@ -1083,6 +1162,9 @@ impl SandboxInput<Requested> {
     pub(crate) fn input_index(&self) -> usize {
         self.state.input_index
     }
+    pub(crate) fn input_count(&self) -> usize {
+        self.state.input_count
+    }
     pub(crate) fn module_indices(&self) -> &[usize] {
         &self.state.module_indices
     }
@@ -1095,16 +1177,6 @@ impl fmt::Display for SandboxProviderKind {
         match self {
             | Self::Oci => formatter.write_str("oci"),
         }
-    }
-}
-impl dyn SandboxSession {
-    /// Open the selected provider session, or return host mode when no policy is active.
-    pub fn open(
-        run_id: &str,
-        policy: Option<&EffectiveSandboxPolicy>,
-        acquisition: WorkloadAcquisition,
-    ) -> Result<Option<Arc<dyn SandboxSession>>, SandboxError> {
-        policy.map_or(Ok(None), |policy| SandboxProvider::open(policy, run_id, acquisition).map(Some))
     }
 }
 impl Validate for Script {
@@ -1176,6 +1248,58 @@ fn rewrite_path(value: &str, replacements: &[(String, String)]) -> String {
                 })
         })
         .unwrap_or_else(|| value.to_string())
+}
+fn validate_artifact_separation(destination: &Path, source: &Path) -> Result<(), SandboxError> {
+    match destination.starts_with(source) || source.starts_with(destination) {
+        | true => Err(SandboxError::Validation(format!(
+            "artifact destination {} and sandbox source {} overlap",
+            destination.display(),
+            source.display()
+        ))),
+        | false => Ok(()),
+    }
+}
+fn validate_granted_destination(path: &Path, roots: &[PathBuf]) -> Result<PathBuf, SandboxError> {
+    match path.file_name().filter(|name| !name.is_empty()) {
+        | None => Err(SandboxError::Validation(format!(
+            "artifact destination {} must identify a leaf directory",
+            path.display()
+        ))),
+        | Some(name) => {
+            let parent = path.parent().unwrap_or_else(|| Path::new("."));
+            canonicalize(parent)
+                .map_err(|why| SandboxError::Validation(format!("artifact destination parent {} cannot be resolved: {why}", parent.display())))
+                .and_then(|parent| {
+                    let destination = parent.join(name);
+                    match symlink_metadata(&destination) {
+                        | Ok(_) => Err(SandboxError::Validation(format!(
+                            "artifact destination {} already exists",
+                            destination.display()
+                        ))),
+                        | Err(why) if why.kind() == std::io::ErrorKind::NotFound => {
+                            let granted = roots
+                                .iter()
+                                .any(|root| canonicalize(root).is_ok_and(|root| destination.starts_with(root)));
+                            match (granted, destination.to_str().is_some() && !destination.to_string_lossy().contains(',')) {
+                                | (true, true) => Ok(destination),
+                                | (true, false) => Err(SandboxError::Validation(format!(
+                                    "artifact destination {} cannot be represented safely as an OCI mount",
+                                    destination.display()
+                                ))),
+                                | (false, _) => Err(SandboxError::Validation(format!(
+                                    "artifact destination {} is outside the operator policy roots",
+                                    destination.display()
+                                ))),
+                            }
+                        }
+                        | Err(why) => Err(SandboxError::Validation(format!(
+                            "artifact destination {} cannot be inspected: {why}",
+                            destination.display()
+                        ))),
+                    }
+                })
+        }
+    }
 }
 fn validate_granted_path(path: &Path, roots: &[PathBuf], role: &str) -> Result<PathBuf, SandboxError> {
     symlink_metadata(path)

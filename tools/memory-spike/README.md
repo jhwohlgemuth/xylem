@@ -125,6 +125,30 @@ analysis, and operator scope are retained in
 `evidence/oklahoma-2026-10-03/`. The GO decision applies only to the pinned
 Module A plus Module P sequence and measured input-byte range.
 
+### Stage the offline ASTER DEM cache
+
+`real/aster-gdem-tiles.env` pins the GitLab Generic Package URL, archive
+SHA-256, OCI tag, and OCI manifest digest for the five ASTER GDEM v3 tiles used
+by the two measured holdouts. Store `GITLAB_TOKEN` in the ignored repository
+root `.env`, then stage the verified tiles and the four input-specific mosaics:
+
+```shell
+tools/memory-spike/stage-aster-gdem.sh /absolute/module-a/data/DEM
+```
+
+Set `STAGE_HOST` to stage through SSH, for example:
+
+```shell
+STAGE_HOST=oklahoma tools/memory-spike/stage-aster-gdem.sh \
+  /home/o9w/xylem-memory/geospatial-sandbox-gate/modules/module-a/data/DEM
+```
+
+Apply `module-a-offline-dem.patch` to the pinned Module A source used by the
+gate. The patch resolves the cache relative to the copied module and returns a
+prebuilt mosaic before making the CMR request, so preparation and execution can
+remain network-denied. It also lets the existing default-AOT path handle absent
+MODIS and VIIRS listings instead of passing a missing response to the parsers.
+
 ### Measure the pinned Module A, P, and O workflow
 
 Store `EARTHDATA_API_TOKEN` in the ignored repository-root `.env`, then run:

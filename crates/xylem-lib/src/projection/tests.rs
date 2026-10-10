@@ -3,6 +3,7 @@ use crate::journal::{ConfigurationIdentity, InputSummary, ModuleSummary, Sandbox
 
 fn summary(state: ExecutionState, started: u64, updated: u64) -> RunSummary {
     RunSummary {
+        artifacts: None,
         schema_version: JOURNAL_SCHEMA_VERSION,
         run_id: "run".to_string(),
         configuration: ConfigurationIdentity {

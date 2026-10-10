@@ -115,6 +115,14 @@ fn ensure_remote_modules_allowed(config: &Config) -> Result<(), RunFailure> {
             })
         })
 }
+fn normalize_sandbox_artifact_output(config: &mut Config) -> Result<(), RunFailure> {
+    match (config.sandbox, config.output.as_ref()) {
+        | (true, Some(output)) => std::path::absolute(output)
+            .map_err(|why| RunFailure::new(exitcode::DATAERR, format!("resolve sandbox artifact output {output} — {why}")))
+            .map(|output| apply_resolved_artifact_output(config, &output)),
+        | _ => Ok(()),
+    }
+}
 pub(super) fn prepare(request: &RunRequest<'_>) -> Result<PreparedRun, RunFailure> {
     env::current_dir()
         .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, format!("resolve current directory — {why}")))
@@ -180,6 +188,7 @@ fn prepare_config(request: &RunRequest<'_>, config_path: &Path) -> Result<(Confi
                         })
                 })
         })
+        .and_then(|mut preview| normalize_sandbox_artifact_output(&mut preview).map(|()| preview))
         .and_then(|preview| {
             preview
                 .validate()

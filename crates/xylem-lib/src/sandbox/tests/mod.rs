@@ -1,12 +1,14 @@
+use super::artifact::{ArtifactInput, ArtifactManager};
 use super::*;
 use crate::config::ConfigOptions;
 use crate::script::Command;
 use acorn_cmd::args;
 use alloc::sync::Arc;
 use std::ffi::OsString;
-use std::fs::{create_dir_all, remove_dir_all, write};
+use std::fs::{create_dir_all, read, remove_dir_all, write, File};
 use std::process;
 use std::sync::Mutex;
+use tar::{Builder, EntryType, Header};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FakeFailure {
@@ -147,16 +149,45 @@ impl SandboxSession for FakeSession {
             })),
         }
     }
-    fn finish(&self, _succeeded: bool) -> Result<(), SandboxError> {
+    fn finish(&self, _succeeded: bool) -> Result<SandboxSessionOutcome, SandboxError> {
         self.operations.lock().expect("fake operation lock").push("run_finish");
         match self.failure == Some(FakeFailure::RunFinish) {
             | true => Err(SandboxError::Runtime("injected finish failure".to_string())),
-            | false => Ok(()),
+            | false => Ok(None),
         }
     }
     fn resources(&self) -> &SandboxResources {
         &self.resources
     }
+}
+fn append_artifact(builder: &mut Builder<File>, path: &str, contents: &[u8]) {
+    let mut header = Header::new_gnu();
+    header.set_entry_type(EntryType::Regular);
+    header.set_mode(0o644);
+    header.set_size(contents.len() as u64);
+    header.set_cksum();
+    builder.append_data(&mut header, path, contents).expect("append artifact fixture");
+}
+fn artifact_config(output: &Path) -> Config {
+    let mut config = serde_json::from_str::<Config>(r#"{"requirements":[],"modules":[]}"#).expect("parse artifact config");
+    config.output = Some(output.display().to_string());
+    config
+}
+fn artifact_manager(root: &Path, run_id: &str) -> Arc<ArtifactManager> {
+    ArtifactManager::new(
+        run_id.to_string(),
+        vec![root.to_path_buf()],
+        SandboxResources {
+            artifact_bytes: 1024,
+            artifact_files: 10,
+            captured_output_bytes: 1024,
+            cpu_millis: 1000,
+            memory_bytes: 1024,
+            pids: 1,
+            scratch_bytes: 1024,
+            wall_time_seconds: 10,
+        },
+    )
 }
 fn invocation(policy: &EffectiveSandboxPolicy, script: &Script, container_name: &str) -> Result<Vec<OsString>, SandboxError> {
     script.validate().map_err(|why| SandboxError::Validation(why.to_string())).and_then(|()| {
@@ -299,6 +330,12 @@ workload:
 fn root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("xylem-sandbox-policy-{label}-{}", process::id()))
 }
+fn stage_artifact(manager: &ArtifactManager, input: &ArtifactInput, path: &str, contents: &[u8]) {
+    let mut builder = Builder::new(File::create(&input.archive).expect("create artifact archive"));
+    append_artifact(&mut builder, path, contents);
+    builder.finish().expect("finish artifact archive");
+    manager.stage(input).expect("stage artifact archive");
+}
 fn workload_inspection() -> OciImageInspection {
     OciImageInspection {
         architecture: "amd64".to_string(),
@@ -312,6 +349,40 @@ fn workload_inspection() -> OciImageInspection {
     }
 }
 
+#[test]
+fn conflicting_input_files_leave_destination_absent() {
+    let root = root("artifact-conflict");
+    create_dir_all(&root).expect("create artifact root");
+    let destination = root.join("published");
+    let manager = artifact_manager(&root, "conflict");
+    let first = manager
+        .prepare(&artifact_config(&destination), None, 0, 2)
+        .expect("prepare first input")
+        .unwrap();
+    let second = manager
+        .prepare(&artifact_config(&destination), None, 1, 2)
+        .expect("prepare second input")
+        .unwrap();
+    stage_artifact(&manager, &first, "same.txt", b"first");
+    stage_artifact(&manager, &second, "same.txt", b"second");
+    assert!(manager.finish(true).is_err());
+    assert!(!destination.exists());
+    remove_dir_all(root).expect("remove artifact fixture");
+}
+#[test]
+fn failed_run_discards_private_artifacts() {
+    let root = root("artifact-discard");
+    create_dir_all(&root).expect("create artifact root");
+    let destination = root.join("published");
+    let manager = artifact_manager(&root, "discard");
+    let _ = manager
+        .prepare(&artifact_config(&destination), None, 0, 1)
+        .expect("prepare artifact input");
+    let outcome = manager.finish(false).expect("discard artifact run").expect("artifact outcome");
+    assert!(outcome.status.is_discarded());
+    assert!(!destination.exists());
+    remove_dir_all(root).expect("remove artifact fixture");
+}
 #[test]
 fn fake_provider_injects_each_lifecycle_failure() {
     [
@@ -466,6 +537,33 @@ fn invocation_rejects_symlinks_inside_mounted_trees() {
     remove_dir_all(directory).expect("remove policy fixture directory");
 }
 #[test]
+fn missing_declared_output_leaves_destination_absent() {
+    let root = root("artifact-missing-output");
+    create_dir_all(&root).expect("create artifact root");
+    let destination = root.join("published");
+    let manager = artifact_manager(&root, "missing-output");
+    let mut config = serde_json::from_str::<Config>(
+        r#"{
+            "requirements": [],
+            "modules": [{
+                "name": "producer",
+                "type": "script",
+                "programmingLanguage": "generic",
+                "uri": "file:/tmp/producer",
+                "completion": { "outputs": ["{{ OUTPUT_DIRECTORY }}/expected.txt"] },
+                "template": { "command": "sh", "arguments": ["-c", "true"] }
+            }]
+        }"#,
+    )
+    .expect("parse artifact config");
+    config.output = Some(destination.display().to_string());
+    let input = manager.prepare(&config, None, 0, 1).expect("prepare artifact input").unwrap();
+    stage_artifact(&manager, &input, "unrelated.txt", b"present");
+    assert!(manager.finish(true).is_err());
+    assert!(!destination.exists());
+    remove_dir_all(root).expect("remove artifact fixture");
+}
+#[test]
 fn policy_formats_produce_the_same_canonical_digest() {
     let directory = root("formats");
     create_dir_all(&directory).expect("create policy fixture directory");
@@ -585,6 +683,29 @@ fn sandbox_session_open_respects_optional_policy() {
     assert!(<dyn SandboxSession>::open("run", None, WorkloadAcquisition::LocalOnly)
         .expect("open host mode")
         .is_none());
+}
+#[test]
+fn successful_inputs_merge_and_publish_atomically() {
+    let root = root("artifact-publish");
+    create_dir_all(&root).expect("create artifact root");
+    let destination = root.join("published");
+    let manager = artifact_manager(&root, "publish");
+    let first = manager
+        .prepare(&artifact_config(&destination), None, 0, 2)
+        .expect("prepare first input")
+        .unwrap();
+    let second = manager
+        .prepare(&artifact_config(&destination), None, 1, 2)
+        .expect("prepare second input")
+        .unwrap();
+    stage_artifact(&manager, &first, "first.txt", b"first");
+    stage_artifact(&manager, &second, "second.txt", b"second");
+    let outcome = manager.finish(true).expect("publish artifacts").expect("artifact outcome");
+    assert!(outcome.status.is_published());
+    assert_eq!(outcome.bytes.checked_bytes(), Some(11));
+    assert_eq!(read(destination.join("first.txt")).expect("read first artifact"), b"first");
+    assert_eq!(read(destination.join("second.txt")).expect("read second artifact"), b"second");
+    remove_dir_all(root).expect("remove artifact fixture");
 }
 #[test]
 fn validate_workflow_accepts_managed_run_root() {

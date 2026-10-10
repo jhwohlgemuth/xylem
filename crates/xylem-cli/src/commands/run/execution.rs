@@ -4,6 +4,7 @@ use super::progress::WorkflowProgress;
 use super::reporting::{finalize, ReportContext};
 use super::{RunFailure, RunRequest};
 use acorn_host::terminal::Label;
+use acorn_schema::hardware::Memory;
 use acorn_schema::validation::Validate;
 use alloc::collections::BTreeSet;
 use alloc::sync::Arc;
@@ -24,7 +25,7 @@ use xylem_lib::plan::{ExecutionPlan, MemoryPlanMode};
 use xylem_lib::remote::RemotePolicy;
 use xylem_lib::run::store::{Bundle, Manifest, Store};
 use xylem_lib::run::telemetry::SystemMonitor;
-use xylem_lib::sandbox::{SandboxCapabilities, SandboxProvider, SandboxSession, WorkloadAcquisition};
+use xylem_lib::sandbox::{ArtifactPublication, ArtifactPublicationStatus, SandboxCapabilities, SandboxProvider, SandboxSession, WorkloadAcquisition};
 use xylem_lib::script::{managed_container_name, EnvironmentValue};
 
 struct Runtime<'a> {
@@ -87,6 +88,18 @@ fn create_journal(runtime: &Runtime<'_>, bundle: &Bundle, options: &ConfigOption
         .map_err(|why| RunFailure::new(exitcode::SOFTWARE, format!("derive durable memory evidence — {why}")))
         .and_then(|memory| {
             let metadata = RunMetadata::now(runtime.id.clone(), configuration, options.dry_run.unwrap_or_default(), sandbox);
+            let metadata = match runtime.plan.artifacts.as_ref() {
+                | Some(artifacts) => metadata.with_artifacts(ArtifactPublication {
+                    bytes: Memory::kb(0.0),
+                    bytes_per_input: artifacts.bytes_per_input.clone(),
+                    destination: artifacts.destination.clone(),
+                    entries: 0,
+                    entries_per_input: artifacts.entries_per_input,
+                    error: None,
+                    status: ArtifactPublicationStatus::Pending,
+                }),
+                | None => metadata,
+            };
             let metadata = match memory {
                 | Some(memory) => metadata.with_memory(memory),
                 | None => metadata,
@@ -157,7 +170,19 @@ fn execute_bundle(runtime: Runtime<'_>, bundle: Bundle, options: ConfigOptions, 
             .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, format!("open sandbox provider session — {why}")))
             .map_err(|failure| {
                 let message = failure.to_string();
-                match journal.finish(xylem_lib::journal::FinalStatus::Failed, Some(&message)) {
+                let artifacts = runtime.plan.artifacts.as_ref().map_or(Ok(()), |artifacts| {
+                    journal.finalize_artifacts(ArtifactPublication {
+                        bytes: Memory::kb(0.0),
+                        bytes_per_input: artifacts.bytes_per_input.clone(),
+                        destination: artifacts.destination.clone(),
+                        entries: 0,
+                        entries_per_input: artifacts.entries_per_input,
+                        error: Some(message.clone()),
+                        status: ArtifactPublicationStatus::Failed,
+                    })
+                });
+                let finalized = artifacts.and_then(|()| journal.finish(xylem_lib::journal::FinalStatus::Failed, Some(&message)));
+                match finalized {
                     | Ok(()) => failure,
                     | Err(why) => failure.with_secondary(format!("finalize execution journal — {why}")),
                 }
@@ -260,10 +285,28 @@ fn execute_opened(
     if sandbox.is_some() {
         progress.finish_preparation(sandbox_succeeded);
     }
-    let sandbox_cleanup = sandbox.as_ref().map_or(Ok(()), |sandbox| {
-        sandbox
-            .finish(sandbox_succeeded)
-            .map_err(|why| RunFailure::new(exitcode::IOERR, format!("finish sandbox provider session — {why}")))
+    let sandbox_cleanup = sandbox.as_ref().map_or(Ok(()), |sandbox| match sandbox.finish(sandbox_succeeded) {
+        | Ok(publication) => publication.map_or(Ok(()), |publication| {
+            journal
+                .finalize_artifacts(publication)
+                .map_err(|why| RunFailure::new(exitcode::IOERR, format!("record sandbox artifact finalization — {why}")))
+        }),
+        | Err(why) => {
+            let failure = RunFailure::new(exitcode::IOERR, format!("finish sandbox provider session — {why}"));
+            let evidence = plan.artifacts.as_ref().map(|artifacts| ArtifactPublication {
+                bytes: Memory::kb(0.0),
+                bytes_per_input: artifacts.bytes_per_input.clone(),
+                destination: artifacts.destination.clone(),
+                entries: 0,
+                entries_per_input: artifacts.entries_per_input,
+                error: Some(why.to_string()),
+                status: ArtifactPublicationStatus::Failed,
+            });
+            match evidence.map(|evidence| journal.finalize_artifacts(evidence)).transpose() {
+                | Ok(_) => Err(failure),
+                | Err(journal_error) => Err(failure.with_secondary(format!("record sandbox artifact failure — {journal_error}"))),
+            }
+        }
     });
     let dispatched = match (dispatched, sandbox_cleanup) {
         | (Ok(outcomes), Ok(())) => Ok(outcomes),

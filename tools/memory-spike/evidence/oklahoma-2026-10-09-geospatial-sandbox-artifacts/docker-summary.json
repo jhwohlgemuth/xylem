@@ -1,0 +1,94 @@
+{
+  "artifacts": {
+    "bytes": 1197,
+    "bytes_per_input": 1048576,
+    "destination": "/tmp/xylem-native-sandbox-184148/artifacts/published",
+    "entries": 2,
+    "entries_per_input": 1000,
+    "error": null,
+    "status": "published"
+  },
+  "schema_version": 10,
+  "run_id": "uQJZWob1Yr",
+  "configuration": {
+    "path": "/tmp/xylem-native-sandbox-184148/config.json"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "minimum_isolation": "shared_kernel",
+    "mode": "required",
+    "policy_digest": "sha256:7e9aea69e37bf75d1c7c07e14aeba1e9028e31db8ef6aa50ac28a532cce65341",
+    "preparation_network": "deny",
+    "process_guards": [],
+    "provider": "oci",
+    "realized_capabilities": {
+      "isolation": "shared_kernel",
+      "network_deny": true,
+      "provider": "oci",
+      "resource_limits": true,
+      "read_only_root": true,
+      "rootless": true
+    },
+    "resources": {
+      "artifact_bytes": 1048576,
+      "artifact_files": 1000,
+      "captured_output_bytes": 65536,
+      "cpu_millis": 1000,
+      "memory_bytes": 536870912,
+      "pids": 128,
+      "scratch_bytes": 134217728,
+      "wall_time_seconds": 60
+    },
+    "runtime": "docker",
+    "session_model": "per_input",
+    "workload": "savannah.ornl.gov/research-enablement/xylem/geospatial@sha256:d0a3e444817303f418e5829ba805b945476932e456f966b8fc9d80eeee21ac03"
+  },
+  "started_at": 1791585667607,
+  "finished_at": 1791585669091,
+  "duration": 1484,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": "/tmp/xylem-native-sandbox-184148/inputs/sample.txt",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791585668017,
+      "updated_at": 1791585669031,
+      "modules": [
+        {
+          "index": 0,
+          "name": "native-conformance",
+          "module_path": [
+            "native-conformance"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791585668850,
+          "updated_at": 1791585668903
+        }
+      ]
+    }
+  ],
+  "memory": {
+    "budget": "1GB",
+    "estimator_identity": "native-sandbox-conformance-v1",
+    "inputs": [
+      {
+        "estimated": "131072KB",
+        "fallback": null,
+        "input": "1KB",
+        "input_index": 0,
+        "observed_peak": "6124KB",
+        "reservation": "131072KB",
+        "safety_reserve": "0KB"
+      }
+    ],
+    "mode": "memory_aware",
+    "safety_millionths": 1000000
+  }
+}

@@ -4,7 +4,8 @@ extern crate alloc;
 use crate::memory::{MemoryEstimator, PlannedMemoryFallback};
 use crate::plan::{MemoryPlanMode, PlannedMemory};
 use crate::sandbox::{
-    EffectiveSandboxPolicy, IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard, SandboxCapabilities, SandboxProviderKind, SandboxResources,
+    ArtifactPublication, ArtifactPublicationStatus, EffectiveSandboxPolicy, IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard,
+    SandboxCapabilities, SandboxProviderKind, SandboxResources,
 };
 use crate::ReporterType;
 use acorn_core::time::Milliseconds;
@@ -26,7 +27,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use strum::EnumIs;
 
 /// Current on-disk journal schema version.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 9;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 10;
 /// Maximum number of UTF-8 bytes retained for one journal error detail.
 pub const MAX_ERROR_BYTES: usize = 4096;
 trait Summary {
@@ -127,6 +128,8 @@ pub enum JournalError {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum JournalEvent {
+    /// Records the exactly-once terminal artifact publication result.
+    ArtifactsFinalized { publication: ArtifactPublication },
     /// Declares the run before any work begins.
     RunStarted { metadata: Box<RunMetadata> },
     /// Records a container lifecycle transition.
@@ -387,6 +390,8 @@ pub struct JournalRecord {
 }
 #[derive(Debug)]
 struct JournalSink {
+    artifact_expected: bool,
+    artifact_status: Option<ArtifactPublicationStatus>,
     writer: BufWriter<File>,
     next_sequence: u64,
     input_observations: Vec<bool>,
@@ -468,6 +473,9 @@ pub struct RunMemoryEvidence {
 #[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, With)]
 pub struct RunMetadata {
+    /// Whole-run sandbox artifact intent, when configured.
+    #[with(some)]
+    pub artifacts: Option<ArtifactPublication>,
     /// Unique run identifier.
     pub run_id: String,
     /// Configuration used for this run.
@@ -485,6 +493,8 @@ pub struct RunMetadata {
 /// Deterministic summary reconstructed from durable journal records.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RunSummary {
+    /// Whole-run sandbox artifact publication evidence.
+    pub artifacts: Option<ArtifactPublication>,
     /// Summary schema version.
     pub schema_version: u32,
     /// Unique run identifier.
@@ -540,6 +550,63 @@ pub struct SandboxEvidence {
     pub session_model: Option<String>,
     /// Immutable provider workload, absent for host mode.
     pub workload: Option<String>,
+}
+impl ArtifactPublication {
+    fn identity(&self) -> (&str, &Memory, u64) {
+        (&self.destination, &self.bytes_per_input, self.entries_per_input)
+    }
+}
+impl Validate for ArtifactPublication {
+    fn validate(&self) -> Result<(), ValidationReport> {
+        let bytes = self.bytes.checked_bytes();
+        let bytes_per_input = self.bytes_per_input.checked_bytes();
+        let error_valid = match self.status.is_failed() {
+            | true => self
+                .error
+                .as_ref()
+                .is_some_and(|error| !error.is_empty() && error.len() <= MAX_ERROR_BYTES),
+            | false => self.error.is_none(),
+        };
+        let pending_with_totals = self.status.is_pending() && (bytes.is_some_and(|bytes| bytes > 0) || self.entries > 0);
+        let mut report = ValidationReport::new();
+        if bytes.is_none() {
+            report.add(
+                "bytes",
+                ValidationError::new("finite").with_message("artifact bytes must be finite and non-negative"),
+            );
+        }
+        if bytes_per_input.filter(|bytes| *bytes > 0).is_none() {
+            report.add(
+                "bytes_per_input",
+                ValidationError::new("positive").with_message("artifact byte limit must be positive"),
+            );
+        }
+        if self.destination.is_empty() {
+            report.add(
+                "destination",
+                ValidationError::new("nonempty").with_message("artifact destination must not be empty"),
+            );
+        }
+        if self.entries_per_input == 0 {
+            report.add(
+                "entries_per_input",
+                ValidationError::new("positive").with_message("artifact entry limit must be positive"),
+            );
+        }
+        if !error_valid {
+            report.add(
+                "error",
+                ValidationError::new("consistent").with_message("artifact publication error is inconsistent"),
+            );
+        }
+        if pending_with_totals {
+            report.add(
+                "status",
+                ValidationError::new("pending").with_message("pending artifact evidence cannot contain totals"),
+            );
+        }
+        report.finish()
+    }
 }
 impl ExecutionState {
     /// Whether this state represents completed work.
@@ -903,6 +970,7 @@ impl RunJournal {
             .and_then(|()| OpenOptions::new().write(true).create_new(true).open(&path).map_err(JournalError::from))
             .and_then(|file| {
                 let module_states = inputs.iter().map(|_| vec![ExecutionState::NotStarted; modules.len()]).collect::<Vec<_>>();
+                let artifact_expected = metadata.artifacts.is_some();
                 let memory = metadata.memory.clone();
                 let journal = Self {
                     path,
@@ -912,6 +980,8 @@ impl RunJournal {
                     modules: modules.clone(),
                     containers: containers.clone(),
                     sink: Mutex::new(JournalSink {
+                        artifact_expected,
+                        artifact_status: None,
                         writer: BufWriter::new(file),
                         next_sequence: 0,
                         input_observations: vec![false; inputs.len()],
@@ -1192,13 +1262,24 @@ impl RunJournal {
                 sink.finalized,
                 status == FinalStatus::Succeeded && sink.input_states.iter().any(|state| !state.is_complete()),
                 matches!(sink.gpu_monitoring, GpuJournalState::Started { .. }),
+                sink.artifact_expected,
+                sink.artifact_status,
             ) {
-                | (true, _, _) => Err(JournalError::Invalid("run is already finalized".to_string())),
-                | (false, true, _) => Err(JournalError::Invalid(
+                | (true, _, _, _, _) => Err(JournalError::Invalid("run is already finalized".to_string())),
+                | (false, true, _, _, _) => Err(JournalError::Invalid(
                     "a successful run cannot contain unfinished or failed inputs".to_string(),
                 )),
-                | (false, false, true) => Err(JournalError::Invalid("run cannot finalize while GPU monitoring is active".to_string())),
-                | (false, false, false) => sink
+                | (false, false, true, _, _) => Err(JournalError::Invalid("run cannot finalize while GPU monitoring is active".to_string())),
+                | (false, false, false, true, None) => Err(JournalError::Invalid("run cannot finalize before artifact publication".to_string())),
+                | (false, false, false, true, Some(ArtifactPublicationStatus::Published)) if status != FinalStatus::Succeeded => {
+                    Err(JournalError::Invalid("failed run cannot report published artifacts".to_string()))
+                }
+                | (false, false, false, true, Some(ArtifactPublicationStatus::Discarded | ArtifactPublicationStatus::Failed))
+                    if status == FinalStatus::Succeeded =>
+                {
+                    Err(JournalError::Invalid("successful run requires published artifacts".to_string()))
+                }
+                | (false, false, false, _, _) => sink
                     .append_locked(
                         &self.run_id,
                         JournalEvent::RunFinished {
@@ -1209,6 +1290,25 @@ impl RunJournal {
                     .map(|()| sink.finalized = true),
             }
         })
+    }
+    /// Durably record the exactly-once terminal artifact publication result.
+    pub fn finalize_artifacts(&self, publication: ArtifactPublication) -> Result<(), JournalError> {
+        publication
+            .validate()
+            .map_err(JournalError::from)
+            .and_then(|()| self.sink.lock().map_err(|_| JournalError::Poisoned))
+            .and_then(
+                |mut sink| match (sink.artifact_expected, sink.artifact_status, publication.status.is_pending()) {
+                    | (false, _, _) => Err(JournalError::Invalid("artifact publication was not declared".to_string())),
+                    | (true, Some(_), _) => Err(JournalError::Invalid("artifact publication is already finalized".to_string())),
+                    | (true, None, true) => Err(JournalError::Invalid("artifact publication finalization must be terminal".to_string())),
+                    | (true, None, false) => {
+                        let status = publication.status;
+                        sink.append_locked(&self.run_id, JournalEvent::ArtifactsFinalized { publication })
+                            .map(|()| sink.artifact_status = Some(status))
+                    }
+                },
+            )
     }
     /// Recover a deterministic summary from a journal file.
     ///
@@ -1462,6 +1562,7 @@ impl RunMetadata {
     /// Build metadata with the current system time.
     pub fn now(run_id: String, configuration: ConfigurationIdentity, dry_run: bool, sandbox: SandboxEvidence) -> Self {
         Self {
+            artifacts: None,
             run_id,
             configuration,
             dry_run,
@@ -1476,6 +1577,17 @@ impl Validate for RunMetadata {
         let mut report = ValidationReport::new();
         if self.run_id.is_empty() {
             report.add("run_id", ValidationError::new("nonempty").with_message("Run ID cannot be empty"));
+        }
+        if self.artifacts.as_ref().is_some_and(|artifacts| !artifacts.status.is_pending()) {
+            report.add(
+                "artifacts",
+                ValidationError::new("pending").with_message("artifact evidence must be pending at run start"),
+            );
+        }
+        if let Some(artifacts) = self.artifacts.as_ref() {
+            if let Err(why) = artifacts.validate() {
+                report = report.merge("artifacts", why);
+            }
         }
         if let Some(memory) = &self.memory {
             if let Err(why) = memory.validate() {
@@ -1750,8 +1862,9 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
     type Error = JournalError;
 
     fn try_from(records: Vec<JournalRecord>) -> Result<Self, Self::Error> {
+        let mut artifacts = None::<ArtifactPublication>;
         let mut containers = BTreeMap::<usize, ContainerSummary>::new();
-        let mut metadata = None;
+        let mut metadata = None::<RunMetadata>;
         let mut inputs = BTreeMap::<usize, InputSummary>::new();
         let mut finalization = None;
         let mut gpu_monitoring = None::<GpuRecovery>;
@@ -1789,6 +1902,19 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                         | false => Ok(()),
                     })
                     .and_then(|()| match event {
+                        | JournalEvent::ArtifactsFinalized { publication } => publication.validate().map_err(JournalError::from).and_then(|()| {
+                            let declared = metadata.as_ref().and_then(|metadata| metadata.artifacts.as_ref());
+                            match (artifacts.is_some(), publication.status.is_pending(), declared) {
+                                | (true, _, _) => Err(JournalError::Invalid("artifact publication was finalized more than once".to_string())),
+                                | (_, true, _) => Err(JournalError::Invalid("artifact publication finalization is not terminal".to_string())),
+                                | (_, _, None) => Err(JournalError::Invalid("artifact publication was not declared at run start".to_string())),
+                                | (false, false, Some(intent)) if intent.identity() == publication.identity() => {
+                                    artifacts = Some(publication);
+                                    Ok(())
+                                }
+                                | _ => Err(JournalError::Invalid("artifact publication identity changed".to_string())),
+                            }
+                        }),
                         | JournalEvent::RunStarted { metadata: value } => {
                             match metadata.is_some() || expected_sequence != 0 || value.run_id != record_run_id {
                                 | true => Err(JournalError::Invalid("run_started must be the first and only start record".to_string())),
@@ -1958,7 +2084,20 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                     && inputs.values().any(|input| {
                         !input.state.is_complete() || (input.state.is_succeeded() && input.modules.iter().any(|module| !module.state.is_complete()))
                     });
-                memory_validation.and_then(|()| match invalid_success {
+                let artifact_validation = match (&metadata.artifacts, &artifacts, finalization.as_ref()) {
+                    | (None, None, _) | (Some(_), None, None) => Ok(()),
+                    | (Some(_), Some(publication), Some((FinalStatus::Succeeded, _, _))) if publication.status.is_published() => Ok(()),
+                    | (Some(_), Some(publication), Some((FinalStatus::Failed | FinalStatus::Cancelled, _, _)))
+                        if publication.status.is_discarded() || publication.status.is_failed() =>
+                    {
+                        Ok(())
+                    }
+                    | (Some(_), None, Some(_)) => Err(JournalError::Invalid(
+                        "run finalized before artifact publication was finalized".to_string(),
+                    )),
+                    | _ => Err(JournalError::Invalid("artifact publication status does not match run status".to_string())),
+                };
+                memory_validation.and(artifact_validation).and_then(|()| match invalid_success {
                     | true => Err(JournalError::Invalid(
                         "a successful finalization contains unfinished or failed work".to_string(),
                     )),
@@ -1971,6 +2110,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                         };
                         let duration = finished_at.map(|finished| Milliseconds::new(finished.get().saturating_sub(metadata.started_at.get())));
                         Ok(RunSummary {
+                            artifacts: artifacts.or(metadata.artifacts),
                             schema_version: JOURNAL_SCHEMA_VERSION,
                             run_id: metadata.run_id,
                             configuration: metadata.configuration,
