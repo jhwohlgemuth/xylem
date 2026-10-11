@@ -55,14 +55,12 @@ The first release does not:
 
 # Current evidence
 
-Rechecked against the 2026-09-30 worktree, including the in-progress GPU
-monitoring changes.
+Rechecked against the 2026-10-11 worktree.
 
-- `crates/xylem-cli/src/commands/run/mod.rs` currently owns configuration precedence,
-  run-ID creation, the temporary workspace, planning, journal creation, module
-  preparation, container lifecycle, input dispatch, monitoring, reporting, and
-  final exit mapping in one function. There is no reusable controller/worker
-  boundary.
+- Run orchestration is split across preparation, execution, dispatch, executor,
+  progress, and reporting modules. This is a useful composition seam, but
+  execution still creates a local random run root and has no reusable
+  controller/worker request boundary.
 - `Config::run_workflow_recorded` and `Script::run_checked` execute on the local
   host. Working directories, local module URIs, input paths, completion paths,
   and report paths are therefore host paths.
@@ -75,13 +73,13 @@ monitoring changes.
   once per run, journaled as run-scoped resources, and cleaned after input
   dispatch. A Kubernetes Job cannot safely inherit this behavior through a
   new match arm.
-- `ExecutionPlan` is deterministic and write-free, but it currently describes
-  only local acquisition, module commands, local container operations, resume,
-  and the in-progress GPU monitor. It has no execution-target evidence.
-- The current worktree uses execution-plan version 10 and journal/report
-  version 9 for CEL selection, memory admission, and durable dashboard state.
-  Kubernetes must allocate the next versions from that landed baseline rather
-  than modifying current artifacts in place.
+- `ExecutionPlan` is deterministic and write-free, but v12 describes local
+  acquisition, module commands, local containers, resume, GPU monitoring,
+  memory admission, and sandbox intent without an execution target.
+- Journal/run-summary v11 retains selection, cancellation, sandbox lifecycle,
+  atomic artifacts, memory evidence, and durable dashboard state. Kubernetes
+  must allocate new plan and durable-state versions from the v12/v11 baseline
+  rather than modifying current artifacts in place.
 - `RunJournal` is append-only, flushed at every transition, and recovered into
   `RunSummary`. It is the correct authoritative worker result once its path is
   placed on durable shared storage.
@@ -92,13 +90,16 @@ monitoring changes.
   or runtime actions. Kubernetes dry-run must preserve that contract.
 - The CLI exposes generated help as a checked-in contract. New target and
   lifecycle commands require regenerated snapshots and explicit tests.
-- The workspace publishes a static Linux binary and Windows binary, but no OCI
-  runner image. The rigorously supported binary target is Linux amd64; the
-  Kubernetes release will deliberately expand its reference image to Linux
-  amd64 and arm64.
-- The planned sandbox work already distinguishes application containers from
-  an outer execution or isolation session. Kubernetes target types must remain
-  separate from `ContainerEnvironment` and `SandboxPolicy`.
+- `RunCancellation` and managed child cancellation are landed, but the
+  headless CLI does not yet install the signal lifecycle required by an
+  attached Kubernetes controller or worker.
+- The workspace publishes sandbox workload images, not a Kubernetes Xylem
+  worker image or controller/worker protocol. The rigorously supported binary
+  target remains Linux amd64; Kubernetes would deliberately add Linux amd64
+  and arm64 worker images.
+- OCI, OpenShell, and Docker Sandbox providers now distinguish the outer
+  isolation session from application containers. Kubernetes target types must
+  remain separate from `ContainerEnvironment` and sandbox provider policy.
 
 # Core decisions
 
@@ -932,15 +933,16 @@ current path.
 
 ## Prerequisites
 
-- Preserve the landed execution-plan v10 and journal/report v9 contracts;
+- Preserve the landed execution-plan v12 and journal/report v11 contracts;
   Kubernetes allocates the next versions when implementation begins.
-- Complete the lossless process result, timeout, cancellation, and child-reaping
-  contract before claiming graceful Pod termination.
+- Preserve managed child cancellation and reaping, then complete lossless
+  process results, module timeouts, and headless signal handling before
+  claiming graceful Pod termination.
 - Complete immutable workflow environment/run-context work before serializing
   a controller request; the Kubernetes worker must not depend on controller
   process-global environment mutation.
-- Coordinate kube-rs/Tokio additions with the dependency-surface and security
-  gate plan. That plan owns manifest policy and audit baselines.
+- Coordinate kube-rs/Tokio additions under the manifest lock and existing
+  dependency-security policy.
 
 Profile/path/protocol types, pure Job construction, fake-client tests, and
 runner-image prototypes may proceed before all runtime prerequisites. The real
@@ -948,18 +950,15 @@ worker and cancellation integration wait for them.
 
 ## Relationship to sandboxing
 
-Kubernetes target work and sandbox work both touch run orchestration, plans,
-journals, CLI commands, and documentation, so their integration phases cannot
-hold those locks concurrently.
-
-Neither plan semantically replaces the other:
+The landed sandbox runtime and Kubernetes target do not replace one another:
 
 - Kubernetes target chooses where the Xylem engine runs.
 - Sandbox policy chooses how workflow-controlled work is constrained.
 
-Land common `RunContext`, structured process, cancellation, and target-evidence
-types once. Do not make Kubernetes implement the sandbox provider trait unless
-a later cluster-profile qualification plan defines enforceable capabilities.
+Preserve the current sandbox policy, provider, lifecycle, and evidence
+contracts while adding target evidence. Do not make Kubernetes implement the
+sandbox provider trait unless a later cluster-profile qualification plan
+defines enforceable capabilities.
 
 ## Delivery dependency
 
@@ -967,6 +966,14 @@ Default fake-client tests can land with ordinary unit/CLI CI. Required Kind and
 multi-architecture image jobs consume the repaired CI/release pipeline and its
 immutable release identity. Do not publish a reference image from an untagged,
 unverified binary.
+
+# Recommendation
+
+Do not start the controller or worker implementation yet. First confirm an
+operator-owned shared filesystem and cluster, accepted Kubernetes demand,
+required authentication, and an image publication path through the Phase 0
+spike. Pure profile, mapping, protocol, and Job construction work may begin
+only with those deployment assumptions recorded.
 
 # Implementation phases
 
@@ -1067,7 +1074,7 @@ on both supported image architectures.
   wrong run ID, partial files, truncation, and atomic replacement.
 - Duplicate-worker winner, waiter, matching result, winner disappearance, and
   timeout cases.
-- Version-7 schemas for both local and Kubernetes runs.
+- Newly allocated current-version schemas for both local and Kubernetes runs.
 
 ## Fake-client tests
 
@@ -1195,4 +1202,3 @@ and a workflow rooted entirely beneath the shared workspace.
 
 - [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md)
 - [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
-- [Sandboxed workflow execution](../refactors/sandboxed-workflow-execution.md)

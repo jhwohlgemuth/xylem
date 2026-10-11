@@ -18,16 +18,34 @@ Xylem owns workflow policy. Generic child-process mechanics come from ACORN's
 
 # Current evidence
 
+Rechecked on 2026-10-11.
+
 - `ExecutionContext` already owns a run-local Rayon pool, `InputBatch` is a positive concurrency ceiling, and `dispatch_inputs_fail_fast` provides rolling admission with result slots in configured input order. The dispatch methods still construct a second Rayon pool instead of using one run-level admission mechanism.
 - The current fail-fast dispatcher stops new admission but allows already-active inputs to settle. It has no cancellation token, no `continue` policy, and no structured dispatch report describing never-admitted work.
 - Module acquisition and environment preparation still run once for the shared `Config` before input dispatch, through a separate Rayon phase. The configured batch ceiling therefore does not bound the complete input lifecycle.
 - `Config::get_environment_variables` merges workflow and module values into a mutable `HashMap`, expands them, and emits `_XYLEM_*` names before an immutable run context exists.
 - `EnvironmentValue::{set_variable,set_variables,set_namespaced_variables}` can mutate the parent process environment. Tests also mutate `_XYLEM_*` variables and depend on process-wide cleanup.
-- `Script` carries per-command environment overrides and now uses ACORN managed execution, streaming sinks, and cancellation. Its legacy `run_checked` compatibility method still converts and combines output into `Vec<String>`, and module timeouts remain absent.
+- `Script` carries per-command environment overrides and uses ACORN managed
+  execution, streaming sinks, and cancellation. Its legacy `run_checked`
+  compatibility method still converts and combines output into `Vec<String>`,
+  and module timeouts remain absent.
 - `Instruction::ShellFormat` still loses quoted and empty argument boundaries through whitespace splitting.
 - Configuration resolution uses a process-wide temporary source root, while module acquisition, virtual-environment preparation, and execution reuse run-level paths across inputs. Duplicate inputs can therefore collide even when their variable maps differ.
-- The CLI creates `${TMPDIR}/xylem/<random-id>` directly for disposable work and has no RAII cleanup or workspace-retention owner. Durable evidence now lives in the canonical run store independently of that workspace.
-- Execution plans, journals, and summaries are at version 7. Cancellation is a durable terminal state owned by the dashboard baseline.
+- The CLI now splits preparation, execution, dispatch, executor, progress, and
+  reporting into separate modules, but it still creates
+  `${TMPDIR}/xylem/<random-id>` directly and has no RAII cleanup or
+  workspace-retention owner. Durable evidence lives independently in the
+  canonical run store.
+- `RunCancellation` and durable `cancelled`/`not_started` states are landed.
+  TUI-launched runs use the cancellation handle, but the headless CLI still has
+  no signal integration and fail-fast does not cancel active siblings.
+- Execution plans are at version 12 and journals/summaries are at version 11.
+  The landed schemas include selection, sandbox, artifact, memory, cancellation,
+  and lifecycle evidence that the next runtime revision must preserve.
+- Sandboxed execution already creates per-input preparation/execution
+  boundaries with clean environments and staged artifacts. Those contracts do
+  not fix the shared mutable host path and must remain intact during this
+  refactor.
 
 # Ownership boundary
 
@@ -49,10 +67,19 @@ Xylem adapts `Script` to the ACORN API and owns configuration, variable preceden
 
 1. Preserve the landed ACORN v0.3.4 managed-process contract so ACORN consumers can migrate separately.
 2. Keep Xylem's ACORN versions and Git revisions together. Published Xylem crates must resolve the same process contract from crates.io; a Git-only prerequisite is insufficient.
-3. Land the Xylem context, workspace, scheduler, journal, and CLI changes as one coordinated runtime boundary. `crates/xylem-lib/src/script/mod.rs`, run-state files, manifests, and `crates/xylem-cli/src/commands/run/mod.rs` remain single-writer integration surfaces.
-4. Allocate a new coordinated runtime schema version above the dashboard's version 7, preserving CEL selection provenance, cancellation, and canonical run-store compatibility. Coordinate the next number with Kubernetes before implementation.
+3. Land the Xylem context, workspace, scheduler, journal, and CLI changes as
+   coordinated phases. `crates/xylem-lib/src/script/mod.rs`, run-state files,
+   manifests, and `crates/xylem-cli/src/commands/run/` remain single-writer
+   integration surfaces.
+4. Allocate the next execution-plan and journal/run-summary versions from v12
+   and v11. Preserve selection, sandbox, artifact, memory, lifecycle,
+   cancellation, and run-store compatibility; coordinate version allocation
+   with MCP and Kubernetes.
 
-This plan follows the typed workflow-outcome contract and preserves the existing `options.batch` rolling ceiling. Its durable outcomes feed the journal and reporters. Memory-aware scheduling remains a follow-on policy at the admission seam.
+This plan follows the typed workflow-outcome contract and preserves the
+existing `options.batch` ceiling plus landed memory-aware admission. Its
+durable outcomes feed the journal, reporters, TUI, sandbox lifecycle, and
+run-store projections.
 
 # Public configuration and CLI contract
 
@@ -145,17 +172,31 @@ Keep stdout and stderr as separate byte tails. Xylem may stream chunks to tracin
 
 The caller applies workflow failure policy. `Script` never logs an error and returns an empty success sentinel.
 
-# Journal and schema version 7
+# Journal and schema revision
 
-Add `cancelled` to the durable input and module state vocabulary. Advance
-execution plan, journal, recovered summary, and their JSON schemas to version
-7 together. Make version 7 the only readable schema: delete readers,
-normalizers, schemas, and successful compatibility fixtures for versions 1
-through 6. Reject any non-current version without attempting migration.
+Use the landed `cancelled` and `not_started` durable vocabulary. Advance the
+execution plan from v12 and journal/recovered summary from v11 only when the
+new context, failure-policy, timeout, and workspace evidence is stable. Keep
+the current exact-version runtime policy: retain historical schema documents,
+but reject non-current runtime artifacts without normalization or migration.
 
-Version 7 preserves version-6 selection provenance and records the effective failure policy, timeout, run and input workspace identities without persisting disposable absolute paths as reusable configuration, ordered input disposition, cancellation reason, process termination metadata, duration, and output truncation counts. Never persist captured output beyond the journal's existing bounded diagnostic policy.
+The new versions preserve all current selection, sandbox, artifact, memory,
+lifecycle, and cancellation evidence. Add effective failure policy, timeout,
+run and input workspace identities without persisting disposable absolute paths
+as reusable configuration, ordered input disposition, cancellation reason,
+process termination metadata, duration, and output truncation counts. Never
+persist captured output beyond the journal's existing bounded diagnostic
+policy.
 
 Dry-run validates and renders the effective policy, timeout, reserved variables, declared runtime paths, and scheduler ceiling. It creates no workspace or journal, performs no acquisition or environment preparation, and represents runtime-generated values such as run and work directory with stable declarations rather than random concrete paths.
+
+# Recommendation
+
+Keep the six phases independently reviewable, but reserve the process adapter,
+configuration, scheduler, run-state, CLI, and documentation locks for each
+integration in order. Start with the host process/result adapter and pure
+context construction; do not combine this refactor with acquisition,
+Kubernetes, or MCP behavior.
 
 # Implementation phases
 
@@ -163,7 +204,8 @@ Dry-run validates and renders the effective policy, timeout, reserved variables,
 2. Add configuration and CLI policy, pure variable resolution, owned path resolution, and immutable contexts.
 3. Add the RAII workspace and per-input acquisition/preparation layout, with durable journals outside the disposable tree.
 4. Replace the current optional-slot fail-fast result with `DispatchReport`, move mutable preparation behind the single bounded scheduler, and implement fail-fast sibling cancellation, continue, and external cancellation.
-5. Advance plan, journal, recovery, summary, schemas, reporters, and dry-run to version 7.
+5. Advance plan, journal, recovery, summary, schemas, reporters, TUI, and
+   dry-run together from the current v12/v11 baseline.
 6. Remove global environment mutation and obsolete helpers, then update documentation and examples.
 
 # Validation
@@ -175,8 +217,9 @@ Dry-run validates and renders the effective policy, timeout, reserved variables,
 - Prove fail-fast cancels already-active siblings rather than merely waiting for them, and distinguish the triggering failure, cancelled active work, and never-admitted work.
 - Test input-local local trees, Git modules, Conda/Mamba prefixes, Pixi projects, symlink containment, executable-bit preservation, duplicate inputs, and cleanup after success, failure, cancellation, and panic unwind.
 - Verify `--retain-workspace` reports a usable path while normal runs remove the workspace and retain the journal.
-- Round-trip version-7 plans, journals, and summaries; reject non-version-7
-  fixtures; assert explicit `cancelled`, `failed`, and `not_started` states.
+- Round-trip the newly allocated plan, journal, and summary versions; reject
+  non-current fixtures; assert explicit `cancelled`, `failed`, and
+  `not_started` states.
 - Prove dry-run performs no filesystem writes, process spawn, network access, environment mutation, or random identifier generation.
 - Run focused library and CLI tests on Linux, macOS, and Windows, then run the workspace lint and test gates.
 
@@ -190,8 +233,9 @@ Dry-run validates and renders the effective policy, timeout, reserved variables,
 - Fail-fast, continue, timeout, and external cancellation have distinct durable outcomes; external cancellation exits 130.
 - Xylem delegates process supervision to the published ACORN contract and preserves separate bounded stdout/stderr evidence.
 - Workspaces clean up on every terminal path unless the CLI explicitly retains them; journals have an independent lifetime.
-- Version-7 schemas represent cancellation and policy, preserve selection provenance, and every older schema
-  is rejected without normalization or migration.
+- The new schemas represent policy, timeout, context, and workspace evidence;
+  preserve all current provenance and lifecycle evidence; and reject every
+  non-current runtime artifact without normalization or migration.
 - Dry-run creates no workspace or journal and performs no execution-side mutation.
 
 # Related plans

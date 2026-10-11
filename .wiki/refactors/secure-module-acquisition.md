@@ -20,6 +20,8 @@ have different materialization contracts and must not share an implicit
 
 # Current evidence
 
+Rechecked on 2026-10-11.
+
 The existing exact-host policy, redirect checks, URL redaction, typed remote
 errors, checksum requirement for normal binary downloads, and dry-run handling
 for remote configuration wrappers are the baseline. The remaining gaps are:

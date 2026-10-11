@@ -2,7 +2,7 @@
 type: Plan
 title: "Activate the Homebrew release export"
 description: "Finish and verify the implemented Homebrew publication path with protected credentials, required runners, and the v1.0.3 release."
-difficulty: medium
+difficulty: low
 impact: high
 package: [workspace, xylem-cli]
 tags: [homebrew, release, distribution, macos, linux, packaging]
@@ -16,11 +16,17 @@ Linux users can install and upgrade Xylem through the official tap.
 
 # Current evidence
 
+Rechecked on 2026-10-11.
+
 - Formula generation, tag-only tap merge-request creation, tap CI, offline formula testing, and upgrade coverage are implemented.
 - The immutable v1.0.0 archive cannot compile with Homebrew Rust 1.98 because it locks `ethnum` 1.5.2. The published v1.0.3 archive locks the compatible `ethnum` 1.5.3 release.
 - The v1.0.3 release pipeline published both crates and opened tap merge request `!2`. Its Linux validation job passes.
 - The v1.0.3 formula passes `brew style`, `brew audit --strict`, a macOS source install with Homebrew Rust 1.98.1, and `brew test`.
-- The tap's macOS CI job failed with `stuck_pending_no_matching_runners`, but the pipeline remains successful because that job may fail. Activation still requires the macOS job to pass, both platform jobs to become required, and merge request `!2` to merge.
+- Tap merge request `!2` remains open and mergeable. Pipeline `1017726` is
+  successful because Linux passed and macOS is allowed to fail; the macOS job
+  is canceled and no compatible `macos` runner is currently assigned.
+  Activation still requires a successful macOS job, both platform jobs to
+  become required, and merge request `!2` to merge.
 
 # Project code boundaries
 
@@ -226,11 +232,9 @@ requires the guest binary for artifact transfer with VM executors.
 
 ## Retry and require macOS validation
 
-Retry the failed v1.0.3 job from GitLab or run:
-
-```shell
-glab api -X POST projects/22654/jobs/4378427/retry
-```
+Retry the current v1.0.3 macOS job from GitLab after a compatible runner is
+online. Do not retain a numeric job ID in this plan because each retry creates
+a new job.
 
 After the runner has completed a job successfully, remove `when: manual` and
 `allow_failure: true` from `homebrew-macos` in
@@ -250,5 +254,3 @@ After the runner has completed a job successfully, remove `when: manual` and
 - Audit, style, install, and formula tests are required before the tap change can merge.
 - The v1.0.3 tap update passes both platform jobs and merges through review.
 - The publication credential is protected and scoped only to the tap update operation.
-
-# Related plans

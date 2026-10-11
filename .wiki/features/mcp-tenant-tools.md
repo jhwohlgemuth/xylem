@@ -20,7 +20,9 @@ runner.
 
 # Current evidence
 
-- Xylem commit `5e67c8354bcd` pins `acorn-cmd`, `acorn-core`, `acorn-host`,
+Rechecked on 2026-10-11.
+
+- Xylem still pins `acorn-cmd`, `acorn-core`, `acorn-host`,
   `acorn-macros`, and `acorn-schema` at version 0.3.4 and revision
   `36cd74041eaa4669636b7743071f3c334cdb3b7d`. It does not depend on
   `acorn-lib` and has no MCP configuration or execution path.
@@ -29,19 +31,22 @@ runner.
   effects, offline mode, timeouts, output limits, advertised-tool discovery,
   and JSON-object arguments. A valid `CallToolResult` with `isError: true`
   remains a successful transport result.
-- Published ACORN 0.4.0 is not suitable for Xylem as shipped. Enabling
-  `acorn-lib/mcp-client` also enables `analysis`. A clean resolution probe grew
-  the Xylem lockfile from 454 to 881 packages and restored `polars`, its related
-  crates, and `openssl-sys`. Xylem's dependency policy deliberately forbids
-  those packages after an earlier reduction from 844 packages.
-- ACORN 0.4.0 only constructs `McpClient` from its full
-  `ApplicationConfiguration`, and `call_tool` has no caller-supplied
-  cancellation signal. Internal deadlines and normal-path shutdown exist, but
-  dropping an in-flight future is not a documented session-cleanup contract.
+- ACORN commit `77be500e` narrowed `acorn-lib/mcp-client` to foundational
+  `std`, HTTP/RMCP, Tokio, and executable discovery without `analysis`, Polars,
+  or OpenSSL.
+- ACORN commit `aa36e93f` added direct
+  `BTreeMap<String, McpServerConfiguration>` construction, the public
+  statically dispatched `McpClientBackend` trait, caller-supplied cancellation
+  for list and call operations, and bounded HTTP/child cleanup. Focused
+  upstream tests cover cancellation during startup, pagination, pending calls,
+  cleanup, child reaping, and client reuse.
+- ACORN's embedder-interface plan remains open only for separately owned book
+  integration. Its source interface is ready for Xylem qualification; Xylem no
+  longer waits for upstream client implementation.
 - Xylem's runner is synchronous and uses Rayon for bounded input concurrency.
   `RunCancellation` provides a graceful first request and forceful repeated
-  request. Execution plans currently use version 10 and journals/summaries use
-  version 9; neither contract represents MCP calls.
+  request. Execution plans currently use version 12 and journals/summaries use
+  version 11; neither contract represents MCP calls.
 - Xylem already expands uppercase `{{ VARIABLE }}` strings from workflow values
   and the derived `INPUT`, `PARENT_DIRECTORY`, `OUTPUT_DIRECTORY`, and
   `MODULE_LIST` values. MCP arguments can reuse that vocabulary without adding
@@ -49,18 +54,27 @@ runner.
 
 # Dependencies
 
-Implementation waits for the ACORN plan "Refine the outbound MCP client
-interface for embedders" to land on the 0.4.0 line. The accepted upstream
-revision must:
+Begin by qualifying ACORN `aa36e93f` or a newer accepted 0.4.0 revision. The
+selected revision must:
 
-1. compile `acorn-lib/mcp-client` without `analysis`, `std`, Polars, or OpenSSL;
+1. compile `acorn-lib/mcp-client` with foundational `std` support but without
+   `analysis`, Polars, or OpenSSL;
 2. construct `McpClient` directly from the configured MCP server map; and
 3. provide cancellation-aware call and list operations that close HTTP sessions
    and cancel and reap child transports within a bounded shutdown period.
 
-All ACORN crates then move together to that one revision. The revision must
+All ACORN crates then move together to that one revision. The qualification
+must rerun the narrow feature check and cancellation suite rather than relying
+only on the upstream plan. The revision must
 retain Xylem's Rust baseline, feature checks, native and Windows builds, and
 dependency-security gates.
+
+# Recommendation
+
+Qualify the upstream revision as an isolated manifest change, then land pure
+configuration and planning before live transports or schema integration. Keep
+the existing per-input runner as the only execution path; MCP is a deterministic
+postlude, not a second scheduler or module system.
 
 # Configuration contract
 
@@ -327,5 +341,4 @@ OpenSSL remain absent.
 # Related plans
 
 - [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
-- [Sandboxed workflow execution](../refactors/sandboxed-workflow-execution.md)
 - ACORN: [Refine the outbound MCP client interface for embedders](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/api/outbound-mcp-client-interface.md)

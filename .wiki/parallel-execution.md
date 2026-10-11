@@ -4,64 +4,60 @@ okf_version: "0.1"
 
 # Parallel execution guide
 
-This guide overlays write ownership on the [plan dependency network](plan-network.md). Plans in different lanes are concurrent only when their declared files are disjoint and they avoid the listed integration locks.
+This guide overlays write ownership on the [plan dependency
+network](plan-network.md). Work is parallel only when exact write sets are
+disjoint and neither slice holds the same integration lock.
 
 ## Integration locks
 
 | Lock | Files | Owner rule |
 |---|---|---|
-| Manifest lock | `Cargo.toml`, `Cargo.lock`, `crates/xylem-*/Cargo.toml`, `deny.toml` | One remaining migration or dependency-gate owner at a time. |
-| Configuration lock | `crates/xylem-lib/src/config/mod.rs` and its future extracted modules | Preserve typed errors, validation, `options.batch`, and resume while acquisition, Kubernetes targeting, sandboxing, or memory work extends them. |
-| Process adapter lock | `crates/xylem-lib/src/script/mod.rs` and process fixtures | Environment/concurrency owns Xylem's adapter to the published `acorn-cmd` contract; later Kubernetes worker and sandbox work consume it. |
-| Scheduler lock | `crates/xylem-lib/src/execution.rs`, input admission in `crates/xylem-cli/src/commands/run/mod.rs` | Preserve fixed batching and resume; environment, Kubernetes, sandbox, and memory work consume the boundary serially rather than adding competing admission loops. |
-| Sandbox lock | `crates/xylem-lib/src/sandbox/`, sandbox policy and conformance fixtures | Sandboxed execution owns policy resolution, capability negotiation, session lifecycle, and provider adapters. |
-| Kubernetes target lock | target/profile/protocol modules, native client adapter, Job fixtures, and runner image | Kubernetes execution owns the outer controller/worker and shared-PVC contracts; it may not redefine sandbox or module-container semantics. |
-| Run-state lock | `crates/xylem-lib/src/progress.rs`, journal/outcome modules, reporter adapters | Preserve the journal, reporter, resume, and execution-target vocabulary without redefining durable states. |
-| Run-store lock | runner, run-store, telemetry, task-log, and projection modules plus current schemas | The dashboard baseline has landed. Later runtime and scheduler plans must preserve or explicitly version its bundle contracts. |
-| CLI lock | `crates/xylem-cli/src/{main,cli}.rs`, `crates/xylem-cli/src/commands/run/mod.rs` | One owner for argument registration, pool/scheduler setup, journal lifecycle, CLI-owned exit mapping, and generated help. |
-| TUI lock | `crates/xylem-tui/` and dashboard state | One dashboard owner at a time; rendering work may split by tab only after the app-state and shared-widget contracts land. |
-| Delivery lock | `Makefile`, `.gitlab-ci.yml`, release exporters | Security commands land before CI/release wiring; package and Kubernetes image export consume the immutable release contract. |
-| Documentation lock | top-level Markdown and `examples/` | Final updates occur after behavior and command names are stable. |
-| MCP integration lock | MCP configuration, ACORN client adapter, tool fixtures, and plan/journal evidence | MCP tenant tools own the allowlist and policy bridge; they may not bypass the runner, sandbox, or durable evidence contracts. |
+| Manifest | `Cargo.toml`, `Cargo.lock`, crate manifests, `deny.toml` | MCP, acquisition, and Kubernetes serialize dependency changes. |
+| Configuration | `crates/xylem-lib/src/config/` | Environment, acquisition, Kubernetes, and MCP preserve current validation, batching, memory, resume, and sandbox contracts. |
+| Process adapter | `crates/xylem-lib/src/script/` and process fixtures | Environment/concurrency owns host-adapter changes. Other plans consume the accepted boundary. |
+| Scheduler | `crates/xylem-lib/src/execution.rs`, `commands/run/dispatch.rs` | Preserve ordered fixed and memory-aware admission. One owner changes dispatch at a time. |
+| Sandbox baseline | `crates/xylem-lib/src/sandbox/`, policy/schema/provider fixtures | No active owner. A change requires a focused plan and conformance rerun. |
+| Run state | plan, journal, run-store, projection, telemetry, reporter, schema, and TUI files | One schema owner at a time; all durable readers and views move together. |
+| CLI | CLI roots, `commands/run/`, generated help | One integration owner for argument registration, orchestration, cancellation, and exit mapping. |
+| Delivery | `Makefile`, `.gitlab-ci.yml`, images, release exporters | Serialize release and image wiring; external runner administration does not claim repository files. |
+| Documentation | top-level and `docs/` Markdown, `examples/` | Integrate after behavior and names stabilize. |
 
 ## Work lanes
 
-The lanes below contain only remaining work.
+### Lane A: tenant integration and acquisition
 
-### Lane A: configuration and acquisition
-
-1. [Secure module acquisition](refactors/secure-module-acquisition.md), consuming the validation contract
-2. [MCP-enabled tenant tools](features/mcp-tenant-tools.md), after ACORN's narrow `mcp-client`, direct server-map constructor, and cancellation-aware operations are qualified
-
-Secure acquisition owns generic transport behavior.
+1. [MCP-enabled tenant tools](features/mcp-tenant-tools.md), beginning with
+   qualification of ACORN `aa36e93f` or a newer accepted 0.4.0 revision.
+2. [Secure module acquisition](refactors/secure-module-acquisition.md). Pure
+   planner/cache primitives may proceed separately, but manifest,
+   configuration, run-state, and CLI integrations serialize with MCP.
 
 ### Lane B: execution runtime
 
-1. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md), preserving the landed CEL selection boundary and following the published [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md)
-2. [Kubernetes workflow execution backend](features/kubernetes-workflow-backend.md), after process and immutable environment contracts land
-3. [Sandboxed workflow execution](refactors/sandboxed-workflow-execution.md), after process and immutable environment contracts land
-4. [Memory-aware scheduling](features/memory-aware-scheduling.md), whose scoped estimator gates, planning, runtime admission, and durable estimator evidence are complete
-The `options.batch` rolling input ceiling and landed CEL selection snapshot are baselines these steps must preserve, along with the peak-concurrency tests in `crates/xylem-lib/src/execution.rs`. Memory-aware scheduling next adds optional platform peak collection and operational validation. A new fifth imagery case may qualify the reviewed imagery profiles for concurrent admission only after fresh individual and mix measurements.
+1. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md),
+   preserving landed sandbox providers, memory admission, run-store evidence,
+   and split run orchestration.
+2. [Kubernetes workflow execution](features/kubernetes-workflow-backend.md),
+   only after the immutable context/workspace and cancellation prerequisites
+   plus the operator-demand, PVC, image, and cluster gates are accepted.
 
-### Lane C: CLI and verification
+### Lane C: operational validation
 
+1. [Homebrew release activation](features/homebrew-export.md): assign the macOS
+   runner, rerun validation, require both jobs, merge, and verify installs.
+2. [A/P/O memory validation](features/memory-aware-scheduling.md): run only
+   after rollout selection, corpus access, and credentials are available.
 
-Fixture cleanup and fake-command helpers can proceed without the CLI lock until
-they need a new runtime contract.
-
-### Lane D: delivery and communication
-
-1. CI/release analysis and isolated script prototypes
-2. [Homebrew release export](features/homebrew-export.md) after immutable release artifacts and checksums exist
+These operational slices can run beside repository implementation while they
+do not edit shared CI, documentation, or evidence files.
 
 ## Safe initial batch
 
-The following slices have disjoint primary write sets:
-
 | Slice | Primary ownership | Restriction |
 |---|---|---|
-| Hermetic helper preparation | new test-support module and new fixtures | Do not edit CLI roots or rewrite assertions owned by later contracts. |
-| CI rule validation | isolated CI lint inputs and plan notes | Do not edit `Makefile` or `.gitlab-ci.yml` until dependency-gate commands are accepted. |
+| ACORN MCP revision qualification | temporary feature-tree/compatibility evidence | Do not change manifests until the revision passes the recorded gates. |
+| Homebrew macOS runner assignment | tap project settings and runner host | Do not merge or weaken required validation. |
+| Secure acquisition planner design | new pure planner/cache modules and fixtures | Do not integrate configuration, CLI, process, or journal paths while MCP owns them. |
 
 ## Agent start checklist
 
@@ -69,6 +65,6 @@ The following slices have disjoint primary write sets:
 - List exact files to update, create, and delete.
 - Claim required locks.
 - List public contracts changed.
-- Record baseline commit and prerequisite landing commit.
+- Record baseline and prerequisite commits.
 - Name the focused validation command.
 - Stop and reschedule if the slice expands into another lane's lock.
