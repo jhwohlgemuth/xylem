@@ -1,0 +1,35 @@
+filesystem_policy:
+  include_workdir: false
+  read_only:
+    - /bin
+    - /dev/urandom
+    - /etc
+    - /lib
+    - /lib64
+    - /proc
+    - /sys/fs/cgroup
+    - /usr
+    - /var/log
+  read_write:
+    - /xylem/input
+    - /xylem/modules
+    - /xylem/prepared
+    - /xylem/tmp
+    - /tmp
+landlock:
+  compatibility: hard_requirement
+network_policies:
+  xylem-preparation:
+    binaries:
+      - path: /usr/bin/curl
+      - path: /usr/bin/git
+      - path: /usr/lib/git-core/git-remote-http
+      - path: /usr/lib/git-core/git-remote-https
+    endpoints:
+      - host: example.com
+        port: 443
+    name: xylem-preparation
+process:
+  run_as_group: '65532'
+  run_as_user: '65532'
+version: 1

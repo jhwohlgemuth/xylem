@@ -1,7 +1,12 @@
 # Xylem sandbox runner
 
-This directory defines the baseline `linux/amd64` OCI workload used by the rootless Docker and Podman sandbox provider. 
+This directory defines the baseline `linux/amd64` OCI workload used by the rootless Docker and Podman sandbox provider.
 The Debian base, package archive, runtime identity, and installed tools are pinned so identical source inputs can produce the same manifest digest.
+
+The experimental OpenShell provider and its qualification test use the same digest-pinned image.
+Its numeric UID/GID, `/xylem` directories, and baseline tools satisfy the
+checked-in [`openshell-provider` example](../../examples/openshell-provider/)
+without introducing a second workload contract.
 
 Release pipelines publish the image to `savannah.ornl.gov/research-enablement/xylem/runner` and `ghcr.io/jhwohlgemuth/xylem`.
 Savannah uses the GitLab registry credentials; GHCR requires a protected, masked `GHCR_TOKEN` with package write access.

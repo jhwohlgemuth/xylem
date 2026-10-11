@@ -8,6 +8,8 @@ Examples are grouped by the dependencies they require:
   reservations, budget-constrained admission, and out-of-range fallback.
 - [`failure-logging`](./failure-logging/) is an intentionally failing,
   shell-only workflow that demonstrates concurrent inputs and module logs.
+- [`openshell-provider`](./openshell-provider/) demonstrates the experimental
+  public OpenShell provider with separate phase policies and staged transfer.
 - [`python-with-pixi`](./python-with-pixi/) and
   [`python-with-conda`](./python-with-conda/) demonstrate managed Python
   environments.

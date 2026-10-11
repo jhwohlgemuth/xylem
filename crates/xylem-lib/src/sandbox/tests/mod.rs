@@ -691,6 +691,24 @@ fn test_policy_accepts_failure_retention_with_durable_lifecycle_support() {
     remove_dir_all(directory).expect("remove policy fixture directory");
 }
 #[test]
+fn test_policy_accepts_openshell_provider() {
+    let directory = root("openshell-provider");
+    create_dir_all(&directory).expect("create policy fixture directory");
+    let path = directory.join("policy.json");
+    write(
+        &path,
+        policy("json").replace(
+            "\"provider\": { \"type\": \"oci\", \"runtime\": \"docker\" }",
+            "\"provider\": { \"type\": \"openshell\", \"driver\": \"podman\" }",
+        ),
+    )
+    .expect("write OpenShell policy fixture");
+    let policy = EffectiveSandboxPolicy::read(&path).expect("parse OpenShell policy fixture");
+    assert_eq!(policy.provider, SandboxProviderKind::OpenShell);
+    assert_eq!(policy.runtime, Some(OciRuntime::Podman));
+    remove_dir_all(directory).expect("remove policy fixture directory");
+}
+#[test]
 fn test_policy_formats_produce_the_same_canonical_digest() {
     let directory = root("formats");
     create_dir_all(&directory).expect("create policy fixture directory");

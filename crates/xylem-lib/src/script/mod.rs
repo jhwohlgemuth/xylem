@@ -1285,6 +1285,19 @@ impl StringTemplate {
         self
     }
 }
+impl From<&str> for VirtualEnvironmentManager {
+    fn from(value: &str) -> Self {
+        match value {
+            | "conda" => Self::Conda,
+            | "mamba" => Self::Mamba,
+            | "pixi" => Self::Pixi,
+            | "poetry" => Self::Poetry,
+            | "pyenv" => Self::Pyenv,
+            | "venv" => Self::Virtualenv,
+            | _ => Self::Unknown,
+        }
+    }
+}
 impl VirtualEnvironmentManager {
     pub(crate) fn supports_sandbox(&self) -> bool {
         matches!(self, Self::Conda | Self::Mamba | Self::Pixi)

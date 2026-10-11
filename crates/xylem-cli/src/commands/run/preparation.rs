@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use xylem_lib::config::{Config, ConfigOptions, ConfigReadError};
 use xylem_lib::plan::ExecutionPlan;
 use xylem_lib::remote::RemotePolicy;
-use xylem_lib::sandbox::EffectiveSandboxPolicy;
+use xylem_lib::sandbox::{EffectiveSandboxPolicy, SandboxProviderKind, OPENSHELL_WARNING};
 use xylem_lib::script::{EnvironmentValue, ModuleType, ModuleUri};
 
 pub(super) struct PreparedRun {
@@ -63,7 +63,12 @@ fn configure_preview(mut preview: Config, request: &RunRequest<'_>) -> Result<Co
             "workflow configuration sandbox: true requires --sandbox-policy <PATH>",
         )),
         | (true, Some(path)) => EffectiveSandboxPolicy::read(path)
-            .map(Some)
+            .map(|policy| {
+                if policy.provider == SandboxProviderKind::OpenShell {
+                    eprintln!("Warning: {OPENSHELL_WARNING}");
+                }
+                Some(policy)
+            })
             .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string())),
     };
     effective_sandbox.and_then(|effective_sandbox| {

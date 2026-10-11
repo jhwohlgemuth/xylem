@@ -139,6 +139,51 @@ sandbox-podman-conformance:
     paths:
       - sandbox-conformance-evidence/podman/
 
+.openshell-conformance:
+  stage: test
+  allow_failure: true
+  variables:
+    XYLEM_OPENSHELL_VERSION: "0.1.2"
+    XYLEM_SANDBOX_EVIDENCE_DIR: $CI_PROJECT_DIR/sandbox-conformance-evidence/openshell/$XYLEM_OPENSHELL_DRIVER
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - crates/xylem-lib/**/*
+        - examples/openshell-provider/**/*
+        - sandbox/runner/**/*
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+  script:
+    - mkdir -p "${XYLEM_SANDBOX_EVIDENCE_DIR}"
+    - test -n "${XYLEM_OPENSHELL_WORKLOAD:-}"
+    - openshell --version | tee "${XYLEM_SANDBOX_EVIDENCE_DIR}/openshell-version.txt"
+    - grep -Eq "(^|[[:space:]])v?${XYLEM_OPENSHELL_VERSION//./\\.}($|[[:space:]])" "${XYLEM_SANDBOX_EVIDENCE_DIR}/openshell-version.txt"
+    - cargo test -p xylem-lib sandbox::openshell::tests::test_openshell_provider_feasibility -- --ignored --exact
+  artifacts:
+    when: always
+    paths:
+      - sandbox-conformance-evidence/openshell/
+
+openshell-docker-conformance:
+  extends: .openshell-conformance
+  tags:
+    - sandbox-docker-rootless-amd64
+  variables:
+    XYLEM_OPENSHELL_DRIVER: docker
+
+openshell-podman-conformance:
+  extends: .openshell-conformance
+  tags:
+    - sandbox-podman-rootless-amd64
+  variables:
+    XYLEM_OPENSHELL_DRIVER: podman
+
 dependency-security:
   stage: test
   image: savannah.ornl.gov/research-enablement/acorn/rust:latest

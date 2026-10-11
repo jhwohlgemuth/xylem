@@ -34,15 +34,15 @@ use super::memory;
 use super::{
     archive, artifact::ArtifactInput, artifact::ArtifactManager, private, rewrite_path, validate_granted_path, validate_mount_separation,
     EffectiveSandboxPolicy, OciSandboxSession, PreparationNetwork, Prepared, PreparedSandboxBackend, Requested, SandboxError, SandboxInput,
-    SandboxPreparation, SandboxResourceDisposition, SandboxResourcePhase, SandboxResourceTracker, SandboxResources, SANDBOX_CREATED_LABEL,
-    SANDBOX_INPUT_LABEL, SANDBOX_MANAGED_LABEL, SANDBOX_PHASE_LABEL, SANDBOX_POLICY_LABEL, SANDBOX_PROVIDER_LABEL, SANDBOX_RESOURCE_VERSION,
-    SANDBOX_RUN_LABEL, SANDBOX_STAGING_LABEL, SANDBOX_VERSION_LABEL,
+    SandboxPreparation, SandboxProviderClient, SandboxResourceDisposition, SandboxResourcePhase, SandboxResourceTracker, SandboxResources,
+    SANDBOX_CREATED_LABEL, SANDBOX_INPUT_LABEL, SANDBOX_MANAGED_LABEL, SANDBOX_PHASE_LABEL, SANDBOX_POLICY_LABEL, SANDBOX_PROVIDER_LABEL,
+    SANDBOX_RESOURCE_VERSION, SANDBOX_RUN_LABEL, SANDBOX_STAGING_LABEL, SANDBOX_VERSION_LABEL,
 };
 use crate::config::Config;
 use crate::error::ProcessError;
 use crate::script::{Module, ModuleLanguage, ModuleType, ModuleUri, Script, VirtualEnvironmentManager};
 use crate::util::timestamp;
-use acorn_cmd::{args, CommandError, CommandSpec, ExecutionOptions, ExecutionResult};
+use acorn_cmd::{args, CommandError, ExecutionOptions, ExecutionResult};
 use acorn_core::util::Checksum;
 use acorn_core::Location;
 use acorn_host::fs::file_checksum;
@@ -59,7 +59,7 @@ use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Instant;
 
-const PREPARATION_ENVIRONMENT: &str = "if [ -f environment.yml ]; then if command -v conda >/dev/null 2>&1; then manager=conda; elif command -v mamba >/dev/null 2>&1; then manager=mamba; else echo 'environment.yml requires conda or mamba in the sandbox workload' >&2; exit 127; fi; mkdir -p .xylem-conda/envs .xylem-conda/pkgs .xylem-home .xylem-tmp; printf '%s\n' \"$manager\" > .xylem-manager; HOME=\"$PWD/.xylem-home\" TMPDIR=\"$PWD/.xylem-tmp\" CONDA_ENVS_PATH=\"$PWD/.xylem-conda/envs\" CONDA_PKGS_DIRS=\"$PWD/.xylem-conda/pkgs\" \"$manager\" env create -f environment.yml; elif [ -f pixi.toml ]; then command -v pixi >/dev/null 2>&1 || { echo 'pixi.toml requires pixi in the sandbox workload' >&2; exit 127; }; mkdir -p .xylem-home .xylem-tmp; printf 'pixi\n' > .xylem-manager; HOME=\"$PWD/.xylem-home\" TMPDIR=\"$PWD/.xylem-tmp\" pixi install; fi";
+pub(super) const PREPARATION_ENVIRONMENT: &str = "if [ -f environment.yml ]; then if command -v conda >/dev/null 2>&1; then manager=conda; elif command -v mamba >/dev/null 2>&1; then manager=mamba; else echo 'environment.yml requires conda or mamba in the sandbox workload' >&2; exit 127; fi; mkdir -p .xylem-conda/envs .xylem-conda/pkgs .xylem-home .xylem-tmp; printf '%s\n' \"$manager\" > .xylem-manager; HOME=\"$PWD/.xylem-home\" TMPDIR=\"$PWD/.xylem-tmp\" CONDA_ENVS_PATH=\"$PWD/.xylem-conda/envs\" CONDA_PKGS_DIRS=\"$PWD/.xylem-conda/pkgs\" \"$manager\" env create -f environment.yml; elif [ -f pixi.toml ]; then command -v pixi >/dev/null 2>&1 || { echo 'pixi.toml requires pixi in the sandbox workload' >&2; exit 127; }; mkdir -p .xylem-home .xylem-tmp; printf 'pixi\n' > .xylem-manager; HOME=\"$PWD/.xylem-home\" TMPDIR=\"$PWD/.xylem-tmp\" pixi install; fi";
 const SANDBOX_EXPORT_PATH: &str = "/xylem/export.tar";
 
 pub(super) struct OciPreparation {
@@ -98,7 +98,7 @@ pub(super) struct OciResourceSpec<'a> {
     pub(super) tracker: Arc<SandboxResourceTracker>,
 }
 impl Config {
-    fn with_sandbox_paths(mut self, prepared_root: &Path, artifacts: bool, module_indices: &[usize]) -> Self {
+    pub(super) fn with_sandbox_paths(mut self, prepared_root: &Path, artifacts: bool, module_indices: &[usize]) -> Self {
         module_indices.iter().for_each(|index| {
             if let Some(module) = self.modules.get_mut(*index) {
                 let path = match &module.module_type {
@@ -268,10 +268,12 @@ impl EffectiveSandboxPolicy {
     fn create_and_start(&self, spec: OciResourceSpec<'_>, arguments: Vec<OsString>) -> Result<OciResource, SandboxError> {
         let name = spec.name.to_string();
         self.runtime().and_then(|runtime| {
-            CommandSpec::new(runtime.to_string())
-                .args(arguments)
-                .checked_output_with_timeout(Duration::from_secs(self.policy.resources.wall_time_seconds))
-                .map_err(|why| SandboxError::Runtime(format!("create sandbox {name}: {why}")))
+            runtime
+                .checked_output_with_timeout(
+                    arguments,
+                    Duration::from_secs(self.policy.resources.wall_time_seconds),
+                    &format!("create sandbox {name}"),
+                )
                 .and_then(|_| spec.tracker.register(name.clone(), spec.input_index, spec.phase))
                 .map(|()| OciResource {
                     identifier: name.clone(),
@@ -280,10 +282,11 @@ impl EffectiveSandboxPolicy {
                     tracker: spec.tracker,
                 })
                 .and_then(|resource| {
-                    let started = CommandSpec::new(runtime.to_string())
-                        .args(args!["start", &name])
-                        .checked_output_with_timeout(Duration::from_secs(self.policy.resources.wall_time_seconds))
-                        .map_err(|why| SandboxError::Runtime(format!("start sandbox {name}: {why}")));
+                    let started = runtime.checked_output_with_timeout(
+                        args!["start", &name],
+                        Duration::from_secs(self.policy.resources.wall_time_seconds),
+                        &format!("start sandbox {name}"),
+                    );
                     match started {
                         | Ok(_) => Ok(resource),
                         | Err(primary) => match resource.finish(false) {
@@ -297,10 +300,11 @@ impl EffectiveSandboxPolicy {
     fn execute_preparation(&self, container_name: &str, working_directory: &str, command: Vec<OsString>) -> Result<(), SandboxError> {
         self.runtime()
             .and_then(|runtime| {
-                CommandSpec::new(runtime.to_string())
-                    .args(args!["exec", ("--workdir", working_directory), container_name, ..command])
-                    .checked_output_with_timeout(Duration::from_secs(self.policy.resources.wall_time_seconds))
-                    .map_err(|why| SandboxError::Runtime(format!("prepare sandbox {container_name}: {why}")))
+                runtime.checked_output_with_timeout(
+                    args!["exec", ("--workdir", working_directory), container_name, ..command],
+                    Duration::from_secs(self.policy.resources.wall_time_seconds),
+                    &format!("prepare sandbox {container_name}"),
+                )
             })
             .map(|_| ())
     }
@@ -442,7 +446,7 @@ impl EffectiveSandboxPolicy {
     }
 }
 impl Module {
-    fn sandbox_local_source(&self) -> Result<Option<PathBuf>, SandboxError> {
+    pub(super) fn sandbox_local_source(&self) -> Result<Option<PathBuf>, SandboxError> {
         self.sandbox_source().and_then(|location| match ModuleUri::from(&location) {
             | ModuleUri::File(path) => Ok(Some(path)),
             | ModuleUri::Url(_) => Ok(None),
@@ -683,9 +687,8 @@ impl PreparedSandboxBackend for OciPreparedInput {
                         source: std::io::Error::other(why),
                     })
                     .and_then(|runtime| {
-                        CommandSpec::new(runtime.to_string())
-                            .args(arguments)
-                            .checked_execute(options)
+                        runtime
+                            .execute_checked(arguments, options)
                             .map_err(|source| script.sandbox_process_error(&working_directory, source))
                     })
             })
@@ -762,7 +765,7 @@ impl OciResource {
     }
 }
 impl SandboxInput<Requested> {
-    fn verify_binary_checksums(&self, prepared_root: &Path) -> Result<(), SandboxError> {
+    pub(super) fn verify_binary_checksums(&self, prepared_root: &Path) -> Result<(), SandboxError> {
         let skip = self
             .config()
             .options
@@ -798,7 +801,7 @@ impl SandboxInput<Requested> {
     }
 }
 impl Script {
-    fn sandbox_process_error(&self, working_directory: &Path, source: CommandError) -> ProcessError {
+    pub(super) fn sandbox_process_error(&self, working_directory: &Path, source: CommandError) -> ProcessError {
         match source {
             | CommandError::NonZeroExit(result) => ProcessError::Unsuccessful {
                 script: self.to_string(),
@@ -828,14 +831,14 @@ pub(super) fn archive_export_arguments(container_name: &str, source: &str) -> Ve
 pub(super) fn archive_mount(path: &Path) -> String {
     format!("type=bind,source={},target={SANDBOX_EXPORT_PATH}", path.display())
 }
-fn combine_errors<const N: usize>(results: [Result<(), SandboxError>; N]) -> Result<(), SandboxError> {
+pub(super) fn combine_errors<const N: usize>(results: [Result<(), SandboxError>; N]) -> Result<(), SandboxError> {
     let errors = results.into_iter().filter_map(Result::err).map(|why| why.to_string()).collect::<Vec<_>>();
     match errors.is_empty() {
         | true => Ok(()),
         | false => Err(SandboxError::Runtime(errors.join("; additionally, "))),
     }
 }
-fn remove_workspace(path: &Path) -> Result<(), SandboxError> {
+pub(super) fn remove_workspace(path: &Path) -> Result<(), SandboxError> {
     match remove_dir_all(path) {
         | Ok(()) => Ok(()),
         | Err(why) if why.kind() == std::io::ErrorKind::NotFound => Ok(()),

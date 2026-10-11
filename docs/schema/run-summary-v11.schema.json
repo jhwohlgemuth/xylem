@@ -245,7 +245,7 @@
         "policy_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
         "preparation_network": { "enum": ["deny", "unrestricted"] },
         "process_guards": { "type": "array", "uniqueItems": true, "items": { "enum": ["bubblewrap", "nono", "nsjail"] } },
-        "provider": { "enum": ["oci"] },
+        "provider": { "enum": ["oci", "openshell"] },
         "realized_capabilities": {
           "type": "object",
           "additionalProperties": false,
@@ -253,7 +253,7 @@
           "properties": {
             "isolation": { "enum": ["process", "shared_kernel", "separate_kernel"] },
             "network_deny": { "type": "boolean" },
-            "provider": { "enum": ["oci"] },
+            "provider": { "enum": ["oci", "openshell"] },
             "read_only_root": { "type": "boolean" },
             "resource_limits": { "type": "boolean" },
             "rootless": { "type": "boolean" }

@@ -66,11 +66,13 @@ minimum_isolation: shared_kernel
 process_guards: []
 ```
 
-The current provider is rootless OCI through Docker or Podman. The policy also
-owns allowed host roots and child environment names, resource ceilings,
-preparation networking, and cleanup. Process guards are reserved for later
-provider integrations and must currently be empty. The reserved vocabulary is
-Bubblewrap, nono, and nsjail.
+The supported providers are rootless OCI through Docker or Podman and
+OpenShell through a Docker or Podman compute driver. An OpenShell policy uses
+`provider: { type: openshell, driver: docker }`. The policy also owns allowed
+host roots and child environment names, resource ceilings, preparation
+networking, and cleanup. Process guards are reserved for later integrations
+and must currently be empty. The reserved vocabulary is Bubblewrap, nono, and
+nsjail.
 
 Relative policy roots resolve from the policy file. Dry-run validates the
 workflow and policy and records their effective values without contacting the
@@ -116,6 +118,24 @@ test to retain deterministic `<runtime>-summary.json` and
 `<runtime>-journal.jsonl` files outside its temporary fixture. The GitLab
 Docker and Podman conformance jobs set this automatically and upload those
 files even when a job fails after creating them.
+
+### OpenShell provider
+
+OpenShell 0.1.x is a selectable experimental provider in sandbox policy v1.
+Xylem prints a warning whenever an OpenShell policy is selected because the
+current CLI does not guarantee offline workload acquisition or portable
+per-sandbox PID and scratch-size ceilings. CPU and memory requests are passed
+to OpenShell, while PID enforcement remains gateway-wide and scratch sizing is
+provider-managed.
+
+The checked-in [`openshell-provider` example](../../examples/openshell-provider/)
+includes a public operator policy and exercises the adapter against an
+authenticated local Docker or Podman gateway. The provider creates distinct
+preparation and execution sandboxes, applies generated phase policies, stages
+local content through validated archives, executes exact argument arrays,
+downloads artifacts, and deletes or retains resources according to policy.
+The ignored conformance test remains available for collecting detailed native
+gateway evidence.
 
 The OCI lifecycle uses a separate preparation container and execution
 container for every admitted input. Preparation verifies workflow requirements

@@ -5,6 +5,8 @@ mod archive;
 mod artifact;
 mod lifecycle;
 mod memory;
+mod oci;
+mod openshell;
 mod reconcile;
 
 use self::artifact::ArtifactManager;
@@ -16,7 +18,7 @@ use crate::util::constants::app::{
     SANDBOX_CREATED_LABEL, SANDBOX_INPUT_LABEL, SANDBOX_MANAGED_LABEL, SANDBOX_PHASE_LABEL, SANDBOX_POLICY_LABEL, SANDBOX_PROVIDER_LABEL,
     SANDBOX_RESOURCE_VERSION, SANDBOX_RUN_LABEL, SANDBOX_STAGING_LABEL, SANDBOX_VERSION_LABEL,
 };
-use acorn_cmd::{args, CommandSpec, ExecutionOptions, ExecutionResult};
+use acorn_cmd::{args, CommandError, CommandSpec, ExecutionOptions, ExecutionResult};
 use acorn_core::util::MimeType;
 use acorn_core::validation::ValidationError;
 use acorn_core::Location;
@@ -33,10 +35,16 @@ use std::env::current_dir;
 use std::ffi::OsString;
 use std::fs::{canonicalize, metadata, read_dir, read_to_string, symlink_metadata};
 use std::path::{Component, Path, PathBuf};
+use std::process::Output;
 use std::sync::Mutex;
+use std::thread::sleep;
+use std::time::Instant;
 use strum::EnumIs;
 
 const MAX_MOUNT_ENTRIES: usize = 100_000;
+/// Warning shown when the experimental OpenShell provider is selected.
+pub const OPENSHELL_WARNING: &str =
+    "OpenShell sandbox support is experimental; offline workload acquisition and per-sandbox PID and scratch limits are not guaranteed";
 /// Current operator sandbox policy schema version.
 pub const SANDBOX_POLICY_VERSION: u32 = 1;
 /// Internal sealing support for the public sandbox traits.
@@ -73,6 +81,109 @@ pub trait SandboxProvider: private::Sealed + Send + Sync {
     fn reconcile(&self, leases: &[SandboxLease]) -> SandboxReconciliationOutcome;
     /// Open one logical run session without executing workflow code.
     fn open(&self, run_id: &str, acquisition: WorkloadAcquisition) -> Result<Arc<dyn SandboxSession>, SandboxError>;
+}
+/// Shared command and resource-operation behavior for sandbox provider clients.
+///
+/// Implementors supply provider-specific discovery, executable identity, and
+/// timeouts. Callers supply protocol-specific arguments and response parsing.
+pub(super) trait SandboxProviderClient: Clone + Send + Sync {
+    const DELETION_POLL_INTERVAL: Duration = Duration::from_millis(250);
+    const DELETION_TIMEOUT: Duration = Self::MANAGEMENT_TIMEOUT;
+    const EXECUTION_TIMEOUT: Duration;
+    const MANAGEMENT_TIMEOUT: Duration;
+    const READINESS_TIMEOUT: Duration = Self::MANAGEMENT_TIMEOUT;
+
+    fn checked_output(&self, arguments: Vec<OsString>, action: &str) -> Result<Output, SandboxError> {
+        self.checked_output_with_timeout(arguments, self.management_timeout(), action)
+    }
+    fn checked_output_with_timeout(&self, arguments: Vec<OsString>, timeout: Duration, action: &str) -> Result<Output, SandboxError> {
+        self.command(arguments)
+            .checked_output_with_timeout(timeout)
+            .map_err(|why| SandboxError::Runtime(format!("{action}: {why}")))
+    }
+    fn command(&self, arguments: Vec<OsString>) -> CommandSpec {
+        CommandSpec::new(self.program()).args(arguments)
+    }
+    fn create(&self, arguments: Vec<OsString>, action: &str) -> Result<Output, SandboxError> {
+        self.checked_output(arguments, action)
+    }
+    fn delete(&self, arguments: Vec<OsString>, action: &str) -> Result<(), SandboxError> {
+        self.checked_output(arguments, action).map(|_| ())
+    }
+    fn delete_and_wait(
+        &self,
+        arguments: Vec<OsString>,
+        action: &str,
+        timeout_error: SandboxError,
+        poll: impl FnMut() -> Result<Option<()>, SandboxError>,
+    ) -> Result<(), SandboxError> {
+        self.delete(arguments, action)
+            .and_then(|()| self.wait_until(Self::DELETION_TIMEOUT, Self::DELETION_POLL_INTERVAL, timeout_error, poll))
+    }
+    fn discover(&self) -> Result<(), SandboxError>;
+    fn download(&self, arguments: Vec<OsString>, action: &str) -> Result<(), SandboxError> {
+        self.checked_output(arguments, action).map(|_| ())
+    }
+    fn execute(&self, arguments: Vec<OsString>, action: &str) -> Result<Output, SandboxError> {
+        self.output(arguments, action)
+    }
+    fn execute_checked(&self, arguments: Vec<OsString>, options: &ExecutionOptions) -> Result<ExecutionResult, CommandError> {
+        self.command(arguments).checked_execute(options)
+    }
+    fn execute_checked_output(&self, arguments: Vec<OsString>, action: &str) -> Result<(), SandboxError> {
+        self.execute(arguments, action).and_then(|output| match output.status.success() {
+            | true => Ok(()),
+            | false => Err(SandboxError::Runtime(format!(
+                "{action} failed with status {}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))),
+        })
+    }
+    fn execution_timeout(&self) -> Duration {
+        Self::EXECUTION_TIMEOUT
+    }
+    fn get(&self, arguments: Vec<OsString>, action: &str) -> Result<Output, SandboxError> {
+        self.checked_output(arguments, action)
+    }
+    fn list(&self, arguments: Vec<OsString>, action: &str) -> Result<Output, SandboxError> {
+        self.checked_output(arguments, action)
+    }
+    fn management_timeout(&self) -> Duration {
+        Self::MANAGEMENT_TIMEOUT
+    }
+    fn output(&self, arguments: Vec<OsString>, action: &str) -> Result<Output, SandboxError> {
+        self.output_with_timeout(arguments, self.execution_timeout(), action)
+    }
+    fn output_with_timeout(&self, arguments: Vec<OsString>, timeout: Duration, action: &str) -> Result<Output, SandboxError> {
+        self.command(arguments)
+            .output_with_timeout(timeout)
+            .map_err(|why| SandboxError::Runtime(format!("{action}: {why}")))
+    }
+    fn program(&self) -> &'static str;
+    fn upload(&self, arguments: Vec<OsString>, action: &str) -> Result<(), SandboxError> {
+        self.checked_output(arguments, action).map(|_| ())
+    }
+    fn wait_for_readiness<T>(&self, timeout_error: SandboxError, poll: impl FnMut() -> Result<Option<T>, SandboxError>) -> Result<T, SandboxError> {
+        self.wait_until(Self::READINESS_TIMEOUT, Self::DELETION_POLL_INTERVAL, timeout_error, poll)
+    }
+    fn wait_until<T>(
+        &self,
+        timeout: Duration,
+        interval: Duration,
+        timeout_error: SandboxError,
+        mut poll: impl FnMut() -> Result<Option<T>, SandboxError>,
+    ) -> Result<T, SandboxError> {
+        let started = Instant::now();
+        loop {
+            match poll() {
+                | Ok(Some(value)) => break Ok(value),
+                | Ok(None) if started.elapsed() < timeout => sleep(interval),
+                | Ok(None) => break Err(timeout_error),
+                | Err(why) => break Err(why),
+            }
+        }
+    }
 }
 /// Sealed logical run session used by concurrent input workers.
 pub trait SandboxSession: private::Sealed + Send + Sync {
@@ -194,6 +305,12 @@ pub enum SandboxProviderConfiguration {
         /// Docker or Podman runtime.
         runtime: OciRuntime,
     },
+    /// OpenShell gateway with an OCI-compatible compute driver.
+    #[serde(rename = "openshell")]
+    OpenShell {
+        /// Docker or Podman compute driver.
+        driver: OciRuntime,
+    },
 }
 /// Supported sandbox lifecycle providers.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -201,6 +318,9 @@ pub enum SandboxProviderConfiguration {
 pub enum SandboxProviderKind {
     /// Native OCI runtime provider.
     Oci,
+    /// OpenShell gateway provider.
+    #[serde(rename = "openshell")]
+    OpenShell,
 }
 /// Terminal disposition of one provider-owned sandbox resource.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -271,7 +391,7 @@ pub struct EffectiveSandboxPolicy {
     pub policy: OperatorSandboxPolicy,
     /// Provider selected by the operator.
     pub provider: SandboxProviderKind,
-    /// OCI runtime selected by the operator, when applicable.
+    /// OCI runtime or OpenShell compute driver selected by the operator.
     pub runtime: Option<OciRuntime>,
     /// Immutable provider workload identity.
     pub workload: String,
@@ -566,6 +686,7 @@ impl EffectiveSandboxPolicy {
                     .map(|canonical| {
                         let (provider, runtime) = match policy.provider {
                             | SandboxProviderConfiguration::Oci { runtime } => (SandboxProviderKind::Oci, Some(runtime)),
+                            | SandboxProviderConfiguration::OpenShell { driver } => (SandboxProviderKind::OpenShell, Some(driver)),
                         };
                         Self {
                             digest: format!("sha256:{:x}", Sha256::digest(canonical)),
@@ -604,7 +725,7 @@ impl EffectiveSandboxPolicy {
             },
         }
     }
-    /// Reject workflow features that cannot yet cross the OCI boundary safely.
+    /// Reject workflow features that cannot cross the selected sandbox boundary safely.
     pub fn validate_workflow(&self, config: &Config, inputs: &[Option<String>]) -> Result<(), SandboxError> {
         let validation = config
             .options
@@ -702,12 +823,7 @@ impl EffectiveSandboxPolicy {
         match succeeded || self.policy.lifecycle.retention == SandboxRetention::Delete {
             | true => self
                 .runtime()
-                .and_then(|runtime| {
-                    CommandSpec::new(runtime.to_string())
-                        .args(args!["rm", "--force", container_name])
-                        .checked_output_with_timeout(Duration::from_secs(10))
-                        .map_err(|why| SandboxError::Runtime(format!("remove sandbox {container_name}: {why}")))
-                })
+                .and_then(|runtime| runtime.delete(args!["rm", "--force", container_name], &format!("remove sandbox {container_name}")))
                 .map(|_| SandboxResourceDisposition::Removed),
             | false => Ok(SandboxResourceDisposition::Retained),
         }
@@ -715,10 +831,11 @@ impl EffectiveSandboxPolicy {
     fn inspect_workload(&self) -> Result<Option<OciImageInspection>, SandboxError> {
         self.runtime()
             .and_then(|runtime| {
-                CommandSpec::new(runtime.to_string())
-                    .args(args!["image", "inspect", &self.workload])
-                    .output_with_timeout(Duration::from_secs(self.policy.resources.wall_time_seconds))
-                    .map_err(|why| SandboxError::Runtime(format!("inspect pinned workload {}: {why}", self.workload)))
+                runtime.output_with_timeout(
+                    args!["image", "inspect", &self.workload],
+                    Duration::from_secs(self.policy.resources.wall_time_seconds),
+                    &format!("inspect pinned workload {}", self.workload),
+                )
             })
             .and_then(|output| match output.status.success() {
                 | true => serde_json::from_slice::<Vec<OciImageInspection>>(&output.stdout)
@@ -773,20 +890,22 @@ impl EffectiveSandboxPolicy {
     fn probe_workload(&self, run_id: &str) -> Result<(), SandboxError> {
         self.runtime()
             .and_then(|runtime| {
-                CommandSpec::new(runtime.to_string())
-                    .args(self.probe_invocation(run_id))
-                    .checked_output_with_timeout(Duration::from_secs(self.policy.resources.wall_time_seconds))
-                    .map_err(|why| SandboxError::Runtime(format!("probe pinned workload {}: {why}", self.workload)))
+                runtime.checked_output_with_timeout(
+                    self.probe_invocation(run_id),
+                    Duration::from_secs(self.policy.resources.wall_time_seconds),
+                    &format!("probe pinned workload {}", self.workload),
+                )
             })
             .map(|_| ())
     }
     fn pull_workload(&self) -> Result<(), SandboxError> {
         self.runtime()
             .and_then(|runtime| {
-                CommandSpec::new(runtime.to_string())
-                    .args(args!["pull", &self.workload])
-                    .checked_output_with_timeout(Duration::from_secs(self.policy.resources.wall_time_seconds))
-                    .map_err(|why| SandboxError::Runtime(format!("pull pinned workload {}: {why}", self.workload)))
+                runtime.checked_output_with_timeout(
+                    args!["pull", &self.workload],
+                    Duration::from_secs(self.policy.resources.wall_time_seconds),
+                    &format!("pull pinned workload {}", self.workload),
+                )
             })
             .map(|_| ())
     }
@@ -849,42 +968,21 @@ impl EffectiveSandboxPolicy {
 impl private::Sealed for EffectiveSandboxPolicy {}
 impl SandboxProvider for EffectiveSandboxPolicy {
     fn discover(&self) -> Result<SandboxCapabilities, SandboxError> {
-        self.runtime()
-            .and_then(OciRuntime::discover)
-            .map(|()| SandboxCapabilities {
-                isolation: IsolationClass::SharedKernel,
-                network_deny: true,
-                provider: SandboxProviderKind::Oci,
-                read_only_root: true,
-                resource_limits: true,
-                rootless: true,
-            })
-            .and_then(|capabilities| match capabilities.isolation >= self.policy.minimum_isolation {
-                | true => Ok(capabilities),
-                | false => Err(SandboxError::Runtime(format!(
-                    "provider isolation {:?} does not satisfy required {:?}",
-                    capabilities.isolation, self.policy.minimum_isolation
-                ))),
-            })
+        match self.provider {
+            | SandboxProviderKind::Oci => SandboxProvider::discover(&oci::OciProvider::new(self)),
+            | SandboxProviderKind::OpenShell => SandboxProvider::discover(&openshell::OpenShellProvider::new(self)),
+        }
     }
     fn reconcile(&self, leases: &[SandboxLease]) -> SandboxReconciliationOutcome {
-        reconcile::resources(self, leases)
+        match self.provider {
+            | SandboxProviderKind::Oci => SandboxProvider::reconcile(&oci::OciProvider::new(self), leases),
+            | SandboxProviderKind::OpenShell => SandboxProvider::reconcile(&openshell::OpenShellProvider::new(self), leases),
+        }
     }
     fn open(&self, run_id: &str, acquisition: WorkloadAcquisition) -> Result<Arc<dyn SandboxSession>, SandboxError> {
-        match run_id.is_empty() {
-            | true => Err(SandboxError::Validation("sandbox run identifier must not be empty".to_string())),
-            | false => self.prepare_workload(run_id, acquisition).map(|()| {
-                Arc::new(OciSandboxSession {
-                    artifacts: ArtifactManager::new(
-                        run_id.to_string(),
-                        self.policy.paths.artifact_roots.clone(),
-                        self.policy.resources.clone(),
-                    ),
-                    policy: self.clone(),
-                    resources: Arc::new(SandboxResourceTracker::default()),
-                    run_id: run_id.to_string(),
-                }) as Arc<dyn SandboxSession>
-            }),
+        match self.provider {
+            | SandboxProviderKind::Oci => SandboxProvider::open(&oci::OciProvider::new(self), run_id, acquisition),
+            | SandboxProviderKind::OpenShell => SandboxProvider::open(&openshell::OpenShellProvider::new(self), run_id, acquisition),
         }
     }
 }
@@ -914,14 +1012,14 @@ impl Module {
 }
 impl fmt::Display for OciRuntime {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            | Self::Docker => formatter.write_str("docker"),
-            | Self::Podman => formatter.write_str("podman"),
-        }
+        formatter.write_str(self.program())
     }
 }
-impl OciRuntime {
-    fn discover(self) -> Result<(), SandboxError> {
+impl SandboxProviderClient for OciRuntime {
+    const EXECUTION_TIMEOUT: Duration = Duration::from_secs(10);
+    const MANAGEMENT_TIMEOUT: Duration = Duration::from_secs(10);
+
+    fn discover(&self) -> Result<(), SandboxError> {
         match (cfg!(target_os = "linux"), cfg!(target_arch = "x86_64")) {
             | (false, _) => Err(SandboxError::Runtime("the qualified OCI sandbox requires native Linux".to_string())),
             | (true, false) => Err(SandboxError::Runtime(
@@ -932,10 +1030,7 @@ impl OciRuntime {
                     | Self::Docker => args!["info", "--format", "{{json .SecurityOptions}}"],
                     | Self::Podman => args!["info", "--format", "{{.Host.Security.Rootless}}"],
                 };
-                CommandSpec::new(self.to_string())
-                    .args(arguments)
-                    .checked_output_with_timeout(Duration::from_secs(10))
-                    .map_err(|why| SandboxError::Runtime(format!("inspect {self}: {why}")))
+                self.checked_output(arguments, &format!("inspect {self}"))
                     .and_then(|output| {
                         let value = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
                         match (self, value.contains("rootless") || value.trim() == "true") {
@@ -948,18 +1043,23 @@ impl OciRuntime {
             }
         }
     }
+    fn program(&self) -> &'static str {
+        match self {
+            | Self::Docker => "docker",
+            | Self::Podman => "podman",
+        }
+    }
 }
 impl Validate for OciRuntime {
     fn validate(&self) -> Result<(), ValidationReport> {
         match self {
-            | Self::Docker => CommandSpec::new("docker")
-                .args(args!["context", "show"])
+            | Self::Docker => self
+                .command(args!["context", "show"])
                 .checked_output_with_timeout(Duration::from_secs(10))
                 .map_err(|why| validation_report("provider.runtime", "runtime", format!("inspect Docker context: {why}")))
                 .and_then(|output| {
                     let context = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    CommandSpec::new("docker")
-                        .args(args!["context", "inspect", "--format", "{{json .Endpoints.docker.Host}}", context])
+                    self.command(args!["context", "inspect", "--format", "{{json .Endpoints.docker.Host}}", context])
                         .checked_output_with_timeout(Duration::from_secs(10))
                         .map_err(|why| validation_report("provider.runtime", "runtime", format!("inspect Docker endpoint: {why}")))
                 })
@@ -975,8 +1075,8 @@ impl Validate for OciRuntime {
                         format!("Docker endpoint {endpoint} is remote; the sandbox requires a local Unix socket"),
                     )),
                 }),
-            | Self::Podman => CommandSpec::new("podman")
-                .args(args!["info", "--format", "{{.Host.ServiceIsRemote}}"])
+            | Self::Podman => self
+                .command(args!["info", "--format", "{{.Host.ServiceIsRemote}}"])
                 .checked_output_with_timeout(Duration::from_secs(10))
                 .map_err(|why| validation_report("provider.runtime", "runtime", format!("inspect Podman connection: {why}")))
                 .and_then(|output| match String::from_utf8_lossy(&output.stdout).trim() {
@@ -1286,6 +1386,7 @@ impl fmt::Display for SandboxProviderKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             | Self::Oci => formatter.write_str("oci"),
+            | Self::OpenShell => formatter.write_str("openshell"),
         }
     }
 }

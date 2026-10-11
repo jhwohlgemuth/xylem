@@ -15,20 +15,6 @@ fn test_add_dot_slash() {
     assert_eq!(add_dot_slash(PathBuf::from("foo/bar.json")), PathBuf::from("./foo/bar.json"));
 }
 #[test]
-fn test_create_pixi_environment() {
-    let path = PathBuf::from(format!("{FIXTURES}/pixi-module"));
-    let environment = VirtualEnvironment::init()
-        .name("default".to_string())
-        .manager(VirtualEnvironmentManager::Pixi)
-        .build();
-    let script = Script::maybe_create_virtual_environment(path.to_string_lossy().to_string(), Some(environment))
-        .expect("inspect Pixi environment")
-        .expect("Pixi manifest should produce an install command");
-
-    assert_eq!(script.to_string(), "pixi install --environment default");
-    assert!(Path::new(&script.current_dir).ends_with("tests/fixtures/pixi-module"));
-}
-#[test]
 fn test_container_startup_resolution() {
     let image_default = ContainerEnvironment::init().name("default".to_string()).build();
     let explicit = ContainerEnvironment::init()
@@ -50,20 +36,24 @@ fn test_container_startup_resolution() {
     );
 }
 #[test]
+fn test_create_pixi_environment() {
+    let path = PathBuf::from(format!("{FIXTURES}/pixi-module"));
+    let environment = VirtualEnvironment::init()
+        .name("default".to_string())
+        .manager(VirtualEnvironmentManager::Pixi)
+        .build();
+    let script = Script::maybe_create_virtual_environment(path.to_string_lossy().to_string(), Some(environment))
+        .expect("inspect Pixi environment")
+        .expect("Pixi manifest should produce an install command");
+
+    assert_eq!(script.to_string(), "pixi install --environment default");
+    assert!(Path::new(&script.current_dir).ends_with("tests/fixtures/pixi-module"));
+}
+#[test]
 fn test_get_conda_environment_list() {
     let list = get_conda_environment_list();
     let conda = Command::init().name("conda".to_string()).build();
     if conda.test() {
-        assert!(list.iter().all(|name| !name.is_empty()));
-    } else {
-        assert!(list.is_empty());
-    }
-}
-#[test]
-fn test_get_mamba_environment_list() {
-    let list = get_mamba_environment_list();
-    let mamba = Command::init().name("mamba".to_string()).build();
-    if mamba.test() {
         assert!(list.iter().all(|name| !name.is_empty()));
     } else {
         assert!(list.is_empty());
@@ -78,6 +68,16 @@ fn test_get_conda_environment_name() {
         .starts_with("some-really-interesting-name"));
     let manifest_path = PathBuf::from("/non/existing/manifest.yml");
     assert_eq!(get_conda_environment_name(manifest_path), None);
+}
+#[test]
+fn test_get_mamba_environment_list() {
+    let list = get_mamba_environment_list();
+    let mamba = Command::init().name("mamba".to_string()).build();
+    if mamba.test() {
+        assert!(list.iter().all(|name| !name.is_empty()));
+    } else {
+        assert!(list.is_empty());
+    }
 }
 #[test]
 fn test_resolve_pixi_environment() {
@@ -98,4 +98,13 @@ fn test_resolve_pixi_environment_from_pyproject() {
 
     assert_eq!(environment.name, "default");
     assert_eq!(environment.manager, VirtualEnvironmentManager::Pixi);
+}
+#[test]
+fn test_virtual_environment_manager_from_reference() {
+    fn implements_try_from<T: for<'a> TryFrom<&'a str>>() {}
+
+    implements_try_from::<VirtualEnvironmentManager>();
+    assert_eq!(VirtualEnvironmentManager::from("conda"), VirtualEnvironmentManager::Conda);
+    assert_eq!(VirtualEnvironmentManager::from("mamba"), VirtualEnvironmentManager::Mamba);
+    assert_eq!(VirtualEnvironmentManager::from("unsupported"), VirtualEnvironmentManager::Unknown);
 }

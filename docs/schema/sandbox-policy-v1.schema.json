@@ -66,6 +66,15 @@
             "runtime": { "enum": ["docker", "podman"] },
             "type": { "const": "oci" }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["driver", "type"],
+          "properties": {
+            "driver": { "enum": ["docker", "podman"] },
+            "type": { "const": "openshell" }
+          }
         }
       ]
     },

@@ -24,8 +24,11 @@ separates a typed provider from its immutable workload, minimum isolation
 class, and reserved process guards. OCI execution crosses sealed provider and
 logical run-session contracts, fake-provider tests inject failures at every
 lifecycle operation, and schema-v8 plan and journal evidence is
-provider-neutral. The only operational provider remains rootless OCI through
-Docker or Podman; `process_guards` must remain empty until its dedicated phase.
+provider-neutral. Operational providers are rootless OCI and experimental
+OpenShell through Docker or Podman; `process_guards` remain empty until their
+dedicated phase. Provider clients share command construction, resource
+operations, timeout enforcement, error mapping, and bounded polling; adapters
+retain only protocol arguments, response parsing, and capability validation.
 
 The workload-bootstrap slice is implemented. After durable journal creation,
 an online run may pull an absent digest-pinned OCI workload once; offline runs
@@ -52,6 +55,17 @@ and reconciliation evidence. Trusted policy may select `retain_on_failure`,
 and the pre-session reconciler removes only expired same-policy resources whose
 durable lease is absent or terminal. Spawn auditing and native Docker/Podman
 conformance protect the reviewed process and lifecycle boundaries.
+
+The OpenShell integration is public and experimental. It uses the 0.1.x CLI
+through ACORN, validates a local authenticated
+gateway and exact compute driver, translates phase-specific hard-Landlock
+policies, carries full ownership labels, transfers only staged content, and
+deletes resources with bounded readiness and deletion polling. The checked-in
+`examples/openshell-provider/` workflow includes a selectable operator policy
+and crosses separate preparation and execution sandboxes. Xylem warns whenever
+OpenShell is selected because 0.1.x does not guarantee offline acquisition or
+portable per-sandbox PID and scratch-size limits; the native qualification
+test continues to report those limitations in evidence.
 
 # Goal
 
@@ -112,7 +126,8 @@ published artifacts. Secure acquisition remains a separate contract.
 Accept strict, extension-selected JSON, JSONC, YAML, and YML. Reject unknown
 fields. The policy owns:
 
-- provider selection, currently `type: oci` with Docker or Podman runtime;
+- provider selection: `type: oci` with a Docker or Podman runtime, or
+  experimental `type: openshell` with a Docker or Podman compute driver;
 - default and allowed digest-pinned provider workloads;
 - minimum isolation class and process guards;
 - permitted module, input, and artifact roots;

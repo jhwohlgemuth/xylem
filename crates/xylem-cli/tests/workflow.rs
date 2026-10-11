@@ -1746,6 +1746,31 @@ fn test_offline_smoke_example_runs_from_a_clean_directory() {
     );
     remove_dir_all(test_root).expect("remove smoke example");
 }
+#[test]
+fn test_openshell_example_has_valid_public_dry_run() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("CLI crate should be inside the workspace");
+    let example = workspace.join("examples/openshell-provider");
+    let output = xylem_command()
+        .current_dir(&example)
+        .args([
+            "--sandbox-policy",
+            "sandbox-policy.yaml",
+            "run",
+            ".xylem.jsonc",
+            "--dry-run",
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("run OpenShell example dry-run");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Warning: OpenShell sandbox support is experimental"));
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid OpenShell example plan");
+    assert_eq!(plan["sandbox"]["provider"], "openshell");
+}
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_partial_multi_input_failure_preserves_completed_and_unstarted_inputs() {
@@ -2122,6 +2147,7 @@ fn test_sandbox_activation_is_explicit_and_fail_closed() {
     let disabled = test_root.join("disabled.json");
     let enabled = test_root.join("enabled.json");
     let outside = test_root.join("outside.json");
+    let openshell_policy = test_root.join("openshell-policy.json");
     let policy = test_root.join("policy.json");
     write(&disabled, r#"{"requirements":[],"modules":[],"sandbox":false}"#).expect("write disabled sandbox fixture");
     write(&enabled, r#"{"requirements":[],"modules":[],"sandbox":true}"#).expect("write enabled sandbox fixture");
@@ -2197,6 +2223,31 @@ fn test_sandbox_activation_is_explicit_and_fail_closed() {
     assert_eq!(plan["sandbox"]["mode"], "required");
     assert_eq!(plan["sandbox"]["provider"], "oci");
     assert_eq!(plan["sandbox"]["runtime"], "docker");
+    let mut openshell_policy_value: serde_json::Value =
+        serde_json::from_slice(&read(&policy).expect("read sandbox policy")).expect("parse sandbox policy for OpenShell fixture");
+    openshell_policy_value["provider"] = serde_json::json!({ "driver": "podman", "type": "openshell" });
+    write(
+        &openshell_policy,
+        serde_json::to_vec_pretty(&openshell_policy_value).expect("serialize OpenShell policy"),
+    )
+    .expect("write OpenShell policy");
+    let openshell_output = xylem_command()
+        .args([
+            "run",
+            enabled.to_str().expect("UTF-8 path"),
+            "--dry-run",
+            "--reporter",
+            "json",
+            "--sandbox-policy",
+            openshell_policy.to_str().expect("UTF-8 path"),
+        ])
+        .output()
+        .expect("run OpenShell sandbox dry-run");
+    assert!(openshell_output.status.success(), "{}", String::from_utf8_lossy(&openshell_output.stderr));
+    assert!(String::from_utf8_lossy(&openshell_output.stderr).contains("Warning: OpenShell sandbox support is experimental"));
+    let plan: serde_json::Value = serde_json::from_slice(&openshell_output.stdout).expect("valid OpenShell sandbox plan");
+    assert_eq!(plan["sandbox"]["provider"], "openshell");
+    assert_eq!(plan["sandbox"]["runtime"], "podman");
     let outside_output = xylem_command()
         .args([
             "run",

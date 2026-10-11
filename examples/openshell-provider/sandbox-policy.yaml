@@ -1,0 +1,29 @@
+version: 1
+provider:
+  type: openshell
+  driver: docker
+workload:
+  default: example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  allowed:
+    - example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+minimum_isolation: shared_kernel
+process_guards: []
+preparation_network: deny
+paths:
+  artifact_roots: [.]
+  input_roots: [input]
+  module_roots: [module]
+environment:
+  allow: [OUTPUT_DIRECTORY, _XYLEM_INPUT]
+lifecycle:
+  retention: delete
+  stale_after_seconds: 3600
+resources:
+  artifact_bytes: 1048576
+  artifact_files: 100
+  captured_output_bytes: 1048576
+  cpu_millis: 500
+  memory_bytes: 268435456
+  pids: 2048
+  scratch_bytes: 67108864
+  wall_time_seconds: 30

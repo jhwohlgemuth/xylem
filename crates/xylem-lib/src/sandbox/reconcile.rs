@@ -2,21 +2,20 @@
 extern crate alloc;
 
 use super::{
-    EffectiveSandboxPolicy, SandboxError, SandboxLease, SandboxLeaseState, SandboxReconciliationOutcome, SandboxResourceDisposition,
-    SandboxResourceEvidence, SandboxResourcePhase, SANDBOX_CREATED_LABEL, SANDBOX_INPUT_LABEL, SANDBOX_MANAGED_LABEL, SANDBOX_PHASE_LABEL,
-    SANDBOX_POLICY_LABEL, SANDBOX_PROVIDER_LABEL, SANDBOX_RESOURCE_VERSION, SANDBOX_RUN_LABEL, SANDBOX_STAGING_LABEL, SANDBOX_VERSION_LABEL,
+    EffectiveSandboxPolicy, SandboxError, SandboxLease, SandboxLeaseState, SandboxProviderClient, SandboxReconciliationOutcome,
+    SandboxResourceDisposition, SandboxResourceEvidence, SandboxResourcePhase, SANDBOX_CREATED_LABEL, SANDBOX_INPUT_LABEL, SANDBOX_MANAGED_LABEL,
+    SANDBOX_PHASE_LABEL, SANDBOX_POLICY_LABEL, SANDBOX_PROVIDER_LABEL, SANDBOX_RESOURCE_VERSION, SANDBOX_RUN_LABEL, SANDBOX_STAGING_LABEL,
+    SANDBOX_VERSION_LABEL,
 };
 use crate::script::EnvironmentValue;
 use crate::util::timestamp;
-use acorn_cmd::{args, CommandSpec};
+use acorn_cmd::args;
 use alloc::collections::{BTreeMap, BTreeSet};
-use core::time::Duration;
 use std::fs::remove_dir_all;
 use std::path::{Component, Path, PathBuf};
 
 const MAX_RECONCILIATION_ERROR_BYTES: usize = 4096;
 
-const RECONCILIATION_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Clone, Debug)]
 pub(super) struct ReconciliationResource {
     pub(super) artifact_staging: Option<PathBuf>,
@@ -45,10 +44,11 @@ impl EffectiveSandboxPolicy {
     }
     fn inspect(&self, identifier: &str) -> Result<ReconciliationResource, SandboxError> {
         self.runtime().and_then(|runtime| {
-            CommandSpec::new(runtime.to_string())
-                .args(args!["inspect", "--format", "{{json .Config.Labels}}", identifier])
-                .checked_output_with_timeout(RECONCILIATION_TIMEOUT)
-                .map_err(|why| SandboxError::Runtime(format!("inspect stale sandbox {identifier}: {why}")))
+            runtime
+                .get(
+                    args!["inspect", "--format", "{{json .Config.Labels}}", identifier],
+                    &format!("inspect stale sandbox {identifier}"),
+                )
                 .and_then(|output| {
                     serde_json::from_slice::<BTreeMap<String, String>>(&output.stdout)
                         .map_err(|why| SandboxError::Runtime(format!("parse labels for stale sandbox {identifier}: {why}")))
@@ -58,21 +58,17 @@ impl EffectiveSandboxPolicy {
     }
     fn list(&self) -> Result<Vec<String>, SandboxError> {
         self.runtime().and_then(|runtime| {
-            CommandSpec::new(runtime.to_string())
-                .args(self.argument())
-                .checked_output_with_timeout(RECONCILIATION_TIMEOUT)
-                .map_err(|why| SandboxError::Runtime(format!("list managed sandboxes: {why}")))
-                .map(|output| {
-                    let mut identifiers = String::from_utf8_lossy(&output.stdout)
-                        .lines()
-                        .map(str::trim)
-                        .filter(|identifier| !identifier.is_empty())
-                        .map(str::to_string)
-                        .collect::<Vec<_>>();
-                    identifiers.sort();
-                    identifiers.dedup();
-                    identifiers
-                })
+            runtime.list(self.argument(), "list managed sandboxes").map(|output| {
+                let mut identifiers = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .map(str::trim)
+                    .filter(|identifier| !identifier.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                identifiers.sort();
+                identifiers.dedup();
+                identifiers
+            })
         })
     }
     pub(super) fn parse_resource(&self, identifier: &str, labels: &BTreeMap<String, String>) -> Result<ReconciliationResource, SandboxError> {

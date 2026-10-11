@@ -1,0 +1,33 @@
+{
+  // This workflow mirrors the staged lifecycle exercised by the qualification harness.
+  "version": "1.0.0",
+  "id": "openshell-provider-qualification",
+  "description": "Qualify Xylem's staged preparation and execution lifecycle through OpenShell",
+  // Keep every dependency available in the digest-pinned workload.
+  "requirements": ["sh", "tar"],
+  "input": ["./input/name.txt"],
+  "output": "./output",
+  // Prevent Xylem from acquiring workload content during execution.
+  "options": {
+    "offline": true
+  },
+  "modules": [
+    {
+      "name": "OpenShell greeting",
+      "type": "script",
+      "programmingLanguage": "generic",
+      // The qualification harness archives and transfers this local module between phases.
+      "uri": "file:./module",
+      "template": {
+        "command": "sh",
+        "arguments": ["run.sh", "Hello"]
+      },
+      "completion": {
+        "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/openshell-greeting.json",
+        "outputs": ["{{ OUTPUT_DIRECTORY }}/greeting.txt"]
+      }
+    }
+  ],
+  // Require the operator-selected OpenShell sandbox policy.
+  "sandbox": true
+}

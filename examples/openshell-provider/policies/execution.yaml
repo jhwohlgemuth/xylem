@@ -1,0 +1,25 @@
+filesystem_policy:
+  include_workdir: false
+  read_only:
+    - /bin
+    - /dev/urandom
+    - /etc
+    - /lib
+    - /lib64
+    - /proc
+    - /sys/fs/cgroup
+    - /usr
+    - /var/log
+    - /xylem/input
+    - /xylem/modules
+    - /xylem/prepared
+  read_write:
+    - /xylem/output
+    - /xylem/tmp
+    - /tmp
+landlock:
+  compatibility: hard_requirement
+process:
+  run_as_group: '65532'
+  run_as_user: '65532'
+version: 1

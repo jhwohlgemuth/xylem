@@ -261,7 +261,7 @@
             { "type": "array", "uniqueItems": true, "items": { "enum": ["bubblewrap", "nono", "nsjail"] } }
           ]
         },
-        "provider": { "enum": ["oci", null] },
+        "provider": { "enum": ["oci", "openshell", null] },
         "resources": {
           "oneOf": [
             { "type": "null" },
