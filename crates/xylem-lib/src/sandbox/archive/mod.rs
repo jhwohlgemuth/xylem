@@ -50,6 +50,11 @@ impl From<io::Error> for PreparedArchiveError {
         Self::Io(error)
     }
 }
+pub(super) fn create_export(path: &Path) -> Result<(), PreparedArchiveError> {
+    File::create(path)
+        .map_err(PreparedArchiveError::from)
+        .and_then(|_| set_export_permissions(path))
+}
 pub(super) fn extract(archive_path: &Path, destination: &Path, maximum_bytes: u64, maximum_entries: u64) -> Result<(), PreparedArchiveError> {
     validate_archive_size(archive_path, maximum_bytes, maximum_entries)
         .and_then(|()| inspect(archive_path, maximum_bytes, maximum_entries))
@@ -291,6 +296,14 @@ fn resolve_links(paths: &BTreeSet<PathBuf>, links: &[Link]) -> Result<Vec<Link>,
                 })
         })
         .collect()
+}
+#[cfg(unix)]
+fn set_export_permissions(path: &Path) -> Result<(), PreparedArchiveError> {
+    set_permissions(path, Permissions::from_mode(0o666)).map_err(PreparedArchiveError::from)
+}
+#[cfg(not(unix))]
+fn set_export_permissions(_path: &Path) -> Result<(), PreparedArchiveError> {
+    Ok(())
 }
 #[cfg(unix)]
 fn set_mode(path: PathBuf, mode: u32) -> Result<(), PreparedArchiveError> {

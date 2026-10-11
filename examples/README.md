@@ -4,6 +4,8 @@ Examples are grouped by the dependencies they require:
 
 - [`offline-smoke`](./offline-smoke/) is the supported first-run example. It
   uses only a local POSIX shell and works with `--offline`.
+- [`memory-aware`](./memory-aware/) is an offline example of per-input memory
+  reservations, budget-constrained admission, and out-of-range fallback.
 - [`failure-logging`](./failure-logging/) is an intentionally failing,
   shell-only workflow that demonstrates concurrent inputs and module logs.
 - [`python-with-pixi`](./python-with-pixi/) and
@@ -19,7 +21,8 @@ Examples are grouped by the dependencies they require:
 - [`inception`](./inception/) demonstrates a pinned remote binary and therefore
   is not an offline example.
 
-Every top-level `.xylem.json` and nested workflow configuration below this
-directory is parsed and semantically validated by the Rust test suite. The
-runnable smoke example is also executed in both dry-run and offline modes from
-a temporary clean directory using automatic configuration discovery.
+Every top-level `.xylem.json` or `.xylem.jsonc` and nested workflow
+configuration below this directory is parsed and semantically validated by the
+Rust test suite. The runnable smoke example is also executed in both dry-run
+and offline modes from a temporary clean directory using automatic
+configuration discovery.

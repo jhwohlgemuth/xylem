@@ -1,0 +1,45 @@
+{
+  "version": "1.0.0",
+  "id": "memory-aware-fallback",
+  "description": "Show the fixed-batch fallback for an input outside the illustrative estimator range",
+  "requirements": ["mkdir", "sh", "wc"],
+  "input": ["inputs/three-kib.txt"],
+  "output": "./output",
+  "options": {
+    "batch": 2,
+    "memory": {
+      "budget": "6KB",
+      "estimator": {
+        "identity": "memory-aware-example-v1",
+        "intercept": "1KB",
+        "maximum_input": "2KB",
+        "minimum_input": "1KB",
+        "safety_millionths": 1250000,
+        "slope_millionths": 1000000
+      }
+    },
+    "offline": true
+  },
+  "modules": [
+    {
+      "name": "Count Input Bytes",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:./module",
+      "template": {
+        "command": "sh",
+        "arguments": [
+          "run.sh",
+          "../{{ INPUT }}",
+          "../output/{{ INPUT }}.summary.txt"
+        ]
+      },
+      "completion": {
+        "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/count-{{ INPUT }}.json",
+        "outputs": [
+          "{{ OUTPUT_DIRECTORY }}/{{ INPUT }}.summary.txt"
+        ]
+      }
+    }
+  ]
+}

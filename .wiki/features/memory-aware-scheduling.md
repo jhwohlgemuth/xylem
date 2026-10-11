@@ -31,8 +31,16 @@ Vary workflow input concurrency according to estimated peak resident memory whil
   Validated configuration, read-only input sizing, execution-plan v11, and the
   fail-fast runtime admission integration and durable journal/report evidence
   are now implemented. Narrow Linux sandbox observation is implemented; the
-  expanded fifth-case measurement is complete, while operational
-  observed-versus-estimated follow-up remains pending.
+  expanded fifth-case measurement and the rootless A/P comparison are
+  complete, while broader observed-versus-estimated follow-up remains pending.
+- The checked-in `memory-aware` example demonstrates a complete configuration
+  with deterministic 1 KiB and 2 KiB inputs, budget-constrained reservations,
+  and a 3 KiB out-of-range fixture that selects fixed batching. Its estimator
+  is explicitly illustrative and workflow-specific.
+- Failed workflow attempts are terminal and excluded from peak-memory
+  observations. Prompt-policy rejection coverage retains the bounded upstream
+  diagnostic without parsing its message or retrying the request, releases the
+  reservation, and discards staged sandbox artifacts.
 
 # Project code boundaries
 
@@ -214,12 +222,21 @@ That work is split into two independent gates:
    publication, durable artifact evidence, and positive cgroup peaks. Evidence
    is retained under
    `tools/memory-spike/evidence/oklahoma-2026-10-09-geospatial-sandbox-artifacts/`.
-   The real A/P comparison remains operationally gated because pinned Module A
-   requests ASTER DEM metadata during execution while execution networking is
-   intentionally denied. Docker run `exCLF1uRav` failed publication and left
-   the destination absent when `*_MODA.TIF` matched no files. Pre-stage the DEM
-   dependency or independently pin an offline-compatible Module A revision;
-   do not weaken execution isolation.
+   Docker run `QxdoFw1crP` and Podman run `rbpUE3-vny` used the verified offline
+   ASTER DEM package without weakening execution isolation. Both admitted the
+   A/P holdouts concurrently, completed every module, recorded positive peaks
+   below their reservations, and published all 42 declared artifacts
+   atomically. This gate is closed.
+
+On 2026-10-10, the accepted A/P workflow was rerun with the same current-source
+binary under rootless Docker and Podman. Runs `UAGcVSj6wQ` and `dZyvyDx2Ot`
+admitted both holdouts concurrently, completed every module, published all 42
+artifacts atomically, and recorded positive per-input peaks. Docker observed
+23,651,516 KB and 35,663,024 KB; Podman observed 22,498,308 KB and 35,400,180
+KB. All four peaks remained below their respective 27,963,319 KB and
+40,157,028 KB enforced reservations. Evidence is retained under
+`tools/memory-spike/evidence/oklahoma-2026-10-10-operational-rerun/`. The
+observed-versus-estimated operational gate is closed.
 
 The checked-in rootless preflight now verifies native x86_64 Linux, a local
 rootless Docker or Podman runtime, cgroup v2 memory and CPU enforcement, the
@@ -278,17 +295,38 @@ retained evidence closes the synthetic collector gate for both runtimes.
 
 ## Remaining landing order
 
-The measured A/P example and pinned operational canary are landed. The dry-run
-retained the expected plan, and the controlled canary passed with two
-concurrent admissions.
+The measured A/P estimator, pinned operational canary, Docker/Podman rootless
+comparison, and reusable memory-aware example are landed. The retained runs
+prove two concurrent admissions, positive per-input peaks, and atomic
+publication through the disk-backed path. The example adds deterministic
+in-range reservations and out-of-range fallback coverage.
 
-1. Pre-stage Module A's DEM dependency, or pin an independently reviewed
-   offline-compatible revision, then run the A/P rootless peak comparison
-   through the already-qualified disk-backed output path on Docker and Podman.
-2. Defer the expanded A/P/O rerun until after the A/P rootless comparison
-   gate. Keep that workflow's production input concurrency at one until a fresh
+On 2026-10-10, the prompt-policy failure phase landed without adding
+provider-specific message matching or automatic retries. A local memory-aware
+regression proves one attempt, bounded durable diagnostics, fail-fast
+admission, and a null observed peak. The ignored native conformance test passed
+against rootless Docker and Podman on Oklahoma: successful controls published
+artifacts and recorded positive peaks, while policy-rejected runs failed the
+input, discarded artifacts, and emitted no `input_memory_observed` event.
+Evidence is retained under
+`tools/memory-spike/evidence/oklahoma-2026-10-10-prompt-policy-failure/`.
+Provider-specific adapters should use the provider's structured error code,
+not diagnostic message text. Invalid or policy-blocked input must be reviewed
+and corrected before resubmission. For OpenAI workloads, follow the official
+[error recovery guidance](https://developers.openai.com/api/docs/guides/agents-api/errors)
+and give reasoning models a clear goal, constraints, output contract,
+completion criteria, and verification steps as described in the
+[reasoning prompt guidance](https://developers.openai.com/api/docs/guides/reasoning#advice-on-prompting).
+
+The accepted A/P workflow operational rerun also landed on 2026-10-10. Its
+current-source Docker and Podman runs retained positive observed peaks below
+every enforced reservation. The expanded A/P/O operator wrapper and manual
+Oklahoma instructions are checked in; that gate still requires owner-supplied
+Earthdata credentials.
+
+1. Run the expanded A/P/O measurement when that workflow becomes the active
+   rollout target. Keep its production input concurrency at one until a fresh
    run's individual and concurrent holdout gates are GO.
-3. Rerun accepted workflows to compare estimates with observed peaks.
 
 # Recommendation
 
@@ -322,6 +360,11 @@ Record estimator identity, estimated bytes, configured budget, safety reserve, a
 - Test estimation and fallback for files, directories, arbitrary module combinations, and missing metadata.
 - Run representative production workloads and compare OOM rate, utilization, elapsed time, and prediction error against fixed batching.
 - Validate Linux first if that is the supported production environment; gate platform-specific peak-memory observation narrowly.
+- Inject a prompt-policy rejection and verify that the input terminates, its
+  reservation is released exactly once, no automatic retry occurs, the bounded
+  diagnostic is retained, and the attempt is excluded from estimator evidence.
+- Validate and dry-run the checked-in memory-aware example in CI, including its
+  in-range reservations and out-of-range fixed-batch fallback.
 
 # Acceptance criteria
 
@@ -331,6 +374,10 @@ Record estimator identity, estimated bytes, configured budget, safety reserve, a
 - Oversized inputs receive a clear policy-driven result rather than an implicit OOM attempt.
 - Scheduling is deterministic, rolling, and starvation-resistant.
 - Unconfigured workflows and inputs outside the estimator range safely fall back to fixed batching.
+- The checked-in example demonstrates the complete memory-aware configuration
+  without presenting its illustrative coefficients as a universal model.
+- Prompt-policy rejections fail closed, release reservations, do not publish
+  artifacts, and are never retried through automatic prompt rewriting.
 - Operational documentation explains budgeting, headroom, telemetry, and estimator limitations.
 
 # Related plans

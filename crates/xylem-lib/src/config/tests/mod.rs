@@ -52,7 +52,7 @@ fn configuration_files(root: &Path) -> Vec<PathBuf> {
         .filter(|path| {
             matches!(
                 path.file_name().and_then(|name| name.to_str()),
-                Some(".xylem.json" | "config.json" | "config.yaml" | "config.yml")
+                Some(".xylem.json" | ".xylem.jsonc" | "config.json" | "config.yaml" | "config.yml")
             )
         })
         .collect()

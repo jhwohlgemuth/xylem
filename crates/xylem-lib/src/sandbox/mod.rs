@@ -813,6 +813,12 @@ impl fmt::Display for OciRuntime {
     }
 }
 impl OciRuntime {
+    fn artifact_reclaim_arguments(self, path: &Path) -> Option<Vec<OsString>> {
+        match self {
+            | Self::Docker => None,
+            | Self::Podman => Some(args!["unshare", "chown", "-R", "0:0", path.as_os_str()]),
+        }
+    }
     fn discover(self) -> Result<(), SandboxError> {
         match (cfg!(target_os = "linux"), cfg!(target_arch = "x86_64")) {
             | (false, _) => Err(SandboxError::Runtime("the qualified OCI sandbox requires native Linux".to_string())),

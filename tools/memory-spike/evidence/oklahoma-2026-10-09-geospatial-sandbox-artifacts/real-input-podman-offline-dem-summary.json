@@ -1,0 +1,149 @@
+{
+  "artifacts": {
+    "bytes": "29017626.673828125KB",
+    "bytes_per_input": "41943040KB",
+    "destination": "/home/o9w/xylem-memory/geospatial-sandbox-gate/artifacts-dem-cache-podman-v4",
+    "entries": 42,
+    "entries_per_input": 10000,
+    "error": null,
+    "status": "published"
+  },
+  "schema_version": 10,
+  "run_id": "rbpUE3-vny",
+  "configuration": {
+    "path": "config/config.json",
+    "id": "module-a-p-v2-geospatial-sandbox-gate",
+    "version": "1.0.3"
+  },
+  "dry_run": false,
+  "sandbox": {
+    "minimum_isolation": "shared_kernel",
+    "mode": "required",
+    "policy_digest": "sha256:64a3bcde4dd8864b8daf249b738d4611fb705a1494a18475dca3151567bae7cb",
+    "preparation_network": "deny",
+    "process_guards": [],
+    "provider": "oci",
+    "realized_capabilities": {
+      "isolation": "shared_kernel",
+      "network_deny": true,
+      "provider": "oci",
+      "resource_limits": true,
+      "read_only_root": true,
+      "rootless": true
+    },
+    "resources": {
+      "artifact_bytes": 42949672960,
+      "artifact_files": 10000,
+      "captured_output_bytes": 10485760,
+      "cpu_millis": 16000,
+      "memory_bytes": 51539607552,
+      "pids": 2048,
+      "scratch_bytes": 8589934592,
+      "wall_time_seconds": 3600
+    },
+    "runtime": "podman",
+    "session_model": "per_input",
+    "workload": "savannah.ornl.gov/research-enablement/xylem/geospatial@sha256:d0a3e444817303f418e5829ba805b945476932e456f966b8fc9d80eeee21ac03"
+  },
+  "started_at": 1791667148721,
+  "finished_at": 1791667574849,
+  "duration": 426128,
+  "status": "succeeded",
+  "error": null,
+  "gpu_monitoring": null,
+  "containers": [],
+  "inputs": [
+    {
+      "index": 0,
+      "input_id": "input-000000",
+      "value": "/home/o9w/xylem-memory/corpus/test-case-WV02-medium-mid-high",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791667149204,
+      "updated_at": 1791667400406,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791667153152,
+          "updated_at": 1791667184332
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791667184336,
+          "updated_at": 1791667382974
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "input_id": "input-000001",
+      "value": "/home/o9w/xylem-memory/corpus/test-case-wv03-large-mid-low",
+      "state": "succeeded",
+      "error": null,
+      "started_at": 1791667149205,
+      "updated_at": 1791667560852,
+      "modules": [
+        {
+          "index": 0,
+          "name": "Module A",
+          "module_path": [
+            "Module A"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791667152901,
+          "updated_at": 1791667200627
+        },
+        {
+          "index": 1,
+          "name": "Module P",
+          "module_path": [
+            "Module P"
+          ],
+          "state": "succeeded",
+          "error": null,
+          "started_at": 1791667200630,
+          "updated_at": 1791667536556
+        }
+      ]
+    }
+  ],
+  "memory": {
+    "budget": "72GB",
+    "estimator_identity": "module-a-p-v2",
+    "inputs": [
+      {
+        "estimated": "24315929.419921875KB",
+        "fallback": null,
+        "input": "662323.8447265625KB",
+        "input_index": 0,
+        "observed_peak": "22993396KB",
+        "reservation": "27963318.833007813KB",
+        "safety_reserve": "3647389.4130859375KB"
+      },
+      {
+        "estimated": "34919154.50292969KB",
+        "fallback": null,
+        "input": "1117005.0419921875KB",
+        "input_index": 1,
+        "observed_peak": "34549708KB",
+        "reservation": "40157027.67871094KB",
+        "safety_reserve": "5237873.17578125KB"
+      }
+    ],
+    "mode": "memory_aware",
+    "safety_millionths": 1150000
+  }
+}

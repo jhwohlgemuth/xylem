@@ -158,27 +158,21 @@ fn execute_active_input(context: &DispatchContext<'_>, index: usize, input: &Opt
                         index,
                     );
                     if let Some(sandbox_input) = sandbox_input {
-                        if context.plan.memory.is_some() {
-                            match sandbox_input.observed_memory_peak() {
-                                | Ok(Some(peak)) => {
-                                    if let Err(why) = context.journal.record_memory_peak(index, peak) {
-                                        let observation = format!("record sandbox input {index} peak memory — {why}");
-                                        outcome.state = ExecutionState::Failed;
-                                        outcome.error = Some(match outcome.error {
-                                            | Some(primary) => format!("{primary}; additionally, {observation}"),
-                                            | None => observation,
-                                        });
-                                    }
+                        let observed_peak = match (context.plan.memory.is_some(), outcome.is_success()) {
+                            | (true, true) => match sandbox_input.observed_memory_peak() {
+                                | Ok(peak) => peak,
+                                | Err(why) => {
+                                    warn!(
+                                        target: "xylem_cli::commands::run",
+                                        input_index = index,
+                                        error = %why,
+                                        "=> Sandbox peak memory is unavailable"
+                                    );
+                                    None
                                 }
-                                | Ok(None) => {}
-                                | Err(why) => warn!(
-                                    target: "xylem_cli::commands::run",
-                                    input_index = index,
-                                    error = %why,
-                                    "=> Sandbox peak memory is unavailable"
-                                ),
-                            }
-                        }
+                            },
+                            | _ => None,
+                        };
                         if let Err(why) = sandbox_input.finish(outcome.is_success()) {
                             let cleanup = format!("finish sandbox input {index} — {why}");
                             outcome.state = ExecutionState::Failed;
@@ -186,6 +180,16 @@ fn execute_active_input(context: &DispatchContext<'_>, index: usize, input: &Opt
                                 | Some(primary) => format!("{primary}; additionally, {cleanup}"),
                                 | None => cleanup,
                             });
+                        }
+                        if let (true, Some(peak)) = (outcome.is_success(), observed_peak) {
+                            if let Err(why) = context.journal.record_memory_peak(index, peak) {
+                                let observation = format!("record sandbox input {index} peak memory — {why}");
+                                outcome.state = ExecutionState::Failed;
+                                outcome.error = Some(match outcome.error {
+                                    | Some(primary) => format!("{primary}; additionally, {observation}"),
+                                    | None => observation,
+                                });
+                            }
                         }
                     }
                     outcome

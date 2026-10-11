@@ -110,11 +110,17 @@ impl ArtifactManager {
                                     "sandbox artifact input {input_index} was registered more than once"
                                 ))),
                                 | (true, true, false) => {
+                                    let archive = run.staging.join("archives").join(format!("input-{input_index:06}.tar"));
                                     let raw = run.staging.join("raw").join(format!("input-{input_index:06}"));
                                     let validated = run.staging.join("validated").join(format!("input-{input_index:06}"));
                                     create_dir_all(&raw)
                                         .map_err(|why| SandboxError::Runtime(format!("create private artifact directory {}: {why}", raw.display())))
                                         .and_then(|()| make_writable(&raw))
+                                        .and_then(|()| {
+                                            archive::create_export(&archive).map_err(|why| {
+                                                SandboxError::Runtime(format!("create private artifact archive {}: {why}", archive.display()))
+                                            })
+                                        })
                                         .map(|()| {
                                             run.inputs.insert(
                                                 input_index,
@@ -125,7 +131,7 @@ impl ArtifactManager {
                                                 },
                                             );
                                             Some(ArtifactInput {
-                                                archive: run.staging.join("archives").join(format!("input-{input_index:06}.tar")),
+                                                archive,
                                                 index: input_index,
                                                 raw,
                                                 validated,
@@ -179,6 +185,7 @@ impl ArtifactManager {
                 .and_then(|staging| {
                     create_dir(&staging)
                         .map_err(|why| SandboxError::Runtime(format!("create private artifact staging {}: {why}", staging.display())))
+                        .and_then(|()| make_private(&staging))
                         .and_then(|()| {
                             ["archives", "raw", "validated"]
                                 .iter()
@@ -365,6 +372,18 @@ fn inspect_tree(root: &Path, maximum_bytes: u64, maximum_entries: u64) -> Result
                 })
         })
     })
+}
+fn make_private(path: &Path) -> Result<(), SandboxError> {
+    #[cfg(unix)]
+    {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+            .map_err(|why| SandboxError::Runtime(format!("make artifact staging private {}: {why}", path.display())))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
 }
 fn make_writable(path: &Path) -> Result<(), SandboxError> {
     #[cfg(unix)]

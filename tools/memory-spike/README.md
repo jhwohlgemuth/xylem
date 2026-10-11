@@ -108,17 +108,12 @@ Docker context, uses `oklahoma` by default, and retains outputs and evidence in
 overwrite a results directory containing `observations.jsonl`. A host bind is
 used so automated Docker image and volume cleanup cannot discard the evidence.
 
-The accepted manifests currently contain four cases: the minimum three training
-cases and one holdout case, so they do not define a two-case holdout mix. A
-fifth private candidate,
-`GSED/common/imagery-processing/test-cases/test-case-wv02-large-low-mid`, is
-available at commit `fc4cd2647bdc8ca9c561c44bb038ab71bb9c1cb7` but is not yet
-part of either accepted decision. Materialize it without Git metadata, inventory
-its exact input features, and measure it individually before pairing it with
-the existing holdout in new A/P and A/P/O mix runs. Retain the existing evidence
-directories and estimator identities unchanged unless a new gate is accepted.
-The base manifest excludes Module O; use the separate A/P/O workflow below when
-owner-supplied Earthdata credentials are available.
+The v2 manifests contain five cases and a two-case concurrent holdout mix. They
+promote the fifth case to training, move `wv03-large-mid-low` to the holdout
+partition, and pair that holdout with `wv02-medium-mid-high`. Retain the v1
+evidence directories and estimator identities unchanged. The base manifest
+excludes Module O; use the separate A/P/O workflow below when owner-supplied
+Earthdata credentials are available.
 
 The accepted 2026-10-03 Oklahoma run, sanitized observations, generated
 analysis, and operator scope are retained in
@@ -169,6 +164,44 @@ analysis, and operator scope are retained in
 `evidence/oklahoma-2026-10-06-module-o/`. Its independent GO decision applies
 only to the pinned Module A, Module P, and Module O sequence, one active input,
 and the measured 529,854,516–1,143,813,163 input-byte range.
+
+### Run the expanded A/P/O gate manually on Oklahoma
+
+The expanded v2 gate takes approximately seven hours and needs the
+owner-supplied Earthdata token. Log in to Oklahoma, update its existing Xylem
+checkout, and store `EARTHDATA_API_TOKEN` in the ignored repository-root `.env`
+with mode `0600`. Do not put the token directly on the command line.
+
+Run the gate through Oklahoma's rootful Docker context. The wrapper requires at
+least 80 GiB of available memory, gives the measurement container a 96 GiB
+limit, selects `manifest-module-o.json`, and creates a timestamped results
+directory without overwriting prior evidence:
+
+```shell
+cd /home/o9w/dev/re/xylem
+nohup tools/memory-spike/run-expanded-module-o-oklahoma.sh \
+  > /home/o9w/xylem-memory/expanded-module-o.log 2>&1 < /dev/null &
+printf 'measurement pid: %s\n' "$!"
+```
+
+Follow progress from another SSH session:
+
+```shell
+tail -f /home/o9w/xylem-memory/expanded-module-o.log
+docker --context default ps --filter name=xylem-memory-measure
+```
+
+The log prints the unique results directory near startup. After completion,
+inspect that directory's `report.md` and summarize the machine-readable
+decision without exposing the token:
+
+```shell
+jq '{decision, estimators: [.estimators[] | {decision, key, selected_model}]}' \
+  /home/o9w/xylem-memory/results-module-o-v2-*/analysis.json
+```
+
+Do not enable A/P/O input concurrency unless the fresh individual and
+concurrent holdout gates are both GO.
 
 ## Analyze
 

@@ -1,11 +1,16 @@
 use super::artifact::{ArtifactInput, ArtifactManager};
+use super::lifecycle::{archive_export_arguments, archive_mount};
 use super::*;
 use crate::config::ConfigOptions;
 use crate::script::Command;
 use acorn_cmd::args;
 use alloc::sync::Arc;
 use std::ffi::OsString;
+#[cfg(unix)]
+use std::fs::metadata;
 use std::fs::{create_dir_all, read, remove_dir_all, write, File};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::process;
 use std::sync::Mutex;
 use tar::{Builder, EntryType, Header};
@@ -349,6 +354,47 @@ fn workload_inspection() -> OciImageInspection {
     }
 }
 
+#[test]
+fn archive_export_targets_bound_file() {
+    assert_eq!(
+        archive_export_arguments("sandbox", "/xylem/prepared"),
+        ["exec", "sandbox", "tar", "-C", "/xylem/prepared", "-cf", "/xylem/export.tar", "."]
+            .map(OsString::from)
+            .to_vec()
+    );
+}
+#[test]
+fn archive_mount_grants_only_export_file() {
+    assert_eq!(
+        archive_mount(Path::new("/tmp/prepared.tar")),
+        "type=bind,source=/tmp/prepared.tar,target=/xylem/export.tar"
+    );
+}
+#[test]
+fn artifact_reclaim_is_podman_specific() {
+    let path = Path::new("/tmp/artifacts");
+    assert_eq!(OciRuntime::Docker.artifact_reclaim_arguments(path), None);
+    assert_eq!(
+        OciRuntime::Podman.artifact_reclaim_arguments(path),
+        Some(["unshare", "chown", "-R", "0:0", "/tmp/artifacts"].map(OsString::from).to_vec())
+    );
+}
+#[cfg(unix)]
+#[test]
+fn artifact_staging_is_host_private() {
+    let root = root("artifact-private");
+    create_dir_all(&root).expect("create artifact root");
+    let destination = root.join("published");
+    let manager = artifact_manager(&root, "private");
+    let input = manager
+        .prepare(&artifact_config(&destination), None, 0, 1)
+        .expect("prepare artifact input")
+        .expect("artifact input");
+    let staging = input.archive.parent().and_then(Path::parent).expect("artifact staging root");
+    assert_eq!(metadata(staging).expect("inspect artifact staging").permissions().mode() & 0o777, 0o700);
+    manager.finish(false).expect("discard artifact staging");
+    remove_dir_all(root).expect("remove artifact fixture");
+}
 #[test]
 fn conflicting_input_files_leave_destination_absent() {
     let root = root("artifact-conflict");

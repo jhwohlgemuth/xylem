@@ -52,9 +52,24 @@ reservations. The summary records required sandbox mode, denied preparation
 networking, realized network denial, a read-only root, and the same immutable
 geospatial workload digest.
 
+Podman run `rbpUE3-vny` then exercised the same two holdouts and workload under
+rootless Podman 3.4.4. Both inputs were admitted concurrently, every A/P module
+succeeded, and the recorded peaks were 22,993,396 KB and 34,549,708 KB against
+reservations of 27,963,318.833007813 KB and 40,157,027.67871094 KB. Atomic
+publication committed 42 entries totaling 29,714,049,714 bytes. The final
+destination exists, and no run-owned staging tree or container remains.
+
+The Podman run also qualified two portability changes in the sandbox lifecycle:
+archives are exported through an exact writable file bind instead of the
+runtime's stdout stream, and Podman returns raw staging ownership to the host
+through its user namespace after archive validation. Three pre-qualification
+attempts failed closed while those paths were diagnosed; none published a
+destination, and their private raw staging data was removed after retaining the
+durable result.
+
 The retained Module A logs establish the cache and default-AOT paths without
-retaining generated rasters. A corresponding rootless Podman real-input run is
-still pending; the earlier synthetic conformance covers both runtimes.
+retaining generated rasters. The successful Docker and Podman journals and
+summaries retain the real-input comparison without retaining generated rasters.
 
 Generated raster products and diagnostic module copies remain off-repository.
 The earlier invalid 26 KB task-generated destination was removed after the
@@ -77,3 +92,5 @@ secrets, or private keys in the retained evidence.
 | `real-input-docker-failclosed-summary.json` | `7b878501ceae6a22374680bb7460691f0af8e05205720519916d4deadb2f5732` |
 | `real-input-docker-offline-dem-journal.jsonl` | `7e945de9f2457202c94ebba8cd0bc89b215a478e07f000169a438f8808bbc1ac` |
 | `real-input-docker-offline-dem-summary.json` | `331da972f53e09edd58557e9fa31876382714637c21424485022407d77a375ed` |
+| `real-input-podman-offline-dem-journal.jsonl` | `3e31045cb25c3f16b365db3320d21667c8ea5eb63c0cf422144d4a8b5bd4fda9` |
+| `real-input-podman-offline-dem-summary.json` | `b38496511bbd3d0fe6a7594b7f54eb32d3c868893e2382672b9a30e3ddc31d84` |

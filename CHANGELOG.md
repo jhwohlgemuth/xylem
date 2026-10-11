@@ -6,6 +6,7 @@
 ### 🚀 Features
 
 - Add journal and run-summary schema v9 with durable memory estimator, reservation, fallback, and optional peak-observation evidence.
+- Add a runnable offline memory-aware scheduling example with deterministic reservations and an out-of-range fallback plan.
 - Collect optional per-input cgroup v2 peak memory for configured Linux OCI-sandboxed runs before sandbox cleanup.
 - Document the measured `module-a-p-v2` estimator and two-input admission profile after its individual and concurrent holdout gates passed.
 - Add native rootless OCI preflight checks, retained conformance evidence, and an A/P-capable sandbox workload definition.
@@ -13,6 +14,8 @@
 
 ### 🐛 Bug Fixes
 
+- Exclude failed workflow attempts from peak-memory calibration evidence while retaining bounded diagnostics and fail-closed artifact cleanup for prompt-policy rejections.
+- Make OCI archive export reliable on rootless Podman by writing through an exact bound file and returning raw output staging to the host through Podman's user namespace before cleanup.
 - Preserve prepared sandbox workspaces through execution, accept Xylem's managed run root during lifecycle revalidation, use portable private IPC isolation for Podman, and make private tmpfs storage non-root writable across Docker and Podman.
 
 ### 📦 Dependencies

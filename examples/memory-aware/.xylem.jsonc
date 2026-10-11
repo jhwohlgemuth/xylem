@@ -1,0 +1,56 @@
+{
+  // Human-readable metadata identifies this teaching workflow in reports.
+  "version": "1.0.0",
+  "id": "memory-aware",
+  "description": "Schedule local inputs using illustrative memory reservations",
+  "requirements": ["mkdir", "sh", "wc"],
+  // These calibrated 1 KiB and 2 KiB fixtures demonstrate constrained admission.
+  "input": ["inputs/one-kib.txt", "inputs/two-kib.txt"],
+  "output": "./output",
+  "options": {
+    // The fixed batch ceiling still caps concurrency when memory-aware admission is enabled.
+    "batch": 2,
+    "memory": {
+      // Reservations for concurrently admitted inputs must fit within this total budget.
+      "budget": "6KB",
+      "estimator": {
+        // The identity is recorded in plans and journals so measurements remain traceable.
+        "identity": "memory-aware-example-v1",
+        // Every input begins with a fixed 1 KiB reservation before size scaling.
+        "intercept": "1KB",
+        // Inputs outside this measured range make the entire run use fixed-batch fallback.
+        "maximum_input": "2KB",
+        "minimum_input": "1KB",
+        // 1,250,000 applies a 1.25x safety multiplier after the linear estimate.
+        "safety_millionths": 1250000,
+        // 1,000,000 reserves one estimated memory byte per input byte.
+        "slope_millionths": 1000000
+      }
+    },
+    // All inputs and modules are local, so this example needs no network access.
+    "offline": true
+  },
+  // The module counts each admitted input and writes one resumable summary artifact.
+  "modules": [
+    {
+      "name": "Count Input Bytes",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:./module",
+      "template": {
+        "command": "sh",
+        "arguments": [
+          "run.sh",
+          "../{{ INPUT }}",
+          "../output/{{ INPUT }}.summary.txt"
+        ]
+      },
+      "completion": {
+        "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/count-{{ INPUT }}.json",
+        "outputs": [
+          "{{ OUTPUT_DIRECTORY }}/{{ INPUT }}.summary.txt"
+        ]
+      }
+    }
+  ]
+}

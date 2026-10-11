@@ -1,5 +1,7 @@
 use super::*;
-use std::fs::{create_dir_all, read, remove_dir_all, write};
+use std::fs::{create_dir_all, metadata, read, remove_dir_all, write};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::process;
 use tar::{Builder, EntryType, Header};
 
@@ -32,6 +34,18 @@ fn root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("xylem-sandbox-archive-{label}-{}", process::id()))
 }
 
+#[test]
+fn create_export_builds_empty_writable_file() {
+    let directory = root("export");
+    create_dir_all(&directory).expect("create fixture directory");
+    let archive = directory.join("export.tar");
+    create_export(&archive).expect("create export archive");
+    let archive_metadata = metadata(&archive).expect("inspect export archive");
+    assert_eq!(archive_metadata.len(), 0);
+    #[cfg(unix)]
+    assert_eq!(archive_metadata.permissions().mode() & 0o777, 0o666);
+    remove_dir_all(directory).expect("remove fixture directory");
+}
 #[test]
 fn extraction_accepts_the_gnu_tar_root_directory_entry() {
     let directory = root("root-entry");

@@ -7,6 +7,8 @@ use std::fs::{create_dir_all, read, read_dir, read_to_string, remove_dir_all, re
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+const PROMPT_POLICY_REJECTION: &str = "Invalid prompt: your prompt was flagged as potentially violating our usage policy. Please try again with a different prompt: https://platform.openai.com/docs/guides/reasoning#advice-on-prompting";
+
 #[cfg(not(target_os = "windows"))]
 fn managed_keep_alive_config() -> serde_json::Value {
     serde_json::json!({
@@ -759,6 +761,123 @@ fn test_loads_an_explicit_dotenv_without_overriding_process_values() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
+fn test_memory_aware_example_plans_reservations_and_fallback() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("CLI crate should be inside the workspace");
+    let example = workspace.join("examples/memory-aware");
+    let main = xylem_command()
+        .current_dir(&example)
+        .args(["run", "--offline", "--dry-run", "--reporter", "json"])
+        .output()
+        .expect("render memory-aware example plan");
+    assert!(main.status.success(), "{}", String::from_utf8_lossy(&main.stderr));
+    let main: serde_json::Value = serde_json::from_slice(&main.stdout).expect("valid memory-aware example plan");
+    assert_eq!(main["memory"]["budget"], "6KB");
+    assert_eq!(main["memory"]["estimator"]["identity"], "memory-aware-example-v1");
+    assert_eq!(main["memory"]["mode"], "memory_aware");
+    assert_eq!(main["memory"]["inputs"][0]["input_bytes"], 1024);
+    assert_eq!(main["memory"]["inputs"][0]["reservation"], "2.5KB");
+    assert_eq!(main["memory"]["inputs"][1]["input_bytes"], 2048);
+    assert_eq!(main["memory"]["inputs"][1]["reservation"], "3.75KB");
+    let fallback = xylem_command()
+        .current_dir(example)
+        .args(["run", ".xylem-fallback.json", "--offline", "--dry-run", "--reporter", "json"])
+        .output()
+        .expect("render memory-aware fallback plan");
+    assert!(fallback.status.success(), "{}", String::from_utf8_lossy(&fallback.stderr));
+    let fallback: serde_json::Value = serde_json::from_slice(&fallback.stdout).expect("valid memory-aware fallback plan");
+    assert_eq!(fallback["memory"]["mode"], "fixed_fallback");
+    assert_eq!(fallback["memory"]["inputs"][0]["input_bytes"], 3072);
+    assert_eq!(fallback["memory"]["inputs"][0]["reservation"], serde_json::Value::Null);
+    assert_eq!(fallback["memory"]["inputs"][0]["fallback"]["kind"], "input_out_of_range");
+    assert_eq!(fallback["memory"]["inputs"][0]["fallback"]["maximum_input_bytes"], 2048);
+    assert_eq!(fallback["memory"]["inputs"][0]["fallback"]["minimum_input_bytes"], 1024);
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_memory_aware_policy_rejection_is_terminal_and_not_retried() {
+    let test_root = std::env::temp_dir().join(format!("xylem-memory-policy-rejection-{}", std::process::id()));
+    let attempts = test_root.join("attempts.log");
+    let input_one = test_root.join("one.bin");
+    let input_two = test_root.join("two.bin");
+    let reports = test_root.join("reports");
+    create_dir_all(&reports).expect("create policy rejection fixture");
+    write(&input_one, vec![0_u8; 1024]).expect("write first policy rejection input");
+    write(&input_two, vec![0_u8; 1024]).expect("write second policy rejection input");
+    let diagnostic = format!("{} {}", PROMPT_POLICY_REJECTION, "x".repeat(xylem_lib::journal::MAX_ERROR_BYTES * 2));
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "input": [input_one, input_two],
+        "requirements": ["sh"],
+        "options": {
+            "batch": 1,
+            "memory": {
+                "budget": "1KB",
+                "estimator": {
+                    "identity": "policy-rejection-test-v1",
+                    "intercept": "1KB",
+                    "maximum_input": "1KB",
+                    "minimum_input": "1KB",
+                    "safety_millionths": 1_000_000,
+                    "slope_millionths": 0
+                }
+            }
+        },
+        "modules": [{
+            "name": "Policy Rejection",
+            "programmingLanguage": "generic",
+            "template": {
+                "arguments": [
+                    "-c",
+                    "printf 'attempt\\n' >> \"$0\"; printf '%s\\n' \"$1\" >&2; exit 7",
+                    attempts,
+                    diagnostic
+                ],
+                "command": "sh"
+            },
+            "type": "script",
+            "uri": format!("file:{}", test_root.display())
+        }]
+    });
+    write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("serialize policy rejection config"),
+    )
+    .expect("write policy rejection config");
+    let output = xylem_command()
+        .args([
+            "run",
+            config_path.to_str().expect("UTF-8 policy rejection config"),
+            "--no-progress",
+            "--report-output",
+            reports.to_str().expect("UTF-8 policy rejection reports"),
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("run policy rejection workflow");
+    assert_eq!(output.status.code(), Some(exitcode::SOFTWARE));
+    assert_eq!(read_to_string(&attempts).expect("read policy rejection attempts"), "attempt\n");
+    let report_path = read_dir(&reports)
+        .expect("read policy rejection reports")
+        .map(|entry| entry.expect("policy rejection report entry").path())
+        .find(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .expect("policy rejection JSON report");
+    let report: xylem_lib::journal::RunSummary =
+        serde_json::from_slice(&read(report_path).expect("read policy rejection report")).expect("valid policy rejection report");
+    assert_eq!(report.status, xylem_lib::journal::RunStatus::Failed);
+    assert_eq!(report.inputs[0].state, xylem_lib::journal::ExecutionState::Failed);
+    assert_eq!(report.inputs[1].state, xylem_lib::journal::ExecutionState::NotStarted);
+    let error = report.inputs[0].error.as_deref().expect("policy rejection diagnostic");
+    assert!(error.contains(PROMPT_POLICY_REJECTION), "{error}");
+    assert!(error.len() <= xylem_lib::journal::MAX_ERROR_BYTES);
+    assert!(report.memory.expect("policy rejection memory evidence").inputs[0].observed_peak.is_none());
+    remove_dir_all(test_root).expect("remove policy rejection fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
 fn test_memory_intent_plans_and_runs_with_a_fixed_batching_warning() {
     let test_root = std::env::temp_dir().join(format!("xylem-memory-intent-{}", std::process::id()));
     create_dir_all(&test_root).expect("create memory intent fixture");
@@ -1156,6 +1275,96 @@ fn test_native_rootless_sandbox_conformance() {
             copy(&journal_path, evidence.join(format!("{runtime}-journal.jsonl"))).expect("retain sandbox journal evidence");
             copy(&report_path, evidence.join(format!("{runtime}-summary.json"))).expect("retain sandbox summary evidence");
         }
+    }
+    let rejected = artifacts.join("rejected");
+    let rejected_reports = test_root.join("rejected-reports");
+    write(
+        &config,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "input": [input],
+            "output": rejected.display().to_string(),
+            "requirements": ["curl", "python", "sh", "tar"],
+            "options": {
+                "memory": {
+                    "budget": "1GB",
+                    "estimator": {
+                        "identity": "native-sandbox-conformance-v1",
+                        "intercept": "128MB",
+                        "maximum_input": "1MB",
+                        "minimum_input": "1KB",
+                        "safety_millionths": 1_000_000,
+                        "slope_millionths": 0
+                    }
+                }
+            },
+            "modules": [{
+                "name": "policy-rejection",
+                "type": "script",
+                "programmingLanguage": "generic",
+                "uri": format!("file:{}", modules.display()),
+                "completion": {
+                    "marker": "{{OUTPUT_DIRECTORY}}/.complete.json",
+                    "outputs": ["{{OUTPUT_DIRECTORY}}/rejected.txt"]
+                },
+                "template": {
+                    "arguments": [
+                        "-c",
+                        "printf 'unpublished\\n' > /xylem/output/rejected.txt; printf '%s\\n' \"$0\" >&2; exit 7",
+                        PROMPT_POLICY_REJECTION
+                    ],
+                    "command": "sh"
+                }
+            }],
+            "sandbox": true
+        }))
+        .expect("serialize native policy rejection config"),
+    )
+    .expect("write native policy rejection config");
+    let rejected_output = xylem_command()
+        .args([
+            "run",
+            config.to_str().expect("UTF-8 policy rejection config path"),
+            "--no-progress",
+            "--report-output",
+            rejected_reports.to_str().expect("UTF-8 policy rejection report path"),
+            "--reporter",
+            "json",
+            "--sandbox-policy",
+            policy.to_str().expect("UTF-8 policy path"),
+        ])
+        .output()
+        .expect("run native sandbox policy rejection workflow");
+    assert_eq!(rejected_output.status.code(), Some(exitcode::SOFTWARE));
+    assert!(!rejected.exists(), "policy-rejected artifacts must remain unpublished");
+    let rejected_report_path = read_dir(&rejected_reports)
+        .expect("read policy rejection report directory")
+        .map(|entry| entry.expect("policy rejection report entry").path())
+        .find(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .expect("policy rejection JSON report");
+    let rejected_report: xylem_lib::journal::RunSummary =
+        serde_json::from_slice(&read(&rejected_report_path).expect("read policy rejection JSON report")).expect("valid policy rejection JSON report");
+    assert_eq!(rejected_report.status, xylem_lib::journal::RunStatus::Failed);
+    assert_eq!(rejected_report.inputs[0].state, xylem_lib::journal::ExecutionState::Failed);
+    assert_eq!(
+        rejected_report.artifacts.as_ref().expect("policy rejection artifact evidence").status,
+        xylem_lib::sandbox::ArtifactPublicationStatus::Discarded
+    );
+    let error = rejected_report.inputs[0].error.as_deref().expect("policy rejection diagnostic");
+    assert!(error.contains(PROMPT_POLICY_REJECTION), "{error}");
+    assert!(error.len() <= xylem_lib::journal::MAX_ERROR_BYTES);
+    assert!(rejected_report.memory.as_ref().expect("policy rejection memory evidence").inputs[0]
+        .observed_peak
+        .is_none());
+    let rejected_journal_path = rejected_reports.join(format!("{}.journal.jsonl", rejected_report.run_id));
+    assert!(!read_to_string(&rejected_journal_path)
+        .expect("read policy rejection journal")
+        .contains("\"event\":\"input_memory_observed\""));
+    if let Some(evidence) = std::env::var_os("XYLEM_SANDBOX_EVIDENCE_DIR").map(PathBuf::from) {
+        create_dir_all(&evidence).expect("create sandbox evidence directory");
+        std::fs::copy(&rejected_journal_path, evidence.join(format!("{runtime}-policy-rejection-journal.jsonl")))
+            .expect("retain policy rejection journal evidence");
+        std::fs::copy(&rejected_report_path, evidence.join(format!("{runtime}-policy-rejection-summary.json")))
+            .expect("retain policy rejection summary evidence");
     }
     remove_dir_all(test_root).expect("remove native sandbox fixture");
 }

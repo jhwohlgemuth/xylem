@@ -509,6 +509,7 @@ mod tests {
     fn memory_dispatch_stops_new_admission_after_failure() {
         let context = ExecutionContext::new(ExecutionLimits::try_from(4).expect("valid thread limit")).expect("execution context");
         let batch = InputBatch::try_from(2).expect("valid input batch");
+        let attempts = core::array::from_fn::<_, 4, _>(|_| AtomicUsize::new(0));
         let both_started = Barrier::new(2);
         let outputs = context
             .dispatch_inputs_fail_fast_memory(
@@ -517,6 +518,7 @@ mod tests {
                 Memory::kb(2.0 / 1024.0),
                 (0..4).map(|_| Memory::kb(1.0 / 1024.0)).collect(),
                 |_, input| {
+                    attempts[*input].fetch_add(1, Ordering::SeqCst);
                     if *input < 2 {
                         both_started.wait();
                     }
@@ -531,6 +533,7 @@ mod tests {
         assert_eq!(outputs[0], Some((0, true)));
         assert_eq!(outputs[1], Some((1, false)));
         assert!(outputs[2..].iter().all(Option::is_none));
+        assert_eq!(attempts.map(|attempts| attempts.load(Ordering::SeqCst)), [1, 1, 0, 0]);
     }
     #[test]
     fn rejects_zero_threads() {
