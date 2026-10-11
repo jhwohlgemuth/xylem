@@ -3,7 +3,7 @@ extern crate alloc;
 
 mod provider;
 
-use super::{EffectiveSandboxPolicy, SandboxError, SandboxProviderClient, SandboxResourcePhase, SandboxResources};
+use super::{workload_is_pinned, EffectiveSandboxPolicy, SandboxError, SandboxProviderClient, SandboxResourcePhase, SandboxResources};
 use crate::util::constants::app::{
     POLICY_DIGEST_FIRST_LABEL, POLICY_DIGEST_SECOND_LABEL, PREPARATION_NETWORK_POLICY, SANDBOX_CREATED_LABEL, SANDBOX_INPUT_LABEL,
     SANDBOX_MANAGED_LABEL, SANDBOX_PHASE_LABEL, SANDBOX_PROVIDER_LABEL, SANDBOX_RESOURCE_VERSION, SANDBOX_RUN_LABEL, SANDBOX_VERSION_LABEL,
@@ -149,7 +149,7 @@ impl OpenShellClient {
         }
     }
     fn create_sandbox(&self, request: &OpenShellCreateRequest<'_>) -> Result<OpenShellSandbox, SandboxError> {
-        match is_pinned_digest(request.workload) {
+        match workload_is_pinned(request.workload) {
             | true => SandboxProviderClient::create(self, request.arguments(), "create OpenShell sandbox")
                 .and_then(|output| OpenShellSandbox::parse(&output.stdout)),
             | false => Err(SandboxError::Validation(
@@ -545,12 +545,6 @@ impl OpenShellSemanticVersion for SemanticVersion {
         })
     }
 }
-fn is_pinned_digest(value: &str) -> bool {
-    value
-        .rsplit_once("@sha256:")
-        .is_some_and(|(name, digest)| !name.is_empty() && digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()))
-}
-
 fn label_value(value: &str) -> String {
     let valid = !value.is_empty()
         && value.len() <= 63

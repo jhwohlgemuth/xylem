@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use xylem_lib::config::{Config, ConfigOptions, ConfigReadError};
 use xylem_lib::plan::ExecutionPlan;
 use xylem_lib::remote::RemotePolicy;
-use xylem_lib::sandbox::{EffectiveSandboxPolicy, SandboxProviderKind, OPENSHELL_WARNING};
+use xylem_lib::sandbox::{EffectiveSandboxPolicy, SandboxProviderKind, DOCKER_SANDBOX_WARNING, OPENSHELL_WARNING};
 use xylem_lib::script::{EnvironmentValue, ModuleType, ModuleUri};
 
 pub(super) struct PreparedRun {
@@ -64,8 +64,10 @@ fn configure_preview(mut preview: Config, request: &RunRequest<'_>) -> Result<Co
         )),
         | (true, Some(path)) => EffectiveSandboxPolicy::read(path)
             .map(|policy| {
-                if policy.provider == SandboxProviderKind::OpenShell {
-                    eprintln!("Warning: {OPENSHELL_WARNING}");
+                match policy.provider {
+                    | SandboxProviderKind::DockerSandbox => eprintln!("Warning: {DOCKER_SANDBOX_WARNING}"),
+                    | SandboxProviderKind::OpenShell => eprintln!("Warning: {OPENSHELL_WARNING}"),
+                    | SandboxProviderKind::Oci => (),
                 }
                 Some(policy)
             })

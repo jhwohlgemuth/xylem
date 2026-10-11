@@ -66,8 +66,10 @@ minimum_isolation: shared_kernel
 process_guards: []
 ```
 
-The supported providers are rootless OCI through Docker or Podman and
-OpenShell through a Docker or Podman compute driver. An OpenShell policy uses
+The supported providers are Docker Sandbox through the standalone local `sbx`
+CLI, rootless OCI through Docker or Podman, and OpenShell through a Docker or
+Podman compute driver. A Docker Sandbox policy uses
+`provider: { type: docker_sandbox }`; an OpenShell policy uses
 `provider: { type: openshell, driver: docker }`. The policy also owns allowed
 host roots and child environment names, resource ceilings, preparation
 networking, and cleanup. Process guards are reserved for later integrations
@@ -118,6 +120,33 @@ test to retain deterministic `<runtime>-summary.json` and
 `<runtime>-journal.jsonl` files outside its temporary fixture. The GitLab
 Docker and Podman conformance jobs set this automatically and upload those
 files even when a job fails after creating them.
+
+### Docker Sandbox provider
+
+`docker_sandbox` is a selectable experimental provider in sandbox policy v1.
+It uses the standalone local `sbx` CLI versions `>=0.45.0,<0.48.0`; prerelease
+versions and the removed `docker sandbox` plugin are not supported. Discovery
+checks both `sbx version --json` and the local daemon through `sbx ls --json`.
+
+Every input uses separate mountless preparation and execution microVMs created
+from an exact digest-pinned Docker Sandbox template. `--offline` maps to
+`--pull never`; online acquisition maps to `--pull missing`. Shared skills are
+disabled. Xylem passes whole-core CPU limits and whole-MiB memory limits, with
+a 512 MiB minimum, and runs workflow commands as UID/GID 1000 with a cleared,
+explicit environment. Execution always adds `--deny-network "**"`.
+Preparation adds the same deny rule when policy selects `deny`, while
+`unrestricted` adds no sandbox-local network rule and remains subject to any
+stricter host or organization policy.
+
+The provider advertises separate-kernel isolation and network denial. It does
+not claim read-only-root, aggregate resource-limit, or rootless capabilities
+because the current interface does not provide portable enforcement or
+evidence for read-only roots, PID ceilings, scratch ceilings, and rootless
+operation. Xylem prints an experimental warning when the provider is selected.
+The checked-in
+[`docker-sandbox-provider` example](../../examples/docker-sandbox-provider/)
+pins Docker's published multi-platform `shell` template and has both a public
+dry-run test and an ignored native end-to-end test.
 
 ### OpenShell provider
 

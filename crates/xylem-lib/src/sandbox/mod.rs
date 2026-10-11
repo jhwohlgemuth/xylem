@@ -3,6 +3,7 @@ extern crate alloc;
 
 mod archive;
 mod artifact;
+mod docker_sandbox;
 mod lifecycle;
 mod memory;
 mod oci;
@@ -41,6 +42,9 @@ use std::thread::sleep;
 use std::time::Instant;
 use strum::EnumIs;
 
+/// Warning shown when the experimental Docker Sandbox provider is selected.
+pub const DOCKER_SANDBOX_WARNING: &str =
+    "Docker Sandbox support is experimental; read-only roots, PID and scratch limits, and rootless operation are not guaranteed";
 const MAX_MOUNT_ENTRIES: usize = 100_000;
 /// Warning shown when the experimental OpenShell provider is selected.
 pub const OPENSHELL_WARNING: &str =
@@ -297,9 +301,11 @@ pub enum SandboxPreparationState {
     Started,
 }
 /// Provider-specific operator configuration.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, EnumIs, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
 pub enum SandboxProviderConfiguration {
+    /// Local Docker Sandbox microVM provider through the standalone `sbx` CLI.
+    DockerSandbox,
     /// Native rootless OCI runtime.
     Oci {
         /// Docker or Podman runtime.
@@ -316,6 +322,8 @@ pub enum SandboxProviderConfiguration {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SandboxProviderKind {
+    /// Local Docker Sandbox microVM provider.
+    DockerSandbox,
     /// Native OCI runtime provider.
     Oci,
     /// OpenShell gateway provider.
@@ -391,7 +399,7 @@ pub struct EffectiveSandboxPolicy {
     pub policy: OperatorSandboxPolicy,
     /// Provider selected by the operator.
     pub provider: SandboxProviderKind,
-    /// OCI runtime or OpenShell compute driver selected by the operator.
+    /// OCI runtime or OpenShell compute driver selected by the operator; absent for Docker Sandbox.
     pub runtime: Option<OciRuntime>,
     /// Immutable provider workload identity.
     pub workload: String,
@@ -685,6 +693,7 @@ impl EffectiveSandboxPolicy {
                     .map_err(|why| SandboxError::Validation(format!("serialize canonical sandbox policy: {why}")))
                     .map(|canonical| {
                         let (provider, runtime) = match policy.provider {
+                            | SandboxProviderConfiguration::DockerSandbox => (SandboxProviderKind::DockerSandbox, None),
                             | SandboxProviderConfiguration::Oci { runtime } => (SandboxProviderKind::Oci, Some(runtime)),
                             | SandboxProviderConfiguration::OpenShell { driver } => (SandboxProviderKind::OpenShell, Some(driver)),
                         };
@@ -969,18 +978,21 @@ impl private::Sealed for EffectiveSandboxPolicy {}
 impl SandboxProvider for EffectiveSandboxPolicy {
     fn discover(&self) -> Result<SandboxCapabilities, SandboxError> {
         match self.provider {
+            | SandboxProviderKind::DockerSandbox => SandboxProvider::discover(&docker_sandbox::DockerSandboxProvider::new(self)),
             | SandboxProviderKind::Oci => SandboxProvider::discover(&oci::OciProvider::new(self)),
             | SandboxProviderKind::OpenShell => SandboxProvider::discover(&openshell::OpenShellProvider::new(self)),
         }
     }
     fn reconcile(&self, leases: &[SandboxLease]) -> SandboxReconciliationOutcome {
         match self.provider {
+            | SandboxProviderKind::DockerSandbox => SandboxProvider::reconcile(&docker_sandbox::DockerSandboxProvider::new(self), leases),
             | SandboxProviderKind::Oci => SandboxProvider::reconcile(&oci::OciProvider::new(self), leases),
             | SandboxProviderKind::OpenShell => SandboxProvider::reconcile(&openshell::OpenShellProvider::new(self), leases),
         }
     }
     fn open(&self, run_id: &str, acquisition: WorkloadAcquisition) -> Result<Arc<dyn SandboxSession>, SandboxError> {
         match self.provider {
+            | SandboxProviderKind::DockerSandbox => SandboxProvider::open(&docker_sandbox::DockerSandboxProvider::new(self), run_id, acquisition),
             | SandboxProviderKind::Oci => SandboxProvider::open(&oci::OciProvider::new(self), run_id, acquisition),
             | SandboxProviderKind::OpenShell => SandboxProvider::open(&openshell::OpenShellProvider::new(self), run_id, acquisition),
         }
@@ -1242,6 +1254,24 @@ impl Validate for OperatorSandboxPolicy {
                 validation_error("positive", "sandbox resource limits must be greater than zero"),
             );
         }
+        if self.provider.is_docker_sandbox() {
+            const MEBIBYTE: u64 = 1024 * 1024;
+            if !self.resources.cpu_millis.is_multiple_of(1000) {
+                report.add(
+                    "resources.cpu_millis",
+                    validation_error("whole_cores", "Docker Sandbox CPU limits must use whole cores"),
+                );
+            }
+            if self.resources.memory_bytes < 512 * MEBIBYTE || !self.resources.memory_bytes.is_multiple_of(MEBIBYTE) {
+                report.add(
+                    "resources.memory_bytes",
+                    validation_error(
+                        "mebibytes",
+                        "Docker Sandbox memory must be at least 512 MiB and use a whole number of MiB",
+                    ),
+                );
+            }
+        }
         if self.lifecycle.stale_after_seconds == 0 {
             report.add(
                 "lifecycle.stale_after_seconds",
@@ -1385,6 +1415,7 @@ impl SandboxInput<Requested> {
 impl fmt::Display for SandboxProviderKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            | Self::DockerSandbox => formatter.write_str("docker_sandbox"),
             | Self::Oci => formatter.write_str("oci"),
             | Self::OpenShell => formatter.write_str("openshell"),
         }

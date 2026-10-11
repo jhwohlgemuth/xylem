@@ -139,6 +139,41 @@ sandbox-podman-conformance:
     paths:
       - sandbox-conformance-evidence/podman/
 
+docker-sandbox-conformance:
+  stage: test
+  allow_failure: true
+  tags:
+    - sandbox-docker-rootless-amd64
+  variables:
+    XYLEM_SANDBOX_EVIDENCE_DIR: $CI_PROJECT_DIR/sandbox-conformance-evidence/docker-sandbox
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - crates/xylem-cli/**/*
+        - crates/xylem-lib/**/*
+        - examples/docker-sandbox-provider/**/*
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+  script:
+    - mkdir -p "${XYLEM_SANDBOX_EVIDENCE_DIR}"
+    - sbx version --json | tee "${XYLEM_SANDBOX_EVIDENCE_DIR}/sbx-version.json"
+    - sbx ls --json | tee "${XYLEM_SANDBOX_EVIDENCE_DIR}/sbx-before.json"
+    - cargo test -p xylem-lib sandbox::docker_sandbox::tests::test_native_docker_sandbox_feasibility -- --ignored --exact
+    - cargo test -p xylem-cli test_docker_sandbox_example_native_end_to_end -- --ignored --exact
+  after_script:
+    - mkdir -p "${XYLEM_SANDBOX_EVIDENCE_DIR}"
+    - sbx ls --json > "${XYLEM_SANDBOX_EVIDENCE_DIR}/sbx-after.json" || true
+  artifacts:
+    when: always
+    paths:
+      - sandbox-conformance-evidence/docker-sandbox/
+
 .openshell-conformance:
   stage: test
   allow_failure: true

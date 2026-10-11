@@ -1,0 +1,28 @@
+version: 1
+provider:
+  type: docker_sandbox
+workload:
+  default: docker.io/docker/sandbox-templates:shell@sha256:c66aa9c0212bb710089cc356501f8bde8989e02a7071bf1c6be0893be1c30adf
+  allowed:
+    - docker.io/docker/sandbox-templates:shell@sha256:c66aa9c0212bb710089cc356501f8bde8989e02a7071bf1c6be0893be1c30adf
+minimum_isolation: separate_kernel
+process_guards: []
+preparation_network: deny
+paths:
+  artifact_roots: [.]
+  input_roots: [input]
+  module_roots: [module]
+environment:
+  allow: [OUTPUT_DIRECTORY, _XYLEM_INPUT]
+lifecycle:
+  retention: delete
+  stale_after_seconds: 3600
+resources:
+  artifact_bytes: 1048576
+  artifact_files: 100
+  captured_output_bytes: 1048576
+  cpu_millis: 1000
+  memory_bytes: 536870912
+  pids: 2048
+  scratch_bytes: 67108864
+  wall_time_seconds: 30

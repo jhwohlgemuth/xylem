@@ -671,6 +671,37 @@ fn test_missing_declared_output_leaves_destination_absent() {
     remove_dir_all(root).expect("remove artifact fixture");
 }
 #[test]
+fn test_policy_accepts_docker_sandbox_provider() {
+    let directory = root("docker-sandbox-provider");
+    create_dir_all(&directory).expect("create policy fixture directory");
+    let path = directory.join("policy.json");
+    let docker_sandbox = policy("json")
+        .replace(
+            "\"provider\": { \"type\": \"oci\", \"runtime\": \"docker\" }",
+            "\"provider\": { \"type\": \"docker_sandbox\" }",
+        )
+        .replace("\"memory_bytes\": 268435456", "\"memory_bytes\": 536870912");
+    write(&path, docker_sandbox).expect("write Docker Sandbox policy fixture");
+    let policy = EffectiveSandboxPolicy::read(&path).expect("parse Docker Sandbox policy fixture");
+    assert_eq!(policy.provider, SandboxProviderKind::DockerSandbox);
+    assert_eq!(policy.runtime, None);
+    let evidence = crate::journal::SandboxEvidence::required(
+        &policy,
+        SandboxCapabilities {
+            isolation: IsolationClass::SeparateKernel,
+            network_deny: true,
+            provider: SandboxProviderKind::DockerSandbox,
+            read_only_root: false,
+            resource_limits: false,
+            rootless: false,
+        },
+    );
+    let summary = serde_json::to_value(evidence).expect("serialize Docker Sandbox evidence");
+    assert!(summary.get("runtime").is_none());
+    assert_eq!(summary["provider"], "docker_sandbox");
+    remove_dir_all(directory).expect("remove policy fixture directory");
+}
+#[test]
 fn test_policy_accepts_failure_retention_with_durable_lifecycle_support() {
     let directory = root("retention");
     create_dir_all(&directory).expect("create policy fixture directory");
@@ -778,6 +809,29 @@ fn test_policy_rejects_unknown_fields_and_mutable_workloads() {
     )
     .expect("write mutable-workload fixture");
     assert!(EffectiveSandboxPolicy::read(&mutable).is_err());
+    remove_dir_all(directory).expect("remove policy fixture directory");
+}
+#[test]
+fn test_policy_rejects_unrepresentable_docker_sandbox_resource_shapes() {
+    let directory = root("docker-sandbox-resources");
+    create_dir_all(&directory).expect("create policy fixture directory");
+    let path = directory.join("policy.json");
+    let docker_sandbox = policy("json").replace(
+        "\"provider\": { \"type\": \"oci\", \"runtime\": \"docker\" }",
+        "\"provider\": { \"type\": \"docker_sandbox\" }",
+    );
+    write(&path, &docker_sandbox).expect("write low-memory Docker Sandbox policy fixture");
+    let memory_error = EffectiveSandboxPolicy::read(&path).expect_err("Docker Sandbox memory minimum must be enforced");
+    assert!(memory_error.to_string().contains("at least 512 MiB"));
+    write(
+        &path,
+        docker_sandbox
+            .replace("\"memory_bytes\": 268435456", "\"memory_bytes\": 536870912")
+            .replace("\"cpu_millis\": 1000", "\"cpu_millis\": 1500"),
+    )
+    .expect("write fractional-CPU Docker Sandbox policy fixture");
+    let cpu_error = EffectiveSandboxPolicy::read(&path).expect_err("Docker Sandbox whole CPU requirement must be enforced");
+    assert!(cpu_error.to_string().contains("whole cores"));
     remove_dir_all(directory).expect("remove policy fixture directory");
 }
 #[test]

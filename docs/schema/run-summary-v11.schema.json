@@ -234,8 +234,12 @@
         {
           "if": { "properties": { "mode": { "const": "required" } }, "required": ["mode"] },
           "then": {
-            "required": ["lifecycle", "minimum_isolation", "policy_digest", "preparation_network", "process_guards", "provider", "realized_capabilities", "resources", "runtime", "session_model", "workload"]
+            "required": ["lifecycle", "minimum_isolation", "policy_digest", "preparation_network", "process_guards", "provider", "realized_capabilities", "resources", "session_model", "workload"]
           }
+        },
+        {
+          "if": { "properties": { "provider": { "enum": ["oci", "openshell"] } }, "required": ["provider"] },
+          "then": { "required": ["runtime"] }
         }
       ],
       "properties": {
@@ -245,7 +249,7 @@
         "policy_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
         "preparation_network": { "enum": ["deny", "unrestricted"] },
         "process_guards": { "type": "array", "uniqueItems": true, "items": { "enum": ["bubblewrap", "nono", "nsjail"] } },
-        "provider": { "enum": ["oci", "openshell"] },
+        "provider": { "enum": ["docker_sandbox", "oci", "openshell"] },
         "realized_capabilities": {
           "type": "object",
           "additionalProperties": false,
@@ -253,7 +257,7 @@
           "properties": {
             "isolation": { "enum": ["process", "shared_kernel", "separate_kernel"] },
             "network_deny": { "type": "boolean" },
-            "provider": { "enum": ["oci", "openshell"] },
+            "provider": { "enum": ["docker_sandbox", "oci", "openshell"] },
             "read_only_root": { "type": "boolean" },
             "resource_limits": { "type": "boolean" },
             "rootless": { "type": "boolean" }

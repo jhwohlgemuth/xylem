@@ -356,7 +356,7 @@ fn run_feasibility(
                         ))),
                     }
                 })
-                .and_then(|()| match is_pinned_digest(workload) {
+                .and_then(|()| match workload_is_pinned(workload) {
                     | true => {
                         report.record("workload_digest", CheckStatus::Passed, "workload uses a complete sha256 digest");
                         Ok(())
@@ -871,9 +871,9 @@ fn test_version_range_accepts_only_stable_zero_one_line() {
 }
 #[test]
 fn test_workload_requires_complete_digest() {
-    assert!(is_pinned_digest(
+    assert!(workload_is_pinned(
         "example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     ));
-    assert!(!is_pinned_digest("example.invalid/xylem:latest"));
-    assert!(!is_pinned_digest("example.invalid/xylem@sha256:aaaa"));
+    assert!(!workload_is_pinned("example.invalid/xylem:latest"));
+    assert!(!workload_is_pinned("example.invalid/xylem@sha256:aaaa"));
 }

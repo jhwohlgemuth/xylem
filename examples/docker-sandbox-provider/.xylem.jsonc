@@ -1,0 +1,33 @@
+{
+  // This workflow mirrors the staged lifecycle exercised by the qualification harness.
+  "version": "1.0.0",
+  "id": "docker-sandbox-provider-qualification",
+  "description": "Qualify Xylem's staged preparation and execution lifecycle through Docker Sandbox",
+  // Keep every dependency available in the digest-pinned workload.
+  "requirements": ["sh", "tar"],
+  "input": ["./input/name.txt"],
+  "output": "./output",
+  // Require the pinned template to be present in local Docker storage.
+  "options": {
+    "offline": true
+  },
+  "modules": [
+    {
+      "name": "Docker Sandbox greeting",
+      "type": "script",
+      "programmingLanguage": "generic",
+      // Xylem archives and transfers this local module between phases.
+      "uri": "file:./module",
+      "template": {
+        "command": "sh",
+        "arguments": ["run.sh", "Hello"]
+      },
+      "completion": {
+        "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/docker-sandbox-greeting.json",
+        "outputs": ["{{ OUTPUT_DIRECTORY }}/greeting.txt"]
+      }
+    }
+  ],
+  // Require the operator-selected Docker Sandbox policy.
+  "sandbox": true
+}

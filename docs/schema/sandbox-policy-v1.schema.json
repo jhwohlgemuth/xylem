@@ -58,6 +58,18 @@
     },
     "provider": {
       "oneOf": [
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "docker_sandbox"
+          }
+        }
+      },
         {
           "type": "object",
           "additionalProperties": false,

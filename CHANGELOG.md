@@ -5,6 +5,9 @@
 
 ### 🚀 Features
 
+- Add the experimental public `docker_sandbox` provider for the standalone
+  local `sbx` CLI, including a digest-pinned functional example and native
+  qualification path.
 - Add journal and run-summary schema v9 with durable memory estimator, reservation, fallback, and optional peak-observation evidence.
 - Add a runnable offline memory-aware scheduling example with deterministic reservations and an out-of-range fallback plan.
 - Collect optional per-input cgroup v2 peak memory for configured Linux OCI-sandboxed runs before sandbox cleanup.

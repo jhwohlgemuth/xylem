@@ -6,6 +6,8 @@ Examples are grouped by the dependencies they require:
   uses only a local POSIX shell and works with `--offline`.
 - [`memory-aware`](./memory-aware/) is an offline example of per-input memory
   reservations, budget-constrained admission, and out-of-range fallback.
+- [`docker-sandbox-provider`](./docker-sandbox-provider/) demonstrates the
+  experimental public local `sbx` provider with separate microVM phases.
 - [`failure-logging`](./failure-logging/) is an intentionally failing,
   shell-only workflow that demonstrates concurrent inputs and module logs.
 - [`openshell-provider`](./openshell-provider/) demonstrates the experimental

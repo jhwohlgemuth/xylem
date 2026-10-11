@@ -1,6 +1,5 @@
 //! End-to-end command-line workflow tests.
 use acorn_schema::hardware::Memory;
-#[cfg(target_os = "linux")]
 use std::fs::copy;
 use std::fs::{create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write};
 #[cfg(not(target_os = "windows"))]
@@ -340,6 +339,66 @@ fn test_configured_batch_caps_active_inputs_in_the_compiled_cli() {
     completed.sort();
     assert_eq!(completed, ["four", "one", "three", "two"]);
     remove_dir_all(test_root).expect("remove batch fixture");
+}
+#[test]
+fn test_docker_sandbox_example_has_valid_public_dry_run() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("CLI crate should be inside the workspace");
+    let example = workspace.join("examples/docker-sandbox-provider");
+    let output = xylem_command()
+        .current_dir(&example)
+        .args([
+            "--sandbox-policy",
+            "sandbox-policy.yaml",
+            "run",
+            ".xylem.jsonc",
+            "--dry-run",
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("run Docker Sandbox example dry-run");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Warning: Docker Sandbox support is experimental"));
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid Docker Sandbox example plan");
+    assert_eq!(plan["sandbox"]["provider"], "docker_sandbox");
+    assert_eq!(plan["sandbox"]["runtime"], serde_json::Value::Null);
+    assert_eq!(
+        plan["sandbox"]["workload"],
+        "docker.io/docker/sandbox-templates:shell@sha256:c66aa9c0212bb710089cc356501f8bde8989e02a7071bf1c6be0893be1c30adf"
+    );
+}
+#[test]
+#[ignore = "requires standalone sbx 0.45-0.47 and a running local Docker Sandbox daemon"]
+fn test_docker_sandbox_example_native_end_to_end() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("CLI crate should be inside the workspace");
+    let source = workspace.join("examples/docker-sandbox-provider");
+    let example = std::env::temp_dir().join(format!("xylem-docker-sandbox-example-{}", std::process::id()));
+    create_dir_all(example.join("input")).expect("create Docker Sandbox input fixture");
+    create_dir_all(example.join("module")).expect("create Docker Sandbox module fixture");
+    copy(source.join("input/name.txt"), example.join("input/name.txt")).expect("copy Docker Sandbox input");
+    copy(source.join("module/run.sh"), example.join("module/run.sh")).expect("copy Docker Sandbox module");
+    copy(source.join("sandbox-policy.yaml"), example.join("sandbox-policy.yaml")).expect("copy Docker Sandbox policy");
+    let config = read_to_string(source.join(".xylem.jsonc"))
+        .expect("read Docker Sandbox workflow")
+        .replace("\"offline\": true", "\"offline\": false");
+    write(example.join(".xylem.jsonc"), config).expect("write Docker Sandbox workflow");
+    let output = xylem_command()
+        .current_dir(&example)
+        .args(["--sandbox-policy", "sandbox-policy.yaml", "run", ".xylem.jsonc"])
+        .output()
+        .expect("run Docker Sandbox native example");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        read_to_string(example.join("output/greeting.txt")).expect("read greeting"),
+        "Hello, Ada!\n"
+    );
+    remove_dir_all(example).expect("remove Docker Sandbox example fixture");
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
