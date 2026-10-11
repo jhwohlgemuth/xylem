@@ -6,7 +6,7 @@ difficulty: high
 impact: high
 package: [xylem-lib, xylem-cli]
 tags: [feature, scheduler, memory, resources, telemetry, concurrency]
-status: in-progress
+status: waiting-on-validation
 priority: next
 ---
 

@@ -6,7 +6,7 @@ difficulty: medium
 impact: high
 package: [workspace, xylem-cli]
 tags: [homebrew, release, distribution, macos, linux, packaging]
-status: in-progress
+status: waiting-on-validation
 ---
 
 # Goal
