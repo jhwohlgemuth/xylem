@@ -5,20 +5,26 @@ mod archive;
 mod artifact;
 mod lifecycle;
 mod memory;
+mod reconcile;
 
 use self::artifact::ArtifactManager;
 use crate::config::{Config, InputAttribute};
 use crate::error::ProcessError;
 use crate::remote::RemotePolicy;
 use crate::script::{Module, ModuleLanguage, ModuleType, ModuleUri, Script, TemplateAttribute};
+use crate::util::constants::app::{
+    SANDBOX_CREATED_LABEL, SANDBOX_INPUT_LABEL, SANDBOX_MANAGED_LABEL, SANDBOX_PHASE_LABEL, SANDBOX_POLICY_LABEL, SANDBOX_PROVIDER_LABEL,
+    SANDBOX_RESOURCE_VERSION, SANDBOX_RUN_LABEL, SANDBOX_STAGING_LABEL, SANDBOX_VERSION_LABEL,
+};
 use acorn_cmd::{args, CommandSpec, ExecutionOptions, ExecutionResult};
 use acorn_core::util::MimeType;
 use acorn_core::validation::ValidationError;
 use acorn_core::Location;
 use acorn_schema::hardware::Memory;
 use acorn_schema::validation::{Validate, ValidationReport};
-use alloc::collections::{BTreeSet, VecDeque};
+use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::sync::Arc;
+use bon::Builder;
 use core::fmt;
 use core::time::Duration;
 use serde::{Deserialize, Serialize};
@@ -27,13 +33,12 @@ use std::env::current_dir;
 use std::ffi::OsString;
 use std::fs::{canonicalize, metadata, read_dir, read_to_string, symlink_metadata};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
 use strum::EnumIs;
 
 const MAX_MOUNT_ENTRIES: usize = 100_000;
 /// Current operator sandbox policy schema version.
 pub const SANDBOX_POLICY_VERSION: u32 = 1;
-/// Optional artifact result returned when a sandbox session finishes.
-pub type SandboxSessionOutcome = Option<ArtifactPublication>;
 /// Internal sealing support for the public sandbox traits.
 mod private {
     /// Marker implemented only by in-tree provider and session types.
@@ -64,6 +69,8 @@ pub trait SandboxPreparation: private::Sealed + Send {
 pub trait SandboxProvider: private::Sealed + Send + Sync {
     /// Discover and validate the provider's realized capabilities.
     fn discover(&self) -> Result<SandboxCapabilities, SandboxError>;
+    /// Reconcile expired resources whose durable run lease is absent or terminal.
+    fn reconcile(&self, leases: &[SandboxLease]) -> SandboxReconciliationOutcome;
     /// Open one logical run session without executing workflow code.
     fn open(&self, run_id: &str, acquisition: WorkloadAcquisition) -> Result<Arc<dyn SandboxSession>, SandboxError>;
 }
@@ -72,7 +79,7 @@ pub trait SandboxSession: private::Sealed + Send + Sync {
     /// Begin one isolated input preparation phase.
     fn start_input(&self, request: SandboxInput<Requested>) -> Result<Box<dyn SandboxPreparation>, SandboxError>;
     /// Finish the logical session after all admitted inputs settle.
-    fn finish(&self, succeeded: bool) -> Result<SandboxSessionOutcome, SandboxError>;
+    fn finish(&self, succeeded: bool) -> SandboxSessionOutcome;
     /// Return the resource ceilings enforced for each command.
     fn resources(&self) -> &SandboxResources;
 }
@@ -158,6 +165,16 @@ pub enum SandboxError {
     #[error("invalid sandbox policy: {0}")]
     Validation(String),
 }
+/// Durable state of a run lease consulted before stale-resource cleanup.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SandboxLeaseState {
+    /// A live Xylem controller owns the run.
+    Active,
+    /// The lease cannot be interpreted safely and must be preserved.
+    Indeterminate,
+    /// The run reached a durable terminal state.
+    Terminal,
+}
 /// Observable preparation transition for one required module.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SandboxPreparationState {
@@ -185,6 +202,28 @@ pub enum SandboxProviderKind {
     /// Native OCI runtime provider.
     Oci,
 }
+/// Terminal disposition of one provider-owned sandbox resource.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxResourceDisposition {
+    /// Cleanup was attempted but did not complete.
+    Failed,
+    /// An expired resource from an earlier run was removed.
+    Reconciled,
+    /// The current run removed the resource.
+    Removed,
+    /// Trusted policy retained the resource after failure.
+    Retained,
+}
+/// Lifecycle phase that owns a provider resource.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxResourcePhase {
+    /// Network-disabled workflow execution.
+    Execution,
+    /// Optional-network dependency preparation.
+    Preparation,
+}
 /// Lifecycle behavior after a sandboxed run fails.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -203,15 +242,18 @@ pub enum WorkloadAcquisition {
     PullIfMissing,
 }
 /// Typed whole-run sandbox artifact result.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Builder, Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[builder(on(String, into), start_fn(name = init))]
 pub struct ArtifactPublication {
     /// Total bytes in the published tree.
+    #[builder(default = Memory::kb(0.0))]
     pub bytes: Memory,
     /// Maximum artifact bytes accepted from each input.
     pub bytes_per_input: Memory,
     /// Resolved final destination.
     pub destination: String,
     /// Total filesystem entries in the published tree.
+    #[builder(default)]
     pub entries: u64,
     /// Maximum artifact entries accepted from each input.
     pub entries_per_input: u64,
@@ -258,6 +300,7 @@ struct OciImageInspection {
 struct OciSandboxSession {
     artifacts: Arc<ArtifactManager>,
     policy: EffectiveSandboxPolicy,
+    resources: Arc<SandboxResourceTracker>,
     run_id: String,
 }
 /// Strict operator-owned sandbox policy.
@@ -328,6 +371,14 @@ pub struct SandboxEnvironment {
 pub struct SandboxInput<State> {
     state: State,
 }
+/// One durable run lease supplied to provider reconciliation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SandboxLease {
+    /// Stable run identifier.
+    pub run_id: String,
+    /// Recovered lease state.
+    pub state: SandboxLeaseState,
+}
 /// Sandbox cleanup and reconciliation settings.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -335,6 +386,26 @@ pub struct SandboxLifecycle {
     /// Terminal resource-retention behavior.
     pub retention: SandboxRetention,
     /// Age after which abandoned labeled resources may be reconciled.
+    pub stale_after_seconds: u64,
+}
+/// Durable sandbox lifecycle intent and terminal evidence.
+#[derive(Builder, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[builder(start_fn(name = init))]
+pub struct SandboxLifecycleEvidence {
+    /// Bounded terminal lifecycle error.
+    pub error: Option<String>,
+    /// Whether lifecycle finalization was durably recorded.
+    #[builder(default)]
+    pub finalized: bool,
+    /// Ordered stale resources handled before this run opened its session.
+    #[builder(default)]
+    pub reconciled: Vec<SandboxResourceEvidence>,
+    /// Ordered resources created for this run.
+    #[builder(default)]
+    pub resources: Vec<SandboxResourceEvidence>,
+    /// Effective failure-retention behavior.
+    pub retention: SandboxRetention,
+    /// Effective stale-resource threshold.
     pub stale_after_seconds: u64,
 }
 /// Host roots that may be mapped into a sandbox.
@@ -347,6 +418,35 @@ pub struct SandboxPaths {
     pub input_roots: Vec<PathBuf>,
     /// Roots from which module sources may be staged.
     pub module_roots: Vec<PathBuf>,
+}
+/// Result of stale-resource reconciliation before a session opens.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SandboxReconciliationOutcome {
+    /// Aggregate reconciliation failure, when any operation failed.
+    pub error: Option<String>,
+    /// Ordered terminal evidence for inspected stale resources.
+    pub resources: Vec<SandboxResourceEvidence>,
+}
+/// Terminal evidence for one provider-owned resource.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SandboxResourceEvidence {
+    /// Bounded terminal error for failed cleanup.
+    pub error: Option<String>,
+    /// Provider-stable resource identifier.
+    pub identifier: String,
+    /// Stable admitted input position.
+    pub input_index: usize,
+    /// Lifecycle phase that created the resource.
+    pub phase: SandboxResourcePhase,
+    /// Terminal resource disposition.
+    pub status: SandboxResourceDisposition,
+}
+#[derive(Clone, Debug)]
+struct SandboxResourceRecord {
+    identifier: String,
+    input_index: usize,
+    phase: SandboxResourcePhase,
+    terminal: Option<(SandboxResourceDisposition, Option<String>)>,
 }
 /// Positive resource ceilings applied to one sandbox input container.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -368,6 +468,20 @@ pub struct SandboxResources {
     pub scratch_bytes: u64,
     /// Maximum command wall time in seconds.
     pub wall_time_seconds: u64,
+}
+#[derive(Debug, Default)]
+pub(super) struct SandboxResourceTracker {
+    records: Mutex<BTreeMap<String, SandboxResourceRecord>>,
+}
+/// Terminal result returned after a logical sandbox session settles.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SandboxSessionOutcome {
+    /// Whole-run artifact publication result, when configured.
+    pub artifacts: Option<ArtifactPublication>,
+    /// Aggregate session finalization failure, when any operation failed.
+    pub error: Option<String>,
+    /// Ordered resources created for this run.
+    pub resources: Vec<SandboxResourceEvidence>,
 }
 /// Immutable provider workload allowlist.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -428,16 +542,6 @@ impl Config {
             }
         });
         report.finish()
-    }
-}
-impl dyn SandboxSession {
-    /// Open the selected provider session, or return host mode when no policy is active.
-    pub fn open(
-        run_id: &str,
-        policy: Option<&EffectiveSandboxPolicy>,
-        acquisition: WorkloadAcquisition,
-    ) -> Result<Option<Arc<dyn SandboxSession>>, SandboxError> {
-        policy.map_or(Ok(None), |policy| SandboxProvider::open(policy, run_id, acquisition).map(Some))
     }
 }
 impl EffectiveSandboxPolicy {
@@ -594,7 +698,7 @@ impl EffectiveSandboxPolicy {
             })
     }
     /// Perform terminal cleanup for a named sandbox.
-    fn cleanup(&self, container_name: &str, succeeded: bool) -> Result<(), SandboxError> {
+    fn cleanup(&self, container_name: &str, succeeded: bool) -> Result<SandboxResourceDisposition, SandboxError> {
         match succeeded || self.policy.lifecycle.retention == SandboxRetention::Delete {
             | true => self
                 .runtime()
@@ -604,8 +708,8 @@ impl EffectiveSandboxPolicy {
                         .checked_output_with_timeout(Duration::from_secs(10))
                         .map_err(|why| SandboxError::Runtime(format!("remove sandbox {container_name}: {why}")))
                 })
-                .map(|_| ()),
-            | false => Ok(()),
+                .map(|_| SandboxResourceDisposition::Removed),
+            | false => Ok(SandboxResourceDisposition::Retained),
         }
     }
     fn inspect_workload(&self) -> Result<Option<OciImageInspection>, SandboxError> {
@@ -763,6 +867,9 @@ impl SandboxProvider for EffectiveSandboxPolicy {
                 ))),
             })
     }
+    fn reconcile(&self, leases: &[SandboxLease]) -> SandboxReconciliationOutcome {
+        reconcile::resources(self, leases)
+    }
     fn open(&self, run_id: &str, acquisition: WorkloadAcquisition) -> Result<Arc<dyn SandboxSession>, SandboxError> {
         match run_id.is_empty() {
             | true => Err(SandboxError::Validation("sandbox run identifier must not be empty".to_string())),
@@ -774,6 +881,7 @@ impl SandboxProvider for EffectiveSandboxPolicy {
                         self.policy.resources.clone(),
                     ),
                     policy: self.clone(),
+                    resources: Arc::new(SandboxResourceTracker::default()),
                     run_id: run_id.to_string(),
                 }) as Arc<dyn SandboxSession>
             }),
@@ -813,12 +921,6 @@ impl fmt::Display for OciRuntime {
     }
 }
 impl OciRuntime {
-    fn artifact_reclaim_arguments(self, path: &Path) -> Option<Vec<OsString>> {
-        match self {
-            | Self::Docker => None,
-            | Self::Podman => Some(args!["unshare", "chown", "-R", "0:0", path.as_os_str()]),
-        }
-    }
     fn discover(self) -> Result<(), SandboxError> {
         match (cfg!(target_os = "linux"), cfg!(target_arch = "x86_64")) {
             | (false, _) => Err(SandboxError::Runtime("the qualified OCI sandbox requires native Linux".to_string())),
@@ -893,8 +995,19 @@ impl SandboxSession for OciSandboxSession {
     fn start_input(&self, request: SandboxInput<Requested>) -> Result<Box<dyn SandboxPreparation>, SandboxError> {
         lifecycle::start(self, request)
     }
-    fn finish(&self, succeeded: bool) -> Result<SandboxSessionOutcome, SandboxError> {
-        self.artifacts.finish(succeeded)
+    fn finish(&self, succeeded: bool) -> SandboxSessionOutcome {
+        let artifacts = self.artifacts.finish(succeeded);
+        let resources = self.resources.evidence();
+        let items = [
+            artifacts.as_ref().err().map(ToString::to_string),
+            resources.as_ref().err().map(ToString::to_string),
+        ];
+        let errors = items.into_iter().flatten().collect::<Vec<_>>();
+        SandboxSessionOutcome {
+            artifacts: artifacts.ok().flatten(),
+            error: (!errors.is_empty()).then(|| errors.join("; additionally, ")),
+            resources: resources.unwrap_or_default(),
+        }
     }
     fn resources(&self) -> &SandboxResources {
         &self.policy.policy.resources
@@ -1033,15 +1146,6 @@ impl Validate for OperatorSandboxPolicy {
             report.add(
                 "lifecycle.stale_after_seconds",
                 validation_error("positive", "lifecycle.stale_after_seconds must be greater than zero"),
-            );
-        }
-        if self.lifecycle.retention != SandboxRetention::Delete {
-            report.add(
-                "lifecycle.retention",
-                validation_error(
-                    "unsupported",
-                    "retain_on_failure requires durable resource evidence and is not yet supported",
-                ),
             );
         }
         if environment.len() != self.environment.allow.len()
@@ -1183,6 +1287,96 @@ impl fmt::Display for SandboxProviderKind {
         match self {
             | Self::Oci => formatter.write_str("oci"),
         }
+    }
+}
+impl fmt::Display for SandboxResourcePhase {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            | Self::Execution => formatter.write_str("execution"),
+            | Self::Preparation => formatter.write_str("preparation"),
+        }
+    }
+}
+impl SandboxResourceTracker {
+    pub(super) fn evidence(&self) -> Result<Vec<SandboxResourceEvidence>, SandboxError> {
+        self.records
+            .lock()
+            .map_err(|_| SandboxError::Runtime("sandbox resource tracker lock was poisoned".to_string()))
+            .map(|records| {
+                let mut evidence = records
+                    .values()
+                    .map(|record| {
+                        let (status, error) = record.terminal.clone().unwrap_or_else(|| {
+                            (
+                                SandboxResourceDisposition::Failed,
+                                Some("sandbox resource was not finalized before the session closed".to_string()),
+                            )
+                        });
+                        SandboxResourceEvidence {
+                            error,
+                            identifier: record.identifier.clone(),
+                            input_index: record.input_index,
+                            phase: record.phase,
+                            status,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                evidence.sort_by(|left, right| {
+                    (left.input_index, left.phase, &left.identifier).cmp(&(right.input_index, right.phase, &right.identifier))
+                });
+                evidence
+            })
+    }
+    pub(super) fn finalize(&self, identifier: &str, status: SandboxResourceDisposition, error: Option<String>) -> Result<(), SandboxError> {
+        self.records
+            .lock()
+            .map_err(|_| SandboxError::Runtime("sandbox resource tracker lock was poisoned".to_string()))
+            .and_then(|mut records| {
+                records
+                    .get_mut(identifier)
+                    .ok_or_else(|| SandboxError::Runtime(format!("sandbox resource {identifier} is not registered")))
+                    .and_then(|record| match record.terminal.is_some() {
+                        | true => Err(SandboxError::Runtime(format!(
+                            "sandbox resource {identifier} was finalized more than once"
+                        ))),
+                        | false => {
+                            record.terminal = Some((status, error));
+                            Ok(())
+                        }
+                    })
+            })
+    }
+    pub(super) fn register(&self, identifier: String, input_index: usize, phase: SandboxResourcePhase) -> Result<(), SandboxError> {
+        self.records
+            .lock()
+            .map_err(|_| SandboxError::Runtime("sandbox resource tracker lock was poisoned".to_string()))
+            .and_then(|mut records| match records.contains_key(&identifier) {
+                | true => Err(SandboxError::Runtime(format!(
+                    "sandbox resource {identifier} was registered more than once"
+                ))),
+                | false => {
+                    records.insert(
+                        identifier.clone(),
+                        SandboxResourceRecord {
+                            identifier,
+                            input_index,
+                            phase,
+                            terminal: None,
+                        },
+                    );
+                    Ok(())
+                }
+            })
+    }
+}
+impl dyn SandboxSession {
+    /// Open the selected provider session, or return host mode when no policy is active.
+    pub fn open(
+        run_id: &str,
+        policy: Option<&EffectiveSandboxPolicy>,
+        acquisition: WorkloadAcquisition,
+    ) -> Result<Option<Arc<dyn SandboxSession>>, SandboxError> {
+        policy.map_or(Ok(None), |policy| SandboxProvider::open(policy, run_id, acquisition).map(Some))
     }
 }
 impl Validate for Script {

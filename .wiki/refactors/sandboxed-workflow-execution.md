@@ -39,10 +39,19 @@ Preparation now verifies requirements in the selected workload and stages
 local or HTTP(S) generic, binary, and Python modules in bounded private
 storage. Remote preparation obeys the policy network mode, binary checksums are
 verified after bounded archive extraction, and execution always uses network
-`none`. Nested configurations, application containers, GPU monitoring,
-completion markers, artifact publication, and retained failed containers
-continue to fail closed. The remaining sections describe the later work needed
-to lift those restrictions without weakening the boundary.
+`none`. Nested configurations, application containers, and GPU monitoring
+continue to fail closed in sandbox mode.
+
+Phase 4 is implemented across all five delivery slices. Outputs remain in
+bounded container-private tmpfs storage and cross into an RAII-owned host
+workspace through one exact archive file. Archive validation, deterministic
+whole-run publication, and completion-marker synthesis are fail closed. Every
+provider resource is labeled and tracked to one terminal disposition; journal
+schema v11 and plan schema v12 preserve lifecycle intent, retained identifiers,
+and reconciliation evidence. Trusted policy may select `retain_on_failure`,
+and the pre-session reconciler removes only expired same-policy resources whose
+durable lease is absent or terminal. Spawn auditing and native Docker/Podman
+conformance protect the reviewed process and lifecycle boundaries.
 
 # Goal
 
@@ -213,9 +222,9 @@ versions from the landed current baseline when their implementations begin.
   absent or terminal. Never remove foreign or active resources.
 - Default to deletion. Allow `retain_on_failure` only through trusted policy and
   record retained resource identifiers.
-- Update architecture, configuration, CLI, threat-model, image, operations,
-  and shared-plan documentation; regenerate help and replace v7 schemas with
-  v8.
+- Update architecture, configuration, CLI, image, operations, and shared-plan
+  documentation; keep current execution-plan v12, run-summary v11, and policy
+  v1 schemas checked in alongside their predecessors.
 
 # Provider integration roadmap
 

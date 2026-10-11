@@ -3,6 +3,18 @@ use acorn_schema::validation::Validate;
 use alloc::sync::Arc;
 use std::fs::{create_dir_all, read, read_to_string, remove_dir, remove_file};
 
+impl RunMetadata {
+    fn sandbox(mut self) -> Self {
+        self.sandbox.mode = "required".to_string();
+        self.sandbox.lifecycle = Some(
+            SandboxLifecycleEvidence::init()
+                .retention(crate::sandbox::SandboxRetention::RetainOnFailure)
+                .stale_after_seconds(60)
+                .build(),
+        );
+        self
+    }
+}
 fn memory(bytes: u64) -> Memory {
     Memory::kb(bytes as f64 / 1024.0)
 }
@@ -48,15 +60,12 @@ fn path(label: &str) -> PathBuf {
 #[test]
 fn test_artifact_finalization_is_exactly_once_and_recovered() {
     let path = path("artifacts");
-    let pending = ArtifactPublication {
-        bytes: memory(0),
-        bytes_per_input: memory(1024),
-        destination: "/artifacts/run".to_string(),
-        entries: 0,
-        entries_per_input: 10,
-        error: None,
-        status: ArtifactPublicationStatus::Pending,
-    };
+    let pending = ArtifactPublication::init()
+        .bytes_per_input(memory(1024))
+        .destination("/artifacts/run")
+        .entries_per_input(10)
+        .status(ArtifactPublicationStatus::Pending)
+        .build();
     let journal = RunJournal::create(
         path.clone(),
         metadata("run-artifacts").with_artifacts(pending.clone()),
@@ -66,11 +75,12 @@ fn test_artifact_finalization_is_exactly_once_and_recovered() {
     .expect("create artifact journal");
     journal.transition_input(0, ExecutionState::Running, None).expect("start input");
     journal.transition_input(0, ExecutionState::Failed, Some("failed")).expect("fail input");
-    let publication = ArtifactPublication {
-        error: None,
-        status: ArtifactPublicationStatus::Discarded,
-        ..pending
-    };
+    let publication = ArtifactPublication::init()
+        .bytes_per_input(pending.bytes_per_input.clone())
+        .destination(pending.destination.clone())
+        .entries_per_input(pending.entries_per_input)
+        .status(ArtifactPublicationStatus::Discarded)
+        .build();
     journal.finalize_artifacts(publication.clone()).expect("finalize artifacts");
     assert!(journal.finalize_artifacts(publication.clone()).is_err());
     journal.finish(FinalStatus::Failed, Some("failed")).expect("finish run");
@@ -270,6 +280,17 @@ fn test_gpu_monitoring_rejects_invalid_event_order_and_identity() {
     remove_file(path).expect("remove journal");
 }
 #[test]
+fn test_interrupted_sandbox_summary_preserves_pending_lifecycle() {
+    let path = path("sandbox-interrupted");
+    let journal = RunJournal::create(path.clone(), metadata("run-sandbox-interrupted").sandbox(), Vec::new(), Vec::new())
+        .expect("create interrupted sandbox journal");
+    drop(journal);
+    let summary = RunJournal::read(&path).expect("recover interrupted sandbox summary");
+    assert_eq!(summary.status, RunStatus::Interrupted);
+    assert!(!summary.sandbox.lifecycle.expect("sandbox lifecycle evidence").finalized);
+    remove_file(path).expect("remove journal");
+}
+#[test]
 fn test_journal_jsonl_omits_none_fields() {
     let path = path("omit-none");
     let journal = RunJournal::create(path.clone(), metadata("run-omit-none"), vec![JournalInput::new(0, None)], Vec::new()).expect("create journal");
@@ -438,4 +459,37 @@ fn test_run_status_display_matches_serialized_vocabulary() {
     assert_eq!(RunStatus::Succeeded.to_string(), "succeeded");
     assert_eq!(RunStatus::Failed.to_string(), "failed");
     assert_eq!(RunStatus::Interrupted.to_string(), "interrupted");
+}
+#[test]
+fn test_sandbox_lifecycle_finalization_is_exactly_once_and_recovered() {
+    let path = path("sandbox-lifecycle");
+    let journal =
+        RunJournal::create(path.clone(), metadata("run-sandbox").sandbox(), Vec::new(), Vec::new()).expect("create sandbox lifecycle journal");
+    assert!(journal.finish(FinalStatus::Failed, Some("failed")).is_err());
+    let resources = vec![SandboxResourceEvidence {
+        error: None,
+        identifier: "xylem-run-sandbox-0-exec".to_string(),
+        input_index: 0,
+        phase: crate::sandbox::SandboxResourcePhase::Execution,
+        status: SandboxResourceDisposition::Retained,
+    }];
+    let reconciled = vec![SandboxResourceEvidence {
+        error: None,
+        identifier: "xylem-old-0-prep".to_string(),
+        input_index: 0,
+        phase: crate::sandbox::SandboxResourcePhase::Preparation,
+        status: SandboxResourceDisposition::Reconciled,
+    }];
+    journal
+        .finalize_sandbox(resources.clone(), reconciled.clone(), None)
+        .expect("finalize sandbox lifecycle");
+    assert!(journal.finalize_sandbox(resources.clone(), reconciled.clone(), None).is_err());
+    journal.finish(FinalStatus::Failed, Some("failed")).expect("finish sandbox run");
+    let summary = RunJournal::read(&path).expect("recover sandbox lifecycle summary");
+    let lifecycle = summary.sandbox.lifecycle.expect("sandbox lifecycle evidence");
+    assert!(lifecycle.finalized);
+    assert_eq!(lifecycle.resources, resources);
+    assert_eq!(lifecycle.reconciled, reconciled);
+    assert_eq!(lifecycle.retention, crate::sandbox::SandboxRetention::RetainOnFailure);
+    remove_file(path).expect("remove journal");
 }

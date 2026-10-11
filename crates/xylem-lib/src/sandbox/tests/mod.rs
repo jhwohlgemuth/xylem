@@ -1,5 +1,6 @@
 use super::artifact::{ArtifactInput, ArtifactManager};
-use super::lifecycle::{archive_export_arguments, archive_mount};
+use super::lifecycle::{archive_export_arguments, archive_mount, OciResourceSpec};
+use super::reconcile::is_eligible;
 use super::*;
 use crate::config::ConfigOptions;
 use crate::script::Command;
@@ -51,6 +52,23 @@ struct FakeSession {
     failure: Option<FakeFailure>,
     operations: Arc<Mutex<Vec<&'static str>>>,
     resources: SandboxResources,
+}
+impl EffectiveSandboxPolicy {
+    fn reconciliation_labels(&self) -> BTreeMap<String, String> {
+        [
+            (SANDBOX_CREATED_LABEL, "1".to_string()),
+            (SANDBOX_INPUT_LABEL, "2".to_string()),
+            (SANDBOX_MANAGED_LABEL, "true".to_string()),
+            (SANDBOX_PHASE_LABEL, "execution".to_string()),
+            (SANDBOX_POLICY_LABEL, self.digest.clone()),
+            (SANDBOX_PROVIDER_LABEL, "oci".to_string()),
+            (SANDBOX_RUN_LABEL, "run".to_string()),
+            (SANDBOX_VERSION_LABEL, SANDBOX_RESOURCE_VERSION.to_string()),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_string(), value))
+        .collect()
+    }
 }
 impl private::Sealed for FakePreparation {}
 impl SandboxPreparation for FakePreparation {
@@ -127,6 +145,9 @@ impl SandboxProvider for FakeProvider {
             }),
         }
     }
+    fn reconcile(&self, _leases: &[SandboxLease]) -> SandboxReconciliationOutcome {
+        SandboxReconciliationOutcome::default()
+    }
     fn open(&self, _run_id: &str, acquisition: WorkloadAcquisition) -> Result<Arc<dyn SandboxSession>, SandboxError> {
         self.operations.lock().expect("fake operation lock").push("open");
         self.acquisitions.lock().expect("fake acquisition lock").push(acquisition);
@@ -154,11 +175,15 @@ impl SandboxSession for FakeSession {
             })),
         }
     }
-    fn finish(&self, _succeeded: bool) -> Result<SandboxSessionOutcome, SandboxError> {
+    fn finish(&self, _succeeded: bool) -> SandboxSessionOutcome {
         self.operations.lock().expect("fake operation lock").push("run_finish");
         match self.failure == Some(FakeFailure::RunFinish) {
-            | true => Err(SandboxError::Runtime("injected finish failure".to_string())),
-            | false => Ok(None),
+            | true => SandboxSessionOutcome {
+                artifacts: None,
+                error: Some("injected finish failure".to_string()),
+                resources: Vec::new(),
+            },
+            | false => SandboxSessionOutcome::default(),
         }
     }
     fn resources(&self) -> &SandboxResources {
@@ -271,7 +296,7 @@ fn invocation(policy: &EffectiveSandboxPolicy, script: &Script, container_name: 
         })
     })
 }
-fn policy(format: &str) -> String {
+pub(super) fn policy(format: &str) -> String {
     match format {
         | "json" | "jsonc" => r#"{
   "environment": { "allow": ["PATH", "LANG"] },
@@ -332,7 +357,15 @@ workload:
         | _ => String::new(),
     }
 }
-fn root(label: &str) -> PathBuf {
+fn reconciliation_fixture(label: &str) -> (PathBuf, EffectiveSandboxPolicy) {
+    let directory = root(label);
+    create_dir_all(&directory).expect("create reconciliation fixture");
+    let path = directory.join("policy.json");
+    write(&path, policy("json")).expect("write reconciliation policy");
+    let policy = EffectiveSandboxPolicy::read(&path).expect("read reconciliation policy");
+    (directory, policy)
+}
+pub(super) fn root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("xylem-sandbox-policy-{label}-{}", process::id()))
 }
 fn stage_artifact(manager: &ArtifactManager, input: &ArtifactInput, path: &str, contents: &[u8]) {
@@ -355,7 +388,7 @@ fn workload_inspection() -> OciImageInspection {
 }
 
 #[test]
-fn archive_export_targets_bound_file() {
+fn test_archive_export_targets_bound_file() {
     assert_eq!(
         archive_export_arguments("sandbox", "/xylem/prepared"),
         ["exec", "sandbox", "tar", "-C", "/xylem/prepared", "-cf", "/xylem/export.tar", "."]
@@ -364,24 +397,15 @@ fn archive_export_targets_bound_file() {
     );
 }
 #[test]
-fn archive_mount_grants_only_export_file() {
+fn test_archive_mount_grants_only_export_file() {
     assert_eq!(
         archive_mount(Path::new("/tmp/prepared.tar")),
         "type=bind,source=/tmp/prepared.tar,target=/xylem/export.tar"
     );
 }
-#[test]
-fn artifact_reclaim_is_podman_specific() {
-    let path = Path::new("/tmp/artifacts");
-    assert_eq!(OciRuntime::Docker.artifact_reclaim_arguments(path), None);
-    assert_eq!(
-        OciRuntime::Podman.artifact_reclaim_arguments(path),
-        Some(["unshare", "chown", "-R", "0:0", "/tmp/artifacts"].map(OsString::from).to_vec())
-    );
-}
 #[cfg(unix)]
 #[test]
-fn artifact_staging_is_host_private() {
+fn test_artifact_staging_is_host_private() {
     let root = root("artifact-private");
     create_dir_all(&root).expect("create artifact root");
     let destination = root.join("published");
@@ -396,7 +420,7 @@ fn artifact_staging_is_host_private() {
     remove_dir_all(root).expect("remove artifact fixture");
 }
 #[test]
-fn conflicting_input_files_leave_destination_absent() {
+fn test_conflicting_input_files_leave_destination_absent() {
     let root = root("artifact-conflict");
     create_dir_all(&root).expect("create artifact root");
     let destination = root.join("published");
@@ -416,7 +440,7 @@ fn conflicting_input_files_leave_destination_absent() {
     remove_dir_all(root).expect("remove artifact fixture");
 }
 #[test]
-fn failed_run_discards_private_artifacts() {
+fn test_failed_run_discards_private_artifacts() {
     let root = root("artifact-discard");
     create_dir_all(&root).expect("create artifact root");
     let destination = root.join("published");
@@ -430,7 +454,7 @@ fn failed_run_discards_private_artifacts() {
     remove_dir_all(root).expect("remove artifact fixture");
 }
 #[test]
-fn fake_provider_injects_each_lifecycle_failure() {
+fn test_fake_provider_injects_each_lifecycle_failure() {
     [
         FakeFailure::Discover,
         FakeFailure::Execute,
@@ -491,7 +515,7 @@ fn fake_provider_injects_each_lifecycle_failure() {
                         FakeFailure::PrepareModule | FakeFailure::Seal | FakeFailure::StartInput | FakeFailure::VerifyRequirements
                     )
                 );
-                assert_eq!(session.finish(false).is_err(), failure == FakeFailure::RunFinish);
+                assert_eq!(session.finish(false).error.is_some(), failure == FakeFailure::RunFinish);
             }
         }
         let recorded = operations.lock().expect("fake operation lock").clone();
@@ -518,12 +542,7 @@ fn fake_provider_injects_each_lifecycle_failure() {
     });
 }
 #[test]
-fn isolation_classes_are_ordered_by_strength() {
-    assert!(IsolationClass::Process < IsolationClass::SharedKernel);
-    assert!(IsolationClass::SharedKernel < IsolationClass::SeparateKernel);
-}
-#[test]
-fn invocation_is_hardened_and_preserves_argument_boundaries() {
+fn test_invocation_is_hardened_and_preserves_argument_boundaries() {
     let directory = root("invocation");
     let modules = directory.join("modules");
     let inputs = directory.join("inputs");
@@ -564,7 +583,7 @@ fn invocation_is_hardened_and_preserves_argument_boundaries() {
 }
 #[cfg(unix)]
 #[test]
-fn invocation_rejects_symlinks_inside_mounted_trees() {
+fn test_invocation_rejects_symlinks_inside_mounted_trees() {
     use std::os::unix::fs::symlink;
 
     let directory = root("symlink");
@@ -583,7 +602,49 @@ fn invocation_rejects_symlinks_inside_mounted_trees() {
     remove_dir_all(directory).expect("remove policy fixture directory");
 }
 #[test]
-fn missing_declared_output_leaves_destination_absent() {
+fn test_isolation_classes_are_ordered_by_strength() {
+    assert!(IsolationClass::Process < IsolationClass::SharedKernel);
+    assert!(IsolationClass::SharedKernel < IsolationClass::SeparateKernel);
+}
+#[test]
+fn test_lifecycle_container_invocation_has_exact_ownership_labels_and_export_limit() {
+    let directory = root("lifecycle-labels");
+    create_dir_all(&directory).expect("create policy fixture directory");
+    let path = directory.join("policy.json");
+    write(&path, policy("json")).expect("write policy fixture");
+    let policy = EffectiveSandboxPolicy::read(&path).expect("parse policy fixture");
+    let tracker = Arc::new(SandboxResourceTracker::default());
+    let spec = OciResourceSpec {
+        artifact_staging: None,
+        input_index: 2,
+        name: "xylem-run-2-exec",
+        phase: SandboxResourcePhase::Execution,
+        run_id: "run",
+        tracker,
+    };
+    let arguments = policy
+        .container_base(&spec, Some("none"), 1024)
+        .into_iter()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    [
+        format!("{SANDBOX_MANAGED_LABEL}=true"),
+        format!("{SANDBOX_POLICY_LABEL}={}", policy.digest),
+        format!("{SANDBOX_PROVIDER_LABEL}=oci"),
+        format!("{SANDBOX_RUN_LABEL}=run"),
+        format!("{SANDBOX_INPUT_LABEL}=2"),
+        format!("{SANDBOX_PHASE_LABEL}=execution"),
+        format!("{SANDBOX_VERSION_LABEL}={SANDBOX_RESOURCE_VERSION}"),
+    ]
+    .into_iter()
+    .for_each(|label| assert!(arguments.contains(&label), "missing {label} from {arguments:?}"));
+    assert!(arguments.contains(&"--network=none".to_string()));
+    assert!(arguments.contains(&"--ulimit".to_string()));
+    assert!(arguments.iter().any(|argument| argument.starts_with("fsize=")));
+    remove_dir_all(directory).expect("remove policy fixture directory");
+}
+#[test]
+fn test_missing_declared_output_leaves_destination_absent() {
     let root = root("artifact-missing-output");
     create_dir_all(&root).expect("create artifact root");
     let destination = root.join("published");
@@ -610,7 +671,27 @@ fn missing_declared_output_leaves_destination_absent() {
     remove_dir_all(root).expect("remove artifact fixture");
 }
 #[test]
-fn policy_formats_produce_the_same_canonical_digest() {
+fn test_policy_accepts_failure_retention_with_durable_lifecycle_support() {
+    let directory = root("retention");
+    create_dir_all(&directory).expect("create policy fixture directory");
+    let path = directory.join("retention.json");
+    write(
+        &path,
+        policy("json").replace("\"retention\": \"delete\"", "\"retention\": \"retain_on_failure\""),
+    )
+    .expect("write retention policy fixture");
+    let policy = EffectiveSandboxPolicy::read(&path).expect("retention policy should be supported");
+    assert_eq!(policy.policy.lifecycle.retention, SandboxRetention::RetainOnFailure);
+    let config = serde_json::from_str::<Config>(r#"{"requirements":[],"modules":[],"sandbox":true}"#)
+        .expect("parse retention plan configuration")
+        .with_options(ConfigOptions::init().build().with_sandbox_policy(Some(policy.clone())));
+    let plan = crate::plan::ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect("build retention execution plan");
+    assert_eq!(plan.schema_version, 12);
+    assert_eq!(plan.sandbox.lifecycle, Some(policy.policy.lifecycle));
+    remove_dir_all(directory).expect("remove policy fixture directory");
+}
+#[test]
+fn test_policy_formats_produce_the_same_canonical_digest() {
     let directory = root("formats");
     create_dir_all(&directory).expect("create policy fixture directory");
     let digests = ["json", "jsonc", "yaml", "yml"]
@@ -625,7 +706,7 @@ fn policy_formats_produce_the_same_canonical_digest() {
     remove_dir_all(directory).expect("remove policy fixture directory");
 }
 #[test]
-fn policy_rejects_legacy_flat_shape() {
+fn test_policy_rejects_legacy_flat_shape() {
     let directory = root("legacy");
     create_dir_all(&directory).expect("create policy fixture directory");
     let path = directory.join("legacy.json");
@@ -643,7 +724,7 @@ fn policy_rejects_legacy_flat_shape() {
     remove_dir_all(directory).expect("remove policy fixture directory");
 }
 #[test]
-fn policy_rejects_process_guards_until_supported() {
+fn test_policy_rejects_process_guards_until_supported() {
     let directory = root("guard");
     create_dir_all(&directory).expect("create policy fixture directory");
     let path = directory.join("guard.json");
@@ -659,7 +740,7 @@ fn policy_rejects_process_guards_until_supported() {
     remove_dir_all(directory).expect("remove policy fixture directory");
 }
 #[test]
-fn policy_rejects_unknown_fields_and_mutable_workloads() {
+fn test_policy_rejects_unknown_fields_and_mutable_workloads() {
     let directory = root("invalid");
     create_dir_all(&directory).expect("create policy fixture directory");
     let unknown = directory.join("unknown.json");
@@ -682,7 +763,44 @@ fn policy_rejects_unknown_fields_and_mutable_workloads() {
     remove_dir_all(directory).expect("remove policy fixture directory");
 }
 #[test]
-fn sandbox_feature_matrix_accepts_requirements_binary_and_python_modules() {
+fn test_reconciliation_eligibility_preserves_active_indeterminate_and_fresh_resources() {
+    assert!(!is_eligible(1, 10, Some(SandboxLeaseState::Active)));
+    assert!(!is_eligible(1, 10, Some(SandboxLeaseState::Indeterminate)));
+    assert!(!is_eligible(11, 10, Some(SandboxLeaseState::Terminal)));
+    assert!(is_eligible(1, 10, Some(SandboxLeaseState::Terminal)));
+    assert!(is_eligible(1, 10, None));
+}
+#[test]
+fn test_reconciliation_listing_is_scoped_to_exact_xylem_policy_labels() {
+    let (directory, policy) = reconciliation_fixture("reconcile-listing");
+    let arguments = policy
+        .argument()
+        .into_iter()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(arguments.contains(&format!("label={SANDBOX_MANAGED_LABEL}=true")));
+    assert!(arguments.contains(&format!("label={SANDBOX_POLICY_LABEL}={}", policy.digest)));
+    assert!(arguments.contains(&format!("label={SANDBOX_PROVIDER_LABEL}=oci")));
+    assert!(arguments.contains(&format!("label={SANDBOX_VERSION_LABEL}={SANDBOX_RESOURCE_VERSION}")));
+    remove_dir_all(directory).expect("remove reconciliation fixture");
+}
+#[test]
+fn test_reconciliation_requires_exact_owned_identity() {
+    let (directory, policy) = reconciliation_fixture("reconcile-identity");
+    let parsed = policy
+        .parse_resource("xylem-run-2-exec", &policy.reconciliation_labels())
+        .expect("parse exact resource labels");
+    assert_eq!(parsed.input_index, 2);
+    assert_eq!(parsed.phase, SandboxResourcePhase::Execution);
+    assert_eq!(parsed.run_id, "run");
+    assert!(policy.parse_resource("foreign", &policy.reconciliation_labels()).is_err());
+    let mut wrong_policy = policy.reconciliation_labels();
+    wrong_policy.insert(SANDBOX_POLICY_LABEL.to_string(), "sha256:foreign".to_string());
+    assert!(policy.parse_resource("xylem-run-2-exec", &wrong_policy).is_err());
+    remove_dir_all(directory).expect("remove reconciliation fixture");
+}
+#[test]
+fn test_sandbox_feature_matrix_accepts_requirements_binary_and_python_modules() {
     let config = serde_json::from_str::<Config>(
         r#"{
   "requirements": ["python", "tar"],
@@ -698,7 +816,7 @@ fn sandbox_feature_matrix_accepts_requirements_binary_and_python_modules() {
     assert!(config.validate_sandbox().is_ok());
 }
 #[test]
-fn sandbox_feature_matrix_rejects_ssh_and_nested_configurations() {
+fn test_sandbox_feature_matrix_rejects_ssh_and_nested_configurations() {
     let config = serde_json::from_str::<Config>(
         r#"{
   "requirements": [],
@@ -715,7 +833,7 @@ fn sandbox_feature_matrix_rejects_ssh_and_nested_configurations() {
     assert!(report.contains("local or HTTP(S)"));
 }
 #[test]
-fn sandbox_input_request_requires_sorted_unique_module_indices() {
+fn test_sandbox_input_request_requires_sorted_unique_module_indices() {
     let config = serde_json::from_str::<Config>(
         r#"{"requirements":[],"modules":[{"name":"one","type":"script","uri":"file:/tmp/one"},{"name":"two","type":"script","uri":"file:/tmp/two"}]}"#,
     )
@@ -725,13 +843,13 @@ fn sandbox_input_request_requires_sorted_unique_module_indices() {
     assert!(SandboxInput::new(config, 0, [0, 0], root("request"), None).is_err());
 }
 #[test]
-fn sandbox_session_open_respects_optional_policy() {
+fn test_sandbox_session_open_respects_optional_policy() {
     assert!(<dyn SandboxSession>::open("run", None, WorkloadAcquisition::LocalOnly)
         .expect("open host mode")
         .is_none());
 }
 #[test]
-fn successful_inputs_merge_and_publish_atomically() {
+fn test_successful_inputs_merge_and_publish_atomically() {
     let root = root("artifact-publish");
     create_dir_all(&root).expect("create artifact root");
     let destination = root.join("published");
@@ -754,7 +872,7 @@ fn successful_inputs_merge_and_publish_atomically() {
     remove_dir_all(root).expect("remove artifact fixture");
 }
 #[test]
-fn validate_workflow_accepts_managed_run_root() {
+fn test_validate_workflow_accepts_managed_run_root() {
     let directory = root("managed-run-root");
     let modules = directory.join("modules");
     create_dir_all(&modules).expect("create module root");
@@ -779,7 +897,7 @@ fn validate_workflow_accepts_managed_run_root() {
     remove_dir_all(directory).expect("remove sandbox fixture");
 }
 #[test]
-fn workload_acquisition_is_local_first_and_fail_closed() {
+fn test_workload_acquisition_is_local_first_and_fail_closed() {
     let workload = "example.invalid/xylem@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let local = workload_inspection();
     assert_eq!(
@@ -801,7 +919,7 @@ fn workload_acquisition_is_local_first_and_fail_closed() {
     assert!(acquire_workload(workload, WorkloadAcquisition::PullIfMissing, Ok(None), || Ok(None)).is_err());
 }
 #[test]
-fn workload_bootstrap_probe_is_digest_pinned_and_hardened() {
+fn test_workload_bootstrap_probe_is_digest_pinned_and_hardened() {
     let directory = root("workload-invocations");
     create_dir_all(&directory).expect("create policy fixture directory");
     let path = directory.join("policy.json");
@@ -821,7 +939,7 @@ fn workload_bootstrap_probe_is_digest_pinned_and_hardened() {
     remove_dir_all(directory).expect("remove policy fixture directory");
 }
 #[test]
-fn workload_metadata_must_match_the_provider_contract() {
+fn test_workload_metadata_must_match_the_provider_contract() {
     let directory = root("workload-metadata");
     create_dir_all(&directory).expect("create policy fixture directory");
     let path = directory.join("policy.json");

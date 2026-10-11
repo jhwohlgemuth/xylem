@@ -74,7 +74,9 @@ Bubblewrap, nono, and nsjail.
 
 Relative policy roots resolve from the policy file. Dry-run validates the
 workflow and policy and records their effective values without contacting the
-runtime. The initial slice requires cleanup retention `delete`.
+runtime. Cleanup defaults to `delete`; trusted operator policy may select
+`retain_on_failure`, in which case failed resources remain explicitly identified
+in the durable run summary until stale-resource reconciliation removes them.
 The checked-in [`sandbox-policy-v1` schema](../schema/sandbox-policy-v1.schema.json)
 defines the complete document shape. Real execution is currently qualified on
 native x86_64 Linux with a local rootless runtime. Before opening a run session,
@@ -135,7 +137,8 @@ execution stay within the same scheduler admission for an input; sandbox
 memory limits do not alter the scheduler's independent memory estimate.
 
 When `output` or `--artifact-output` is configured, each input receives a
-private disk-backed `/xylem/output` mount. Xylem bounds exported bytes and
+private bounded tmpfs at `/xylem/output`; the host exposes only one exact empty
+archive file at `/xylem/export.tar`. Xylem bounds exported bytes and
 entries with `resources.artifact_bytes` and `resources.artifact_files`,
 validates archives after the execution container is quiescent, merges inputs
 deterministically, verifies that every declared output glob matches a non-empty
@@ -211,7 +214,7 @@ so both fit concurrently within this budget. Reuse this model only for the
 measured module revisions and order; a different workflow needs its own
 identity and evidence.
 
-Execution-plan schema v11 records artifact publication intent, the budget,
+Execution-plan schema v12 records artifact publication and lifecycle intent, the budget,
 complete estimator, and one
 read-only sizing decision per resolved input. A regular file is sized by its
 logical length; a directory is sized as the checked sum of its recursively
@@ -300,7 +303,7 @@ MiB per scalar. Exceeding any limit fails before workflow execution.
 
 A non-empty CLI `--input` list has precedence and bypasses selection request
 validation, root access, discovery, compilation, and evaluation. Dry-run uses
-the same read-only selection snapshot as execution. Execution-plan schema v11
+the same read-only selection snapshot as execution. Execution-plan schema v12
 records canonical options, limits, engine/interpreter identity, counts, and
 SHA-256 script and inventory digests without recording the script, configured
 variable values, or unselected inventory.

@@ -275,7 +275,8 @@ reservation once at terminal input completion and admits no new work after a
 failure or cancellation. An unconfigured plan records `memory: null` and keeps
 the original fixed batching path.
 
-Journal and run-summary schema v10 records artifact finalization, the estimator identity, configured
+Journal and run-summary schema v10 introduced artifact finalization and memory
+evidence; the current v11 schema retains the estimator identity, configured
 budget, safety multiplier, and ordered per-input base estimate, safety reserve,
 enforced reservation, or structured fallback. A separate one-shot journal
 event can record a positive observed peak after an input starts; underprediction

@@ -5,8 +5,9 @@ use crate::memory::{MemoryEstimator, PlannedMemoryFallback};
 use crate::plan::{MemoryPlanMode, PlannedMemory};
 use crate::sandbox::{
     ArtifactPublication, ArtifactPublicationStatus, EffectiveSandboxPolicy, IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard,
-    SandboxCapabilities, SandboxProviderKind, SandboxResources,
+    SandboxCapabilities, SandboxLifecycleEvidence, SandboxProviderKind, SandboxResourceDisposition, SandboxResourceEvidence, SandboxResources,
 };
+use crate::util::timestamp;
 use crate::ReporterType;
 use acorn_core::time::Milliseconds;
 use acorn_core::validation::ValidationError;
@@ -23,11 +24,10 @@ use std::fs::{create_dir_all, remove_file, rename, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 use strum::EnumIs;
 
 /// Current on-disk journal schema version.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 10;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 11;
 /// Maximum number of UTF-8 bytes retained for one journal error detail.
 pub const MAX_ERROR_BYTES: usize = 4096;
 trait Summary {
@@ -130,6 +130,12 @@ pub enum JournalError {
 pub enum JournalEvent {
     /// Records the exactly-once terminal artifact publication result.
     ArtifactsFinalized { publication: ArtifactPublication },
+    /// Records the exactly-once terminal sandbox lifecycle result.
+    SandboxFinalized {
+        error: Option<String>,
+        reconciled: Vec<SandboxResourceEvidence>,
+        resources: Vec<SandboxResourceEvidence>,
+    },
     /// Declares the run before any work begins.
     RunStarted { metadata: Box<RunMetadata> },
     /// Records a container lifecycle transition.
@@ -398,6 +404,8 @@ struct JournalSink {
     input_started: Vec<bool>,
     input_states: Vec<ExecutionState>,
     module_states: Vec<Vec<ExecutionState>>,
+    sandbox_expected: bool,
+    sandbox_finalized: bool,
     container_states: Vec<ContainerState>,
     finalized: bool,
     gpu_monitoring: GpuJournalState,
@@ -528,6 +536,8 @@ pub struct RunSummary {
 #[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SandboxEvidence {
+    /// Cleanup, retention, reconciliation, and terminal resource evidence.
+    pub lifecycle: Option<SandboxLifecycleEvidence>,
     /// Minimum required isolation class, absent for host mode.
     pub minimum_isolation: Option<IsolationClass>,
     /// `off` for compatibility host execution or `required` for sandbox execution.
@@ -971,6 +981,7 @@ impl RunJournal {
             .and_then(|file| {
                 let module_states = inputs.iter().map(|_| vec![ExecutionState::NotStarted; modules.len()]).collect::<Vec<_>>();
                 let artifact_expected = metadata.artifacts.is_some();
+                let sandbox_expected = metadata.sandbox.lifecycle.is_some();
                 let memory = metadata.memory.clone();
                 let journal = Self {
                     path,
@@ -988,6 +999,8 @@ impl RunJournal {
                         input_started: vec![false; inputs.len()],
                         input_states: vec![ExecutionState::NotStarted; inputs.len()],
                         module_states,
+                        sandbox_expected,
+                        sandbox_finalized: false,
                         container_states: vec![ContainerState::NotStarted; containers.len()],
                         finalized: false,
                         gpu_monitoring: GpuJournalState::Disabled,
@@ -1264,22 +1277,29 @@ impl RunJournal {
                 matches!(sink.gpu_monitoring, GpuJournalState::Started { .. }),
                 sink.artifact_expected,
                 sink.artifact_status,
+                sink.sandbox_expected,
+                sink.sandbox_finalized,
             ) {
-                | (true, _, _, _, _) => Err(JournalError::Invalid("run is already finalized".to_string())),
-                | (false, true, _, _, _) => Err(JournalError::Invalid(
+                | (true, _, _, _, _, _, _) => Err(JournalError::Invalid("run is already finalized".to_string())),
+                | (false, true, _, _, _, _, _) => Err(JournalError::Invalid(
                     "a successful run cannot contain unfinished or failed inputs".to_string(),
                 )),
-                | (false, false, true, _, _) => Err(JournalError::Invalid("run cannot finalize while GPU monitoring is active".to_string())),
-                | (false, false, false, true, None) => Err(JournalError::Invalid("run cannot finalize before artifact publication".to_string())),
-                | (false, false, false, true, Some(ArtifactPublicationStatus::Published)) if status != FinalStatus::Succeeded => {
+                | (false, false, true, _, _, _, _) => Err(JournalError::Invalid("run cannot finalize while GPU monitoring is active".to_string())),
+                | (false, false, false, true, None, _, _) => {
+                    Err(JournalError::Invalid("run cannot finalize before artifact publication".to_string()))
+                }
+                | (false, false, false, true, Some(ArtifactPublicationStatus::Published), _, _) if status != FinalStatus::Succeeded => {
                     Err(JournalError::Invalid("failed run cannot report published artifacts".to_string()))
                 }
-                | (false, false, false, true, Some(ArtifactPublicationStatus::Discarded | ArtifactPublicationStatus::Failed))
+                | (false, false, false, true, Some(ArtifactPublicationStatus::Discarded | ArtifactPublicationStatus::Failed), _, _)
                     if status == FinalStatus::Succeeded =>
                 {
                     Err(JournalError::Invalid("successful run requires published artifacts".to_string()))
                 }
-                | (false, false, false, _, _) => sink
+                | (false, false, false, _, _, true, false) => Err(JournalError::Invalid(
+                    "run cannot finalize before sandbox lifecycle finalization".to_string(),
+                )),
+                | (false, false, false, _, _, _, _) => sink
                     .append_locked(
                         &self.run_id,
                         JournalEvent::RunFinished {
@@ -1290,6 +1310,33 @@ impl RunJournal {
                     .map(|()| sink.finalized = true),
             }
         })
+    }
+    /// Durably record exactly one terminal sandbox lifecycle result.
+    pub fn finalize_sandbox(
+        &self,
+        resources: Vec<SandboxResourceEvidence>,
+        reconciled: Vec<SandboxResourceEvidence>,
+        error: Option<&str>,
+    ) -> Result<(), JournalError> {
+        let error = error.map(bounded_error);
+        validate_resource_evidence(&resources, false)
+            .and_then(|()| validate_resource_evidence(&reconciled, true))
+            .and_then(|()| validate_optional_error(error.as_deref()))
+            .and_then(|()| self.sink.lock().map_err(|_| JournalError::Poisoned))
+            .and_then(|mut sink| match (sink.sandbox_expected, sink.sandbox_finalized) {
+                | (false, _) => Err(JournalError::Invalid("sandbox lifecycle was not declared".to_string())),
+                | (true, true) => Err(JournalError::Invalid("sandbox lifecycle is already finalized".to_string())),
+                | (true, false) => sink
+                    .append_locked(
+                        &self.run_id,
+                        JournalEvent::SandboxFinalized {
+                            error,
+                            reconciled,
+                            resources,
+                        },
+                    )
+                    .map(|()| sink.sandbox_finalized = true),
+            })
     }
     /// Durably record the exactly-once terminal artifact publication result.
     pub fn finalize_artifacts(&self, publication: ArtifactPublication) -> Result<(), JournalError> {
@@ -1599,6 +1646,23 @@ impl Validate for RunMetadata {
                     ValidationError::new("unobserved").with_message("memory evidence cannot contain observations at run start"),
                 );
             }
+        }
+        match (&self.sandbox.mode[..], &self.sandbox.lifecycle) {
+            | ("off", None) => (),
+            | ("required", Some(lifecycle))
+                if !lifecycle.finalized
+                    && lifecycle.error.is_none()
+                    && lifecycle.reconciled.is_empty()
+                    && lifecycle.resources.is_empty()
+                    && lifecycle.stale_after_seconds > 0 => {}
+            | ("required", Some(_)) => report.add(
+                "sandbox.lifecycle",
+                ValidationError::new("pending").with_message("sandbox lifecycle evidence must be pending and empty at run start"),
+            ),
+            | _ => report.add(
+                "sandbox.lifecycle",
+                ValidationError::new("consistent").with_message("sandbox lifecycle evidence does not match the sandbox mode"),
+            ),
         }
         report.finish()
     }
@@ -1915,6 +1979,29 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                 | _ => Err(JournalError::Invalid("artifact publication identity changed".to_string())),
                             }
                         }),
+                        | JournalEvent::SandboxFinalized {
+                            error,
+                            reconciled,
+                            resources,
+                        } => validate_resource_evidence(&resources, false)
+                            .and_then(|()| validate_resource_evidence(&reconciled, true))
+                            .and_then(|()| validate_optional_error(error.as_deref()))
+                            .and_then(|()| {
+                                metadata
+                                    .as_mut()
+                                    .and_then(|metadata| metadata.sandbox.lifecycle.as_mut())
+                                    .ok_or_else(|| JournalError::Invalid("sandbox lifecycle was not declared at run start".to_string()))
+                            })
+                            .and_then(|lifecycle| match lifecycle.finalized {
+                                | true => Err(JournalError::Invalid("sandbox lifecycle was finalized more than once".to_string())),
+                                | false => {
+                                    lifecycle.error = error;
+                                    lifecycle.finalized = true;
+                                    lifecycle.reconciled = reconciled;
+                                    lifecycle.resources = resources;
+                                    Ok(())
+                                }
+                            }),
                         | JournalEvent::RunStarted { metadata: value } => {
                             match metadata.is_some() || expected_sequence != 0 || value.run_id != record_run_id {
                                 | true => Err(JournalError::Invalid("run_started must be the first and only start record".to_string())),
@@ -2097,37 +2184,46 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                     )),
                     | _ => Err(JournalError::Invalid("artifact publication status does not match run status".to_string())),
                 };
-                memory_validation.and(artifact_validation).and_then(|()| match invalid_success {
-                    | true => Err(JournalError::Invalid(
-                        "a successful finalization contains unfinished or failed work".to_string(),
-                    )),
-                    | false => {
-                        let (status, error, finished_at) = match finalization {
-                            | Some((FinalStatus::Cancelled, error, finished_at)) => (RunStatus::Cancelled, error, Some(finished_at)),
-                            | Some((FinalStatus::Succeeded, error, finished_at)) => (RunStatus::Succeeded, error, Some(finished_at)),
-                            | Some((FinalStatus::Failed, error, finished_at)) => (RunStatus::Failed, error, Some(finished_at)),
-                            | None => (RunStatus::Interrupted, None, None),
-                        };
-                        let duration = finished_at.map(|finished| Milliseconds::new(finished.get().saturating_sub(metadata.started_at.get())));
-                        Ok(RunSummary {
-                            artifacts: artifacts.or(metadata.artifacts),
-                            schema_version: JOURNAL_SCHEMA_VERSION,
-                            run_id: metadata.run_id,
-                            configuration: metadata.configuration,
-                            dry_run: metadata.dry_run,
-                            sandbox: metadata.sandbox,
-                            started_at: metadata.started_at,
-                            finished_at,
-                            duration,
-                            status,
-                            error,
-                            gpu_monitoring: gpu_monitoring.map(GpuRecovery::summary),
-                            containers: containers.into_values().collect(),
-                            inputs: inputs.into_values().collect(),
-                            memory: metadata.memory,
-                        })
+                let sandbox_validation = match (&metadata.sandbox.lifecycle, finalization.as_ref()) {
+                    | (Some(lifecycle), Some(_)) if !lifecycle.finalized => {
+                        Err(JournalError::Invalid("run finalized before sandbox lifecycle finalization".to_string()))
                     }
-                })
+                    | _ => Ok(()),
+                };
+                memory_validation
+                    .and(artifact_validation)
+                    .and(sandbox_validation)
+                    .and_then(|()| match invalid_success {
+                        | true => Err(JournalError::Invalid(
+                            "a successful finalization contains unfinished or failed work".to_string(),
+                        )),
+                        | false => {
+                            let (status, error, finished_at) = match finalization {
+                                | Some((FinalStatus::Cancelled, error, finished_at)) => (RunStatus::Cancelled, error, Some(finished_at)),
+                                | Some((FinalStatus::Succeeded, error, finished_at)) => (RunStatus::Succeeded, error, Some(finished_at)),
+                                | Some((FinalStatus::Failed, error, finished_at)) => (RunStatus::Failed, error, Some(finished_at)),
+                                | None => (RunStatus::Interrupted, None, None),
+                            };
+                            let duration = finished_at.map(|finished| Milliseconds::new(finished.get().saturating_sub(metadata.started_at.get())));
+                            Ok(RunSummary {
+                                artifacts: artifacts.or(metadata.artifacts),
+                                schema_version: JOURNAL_SCHEMA_VERSION,
+                                run_id: metadata.run_id,
+                                configuration: metadata.configuration,
+                                dry_run: metadata.dry_run,
+                                sandbox: metadata.sandbox,
+                                started_at: metadata.started_at,
+                                finished_at,
+                                duration,
+                                status,
+                                error,
+                                gpu_monitoring: gpu_monitoring.map(GpuRecovery::summary),
+                                containers: containers.into_values().collect(),
+                                inputs: inputs.into_values().collect(),
+                                memory: metadata.memory,
+                            })
+                        }
+                    })
             })
     }
 }
@@ -2135,6 +2231,7 @@ impl SandboxEvidence {
     /// Record compatibility host execution.
     pub fn off() -> Self {
         Self {
+            lifecycle: None,
             minimum_isolation: None,
             mode: "off".to_string(),
             policy_digest: None,
@@ -2151,6 +2248,12 @@ impl SandboxEvidence {
     /// Record a required sandbox policy without persisting its path grants.
     pub fn required(policy: &EffectiveSandboxPolicy, capabilities: SandboxCapabilities) -> Self {
         Self {
+            lifecycle: Some(
+                SandboxLifecycleEvidence::init()
+                    .retention(policy.policy.lifecycle.retention)
+                    .stale_after_seconds(policy.policy.lifecycle.stale_after_seconds)
+                    .build(),
+            ),
             minimum_isolation: Some(policy.policy.minimum_isolation),
             mode: "required".to_string(),
             policy_digest: Some(policy.digest.clone()),
@@ -2300,16 +2403,6 @@ fn render_console_workflow_table(output: &mut impl Write, inputs: &[InputSummary
         })
         .and_then(|()| console_table_border(output, &widths, "╰", "┴", "╯", color))
 }
-fn timestamp() -> Milliseconds {
-    Milliseconds::new(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-            .try_into()
-            .unwrap_or(u64::MAX),
-    )
-}
 fn validate_container_transition(current: ContainerState, next: ContainerState) -> Result<(), JournalError> {
     let valid = match current {
         | ContainerState::NotStarted => next.is_ready() || next.is_external() || next.is_failed(),
@@ -2351,6 +2444,57 @@ fn validate_gpu_readings<'a>(readings: &[GpuReading], device_ids: impl Iterator<
         | (true, true, true) => Err(JournalError::Invalid("GPU sample contains an invalid value".to_string())),
         | (true, true, false) => Ok(()),
     }
+}
+fn validate_optional_error(error: Option<&str>) -> Result<(), JournalError> {
+    match error {
+        | Some("") => Err(JournalError::Invalid("sandbox lifecycle error must not be empty".to_string())),
+        | Some(error) if error.len() > MAX_ERROR_BYTES => Err(JournalError::Invalid(format!(
+            "sandbox lifecycle error exceeds the {MAX_ERROR_BYTES}-byte limit"
+        ))),
+        | _ => Ok(()),
+    }
+}
+fn validate_resource_evidence(resources: &[SandboxResourceEvidence], reconciled: bool) -> Result<(), JournalError> {
+    resources
+        .iter()
+        .try_for_each(|resource| {
+            let status_valid = match (reconciled, resource.status) {
+                | (true, SandboxResourceDisposition::Failed | SandboxResourceDisposition::Reconciled) => true,
+                | (false, SandboxResourceDisposition::Failed | SandboxResourceDisposition::Removed | SandboxResourceDisposition::Retained) => true,
+                | _ => false,
+            };
+            let error_valid = match resource.status {
+                | SandboxResourceDisposition::Failed => resource
+                    .error
+                    .as_deref()
+                    .is_some_and(|error| !error.is_empty() && error.len() <= MAX_ERROR_BYTES),
+                | _ => resource.error.is_none(),
+            };
+            match (resource.identifier.is_empty(), status_valid, error_valid) {
+                | (true, _, _) => Err(JournalError::Invalid("sandbox resource identifier must not be empty".to_string())),
+                | (_, false, _) => Err(JournalError::Invalid(format!(
+                    "sandbox resource {} has an invalid disposition",
+                    resource.identifier
+                ))),
+                | (_, _, false) => Err(JournalError::Invalid(format!(
+                    "sandbox resource {} has inconsistent error evidence",
+                    resource.identifier
+                ))),
+                | (false, true, true) => Ok(()),
+            }
+        })
+        .and_then(|()| {
+            resources.windows(2).try_for_each(|pair| {
+                let left = (&pair[0].input_index, &pair[0].phase, &pair[0].identifier);
+                let right = (&pair[1].input_index, &pair[1].phase, &pair[1].identifier);
+                match left < right {
+                    | true => Ok(()),
+                    | false => Err(JournalError::Invalid(
+                        "sandbox resource evidence must be strictly ordered and unique".to_string(),
+                    )),
+                }
+            })
+        })
 }
 fn validate_transition(current: ExecutionState, next: ExecutionState, kind: &str) -> Result<(), JournalError> {
     let valid = match current {

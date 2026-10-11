@@ -11,11 +11,12 @@
 - Document the measured `module-a-p-v2` estimator and two-input admission profile after its individual and concurrent holdout gates passed.
 - Add native rootless OCI preflight checks, retained conformance evidence, and an A/P-capable sandbox workload definition.
 - Complete reusable local, HTTP(S), and Git-backed configuration modules with recursive policy-constrained flattening and qualified runtime identities.
+- Complete sandbox Phase 4 with bounded private artifact export, typed exactly-once resource outcomes, policy-authorized failure retention, lease-aware stale reconciliation, and plan v12/run-summary v11 lifecycle evidence.
 
 ### 🐛 Bug Fixes
 
 - Exclude failed workflow attempts from peak-memory calibration evidence while retaining bounded diagnostics and fail-closed artifact cleanup for prompt-policy rejections.
-- Make OCI archive export reliable on rootless Podman by writing through an exact bound file and returning raw output staging to the host through Podman's user namespace before cleanup.
+- Make OCI archive export reliable on rootless Docker and Podman through an exact bound archive while keeping raw output in container-private tmpfs and eliminating host ownership repair.
 - Preserve prepared sandbox workspaces through execution, accept Xylem's managed run root during lifecycle revalidation, use portable private IPC isolation for Podman, and make private tmpfs storage non-root writable across Docker and Podman.
 
 ### 📦 Dependencies

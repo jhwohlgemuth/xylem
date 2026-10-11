@@ -4,7 +4,6 @@ use super::progress::WorkflowProgress;
 use super::reporting::{finalize, ReportContext};
 use super::{RunFailure, RunRequest};
 use acorn_host::terminal::Label;
-use acorn_schema::hardware::Memory;
 use acorn_schema::validation::Validate;
 use alloc::collections::BTreeSet;
 use alloc::sync::Arc;
@@ -25,9 +24,19 @@ use xylem_lib::plan::{ExecutionPlan, MemoryPlanMode};
 use xylem_lib::remote::RemotePolicy;
 use xylem_lib::run::store::{Bundle, Manifest, Store};
 use xylem_lib::run::telemetry::SystemMonitor;
-use xylem_lib::sandbox::{ArtifactPublication, ArtifactPublicationStatus, SandboxCapabilities, SandboxProvider, SandboxSession, WorkloadAcquisition};
+use xylem_lib::sandbox::{
+    ArtifactPublication, ArtifactPublicationStatus, SandboxCapabilities, SandboxLease, SandboxProvider, SandboxResourceEvidence, SandboxSession,
+    WorkloadAcquisition,
+};
 use xylem_lib::script::{managed_container_name, EnvironmentValue};
 
+trait ExecutionPlanExt {
+    fn finalize_unopened_sandbox(&self, journal: &RunJournal, reconciled: Vec<SandboxResourceEvidence>, failure: RunFailure) -> RunFailure;
+}
+struct OpenedSandbox {
+    reconciled: Vec<SandboxResourceEvidence>,
+    session: Option<Arc<dyn SandboxSession>>,
+}
 struct Runtime<'a> {
     config: Config,
     config_path: PathBuf,
@@ -38,6 +47,74 @@ struct Runtime<'a> {
     request: &'a RunRequest<'a>,
     root: PathBuf,
     sandbox_capabilities: Option<SandboxCapabilities>,
+}
+impl ExecutionPlanExt for ExecutionPlan {
+    fn finalize_unopened_sandbox(&self, journal: &RunJournal, reconciled: Vec<SandboxResourceEvidence>, failure: RunFailure) -> RunFailure {
+        let message = failure.to_string();
+        let lifecycle = journal.finalize_sandbox(Vec::new(), reconciled, Some(&message));
+        let artifacts = self.artifacts.as_ref().map_or(Ok(()), |artifacts| {
+            journal.finalize_artifacts(
+                ArtifactPublication::init()
+                    .bytes_per_input(artifacts.bytes_per_input.clone())
+                    .destination(artifacts.destination.as_str())
+                    .entries_per_input(artifacts.entries_per_input)
+                    .error(message.as_str())
+                    .status(ArtifactPublicationStatus::Failed)
+                    .build(),
+            )
+        });
+        let finalized = lifecycle
+            .and(artifacts)
+            .and_then(|()| journal.finish(xylem_lib::journal::FinalStatus::Failed, Some(&message)));
+        match finalized {
+            | Ok(()) => failure,
+            | Err(why) => failure.with_secondary(format!("finalize execution journal — {why}")),
+        }
+    }
+}
+impl Runtime<'_> {
+    fn execute_bundle(
+        self,
+        bundle: Bundle,
+        options: ConfigOptions,
+        required_modules: BTreeSet<usize>,
+        leases: Vec<SandboxLease>,
+    ) -> Result<(), RunFailure> {
+        create_journal(&self, &bundle, &options).and_then(|(journal, journal_containers)| {
+            let acquisition = match options.offline.unwrap_or_default() {
+                | true => WorkloadAcquisition::LocalOnly,
+                | false => WorkloadAcquisition::PullIfMissing,
+            };
+            let reconciliation = options
+                .sandbox_policy
+                .as_ref()
+                .map_or_else(Default::default, |policy| policy.reconcile(&leases));
+            match reconciliation.error {
+                | Some(error) => Err(self.plan.finalize_unopened_sandbox(
+                    &journal,
+                    reconciliation.resources,
+                    RunFailure::new(exitcode::IOERR, format!("reconcile stale sandbox resources — {error}")),
+                )),
+                | None => <dyn SandboxSession>::open(&self.id, options.sandbox_policy.as_ref(), acquisition)
+                    .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, format!("open sandbox provider session — {why}")))
+                    .map_err(|failure| self.plan.finalize_unopened_sandbox(&journal, reconciliation.resources.clone(), failure))
+                    .and_then(|sandbox| {
+                        execute_opened(
+                            self,
+                            bundle,
+                            options,
+                            required_modules,
+                            journal,
+                            journal_containers,
+                            OpenedSandbox {
+                                reconciled: reconciliation.resources,
+                                session: sandbox,
+                            },
+                        )
+                    }),
+            }
+        })
+    }
 }
 fn create_journal(runtime: &Runtime<'_>, bundle: &Bundle, options: &ConfigOptions) -> Result<(RunJournal, Vec<JournalContainer>), RunFailure> {
     let journal_path = bundle.journal_path();
@@ -89,15 +166,14 @@ fn create_journal(runtime: &Runtime<'_>, bundle: &Bundle, options: &ConfigOption
         .and_then(|memory| {
             let metadata = RunMetadata::now(runtime.id.clone(), configuration, options.dry_run.unwrap_or_default(), sandbox);
             let metadata = match runtime.plan.artifacts.as_ref() {
-                | Some(artifacts) => metadata.with_artifacts(ArtifactPublication {
-                    bytes: Memory::kb(0.0),
-                    bytes_per_input: artifacts.bytes_per_input.clone(),
-                    destination: artifacts.destination.clone(),
-                    entries: 0,
-                    entries_per_input: artifacts.entries_per_input,
-                    error: None,
-                    status: ArtifactPublicationStatus::Pending,
-                }),
+                | Some(artifacts) => metadata.with_artifacts(
+                    ArtifactPublication::init()
+                        .bytes_per_input(artifacts.bytes_per_input.clone())
+                        .destination(artifacts.destination.as_str())
+                        .entries_per_input(artifacts.entries_per_input)
+                        .status(ArtifactPublicationStatus::Pending)
+                        .build(),
+                ),
                 | None => metadata,
             };
             let metadata = match memory {
@@ -160,36 +236,6 @@ pub(super) fn execute(request: &RunRequest<'_>, prepared: PreparedRun) -> Result
                 })
         })
 }
-fn execute_bundle(runtime: Runtime<'_>, bundle: Bundle, options: ConfigOptions, required_modules: BTreeSet<usize>) -> Result<(), RunFailure> {
-    create_journal(&runtime, &bundle, &options).and_then(|(journal, journal_containers)| {
-        let acquisition = match options.offline.unwrap_or_default() {
-            | true => WorkloadAcquisition::LocalOnly,
-            | false => WorkloadAcquisition::PullIfMissing,
-        };
-        <dyn SandboxSession>::open(&runtime.id, options.sandbox_policy.as_ref(), acquisition)
-            .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, format!("open sandbox provider session — {why}")))
-            .map_err(|failure| {
-                let message = failure.to_string();
-                let artifacts = runtime.plan.artifacts.as_ref().map_or(Ok(()), |artifacts| {
-                    journal.finalize_artifacts(ArtifactPublication {
-                        bytes: Memory::kb(0.0),
-                        bytes_per_input: artifacts.bytes_per_input.clone(),
-                        destination: artifacts.destination.clone(),
-                        entries: 0,
-                        entries_per_input: artifacts.entries_per_input,
-                        error: Some(message.clone()),
-                        status: ArtifactPublicationStatus::Failed,
-                    })
-                });
-                let finalized = artifacts.and_then(|()| journal.finish(xylem_lib::journal::FinalStatus::Failed, Some(&message)));
-                match finalized {
-                    | Ok(()) => failure,
-                    | Err(why) => failure.with_secondary(format!("finalize execution journal — {why}")),
-                }
-            })
-            .and_then(|sandbox| execute_opened(runtime, bundle, options, required_modules, journal, journal_containers, sandbox))
-    })
-}
 fn execute_opened(
     runtime: Runtime<'_>,
     bundle: Bundle,
@@ -197,8 +243,12 @@ fn execute_opened(
     required_modules: BTreeSet<usize>,
     journal: RunJournal,
     journal_containers: Vec<JournalContainer>,
-    sandbox: Option<Arc<dyn SandboxSession>>,
+    sandbox: OpenedSandbox,
 ) -> Result<(), RunFailure> {
+    let OpenedSandbox {
+        reconciled,
+        session: sandbox,
+    } = sandbox;
     let Runtime {
         config,
         config_path: _,
@@ -285,26 +335,43 @@ fn execute_opened(
     if sandbox.is_some() {
         progress.finish_preparation(sandbox_succeeded);
     }
-    let sandbox_cleanup = sandbox.as_ref().map_or(Ok(()), |sandbox| match sandbox.finish(sandbox_succeeded) {
-        | Ok(publication) => publication.map_or(Ok(()), |publication| {
+    let sandbox_cleanup = sandbox.as_ref().map_or(Ok(()), |sandbox| {
+        let outcome = sandbox.finish(sandbox_succeeded);
+        let lifecycle = journal
+            .finalize_sandbox(outcome.resources, reconciled, outcome.error.as_deref())
+            .map_err(|why| RunFailure::new(exitcode::IOERR, format!("record sandbox lifecycle finalization — {why}")));
+        let evidence = outcome.artifacts.or_else(|| {
+            plan.artifacts.as_ref().map(|artifacts| {
+                ArtifactPublication::init()
+                    .bytes_per_input(artifacts.bytes_per_input.clone())
+                    .destination(artifacts.destination.as_str())
+                    .entries_per_input(artifacts.entries_per_input)
+                    .error(
+                        outcome
+                            .error
+                            .as_deref()
+                            .unwrap_or("sandbox session did not finalize configured artifacts"),
+                    )
+                    .status(ArtifactPublicationStatus::Failed)
+                    .build()
+            })
+        });
+        let artifacts = evidence.map_or(Ok(()), |evidence| {
             journal
-                .finalize_artifacts(publication)
+                .finalize_artifacts(evidence)
                 .map_err(|why| RunFailure::new(exitcode::IOERR, format!("record sandbox artifact finalization — {why}")))
-        }),
-        | Err(why) => {
-            let failure = RunFailure::new(exitcode::IOERR, format!("finish sandbox provider session — {why}"));
-            let evidence = plan.artifacts.as_ref().map(|artifacts| ArtifactPublication {
-                bytes: Memory::kb(0.0),
-                bytes_per_input: artifacts.bytes_per_input.clone(),
-                destination: artifacts.destination.clone(),
-                entries: 0,
-                entries_per_input: artifacts.entries_per_input,
-                error: Some(why.to_string()),
-                status: ArtifactPublicationStatus::Failed,
-            });
-            match evidence.map(|evidence| journal.finalize_artifacts(evidence)).transpose() {
-                | Ok(_) => Err(failure),
-                | Err(journal_error) => Err(failure.with_secondary(format!("record sandbox artifact failure — {journal_error}"))),
+        });
+        let finalized = match (lifecycle, artifacts) {
+            | (Ok(()), Ok(())) => Ok(()),
+            | (Err(primary), Ok(())) => Err(primary),
+            | (Ok(()), Err(artifacts)) => Err(artifacts),
+            | (Err(primary), Err(artifacts)) => Err(primary.with_secondary(artifacts)),
+        };
+        match (outcome.error, finalized) {
+            | (None, finalized) => finalized,
+            | (Some(why), Ok(())) => Err(RunFailure::new(exitcode::IOERR, format!("finish sandbox provider session — {why}"))),
+            | (Some(why), Err(finalization)) => {
+                Err(RunFailure::new(exitcode::IOERR, format!("finish sandbox provider session — {why}")).with_secondary(finalization))
             }
         }
     });
@@ -369,10 +436,13 @@ fn execute_runtime(runtime: Runtime<'_>) -> Result<(), RunFailure> {
                 .collect::<BTreeSet<_>>();
             Store::system()
                 .and_then(|store| {
-                    Manifest::from_config(runtime.id.clone(), &runtime.config_path, runtime.execution.limits().threads())
-                        .and_then(|manifest| store.start(&manifest))
+                    store.sandbox_leases().and_then(|leases| {
+                        Manifest::from_config(runtime.id.clone(), &runtime.config_path, runtime.execution.limits().threads())
+                            .and_then(|manifest| store.start(&manifest))
+                            .map(|bundle| (bundle, leases))
+                    })
                 })
                 .map_err(|why| RunFailure::new(exitcode::CANTCREAT, why.to_string()))
-                .and_then(|bundle| execute_bundle(runtime, bundle, options, required_modules))
+                .and_then(|(bundle, leases)| runtime.execute_bundle(bundle, options, required_modules, leases))
         })
 }

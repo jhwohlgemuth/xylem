@@ -5,7 +5,7 @@ use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
 use crate::config::{Config, InputAttribute, MemoryEstimatorOptions, MemoryOptions};
 use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
 use crate::memory::{MemoryAdmissionError, MemoryCalculationError, MemoryEstimator, MemoryEstimatorError, PlannedMemoryInput};
-use crate::sandbox::{IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard, SandboxProviderKind, SandboxResources};
+use crate::sandbox::{IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard, SandboxLifecycle, SandboxProviderKind, SandboxResources};
 use crate::script::{
     module_working_directory, ContainerCleanup, ContainerEnvironment, ContainerRuntime, ContainerStartup, Module, ModuleType, ModuleUri, Script,
     TemplateAttribute,
@@ -209,6 +209,8 @@ pub struct PlannedMount {
 /// Sandbox intent included in a dry-run execution plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedSandbox {
+    /// Cleanup, retention, and stale-resource policy, absent for host mode.
+    pub lifecycle: Option<SandboxLifecycle>,
     /// Minimum required isolation class, absent for host mode.
     pub minimum_isolation: Option<IsolationClass>,
     /// `off` for compatibility host execution or `required` for sandbox execution.
@@ -364,7 +366,7 @@ impl ExecutionPlan {
                                 modules,
                                 resume,
                                 sandbox,
-                                schema_version: 11,
+                                schema_version: 12,
                             })
                     })
             })
@@ -646,6 +648,7 @@ impl TryFrom<Config> for PlannedSandbox {
             config.options.as_ref().and_then(|options| options.sandbox_policy.as_ref()),
         ) {
             | (false, _) => Ok(Self {
+                lifecycle: None,
                 minimum_isolation: None,
                 mode: "off".to_string(),
                 policy_digest: None,
@@ -658,6 +661,7 @@ impl TryFrom<Config> for PlannedSandbox {
                 workload: None,
             }),
             | (true, Some(policy)) => Ok(Self {
+                lifecycle: Some(policy.policy.lifecycle.clone()),
                 minimum_isolation: Some(policy.policy.minimum_isolation),
                 mode: "required".to_string(),
                 policy_digest: Some(policy.digest.clone()),

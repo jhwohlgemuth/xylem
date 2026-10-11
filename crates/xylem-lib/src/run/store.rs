@@ -2,7 +2,9 @@
 extern crate alloc;
 
 use crate::journal::{RunStatus, RunSummary, JOURNAL_SCHEMA_VERSION};
+use crate::sandbox::{SandboxLease, SandboxLeaseState};
 use crate::util::constants::app::{APPLICATION, ORGANIZATION, QUALIFIER};
+use crate::util::timestamp;
 use acorn_cmd::{OutputSink, OutputStream};
 use acorn_core::time::Milliseconds;
 use acorn_host::fs::{project_cache_directory, SafePath};
@@ -19,7 +21,6 @@ use std::fs::{create_dir, create_dir_all, read, read_dir, read_to_string, rename
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 use sysinfo::{Pid, System};
 use thiserror::Error;
 
@@ -322,6 +323,26 @@ impl Store {
                 runs
             })
     }
+    /// Recover durable sandbox leases for conservative stale-resource reconciliation.
+    pub fn sandbox_leases(&self) -> Result<Vec<SandboxLease>, StoreError> {
+        self.list().map(|runs| {
+            let mut leases = runs
+                .into_iter()
+                .map(|run| SandboxLease {
+                    run_id: run.run_id,
+                    state: match run.status {
+                        | BundleStatus::Running => SandboxLeaseState::Active,
+                        | BundleStatus::Corrupt | BundleStatus::Unsupported => SandboxLeaseState::Indeterminate,
+                        | BundleStatus::Cancelled | BundleStatus::Failed | BundleStatus::Interrupted | BundleStatus::Succeeded => {
+                            SandboxLeaseState::Terminal
+                        }
+                    },
+                })
+                .collect::<Vec<_>>();
+            leases.sort_by(|left, right| left.run_id.cmp(&right.run_id));
+            leases
+        })
+    }
     /// Return the run-store root.
     pub fn root(&self) -> &Path {
         &self.root
@@ -334,6 +355,30 @@ impl Store {
             .and_then(|()| create_dir_all(path.join("logs")).map_err(|source| io_error(&path, source)))
             .and_then(|()| write_json_atomic(&path.join("manifest.json"), manifest))
             .map(|()| Bundle { path })
+    }
+}
+
+impl OutputSink for TaskLogSink {
+    fn write(&self, stream: OutputStream, bytes: &[u8]) -> std::io::Result<()> {
+        self.inner
+            .buffers
+            .lock()
+            .map_err(|_| std::io::Error::other("task-log buffer lock is poisoned"))
+            .and_then(|mut buffers| {
+                let buffer = match stream {
+                    | OutputStream::Stderr => &mut buffers.stderr,
+                    | OutputStream::Stdout => &mut buffers.stdout,
+                };
+                buffer.extend_from_slice(bytes);
+                let split = buffer.iter().rposition(|byte| *byte == b'\n').map(|index| index.saturating_add(1));
+                split.map_or(Ok(()), |split| {
+                    let complete = buffer.drain(..split).collect::<Vec<_>>();
+                    complete
+                        .split(|byte| *byte == b'\n')
+                        .filter(|line| !line.is_empty())
+                        .try_for_each(|line| self.write_line(stream, line))
+                })
+            })
     }
 }
 
@@ -390,30 +435,6 @@ impl TaskLogSink {
     }
 }
 
-impl OutputSink for TaskLogSink {
-    fn write(&self, stream: OutputStream, bytes: &[u8]) -> std::io::Result<()> {
-        self.inner
-            .buffers
-            .lock()
-            .map_err(|_| std::io::Error::other("task-log buffer lock is poisoned"))
-            .and_then(|mut buffers| {
-                let buffer = match stream {
-                    | OutputStream::Stderr => &mut buffers.stderr,
-                    | OutputStream::Stdout => &mut buffers.stdout,
-                };
-                buffer.extend_from_slice(bytes);
-                let split = buffer.iter().rposition(|byte| *byte == b'\n').map(|index| index.saturating_add(1));
-                split.map_or(Ok(()), |split| {
-                    let complete = buffer.drain(..split).collect::<Vec<_>>();
-                    complete
-                        .split(|byte| *byte == b'\n')
-                        .filter(|line| !line.is_empty())
-                        .try_for_each(|line| self.write_line(stream, line))
-                })
-            })
-    }
-}
-
 fn io_error(path: impl AsRef<Path>, source: std::io::Error) -> StoreError {
     StoreError::Io {
         path: path.as_ref().to_path_buf(),
@@ -460,13 +481,6 @@ fn read_stored_run(path: PathBuf, system: &System) -> Result<StoredRun, StoreErr
             path,
         }),
     }
-}
-
-pub(crate) fn timestamp() -> Milliseconds {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or_else(
-        |_| Milliseconds::default(),
-        |duration| Milliseconds::new(u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)),
-    )
 }
 
 fn write_json_atomic<T>(path: &Path, value: &T) -> Result<(), StoreError>

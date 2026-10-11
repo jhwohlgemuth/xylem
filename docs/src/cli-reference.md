@@ -59,9 +59,13 @@ relocating canonical evidence. The configuration `output` field continues to
 describe workflow artifacts. The legacy `--output` spelling remains an alias
 for `--report-output`.
 
-The version 8 JSON summary includes the run and configuration identities,
+The version 11 JSON summary includes the run and configuration identities,
 timestamps and duration, dry-run flag, final status, and ordered input/module
 states, plus explicit `sandbox` evidence (`mode: off` for compatibility runs).
+Required sandbox runs include the effective retention and stale-resource
+policy, exactly-once terminal resource outcomes, and any expired resources
+reconciled before the session opened. Retained resource identifiers remain in
+the summary for operator recovery.
 When GPU monitoring is enabled, the journal retains one raw sample per
 second and the summary includes per-device sample counts, average and peak
 utilization, and average and peak frame-buffer memory usage. A missing or

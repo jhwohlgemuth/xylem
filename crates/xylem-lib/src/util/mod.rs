@@ -1,5 +1,7 @@
+use acorn_core::time::Milliseconds;
 use std::fs::canonicalize;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub mod constants;
 
@@ -22,6 +24,13 @@ where
         }
         unique
     })
+}
+/// Return the current Unix timestamp in milliseconds.
+pub(crate) fn timestamp() -> Milliseconds {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or_else(
+        |_| Milliseconds::default(),
+        |duration| Milliseconds::new(u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)),
+    )
 }
 
 #[cfg(test)]

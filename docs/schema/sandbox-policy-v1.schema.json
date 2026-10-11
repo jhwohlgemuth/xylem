@@ -34,7 +34,7 @@
       "additionalProperties": false,
       "required": ["retention", "stale_after_seconds"],
       "properties": {
-        "retention": { "const": "delete" },
+        "retention": { "enum": ["delete", "retain_on_failure"] },
         "stale_after_seconds": { "type": "integer", "minimum": 1 }
       }
     },

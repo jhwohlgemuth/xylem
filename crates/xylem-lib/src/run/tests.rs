@@ -1,6 +1,7 @@
 use super::store::{BundleStatus, Manifest, Store, TaskLogSink};
 use super::RunCancellation;
 use crate::journal::JOURNAL_SCHEMA_VERSION;
+use crate::sandbox::SandboxLeaseState;
 use acorn_cmd::{OutputSink, OutputStream};
 use std::fs::{create_dir_all, read_to_string, write};
 use std::path::PathBuf;
@@ -34,11 +35,28 @@ fn test_history_marks_unfinished_and_corrupt_bundles() {
     let mut unsupported = Manifest::from_config("run-c".to_string(), &config, 2).expect("manifest should build");
     unsupported.journal_schema_version = JOURNAL_SCHEMA_VERSION.saturating_sub(1);
     store.start(&unsupported).expect("unsupported bundle should start");
+    let mut interrupted = Manifest::from_config("run-d".to_string(), &config, 2).expect("manifest should build");
+    interrupted.process_id = u32::MAX;
+    store.start(&interrupted).expect("interrupted bundle should start");
     let runs = store.list().expect("history should load");
-    assert_eq!(runs.len(), 3);
+    assert_eq!(runs.len(), 4);
     assert!(runs.iter().any(|run| run.run_id == "run-a" && run.status == BundleStatus::Running));
     assert!(runs.iter().any(|run| run.run_id == "run-b" && run.status == BundleStatus::Corrupt));
     assert!(runs.iter().any(|run| run.run_id == "run-c" && run.status == BundleStatus::Unsupported));
+    assert!(runs.iter().any(|run| run.run_id == "run-d" && run.status == BundleStatus::Interrupted));
+    let leases = store.sandbox_leases().expect("sandbox leases should recover");
+    assert!(leases
+        .iter()
+        .any(|lease| lease.run_id == "run-a" && lease.state == SandboxLeaseState::Active));
+    assert!(leases
+        .iter()
+        .any(|lease| lease.run_id == "run-b" && lease.state == SandboxLeaseState::Indeterminate));
+    assert!(leases
+        .iter()
+        .any(|lease| lease.run_id == "run-c" && lease.state == SandboxLeaseState::Indeterminate));
+    assert!(leases
+        .iter()
+        .any(|lease| lease.run_id == "run-d" && lease.state == SandboxLeaseState::Terminal));
     let _ = std::fs::remove_dir_all(root);
 }
 

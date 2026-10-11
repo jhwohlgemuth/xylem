@@ -1,9 +1,7 @@
 //! Private staging and atomic publication for sandbox artifacts.
 extern crate alloc;
 
-use super::{
-    archive, validate_granted_destination, ArtifactPublication, ArtifactPublicationStatus, SandboxError, SandboxResources, SandboxSessionOutcome,
-};
+use super::{archive, validate_granted_destination, ArtifactPublication, ArtifactPublicationStatus, SandboxError, SandboxResources};
 use crate::completion::CompletionPlan;
 use crate::config::Config;
 use acorn_schema::hardware::Memory;
@@ -22,7 +20,6 @@ use sysinfo::Disks;
 pub(super) struct ArtifactInput {
     pub archive: PathBuf,
     pub index: usize,
-    pub raw: PathBuf,
     pub validated: PathBuf,
 }
 #[derive(Debug)]
@@ -54,22 +51,21 @@ impl ArtifactManager {
             state: Mutex::new(None),
         })
     }
-    pub(super) fn finish(&self, succeeded: bool) -> Result<SandboxSessionOutcome, SandboxError> {
+    pub(super) fn finish(&self, succeeded: bool) -> Result<Option<ArtifactPublication>, SandboxError> {
         self.state
             .lock()
             .map_err(|_| SandboxError::Runtime("sandbox artifact state lock was poisoned".to_string()))
             .and_then(|mut state| match state.take() {
                 | None => Ok(None),
                 | Some(run) if !succeeded => cleanup(&run.staging).map(|()| {
-                    Some(ArtifactPublication {
-                        bytes: Memory::kb(0.0),
-                        bytes_per_input: Memory::kb(self.resources.artifact_bytes as f64 / 1024.0),
-                        destination: run.destination.display().to_string(),
-                        entries: 0,
-                        entries_per_input: self.resources.artifact_files,
-                        error: None,
-                        status: ArtifactPublicationStatus::Discarded,
-                    })
+                    Some(
+                        ArtifactPublication::init()
+                            .bytes_per_input(Memory::kb(self.resources.artifact_bytes as f64 / 1024.0))
+                            .destination(run.destination.display().to_string())
+                            .entries_per_input(self.resources.artifact_files)
+                            .status(ArtifactPublicationStatus::Discarded)
+                            .build(),
+                    )
                 }),
                 | Some(run) => self.publish(run).map(Some),
             })
@@ -111,16 +107,9 @@ impl ArtifactManager {
                                 ))),
                                 | (true, true, false) => {
                                     let archive = run.staging.join("archives").join(format!("input-{input_index:06}.tar"));
-                                    let raw = run.staging.join("raw").join(format!("input-{input_index:06}"));
                                     let validated = run.staging.join("validated").join(format!("input-{input_index:06}"));
-                                    create_dir_all(&raw)
-                                        .map_err(|why| SandboxError::Runtime(format!("create private artifact directory {}: {why}", raw.display())))
-                                        .and_then(|()| make_writable(&raw))
-                                        .and_then(|()| {
-                                            archive::create_export(&archive).map_err(|why| {
-                                                SandboxError::Runtime(format!("create private artifact archive {}: {why}", archive.display()))
-                                            })
-                                        })
+                                    archive::create_export(&archive)
+                                        .map_err(|why| SandboxError::Runtime(format!("create private artifact archive {}: {why}", archive.display())))
                                         .map(|()| {
                                             run.inputs.insert(
                                                 input_index,
@@ -133,7 +122,6 @@ impl ArtifactManager {
                                             Some(ArtifactInput {
                                                 archive,
                                                 index: input_index,
-                                                raw,
                                                 validated,
                                             })
                                         })
@@ -187,7 +175,7 @@ impl ArtifactManager {
                         .map_err(|why| SandboxError::Runtime(format!("create private artifact staging {}: {why}", staging.display())))
                         .and_then(|()| make_private(&staging))
                         .and_then(|()| {
-                            ["archives", "raw", "validated"]
+                            ["archives", "validated"]
                                 .iter()
                                 .try_for_each(|name| create_dir(staging.join(name)).map_err(|why| SandboxError::Runtime(why.to_string())))
                         })
@@ -229,14 +217,15 @@ impl ArtifactManager {
                         cleanup_inputs(&run.staging).and_then(|()| {
                             rename(&merged, &run.destination)
                                 .map_err(|why| SandboxError::Runtime(format!("publish sandbox artifacts to {}: {why}", run.destination.display())))
-                                .map(|()| ArtifactPublication {
-                                    bytes: Memory::kb(bytes as f64 / 1024.0),
-                                    bytes_per_input: Memory::kb(self.resources.artifact_bytes as f64 / 1024.0),
-                                    destination: run.destination.display().to_string(),
-                                    entries,
-                                    entries_per_input: self.resources.artifact_files,
-                                    error: None,
-                                    status: ArtifactPublicationStatus::Published,
+                                .map(|()| {
+                                    ArtifactPublication::init()
+                                        .bytes(Memory::kb(bytes as f64 / 1024.0))
+                                        .bytes_per_input(Memory::kb(self.resources.artifact_bytes as f64 / 1024.0))
+                                        .destination(run.destination.display().to_string())
+                                        .entries(entries)
+                                        .entries_per_input(self.resources.artifact_files)
+                                        .status(ArtifactPublicationStatus::Published)
+                                        .build()
                                 })
                         })
                     })
@@ -244,8 +233,19 @@ impl ArtifactManager {
         };
         let cleaned = cleanup(&run.staging);
         match (result, cleaned) {
-            | (Ok(outcome), _) => Ok(outcome),
-            | (Err(primary), _) => Err(primary),
+            | (Ok(outcome), Ok(())) => Ok(outcome),
+            | (Ok(_), Err(cleanup)) => Err(cleanup),
+            | (Err(primary), Ok(())) => Err(primary),
+            | (Err(primary), Err(cleanup)) => Err(SandboxError::Runtime(format!("{primary}; additionally, {cleanup}"))),
+        }
+    }
+}
+impl Drop for ArtifactManager {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            if let Some(run) = state.take() {
+                let _ = cleanup(&run.staging);
+            }
         }
     }
 }
@@ -322,7 +322,7 @@ fn cleanup(path: &Path) -> Result<(), SandboxError> {
     }
 }
 fn cleanup_inputs(staging: &Path) -> Result<(), SandboxError> {
-    ["archives", "raw", "validated"].iter().try_for_each(|name| cleanup(&staging.join(name)))
+    ["archives", "validated"].iter().try_for_each(|name| cleanup(&staging.join(name)))
 }
 fn ensure_capacity(path: &Path, required: u64) -> Result<(), SandboxError> {
     let disks = Disks::new_with_refreshed_list();
@@ -378,18 +378,6 @@ fn make_private(path: &Path) -> Result<(), SandboxError> {
     {
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
             .map_err(|why| SandboxError::Runtime(format!("make artifact staging private {}: {why}", path.display())))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        Ok(())
-    }
-}
-fn make_writable(path: &Path) -> Result<(), SandboxError> {
-    #[cfg(unix)]
-    {
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))
-            .map_err(|why| SandboxError::Runtime(format!("make private artifact directory writable {}: {why}", path.display())))
     }
     #[cfg(not(unix))]
     {

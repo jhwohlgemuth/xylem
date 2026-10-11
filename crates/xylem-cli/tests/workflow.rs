@@ -34,6 +34,103 @@ fn managed_keep_alive_config() -> serde_json::Value {
         }]
     })
 }
+fn native_lifecycle_config(modules: &Path, output: &Path, command: &str) -> serde_json::Value {
+    serde_json::json!({
+        "output": output.display().to_string(),
+        "requirements": ["sh", "tar"],
+        "modules": [{
+            "name": "native-lifecycle",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": format!("file:{}", modules.display()),
+            "template": { "arguments": ["-c", command], "command": "sh" }
+        }],
+        "sandbox": true
+    })
+}
+fn native_report(path: &Path) -> xylem_lib::journal::RunSummary {
+    let report = read_dir(path)
+        .expect("read native report directory")
+        .map(|entry| entry.expect("native report entry").path())
+        .find(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .expect("native JSON report");
+    serde_json::from_slice(&read(report).expect("read native JSON report")).expect("valid native JSON report")
+}
+fn native_sandbox_policy(
+    runtime: &str,
+    workload: &str,
+    artifacts: &Path,
+    inputs: &Path,
+    modules: &Path,
+    retention: &str,
+    stale_after_seconds: u64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "environment": {
+            "allow": [
+                "CONDA_OVERRIDE_CUDA",
+                "ENV_NAME",
+                "LANG",
+                "LC_ALL",
+                "MAMBA_EXE",
+                "MAMBA_ROOT_PREFIX",
+                "MAMBA_USER",
+                "MAMBA_USER_GID",
+                "MAMBA_USER_ID",
+                "OUTPUT_DIRECTORY",
+                "PATH",
+                "PROJ_DATA",
+                "PROJ_LIB",
+                "PYTHONDONTWRITEBYTECODE",
+                "_XYLEM_INPUT",
+                "_XYLEM_MODULE_LIST",
+                "_XYLEM_PARENT_DIRECTORY"
+            ]
+        },
+        "lifecycle": { "retention": retention, "stale_after_seconds": stale_after_seconds },
+        "minimum_isolation": "shared_kernel",
+        "paths": { "artifact_roots": [artifacts], "input_roots": [inputs], "module_roots": [modules] },
+        "preparation_network": "deny",
+        "process_guards": [],
+        "provider": { "runtime": runtime, "type": "oci" },
+        "resources": {
+            "artifact_bytes": 1048576,
+            "artifact_files": 1000,
+            "captured_output_bytes": 65536,
+            "cpu_millis": 1000,
+            "memory_bytes": 536870912,
+            "pids": 128,
+            "scratch_bytes": 134217728,
+            "wall_time_seconds": 60
+        },
+        "version": 1,
+        "workload": { "allowed": [workload], "default": workload }
+    })
+}
+fn native_sandbox_resources(runtime: &str, policy_digest: &str) -> Vec<String> {
+    let output = std::process::Command::new(runtime)
+        .args([
+            "ps",
+            "--all",
+            "--filter",
+            "label=gov.ornl.xylem.sandbox=true",
+            "--filter",
+            &format!("label=gov.ornl.xylem.policy={policy_digest}"),
+            "--format",
+            "{{.Names}}",
+        ])
+        .output()
+        .expect("list native sandbox resources");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let mut resources = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    resources.sort();
+    resources
+}
 #[cfg(not(target_os = "windows"))]
 fn write_fake_docker(root: &Path) -> (PathBuf, PathBuf) {
     let executable = root.join("docker");
@@ -322,7 +419,7 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
         .expect("run dry-run plan");
     assert!(output.status.success(), "dry run failed: {}", String::from_utf8_lossy(&output.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid dry-run plan");
-    assert_eq!(plan["schema_version"], 11);
+    assert_eq!(plan["schema_version"], 12);
     assert!(plan["memory"].is_null());
     assert_eq!(plan["sandbox"]["mode"], "off");
     assert_eq!(plan["gpu_monitoring"]["interval"], 1000);
@@ -387,7 +484,7 @@ input:
     assert_eq!(repeated.stdout, output.stdout);
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid selection plan");
     let inputs = std::fs::canonicalize(inputs).expect("canonical selection inputs");
-    assert_eq!(plan["schema_version"], 11);
+    assert_eq!(plan["schema_version"], 12);
     assert!(plan["memory"].is_null());
     assert_eq!(plan["sandbox"]["mode"], "off");
     assert_eq!(plan["inputs"]["source"]["kind"], "selection");
@@ -932,7 +1029,7 @@ fn test_memory_intent_plans_and_runs_with_a_fixed_batching_warning() {
         .expect("render memory intent plan");
     assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&dry_run.stdout).expect("valid memory intent plan");
-    assert_eq!(plan["schema_version"], 11);
+    assert_eq!(plan["schema_version"], 12);
     assert_eq!(plan["memory"]["budget"], "64GB");
     assert_eq!(plan["memory"]["estimator"]["identity"], "custom-modules-v1");
     assert_eq!(plan["memory"]["inputs"][0]["fallback"]["kind"], "no_input");
@@ -1184,48 +1281,8 @@ fn test_native_rootless_sandbox_conformance() {
     let policy = test_root.join("policy.json");
     write(
         &policy,
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "environment": {
-                "allow": [
-                    "CONDA_OVERRIDE_CUDA",
-                    "ENV_NAME",
-                    "LANG",
-                    "LC_ALL",
-                    "MAMBA_EXE",
-                    "MAMBA_ROOT_PREFIX",
-                    "MAMBA_USER",
-                    "MAMBA_USER_GID",
-                    "MAMBA_USER_ID",
-                    "OUTPUT_DIRECTORY",
-                    "PATH",
-                    "PROJ_DATA",
-                    "PROJ_LIB",
-                    "PYTHONDONTWRITEBYTECODE",
-                    "_XYLEM_INPUT",
-                    "_XYLEM_MODULE_LIST",
-                    "_XYLEM_PARENT_DIRECTORY"
-                ]
-            },
-            "lifecycle": { "retention": "delete", "stale_after_seconds": 3600 },
-            "minimum_isolation": "shared_kernel",
-            "paths": { "artifact_roots": [artifacts], "input_roots": [inputs], "module_roots": [modules] },
-            "preparation_network": "deny",
-            "process_guards": [],
-            "provider": { "runtime": runtime, "type": "oci" },
-            "resources": {
-                "artifact_bytes": 1048576,
-                "artifact_files": 1000,
-                "captured_output_bytes": 65536,
-                "cpu_millis": 1000,
-                "memory_bytes": 536870912,
-                "pids": 128,
-                "scratch_bytes": 134217728,
-                "wall_time_seconds": 60
-            },
-            "version": 1,
-            "workload": { "allowed": [workload], "default": workload }
-        }))
-        .expect("serialize native sandbox policy"),
+        serde_json::to_vec_pretty(&native_sandbox_policy(&runtime, &workload, &artifacts, &inputs, &modules, "delete", 3600))
+            .expect("serialize native sandbox policy"),
     )
     .expect("write native sandbox policy");
     let output = xylem_command()
@@ -1261,6 +1318,14 @@ fn test_native_rootless_sandbox_conformance() {
             report.artifacts.as_ref().expect("sandbox artifact evidence").status,
             xylem_lib::sandbox::ArtifactPublicationStatus::Published
         );
+        let lifecycle = report.sandbox.lifecycle.as_ref().expect("sandbox lifecycle evidence");
+        assert!(lifecycle.finalized);
+        assert_eq!(lifecycle.resources.len(), 2);
+        assert!(lifecycle
+            .resources
+            .iter()
+            .all(|resource| resource.status == xylem_lib::sandbox::SandboxResourceDisposition::Removed));
+        assert!(native_sandbox_resources(&runtime, report.sandbox.policy_digest.as_deref().expect("sandbox policy digest")).is_empty());
         assert!(
             report.memory.as_ref().expect("sandbox memory evidence").inputs[0]
                 .observed_peak
@@ -1349,6 +1414,18 @@ fn test_native_rootless_sandbox_conformance() {
         rejected_report.artifacts.as_ref().expect("policy rejection artifact evidence").status,
         xylem_lib::sandbox::ArtifactPublicationStatus::Discarded
     );
+    let lifecycle = rejected_report.sandbox.lifecycle.as_ref().expect("policy rejection lifecycle evidence");
+    assert!(lifecycle.finalized);
+    assert_eq!(lifecycle.resources.len(), 2);
+    assert!(lifecycle
+        .resources
+        .iter()
+        .all(|resource| resource.status == xylem_lib::sandbox::SandboxResourceDisposition::Removed));
+    assert!(native_sandbox_resources(
+        &runtime,
+        rejected_report.sandbox.policy_digest.as_deref().expect("policy rejection policy digest")
+    )
+    .is_empty());
     let error = rejected_report.inputs[0].error.as_deref().expect("policy rejection diagnostic");
     assert!(error.contains(PROMPT_POLICY_REJECTION), "{error}");
     assert!(error.len() <= xylem_lib::journal::MAX_ERROR_BYTES);
@@ -1367,6 +1444,229 @@ fn test_native_rootless_sandbox_conformance() {
             .expect("retain policy rejection summary evidence");
     }
     remove_dir_all(test_root).expect("remove native sandbox fixture");
+}
+#[test]
+#[ignore = "requires a native rootless OCI runtime and digest-pinned sandbox workload"]
+fn test_native_sandbox_controller_death_and_retention_recovery() {
+    let runtime = std::env::var("XYLEM_SANDBOX_RUNTIME").expect("XYLEM_SANDBOX_RUNTIME must select docker or podman");
+    let workload = std::env::var("XYLEM_SANDBOX_WORKLOAD").expect("XYLEM_SANDBOX_WORKLOAD must be digest-pinned");
+    let test_root = std::env::temp_dir().join(format!("xylem-native-sandbox-recovery-{}", std::process::id()));
+    let artifacts = test_root.join("artifacts");
+    let inputs = test_root.join("inputs");
+    let modules = test_root.join("modules");
+    let store = test_root.join("store");
+    create_dir_all(&artifacts).expect("create recovery artifact root");
+    create_dir_all(&inputs).expect("create recovery input root");
+    create_dir_all(&modules).expect("create recovery module root");
+    let policy_path = test_root.join("policy.json");
+    write(
+        &policy_path,
+        serde_json::to_vec_pretty(&native_sandbox_policy(&runtime, &workload, &artifacts, &inputs, &modules, "delete", 1))
+            .expect("serialize recovery policy"),
+    )
+    .expect("write recovery policy");
+    let policy_digest = xylem_lib::sandbox::EffectiveSandboxPolicy::read(&policy_path)
+        .expect("read recovery policy")
+        .digest;
+    let config = test_root.join("config.json");
+    let published = artifacts.join("controller-published");
+    write(
+        &config,
+        serde_json::to_vec_pretty(&native_lifecycle_config(
+            &modules,
+            &published,
+            "sleep 30; printf 'unexpected\\n' > /xylem/output/result.txt",
+        ))
+        .expect("serialize controller-death config"),
+    )
+    .expect("write controller-death config");
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_xylem"));
+    command.env(xylem_lib::run::store::RUN_STORE_ENV, &store).args([
+        "run",
+        config.to_str().expect("UTF-8 recovery config path"),
+        "--no-progress",
+        "--sandbox-policy",
+        policy_path.to_str().expect("UTF-8 recovery policy path"),
+    ]);
+    let mut child = command.spawn().expect("spawn controller-death workflow");
+    (0..300)
+        .find_map(|_| {
+            let resources = native_sandbox_resources(&runtime, &policy_digest);
+            match resources.iter().any(|name| name.ends_with("-exec")) {
+                | true => Some(()),
+                | false => {
+                    std::thread::sleep(core::time::Duration::from_millis(100));
+                    None
+                }
+            }
+        })
+        .expect("controller-death workflow should create a labeled resource");
+    child.kill().expect("kill sandbox controller");
+    child.wait().expect("reap killed sandbox controller");
+    let abandoned = native_sandbox_resources(&runtime, &policy_digest);
+    assert!(!abandoned.is_empty());
+    let manifest = read_dir(&store)
+        .expect("read recovery run store")
+        .map(|entry| entry.expect("recovery run entry").path().join("manifest.json"))
+        .find_map(|path| {
+            read(&path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<xylem_lib::run::store::Manifest>(&bytes).ok())
+        })
+        .expect("controller-death manifest");
+    let abandoned_workspace = std::env::temp_dir()
+        .join(xylem_lib::script::EnvironmentValue::PREFIX)
+        .join(&manifest.run_id);
+    let abandoned_artifacts = artifacts.join(format!(".xylem-{}-artifacts", manifest.run_id));
+    assert!(abandoned_workspace.exists());
+    assert!(abandoned_artifacts.exists());
+    std::thread::sleep(core::time::Duration::from_secs(2));
+    write(
+        &config,
+        serde_json::to_vec_pretty(&native_lifecycle_config(
+            &modules,
+            &published,
+            "printf 'recovered\\n' > /xylem/output/result.txt",
+        ))
+        .expect("serialize recovery config"),
+    )
+    .expect("write recovery config");
+    let recovery_reports = test_root.join("controller-reports");
+    let recovery = xylem_command()
+        .env(xylem_lib::run::store::RUN_STORE_ENV, &store)
+        .args([
+            "run",
+            config.to_str().expect("UTF-8 recovery config path"),
+            "--no-progress",
+            "--report-output",
+            recovery_reports.to_str().expect("UTF-8 recovery reports path"),
+            "--reporter",
+            "json",
+            "--sandbox-policy",
+            policy_path.to_str().expect("UTF-8 recovery policy path"),
+        ])
+        .output()
+        .expect("run controller-death recovery workflow");
+    assert!(recovery.status.success(), "{}", String::from_utf8_lossy(&recovery.stderr));
+    let recovery_report = native_report(&recovery_reports);
+    let reconciled = &recovery_report
+        .sandbox
+        .lifecycle
+        .as_ref()
+        .expect("recovery lifecycle evidence")
+        .reconciled;
+    assert!(abandoned
+        .iter()
+        .all(|name| reconciled.iter().any(|resource| resource.identifier == *name)));
+    assert!(!abandoned_workspace.exists());
+    assert!(!abandoned_artifacts.exists());
+    assert!(native_sandbox_resources(&runtime, &policy_digest).is_empty());
+
+    write(
+        &policy_path,
+        serde_json::to_vec_pretty(&native_sandbox_policy(
+            &runtime,
+            &workload,
+            &artifacts,
+            &inputs,
+            &modules,
+            "retain_on_failure",
+            1,
+        ))
+        .expect("serialize retention policy"),
+    )
+    .expect("write retention policy");
+    let retention_digest = xylem_lib::sandbox::EffectiveSandboxPolicy::read(&policy_path)
+        .expect("read retention policy")
+        .digest;
+    let retained_output = artifacts.join("retained-published");
+    write(
+        &config,
+        serde_json::to_vec_pretty(&native_lifecycle_config(
+            &modules,
+            &retained_output,
+            "printf 'discarded\\n' > /xylem/output/result.txt; exit 7",
+        ))
+        .expect("serialize retained failure config"),
+    )
+    .expect("write retained failure config");
+    let retained_reports = test_root.join("retained-reports");
+    let retained = xylem_command()
+        .env(xylem_lib::run::store::RUN_STORE_ENV, &store)
+        .args([
+            "run",
+            config.to_str().expect("UTF-8 retained config path"),
+            "--no-progress",
+            "--report-output",
+            retained_reports.to_str().expect("UTF-8 retained reports path"),
+            "--reporter",
+            "json",
+            "--sandbox-policy",
+            policy_path.to_str().expect("UTF-8 retention policy path"),
+        ])
+        .output()
+        .expect("run retained failure workflow");
+    assert!(!retained.status.success());
+    let retained_report = native_report(&retained_reports);
+    let retained_ids = retained_report
+        .sandbox
+        .lifecycle
+        .as_ref()
+        .expect("retained lifecycle evidence")
+        .resources
+        .iter()
+        .filter(|resource| resource.status == xylem_lib::sandbox::SandboxResourceDisposition::Retained)
+        .map(|resource| resource.identifier.clone())
+        .collect::<Vec<_>>();
+    assert!(!retained_ids.is_empty());
+    assert!(retained_ids
+        .iter()
+        .all(|identifier| native_sandbox_resources(&runtime, &retention_digest).contains(identifier)));
+    assert!(!retained_output.exists());
+    std::thread::sleep(core::time::Duration::from_secs(2));
+    write(
+        &config,
+        serde_json::to_vec_pretty(&native_lifecycle_config(
+            &modules,
+            &retained_output,
+            "printf 'published\\n' > /xylem/output/result.txt",
+        ))
+        .expect("serialize retention recovery config"),
+    )
+    .expect("write retention recovery config");
+    let retention_recovery_reports = test_root.join("retention-recovery-reports");
+    let retention_recovery = xylem_command()
+        .env(xylem_lib::run::store::RUN_STORE_ENV, &store)
+        .args([
+            "run",
+            config.to_str().expect("UTF-8 retention recovery config path"),
+            "--no-progress",
+            "--report-output",
+            retention_recovery_reports.to_str().expect("UTF-8 retention recovery reports path"),
+            "--reporter",
+            "json",
+            "--sandbox-policy",
+            policy_path.to_str().expect("UTF-8 retention policy path"),
+        ])
+        .output()
+        .expect("run retention recovery workflow");
+    assert!(
+        retention_recovery.status.success(),
+        "{}",
+        String::from_utf8_lossy(&retention_recovery.stderr)
+    );
+    let retention_recovery_report = native_report(&retention_recovery_reports);
+    let reconciled = &retention_recovery_report
+        .sandbox
+        .lifecycle
+        .as_ref()
+        .expect("retention recovery lifecycle evidence")
+        .reconciled;
+    assert!(retained_ids
+        .iter()
+        .all(|identifier| reconciled.iter().any(|resource| resource.identifier == *identifier)));
+    assert!(native_sandbox_resources(&runtime, &retention_digest).is_empty());
+    remove_dir_all(test_root).expect("remove native sandbox recovery fixture");
 }
 #[test]
 fn test_offline_dry_run_skips_reachability_but_still_enforces_allowlist() {
@@ -1544,6 +1844,30 @@ fn test_preparation_failure_is_finalized_and_reported() {
     remove_dir_all(test_root).expect("remove preparation failure directory");
 }
 #[test]
+fn test_rejects_a_malformed_explicit_dotenv_file() {
+    let env_path = std::env::temp_dir().join(format!("xylem-malformed-dotenv-{}.env", std::process::id()));
+    write(&env_path, "=broken\n").expect("write malformed dotenv fixture");
+    let mut command = xylem_command();
+    let output = command
+        .args(["--env", env_path.to_str().expect("UTF-8 path")])
+        .output()
+        .expect("run with malformed dotenv");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Could not load dotenv file"));
+    let _ = remove_file(env_path);
+}
+#[test]
+fn test_rejects_a_missing_explicit_dotenv_file() {
+    let missing = std::env::temp_dir().join(format!("xylem-missing-dotenv-{}.env", std::process::id()));
+    let mut command = xylem_command();
+    let output = command
+        .args(["--env", missing.to_str().expect("UTF-8 path")])
+        .output()
+        .expect("run with missing dotenv");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Could not load dotenv file"));
+}
+#[test]
 fn test_rejects_an_invalid_module_location_with_context() {
     let test_root = std::env::temp_dir().join(format!("xylem-invalid-location-{}", std::process::id()));
     create_dir_all(&test_root).expect("create invalid location directory");
@@ -1571,30 +1895,6 @@ fn test_rejects_an_invalid_module_location_with_context() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("modules[0].uri"), "{stderr}");
     remove_dir_all(test_root).expect("remove invalid location directory");
-}
-#[test]
-fn test_rejects_a_malformed_explicit_dotenv_file() {
-    let env_path = std::env::temp_dir().join(format!("xylem-malformed-dotenv-{}.env", std::process::id()));
-    write(&env_path, "=broken\n").expect("write malformed dotenv fixture");
-    let mut command = xylem_command();
-    let output = command
-        .args(["--env", env_path.to_str().expect("UTF-8 path")])
-        .output()
-        .expect("run with malformed dotenv");
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Could not load dotenv file"));
-    let _ = remove_file(env_path);
-}
-#[test]
-fn test_rejects_a_missing_explicit_dotenv_file() {
-    let missing = std::env::temp_dir().join(format!("xylem-missing-dotenv-{}.env", std::process::id()));
-    let mut command = xylem_command();
-    let output = command
-        .args(["--env", missing.to_str().expect("UTF-8 path")])
-        .output()
-        .expect("run with missing dotenv");
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Could not load dotenv file"));
 }
 #[test]
 fn test_resume_logs_when_a_module_has_no_completion_declaration() {

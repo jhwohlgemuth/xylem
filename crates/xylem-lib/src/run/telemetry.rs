@@ -1,7 +1,8 @@
 //! Lightweight one-second host and Xylem process-tree sampling.
 extern crate alloc;
 
-use super::store::{timestamp, Bundle, MetricSample, StoreError};
+use super::store::{Bundle, MetricSample, StoreError};
+use crate::util::timestamp;
 use acorn_schema::hardware::Memory;
 use alloc::sync::Arc;
 use core::iter::successors;

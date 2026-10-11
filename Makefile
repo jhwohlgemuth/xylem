@@ -39,6 +39,8 @@ lint:
 	@cargo fmt --verbose
 	@cargo clippy --no-deps --all-targets --fix --allow-dirty
 	@hadolint sandbox/runner/Containerfile sandbox/runner/geospatial/Containerfile
+	@sh -n scripts/check-process-spawns.sh
+	@sh scripts/check-process-spawns.sh
 	@sh -n scripts/check-rootless-sandbox.sh
 
 test:

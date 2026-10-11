@@ -99,6 +99,7 @@ sandbox-docker-conformance:
     - docker pull "${XYLEM_SANDBOX_WORKLOAD}"
     - sh scripts/check-rootless-sandbox.sh "${XYLEM_SANDBOX_RUNTIME}" "${XYLEM_SANDBOX_WORKLOAD}" 1073741824
     - cargo test -p xylem-cli test_native_rootless_sandbox_conformance -- --ignored --exact
+    - cargo test -p xylem-cli test_native_sandbox_controller_death_and_retention_recovery -- --ignored --exact
   artifacts:
     when: always
     paths:
@@ -132,6 +133,7 @@ sandbox-podman-conformance:
     - podman pull "${XYLEM_SANDBOX_WORKLOAD}"
     - sh scripts/check-rootless-sandbox.sh "${XYLEM_SANDBOX_RUNTIME}" "${XYLEM_SANDBOX_WORKLOAD}" 1073741824
     - cargo test -p xylem-cli test_native_rootless_sandbox_conformance -- --ignored --exact
+    - cargo test -p xylem-cli test_native_sandbox_controller_death_and_retention_recovery -- --ignored --exact
   artifacts:
     when: always
     paths:
