@@ -56,12 +56,12 @@ provenance records. Tests cover policy and identity validation, bounded HTTP
 downloads, cache corruption, offline behavior, plan tampering, and escaping Git
 symlinks.
 
-Runtime configuration, script, CLI, schema, and sandbox wiring remain deferred
-until `workflow-environment-and-concurrency` provides an owned workspace for
-each input. Activating the executor sooner would expose cache materializations
-directly to execution instead of copying verified content into an input-owned
-workspace. The legacy acquisition paths remain active until that integration
-can switch configuration, binary, and Git handling together.
+`workflow-environment-and-concurrency` phase 3 now provides an owned workspace
+for each input and copies local modules into it. Runtime configuration, script,
+schema, and sandbox wiring for the hardened executor remain deferred. The
+legacy remote acquisition paths remain active until that integration can
+switch configuration, binary, and Git handling together without exposing cache
+materializations directly to execution.
 
 # Recommendation
 

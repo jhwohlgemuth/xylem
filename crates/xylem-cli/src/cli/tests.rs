@@ -155,3 +155,14 @@ fn test_tui_configuration_is_optional_and_positional() {
         | _ => panic!("tui command should parse"),
     }
 }
+#[test]
+fn test_workspace_retention_is_explicit() {
+    match parse(&["xylem", "run", "--retain-workspace"]).command {
+        | Some(Commands::Run { retain_workspace, .. }) => assert!(retain_workspace),
+        | _ => panic!("run command should parse"),
+    }
+    match parse(&["xylem", "run"]).command {
+        | Some(Commands::Run { retain_workspace, .. }) => assert!(!retain_workspace),
+        | _ => panic!("run command should parse"),
+    }
+}

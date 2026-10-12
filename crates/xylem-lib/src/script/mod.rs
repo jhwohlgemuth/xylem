@@ -210,7 +210,7 @@ pub enum TemplateType {
     Unknown,
 }
 
-#[derive(Clone, Debug, Deserialize, Display, FromStr, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Display, EnumIs, FromStr, PartialEq, Serialize)]
 pub enum VirtualEnvironmentManager {
     /// [Conda package manager](https://github.com/conda/conda)
     #[display("conda")]
@@ -876,10 +876,16 @@ impl Script {
     }
     pub(crate) fn get_arguments(&self) -> Vec<String> {
         let self_arguments = match &self.command.virtual_environment {
-            | Some(VirtualEnvironment { name, manager, .. }) => {
+            | Some(VirtualEnvironment { manager, name, path }) => {
                 let mut arguments = match manager {
-                    | VirtualEnvironmentManager::Conda => args!["run", "--name", name, "--no-capture-output", self.command.name.clone()],
-                    | VirtualEnvironmentManager::Mamba => args!["run", "--name", name, self.command.name.clone()],
+                    | VirtualEnvironmentManager::Conda => path.as_ref().map_or_else(
+                        || args!["run", "--name", name, "--no-capture-output", self.command.name.clone()],
+                        |path| args!["run", "--prefix", path, "--no-capture-output", self.command.name.clone()],
+                    ),
+                    | VirtualEnvironmentManager::Mamba => path.as_ref().map_or_else(
+                        || args!["run", "--name", name, self.command.name.clone()],
+                        |path| args!["run", "--prefix", path, self.command.name.clone()],
+                    ),
                     | VirtualEnvironmentManager::Pixi => args!["run", "--environment", name, self.command.name.clone()],
                     | VirtualEnvironmentManager::Poetry => args!["run", self.command.name.clone()],
                     | _ => {
@@ -940,8 +946,12 @@ impl Script {
             )
             .map(|environment| match environment {
                 | Some(value) if value.manager == VirtualEnvironmentManager::Pixi => create_pixi_environment_script(current_dir, value),
-                | Some(value) if value.manager == VirtualEnvironmentManager::Conda => create_conda_environment_script(current_dir),
-                | Some(value) if value.manager == VirtualEnvironmentManager::Mamba => create_mamba_environment_script(current_dir),
+                | Some(value) if value.manager == VirtualEnvironmentManager::Conda => {
+                    create_environment_script(current_dir, "conda", value.path.as_deref().map(Path::new), get_conda_environment_list)
+                }
+                | Some(value) if value.manager == VirtualEnvironmentManager::Mamba => {
+                    create_environment_script(current_dir, "mamba", value.path.as_deref().map(Path::new), get_mamba_environment_list)
+                }
                 | Some(value) => {
                     let manager = value.manager;
                     debug!(
@@ -1285,6 +1295,22 @@ impl StringTemplate {
         self
     }
 }
+impl VirtualEnvironment {
+    pub(crate) fn input_local(environment: Option<Self>, environment_root: Option<PathBuf>) -> Option<Self> {
+        environment.map(|environment| match environment.manager.is_conda() || environment.manager.is_mamba() {
+            | true => Self {
+                path: environment_root.map(|root| root.display().to_string()),
+                ..environment
+            },
+            | false => environment,
+        })
+    }
+}
+impl VirtualEnvironmentManager {
+    pub(crate) fn supports_sandbox(&self) -> bool {
+        self.is_conda() || self.is_mamba() || self.is_pixi()
+    }
+}
 impl From<&str> for VirtualEnvironmentManager {
     fn from(value: &str) -> Self {
         match value {
@@ -1298,11 +1324,6 @@ impl From<&str> for VirtualEnvironmentManager {
         }
     }
 }
-impl VirtualEnvironmentManager {
-    pub(crate) fn supports_sandbox(&self) -> bool {
-        matches!(self, Self::Conda | Self::Mamba | Self::Pixi)
-    }
-}
 
 /// Add forward slash to end of folder path
 fn add_dot_slash(path: PathBuf) -> PathBuf {
@@ -1313,25 +1334,26 @@ fn add_dot_slash(path: PathBuf) -> PathBuf {
     }
 }
 
-fn create_conda_environment_script(current_dir: String) -> Option<Script> {
-    create_environment_script(current_dir, "conda", get_conda_environment_list())
-}
-
-fn create_environment_script(current_dir: String, manager: &str, environments: Vec<String>) -> Option<Script> {
+fn create_environment_script(
+    current_dir: String,
+    manager: &str,
+    prefix: Option<&Path>,
+    environments: impl FnOnce() -> Vec<String>,
+) -> Option<Script> {
     let manifest_path = PathBuf::from(&current_dir).join("environment.yml");
     match manifest_path.try_exists() {
         | Ok(true) => {
             info!(path = %manifest_path.display(), "=> {} Manifest file", Label::found());
             match get_conda_environment_name(manifest_path) {
-                | Some(name) if environments.contains(&name) => {
+                | Some(name) if prefix.map_or_else(|| environments().contains(&name), Path::is_dir) => {
                     info!(name, "=> {} Virtual environment", Label::found());
                     None
                 }
                 | Some(_) => {
-                    let arguments = vec!["env", "create", "-f", "environment.yml"]
-                        .into_iter()
-                        .map(String::from)
-                        .collect::<Vec<_>>();
+                    let arguments = prefix.map_or_else(
+                        || args!["env", "create", "-f", "environment.yml"],
+                        |prefix| args!["env", "create", "--prefix", prefix, "-f", "environment.yml"],
+                    );
                     let command = Command::init().name(manager.to_string()).build();
                     Some(Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir))
                 }
@@ -1351,10 +1373,6 @@ fn create_environment_script(current_dir: String, manager: &str, environments: V
             None
         }
     }
-}
-
-fn create_mamba_environment_script(current_dir: String) -> Option<Script> {
-    create_environment_script(current_dir, "mamba", get_mamba_environment_list())
 }
 
 fn create_pixi_environment_script(current_dir: String, environment: VirtualEnvironment) -> Option<Script> {

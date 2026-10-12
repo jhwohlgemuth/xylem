@@ -12,15 +12,16 @@ use crate::sandbox::EffectiveSandboxPolicy;
 use crate::script::*;
 pub use crate::selection::{InputSelection, SelectionEngine, SelectionOptions, SelectionRequest};
 use crate::util::absolute_path;
+use crate::workspace::{materialize, InputWorkspace};
 use acorn_cmd::args;
 use acorn_core::util::{Checksum, MimeType, ParseOptionsExt, SemanticVersion};
 use acorn_core::{Location, Scheme};
 use acorn_host::config::{read_jsonc, ConfigError as AcornConfigError};
-use acorn_host::fs::{file_checksum, make_executable};
+use acorn_host::fs::{file_checksum, make_executable, SafePath};
 use acorn_host::terminal::Label;
 use acorn_macros::With;
 use acorn_schema::hardware::Memory;
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
 use bon::Builder;
 use convert_case::{Case, Casing};
 use core::fmt;
@@ -221,9 +222,16 @@ pub struct ConfigOptions {
     /// Runtime-only identifier used to derive managed container names.
     #[serde(skip)]
     pub container_run_id: Option<String>,
+    /// Runtime-only root for input-local environment prefixes.
+    #[serde(skip)]
+    pub environment_root: Option<PathBuf>,
     /// Runtime-only validated sandbox policy.
     #[serde(skip)]
     pub sandbox_policy: Option<EffectiveSandboxPolicy>,
+    /// Runtime-only input-local module paths keyed by stable module index.
+    #[builder(default)]
+    #[serde(skip, default)]
+    pub workspace_modules: BTreeMap<usize, PathBuf>,
 }
 /// Module-agnostic fixed-point estimator configuration.
 #[derive(Builder, Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -411,10 +419,12 @@ impl Config {
                         .map(|(_, module)| {
                             ProgressPhase::Preparation.emit(ProgressState::Started, &module.name, &module.module_path, observer, None);
                             let result = match &module.module_type {
-                                | ModuleType::Binary { uri, checksum } => module.prepare_binary(uri.into(), checksum.as_deref(), &options, &policy),
+                                | ModuleType::Binary { uri, checksum } => {
+                                    module.prepare_binary(uri.into(), checksum.as_deref(), &options, &policy).map(|_| ())
+                                }
                                 | ModuleType::Script { programming_language, uri } => match programming_language {
-                                    | Some(ModuleLanguage::Generic) | None => module.prepare_script(uri.into(), false, &options, &policy),
-                                    | Some(ModuleLanguage::Python) => module.prepare_script(uri.into(), true, &options, &policy),
+                                    | Some(ModuleLanguage::Generic) | None => module.prepare_script(uri.into(), false, &options, &policy).map(|_| ()),
+                                    | Some(ModuleLanguage::Python) => module.prepare_script(uri.into(), true, &options, &policy).map(|_| ()),
                                     | Some(language) => Err(format!("module {} uses unsupported script language {language}", module.name)),
                                 },
                                 | ModuleType::Configuration { .. } => Err(format!("module {} uses reserved configuration module type", module.name)),
@@ -434,6 +444,88 @@ impl Config {
                         .map(|_| self)
                 })
         })
+    }
+    /// Materialize and prepare selected modules inside one input workspace.
+    pub fn prepare_modules_selected_in_workspace(
+        mut self,
+        selected: &BTreeSet<usize>,
+        observer: Option<&dyn ProgressObserver>,
+        workspace: &InputWorkspace,
+    ) -> Result<Config, AcquisitionError> {
+        let options = self
+            .options
+            .clone()
+            .unwrap_or_else(|| ConfigOptions::init().build())
+            .with_root(Some(workspace.modules().to_path_buf()))
+            .with_environment_root(Some(workspace.environments().to_path_buf()));
+        RemotePolicy::from_hosts(options.allowed.as_deref())
+            .map_err(|source| AcquisitionError::Policy {
+                source: io::Error::other(source),
+            })
+            .and_then(|policy| {
+                self.modules
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| selected.contains(index))
+                    .map(|(index, module)| {
+                        ProgressPhase::Preparation.emit(ProgressState::Started, &module.name, &module.module_path, observer, None);
+                        let result = workspace.module(index).map_err(|why| why.to_string()).and_then(|module_root| {
+                            let module_environment = workspace.environments().join(format!("module-{index:06}"));
+                            let module_options = options
+                                .clone()
+                                .with_root(Some(module_root.clone()))
+                                .with_environment_root(Some(module_environment));
+                            module
+                                .materialize_local(&module_root)
+                                .and_then(|local| {
+                                    create_dir_all(&module_root)
+                                        .map_err(|why| format!("create module workspace {}: {why}", module_root.display()))
+                                        .map(|()| local)
+                                })
+                                .and_then(|local| {
+                                    let mut prepared = module.clone();
+                                    if let Some(path) = local {
+                                        prepared.set_uri(path);
+                                    }
+                                    match &prepared.module_type {
+                                        | ModuleType::Binary { uri, checksum } => {
+                                            prepared.prepare_binary(uri.into(), checksum.as_deref(), &module_options, &policy)
+                                        }
+                                        | ModuleType::Script { programming_language, uri } => match programming_language {
+                                            | Some(ModuleLanguage::Generic) | None => {
+                                                prepared.prepare_script(uri.into(), false, &module_options, &policy)
+                                            }
+                                            | Some(ModuleLanguage::Python) => prepared.prepare_script(uri.into(), true, &module_options, &policy),
+                                            | Some(language) => Err(format!("module {} uses unsupported script language {language}", module.name)),
+                                        },
+                                        | ModuleType::Configuration { .. } => {
+                                            Err(format!("module {} uses reserved configuration module type", module.name))
+                                        }
+                                    }
+                                })
+                                .map(|path| (index, path))
+                        });
+                        ProgressPhase::Preparation.emit(
+                            match result.is_ok() {
+                                | true => ProgressState::Finished,
+                                | false => ProgressState::Failed,
+                            },
+                            &module.name,
+                            &module.module_path,
+                            observer,
+                            None,
+                        );
+                        result.map_err(|why| AcquisitionError::Module {
+                            module: module.name.clone(),
+                            source: io::Error::other(why),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|modules| {
+                        self.options = Some(options.with_workspace_modules(modules.into_iter().collect::<BTreeMap<_, _>>()));
+                        self
+                    })
+            })
     }
     /// Return modules that must execute for at least one input.
     pub fn required_module_indices(&self, inputs: &[Option<String>], resume: bool) -> Result<BTreeSet<usize>, PlanError> {
@@ -575,13 +667,21 @@ impl Config {
                             },
                             | false => {
                                 ProgressPhase::Execution.emit(ProgressState::Started, &module.name, &module.module_path, observer, input.as_deref());
+                                let executable = options.workspace_modules.get(&module_index).map_or_else(
+                                    || module.clone(),
+                                    |path| {
+                                        let mut executable = module.clone();
+                                        executable.set_uri(path.clone());
+                                        executable
+                                    },
+                                );
                                 match journal {
                                     | Some(journal) => journal
                                         .transition_module(input_index, module_index, ExecutionState::Running, None)
                                         .map_err(|why| why.to_string()),
                                     | None => Ok(()),
                                 }
-                                .and_then(|()| match &module.module_type {
+                                .and_then(|()| match &executable.module_type {
                                     | ModuleType::Binary { uri, .. } => options
                                         .root
                                         .clone()
@@ -597,7 +697,7 @@ impl Config {
                                                 | ModuleUri::Unknown(_) => Err(format!("module URI is invalid: {uri}")),
                                             };
                                             working_dir.and_then(|working_dir| {
-                                                Script::from_module(module.clone(), Some(PathBuf::from(root)))
+                                                Script::from_module(executable.clone(), Some(PathBuf::from(root)))
                                                     .map_err(|why| why.to_string())
                                                     .and_then(|loaded| {
                                                         let script = loaded
@@ -637,7 +737,7 @@ impl Config {
                                             module_working_directory(uri.into(), root.as_ref())
                                                 .ok_or_else(|| format!("module URI is invalid: {uri}"))
                                                 .and_then(|working_dir| {
-                                                    Script::from_module(module.clone(), root)
+                                                    Script::from_module(executable.clone(), root)
                                                         .map_err(|why| why.to_string())
                                                         .and_then(|loaded| {
                                                             let script = loaded
@@ -647,9 +747,17 @@ impl Config {
                                                                 .with_container_run(options.container_run_id.as_deref())
                                                                 .with_container_env(options.forward_container_env);
                                                             let configured = match programming_language {
-                                                                | Some(ModuleLanguage::Python) => module
+                                                                | Some(ModuleLanguage::Python) => executable
                                                                     .resolve_virtual_environment(&working_dir)
-                                                                    .map(|virtual_environment| script.with_virtual_environment(virtual_environment))
+                                                                    .map(|virtual_environment| {
+                                                                        script.with_virtual_environment(VirtualEnvironment::input_local(
+                                                                            virtual_environment,
+                                                                            options
+                                                                                .environment_root
+                                                                                .as_ref()
+                                                                                .map(|root| root.join(format!("module-{module_index:06}"))),
+                                                                        ))
+                                                                    })
                                                                     .map_err(|why| why.to_string()),
                                                                 | Some(ModuleLanguage::Generic) | None => Ok(script),
                                                                 | Some(language) => Err(format!("unsupported script language: {language}")),
@@ -1233,7 +1341,7 @@ impl From<ConfigFormat> for MimeType {
     }
 }
 impl Module {
-    fn prepare_binary(&self, uri: &str, checksum: Option<&str>, options: &ConfigOptions, policy: &RemotePolicy) -> Result<(), String> {
+    fn prepare_binary(&self, uri: &str, checksum: Option<&str>, options: &ConfigOptions, policy: &RemotePolicy) -> Result<PathBuf, String> {
         match ModuleUri::from(&acorn_core::Location::from(uri)) {
             | ModuleUri::Url(value) if matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS) => {
                 let url = value.to_string();
@@ -1242,7 +1350,7 @@ impl Module {
                     .map_err(|why| self.remote_error(&url, &why.to_string()))
                     .and_then(|_| self.skip_or_reject_offline(&url, options))
                     .and_then(|skip| match skip {
-                        | true => Ok(()),
+                        | true => Ok(PathBuf::from(uri)),
                         | false => policy
                             .probe_http(&url)
                             .map_err(|why| self.remote_error(&url, &why.to_string()))
@@ -1256,14 +1364,14 @@ impl Module {
                                             "=> {} Download remote binary",
                                             Label::dry_run()
                                         );
-                                        Ok(())
+                                        Ok(PathBuf::from(uri))
                                     }
                                     | false => options
                                         .root
                                         .as_deref()
                                         .ok_or_else(|| format!("module {} has no run root directory", self.name))
                                         .and_then(|root| policy.download(&url, root).map_err(|why| self.remote_error(&url, &why.to_string())))
-                                        .and_then(|output| self.verify_downloaded_binary(&url, checksum, output, options)),
+                                        .and_then(|output| self.verify_downloaded_binary(&url, checksum, output.clone(), options).map(|()| output)),
                                 }
                             }),
                     })
@@ -1277,7 +1385,7 @@ impl Module {
                         "=> {} Validate local binary",
                         Label::dry_run()
                     );
-                    Ok(())
+                    Ok(path)
                 }
                 | Ok(true) => {
                     debug!(
@@ -1294,7 +1402,7 @@ impl Module {
                                 "=> {} Binary is executable",
                                 Label::pass()
                             );
-                            Ok(())
+                            Ok(path)
                         }
                         | Err(why) => Err(format!("module {} binary is not executable at {}: {why}", self.name, path.display())),
                     }
@@ -1369,7 +1477,7 @@ impl Module {
             )),
         })
     }
-    fn prepare_script(&self, uri: &str, python: bool, options: &ConfigOptions, policy: &RemotePolicy) -> Result<(), String> {
+    fn prepare_script(&self, uri: &str, python: bool, options: &ConfigOptions, policy: &RemotePolicy) -> Result<PathBuf, String> {
         match ModuleUri::from(&acorn_core::Location::from(uri)) {
             | ModuleUri::Url(value)
                 if matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS)
@@ -1381,7 +1489,7 @@ impl Module {
                     .map_err(|why| self.remote_error(&url, &why.to_string()))
                     .and_then(|_| self.skip_or_reject_offline(&url, options))
                     .and_then(|skip| match skip {
-                        | true => Ok(()),
+                        | true => Ok(PathBuf::from(uri)),
                         | false => policy
                             .probe_git(&url)
                             .map_err(|why| self.remote_error(&url, &why.to_string()))
@@ -1412,14 +1520,16 @@ impl Module {
                                                     "=> {}",
                                                     Label::dry_run()
                                                 );
-                                                Ok(())
+                                                Ok(module_root.into())
                                             }
-                                            | Some(script) => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
-                                            | None => Ok(()),
+                                            | Some(script) => {
+                                                script.run_checked().map(|_| PathBuf::from(&module_root)).map_err(|why| why.to_string())
+                                            }
+                                            | None => Ok(module_root.into()),
                                         }
-                                        .and_then(|()| match python {
-                                            | true => self.prepare_python_environment(module_root, options),
-                                            | false => Ok(()),
+                                        .and_then(|module_root| match python {
+                                            | true => self.prepare_python_environment(&module_root, options).map(|()| module_root),
+                                            | false => Ok(module_root),
                                         })
                                     })
                             }),
@@ -1431,8 +1541,10 @@ impl Module {
                     let path = absolute_path(path);
                     debug!(module = self.name, path, "=> {} Local script repository", Label::found());
                     match python {
-                        | true => self.prepare_python_environment(path, options),
-                        | false => Ok(()),
+                        | true => self
+                            .prepare_python_environment(&PathBuf::from(&path), options)
+                            .map(|()| PathBuf::from(path)),
+                        | false => Ok(PathBuf::from(path)),
                     }
                 }
                 | Ok(false) => Err(format!("module {} local script was not found: {}", self.name, path.display())),
@@ -1445,26 +1557,74 @@ impl Module {
             | ModuleUri::Unknown(_) => Err(format!("module {} has invalid script URI: {uri}", self.name)),
         }
     }
-    fn prepare_python_environment(&self, module_root: String, options: &ConfigOptions) -> Result<(), String> {
+    fn prepare_python_environment(&self, module_root: &Path, options: &ConfigOptions) -> Result<(), String> {
+        let module_root = module_root.display().to_string();
         self.resolve_virtual_environment(&module_root)
             .map_err(|why| why.to_string())
-            .and_then(|environment| Script::maybe_create_virtual_environment(module_root, environment).map_err(|why| why.to_string()))
-            .and_then(|script| match script {
-                | Some(script) => match options.dry_run.unwrap_or_default() {
-                    | true => {
-                        info!(
-                            module = self.name,
-                            script = script.to_string(),
-                            cwd = script.current_dir,
-                            "=> {}",
-                            Label::dry_run()
-                        );
-                        Ok(())
-                    }
-                    | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
-                },
-                | None => Ok(()),
+            .and_then(|environment| {
+                let environment = VirtualEnvironment::input_local(environment, options.environment_root.clone());
+                let requires_prefix = environment
+                    .as_ref()
+                    .is_some_and(|environment| environment.manager.is_conda() || environment.manager.is_mamba());
+                Script::maybe_create_virtual_environment(module_root, environment)
+                    .map_err(|why| why.to_string())
+                    .map(|script| (requires_prefix, script))
             })
+            .and_then(|(requires_prefix, script)| {
+                let prepared = match script {
+                    | Some(script) => match options.dry_run.unwrap_or_default() {
+                        | true => {
+                            info!(
+                                module = self.name,
+                                script = script.to_string(),
+                                cwd = script.current_dir,
+                                "=> {}",
+                                Label::dry_run()
+                            );
+                            Ok(())
+                        }
+                        | false => script.run_checked().map(|_| ()).map_err(|why| why.to_string()),
+                    },
+                    | None => Ok(()),
+                };
+                prepared.and_then(|()| match (requires_prefix, options.environment_root.as_deref()) {
+                    | (true, Some(prefix)) if !prefix.is_dir() => Err(format!(
+                        "module {} did not create its input-local environment prefix at {}",
+                        self.name,
+                        prefix.display()
+                    )),
+                    | _ => Ok(()),
+                })
+            })
+    }
+    fn materialize_local(&self, module_root: &Path) -> Result<Option<PathBuf>, String> {
+        let source = match &self.module_type {
+            | ModuleType::Binary { uri, .. } | ModuleType::Script { uri, .. } => match ModuleUri::from(uri) {
+                | ModuleUri::File(path) => Some(path),
+                | ModuleUri::Unknown(_) | ModuleUri::Url(_) => None,
+            },
+            | ModuleType::Configuration { .. } => None,
+        };
+        source.map_or(Ok(None), |source| {
+            let destination = match &self.module_type {
+                | ModuleType::Binary { .. } => SafePath::new("module")
+                    .map(|destination| (module_root, destination))
+                    .map_err(|why| why.to_string()),
+                | ModuleType::Configuration { .. } | ModuleType::Script { .. } => module_root.parent().zip(module_root.file_name()).map_or_else(
+                    || Err(format!("module {} has no workspace-relative materialization path", self.name)),
+                    |(root, name)| SafePath::new(name).map(|destination| (root, destination)).map_err(|why| why.to_string()),
+                ),
+            };
+            destination.and_then(|(root, destination)| materialize(&source, root, &destination).map_err(|why| why.to_string()).map(Some))
+        })
+    }
+    fn set_uri(&mut self, path: PathBuf) {
+        let uri = Location::from(format!("file:{}", path.display()).as_str());
+        match &mut self.module_type {
+            | ModuleType::Binary { uri: value, .. } | ModuleType::Configuration { uri: value } | ModuleType::Script { uri: value, .. } => {
+                *value = uri
+            }
+        }
     }
     fn skip_or_reject_offline(&self, url: &str, options: &ConfigOptions) -> Result<bool, String> {
         match (options.offline.unwrap_or_default(), options.dry_run.unwrap_or_default()) {

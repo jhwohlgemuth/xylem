@@ -58,6 +58,7 @@ fn main() -> Void {
             config,
             reporter,
             report_output,
+            retain_workspace,
             input,
             dry_run,
             gpu_monitor,
@@ -89,6 +90,7 @@ fn main() -> Void {
             args.threads,
             args.no_progress,
             None,
+            *retain_workspace,
         ) {
             | Ok(()) => Ok(()),
             | Err(failure) => {
@@ -131,6 +133,7 @@ fn main() -> Void {
                         limits,
                         true,
                         Some(child_cancellation),
+                        false,
                     )
                     .map_err(|why| why.to_string());
                     let _ = sender.send(result);

@@ -36,6 +36,7 @@ pub mod script;
 pub mod selection;
 #[allow(missing_docs)]
 pub mod util;
+pub mod workspace;
 #[derive(ValueEnum, Copy, Clone, Debug, Display, PartialEq, Eq)]
 /// Output format for a completed run or dry-run plan.
 pub enum ReporterType {

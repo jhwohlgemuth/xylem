@@ -9,14 +9,14 @@ use std::path::{Path, PathBuf};
 const PROMPT_POLICY_REJECTION: &str = "Invalid prompt: your prompt was flagged as potentially violating our usage policy. Please try again with a different prompt: https://platform.openai.com/docs/guides/reasoning#advice-on-prompting";
 
 #[cfg(not(target_os = "windows"))]
-fn managed_keep_alive_config() -> serde_json::Value {
+fn managed_keep_alive_config(module: &Path) -> serde_json::Value {
     serde_json::json!({
         "requirements": [],
         "modules": [{
             "name": "managed",
             "type": "script",
             "programmingLanguage": "generic",
-            "uri": "file:.",
+            "uri": format!("file:{}", module.display()),
             "template": {
                 "command": "true",
                 "arguments": [],
@@ -773,7 +773,7 @@ fn test_keep_alive_runtime_reports_early_exit_and_timeout() {
     let config = test_root.join("config.json");
     write(
         &config,
-        serde_json::to_vec_pretty(&managed_keep_alive_config()).expect("serialize keep-alive failure fixture"),
+        serde_json::to_vec_pretty(&managed_keep_alive_config(&test_root)).expect("serialize keep-alive failure fixture"),
     )
     .expect("write keep-alive failure fixture");
     let (_, log) = write_fake_docker(&test_root);
@@ -826,7 +826,7 @@ fn test_keep_alive_runtime_uses_exact_arguments_and_cleanup_override() {
     let config = test_root.join("config.json");
     write(
         &config,
-        serde_json::to_vec_pretty(&managed_keep_alive_config()).expect("serialize keep-alive success fixture"),
+        serde_json::to_vec_pretty(&managed_keep_alive_config(&test_root)).expect("serialize keep-alive success fixture"),
     )
     .expect("write keep-alive success fixture");
     let (_, log) = write_fake_docker(&test_root);
@@ -1041,7 +1041,7 @@ fn test_memory_intent_plans_and_runs_with_a_fixed_batching_warning() {
         {
             "name": "First Module",
             "programmingLanguage": "generic",
-            "template": { "arguments": [], "command": "true" },
+            "template": { "arguments": ["--version"], "command": "rustc" },
             "type": "script",
             "uri": "file:."
         },
@@ -1793,8 +1793,8 @@ fn test_offline_smoke_example_runs_from_a_clean_directory() {
         .expect("run smoke workflow");
     assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
     let diagnostics = String::from_utf8_lossy(&run.stderr);
-    assert!(diagnostics.contains("Created ../output/greeting-Ada.txt"), "{diagnostics}");
-    assert!(diagnostics.contains("Created ../output/greeting-Grace.txt"), "{diagnostics}");
+    assert!(diagnostics.contains("greeting-Ada.txt"), "{diagnostics}");
+    assert!(diagnostics.contains("greeting-Grace.txt"), "{diagnostics}");
     assert_eq!(
         read_to_string(example.join("output/greeting-Ada.txt")).expect("Ada greeting"),
         "Hello, Ada!\n"
@@ -2358,7 +2358,10 @@ fn test_spawn_failure_reports_command_and_working_directory() {
     assert_eq!(output.status.code(), Some(exitcode::SOFTWARE));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("xylem-command-that-cannot-exist"), "{stderr}");
-    assert!(stderr.contains(&module.display().to_string()), "{stderr}");
+    assert!(
+        stderr.contains("/xylem/workspaces/") || stderr.contains("\\xylem\\workspaces\\"),
+        "{stderr}"
+    );
     remove_dir_all(test_root).expect("remove spawn failure directory");
 }
 #[cfg(feature = "tui")]
@@ -2373,6 +2376,93 @@ fn test_tui_rejects_a_missing_explicit_configuration() {
         .expect("run TUI with missing configuration");
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains(&missing.display().to_string()));
+}
+#[test]
+fn test_workspace_cleanup_retention_and_dry_run_contract() {
+    let test_root = std::env::temp_dir().join(format!("xylem-workspace-lifecycle-{}", std::process::id()));
+    let temporary = test_root.join("temporary");
+    let module = test_root.join("module");
+    create_dir_all(&module).expect("create workspace lifecycle module");
+    create_dir_all(&temporary).expect("create injected temporary directory");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "modules": [{
+            "name": "Workspace lifecycle",
+            "programmingLanguage": "generic",
+            "template": { "arguments": [], "command": "true" },
+            "type": "script",
+            "uri": format!("file:{}", module.display())
+        }],
+        "requirements": []
+    });
+    write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("serialize workspace lifecycle config"),
+    )
+    .expect("write workspace lifecycle config");
+
+    let normal = xylem_command()
+        .env("TMPDIR", &temporary)
+        .args(["run", config_path.to_str().expect("UTF-8 config path"), "--no-progress"])
+        .output()
+        .expect("run workspace cleanup workflow");
+    assert!(normal.status.success(), "{}", String::from_utf8_lossy(&normal.stderr));
+    let workspace_parent = temporary.join("xylem/workspaces");
+    assert_eq!(read_dir(&workspace_parent).expect("read workspace parent").count(), 0);
+
+    let dry_run = xylem_command()
+        .env("TMPDIR", &temporary)
+        .args(["run", config_path.to_str().expect("UTF-8 config path"), "--dry-run", "--retain-workspace"])
+        .output()
+        .expect("run workspace dry-run workflow");
+    assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
+    assert_eq!(read_dir(&workspace_parent).expect("read workspace parent after dry-run").count(), 0);
+
+    let mut failing_config = config.clone();
+    failing_config["modules"][0]["template"]["command"] = serde_json::json!("xylem-command-that-cannot-exist");
+    write(
+        &config_path,
+        serde_json::to_vec_pretty(&failing_config).expect("serialize failing workspace lifecycle config"),
+    )
+    .expect("write failing workspace lifecycle config");
+    let failed = xylem_command()
+        .env("TMPDIR", &temporary)
+        .args(["run", config_path.to_str().expect("UTF-8 config path"), "--no-progress"])
+        .output()
+        .expect("run failing workspace cleanup workflow");
+    assert!(!failed.status.success());
+    assert_eq!(read_dir(&workspace_parent).expect("read workspace parent after failure").count(), 0);
+    write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("serialize restored workspace lifecycle config"),
+    )
+    .expect("restore workspace lifecycle config");
+
+    let retained = xylem_command()
+        .env("TMPDIR", &temporary)
+        .args([
+            "run",
+            config_path.to_str().expect("UTF-8 config path"),
+            "--no-progress",
+            "--retain-workspace",
+        ])
+        .output()
+        .expect("run retained workspace workflow");
+    assert!(retained.status.success(), "{}", String::from_utf8_lossy(&retained.stderr));
+    let stderr = String::from_utf8_lossy(&retained.stderr);
+    let retained_path = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("Workspace: "))
+        .map(PathBuf::from)
+        .expect("retained workspace path");
+    assert!(retained_path.starts_with(&workspace_parent));
+    assert!(retained_path.join("configuration").is_dir());
+    assert!(retained_path.join("inputs/input-000000/environments").is_dir());
+    assert!(retained_path.join("inputs/input-000000/modules/module-000000").is_dir());
+    assert!(retained_path.join("inputs/input-000000/scratch").is_dir());
+
+    remove_dir_all(&retained_path).expect("remove retained workspace");
+    remove_dir_all(test_root).expect("remove workspace lifecycle fixture");
 }
 #[cfg(not(target_os = "windows"))]
 #[test]

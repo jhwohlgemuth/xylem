@@ -12,10 +12,11 @@ use xylem_lib::execution::ExecutionContext;
 use xylem_lib::journal::{ContainerState, ExecutionState, JournalContainer, RunJournal};
 use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::{ExecutionPlan, MemoryPlanMode};
-use xylem_lib::progress::{ProgressPhase, ProgressState};
+use xylem_lib::progress::ProgressPhase;
 use xylem_lib::run::store::Bundle;
 use xylem_lib::run::RunCancellation;
-use xylem_lib::sandbox::{SandboxInput, SandboxPreparationState, SandboxSession};
+use xylem_lib::sandbox::{Prepared, SandboxInput, SandboxSession};
+use xylem_lib::workspace::InputWorkspace;
 
 pub(super) struct DispatchContext<'a> {
     pub(super) bundle: &'a Bundle,
@@ -23,6 +24,7 @@ pub(super) struct DispatchContext<'a> {
     pub(super) execution: &'a ExecutionContext,
     pub(super) id: &'a str,
     pub(super) input_kind: &'a str,
+    pub(super) input_workspaces: &'a [InputWorkspace],
     pub(super) inputs: &'a [Option<String>],
     pub(super) journal: &'a RunJournal,
     pub(super) journal_containers: &'a [JournalContainer],
@@ -113,37 +115,60 @@ fn execute_active_input(context: &DispatchContext<'_>, index: usize, input: &Opt
             WorkflowOutcome::failed(input.clone(), message)
         }
         | Ok(()) => {
-            let sandbox_input = context
-                .sandbox
-                .map(|session| {
-                    SandboxInput::new_with_input_count(
-                        context.config.clone(),
-                        index,
-                        context.inputs.len(),
-                        context.required_modules.iter().copied(),
-                        context.root.join("sandbox"),
-                        input.clone(),
-                    )
-                    .and_then(|requested| {
-                        requested.prepare(session.as_ref(), |module_index, state| {
-                            if let Some(module) = context.config.modules.get(module_index) {
-                                let state = match state {
-                                    | SandboxPreparationState::Failed => ProgressState::Failed,
-                                    | SandboxPreparationState::Finished => ProgressState::Finished,
-                                    | SandboxPreparationState::Started => ProgressState::Started,
-                                };
-                                ProgressPhase::Preparation.emit(state, &module.name, &module.module_path, Some(context.progress), input.as_deref());
-                            }
+            let prepared = context.sandbox.map_or_else(
+                || {
+                    context
+                        .input_workspaces
+                        .get(index)
+                        .ok_or_else(|| format!("input {index} workspace is missing"))
+                        .and_then(|workspace| {
+                            context
+                                .config
+                                .clone()
+                                .prepare_modules_selected_in_workspace(context.required_modules, Some(context.progress), workspace)
+                                .map(|config| (config, None))
+                                .map_err(|why| why.to_string())
                         })
-                    })
-                })
-                .transpose();
-            let mut outcome = match sandbox_input {
+                },
+                |session| {
+                    context
+                        .input_workspaces
+                        .get(index)
+                        .ok_or_else(|| format!("input {index} workspace is missing"))
+                        .and_then(|workspace| {
+                            SandboxInput::new_with_input_count(
+                                context.config.clone(),
+                                index,
+                                context.inputs.len(),
+                                context.required_modules.iter().copied(),
+                                workspace.scratch().join("sandbox"),
+                                input.clone(),
+                            )
+                            .and_then(|requested| {
+                                requested.prepare(session.as_ref(), |module_index, state| {
+                                    if let Some(module) = context.config.modules.get(module_index) {
+                                        ProgressPhase::Preparation.emit(
+                                            state.into(),
+                                            &module.name,
+                                            &module.module_path,
+                                            Some(context.progress),
+                                            input.as_deref(),
+                                        );
+                                    }
+                                })
+                            })
+                            .map(|sandbox_input| (context.config.clone(), Some(sandbox_input)))
+                            .map_err(|why| why.to_string())
+                        })
+                },
+            );
+            let mut outcome = match prepared {
                 | Err(why) => WorkflowOutcome::failed(input.clone(), why.to_string()),
-                | Ok(sandbox_input) => {
+                | Ok((prepared_config, sandbox_input)) => {
                     let execution_config = sandbox_input
                         .as_ref()
-                        .map_or_else(|| context.config.clone(), |value| value.prepared_config().clone());
+                        .map_or(prepared_config, |value: &SandboxInput<Prepared>| value.prepared_config().clone());
+                    let execution_options = execution_config.options.clone().unwrap_or_else(|| context.options.clone());
                     let execution_input = sandbox_input
                         .as_ref()
                         .and_then(|value| value.prepared_input().map(str::to_string))
@@ -151,7 +176,7 @@ fn execute_active_input(context: &DispatchContext<'_>, index: usize, input: &Opt
                     let module_executor = LoggedModuleExecutor::new(context.bundle.clone(), context.run_cancellation.clone(), sandbox_input.clone());
                     let mut outcome = execution_config.run_workflow_recorded(
                         execution_input,
-                        context.options,
+                        &execution_options,
                         Some(context.progress),
                         Some(&module_executor),
                         Some(context.journal),

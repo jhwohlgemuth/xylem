@@ -9,7 +9,6 @@ use alloc::collections::BTreeSet;
 use alloc::sync::Arc;
 use owo_colors::OwoColorize;
 use std::env;
-use std::fs::create_dir_all;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use tracing::{debug, info};
@@ -28,7 +27,8 @@ use xylem_lib::sandbox::{
     ArtifactPublication, ArtifactPublicationStatus, SandboxCapabilities, SandboxLease, SandboxProvider, SandboxResourceEvidence, SandboxSession,
     WorkloadAcquisition,
 };
-use xylem_lib::script::{managed_container_name, EnvironmentValue};
+use xylem_lib::script::managed_container_name;
+use xylem_lib::workspace::InputWorkspace;
 
 trait ExecutionPlanExt {
     fn finalize_unopened_sandbox(&self, journal: &RunJournal, reconciled: Vec<SandboxResourceEvidence>, failure: RunFailure) -> RunFailure;
@@ -42,6 +42,7 @@ struct Runtime<'a> {
     config_path: PathBuf,
     execution: ExecutionContext,
     id: String,
+    input_workspaces: Vec<InputWorkspace>,
     inputs: Vec<Option<String>>,
     plan: ExecutionPlan,
     request: &'a RunRequest<'a>,
@@ -202,31 +203,44 @@ pub(super) fn execute(request: &RunRequest<'_>, prepared: PreparedRun) -> Result
             memory.estimator.identity
         );
     }
-    prepared
-        .config
-        .options
-        .as_ref()
-        .and_then(|options| options.sandbox_policy.as_ref())
-        .map_or(Ok(None), |policy| policy.discover().map(Some))
-        .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
-        .and_then(|sandbox_capabilities| {
-            ExecutionContext::new(request.limits)
-                .map(|execution| (execution, sandbox_capabilities))
-                .map_err(|why| RunFailure::new(exitcode::OSERR, format!("initialize Xylem worker pool — {why}")))
-        })
-        .and_then(|(execution, sandbox_capabilities)| {
-            debug!(target: "xylem_cli::commands::run", threads = execution.limits().threads(), "=> {} Rayon worker limit", Label::using());
-            let id = nanoid::nanoid!(10, &nanoid::alphabet::SAFE);
-            let root = env::temp_dir().join(EnvironmentValue::PREFIX).join(id.clone());
-            create_dir_all(&root)
-                .map_err(|why| RunFailure::new(exitcode::CANTCREAT, format!("create run directory {} — {why}", root.display())))
-                .and_then(|()| {
+    let id = prepared
+        .id
+        .clone()
+        .ok_or_else(|| RunFailure::new(exitcode::SOFTWARE, "real execution is missing a run identifier"));
+    let workspace = prepared
+        .workspace
+        .ok_or_else(|| RunFailure::new(exitcode::SOFTWARE, "real execution is missing a run workspace"));
+    id.and_then(|id| workspace.map(|workspace| (id, workspace))).and_then(|(id, workspace)| {
+        let input_workspaces = prepared
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(index, _)| workspace.input(index))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|why| RunFailure::new(exitcode::CANTCREAT, why.to_string()));
+        let execution = input_workspaces.and_then(|input_workspaces| {
+            prepared
+                .config
+                .options
+                .as_ref()
+                .and_then(|options| options.sandbox_policy.as_ref())
+                .map_or(Ok(None), |policy| policy.discover().map(Some))
+                .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
+                .and_then(|sandbox_capabilities| {
+                    ExecutionContext::new(request.limits)
+                        .map(|execution| (execution, sandbox_capabilities))
+                        .map_err(|why| RunFailure::new(exitcode::OSERR, format!("initialize Xylem worker pool — {why}")))
+                })
+                .and_then(|(execution, sandbox_capabilities)| {
+                    debug!(target: "xylem_cli::commands::run", threads = execution.limits().threads(), "=> {} Rayon worker limit", Label::using());
+                    let root = workspace.root().to_path_buf();
                     debug!(target: "xylem_cli::commands::run", path = %root.display(), "=> {} Root directory", Label::using());
                     execute_runtime(Runtime {
                         config: prepared.config,
                         config_path: prepared.config_path,
                         execution,
-                        id,
+                        id: id.clone(),
+                        input_workspaces,
                         inputs: prepared.inputs,
                         plan: prepared.plan,
                         request,
@@ -234,7 +248,26 @@ pub(super) fn execute(request: &RunRequest<'_>, prepared: PreparedRun) -> Result
                         sandbox_capabilities,
                     })
                 })
-        })
+        });
+        match request.retain_workspace {
+            | true => {
+                let path = workspace.retain();
+                eprintln!("Workspace: {}", path.display());
+                execution
+            }
+            | false => {
+                let cleanup = workspace
+                    .close()
+                    .map_err(|why| RunFailure::new(exitcode::IOERR, format!("remove run workspace — {why}")));
+                match (execution, cleanup) {
+                    | (Ok(()), Ok(())) => Ok(()),
+                    | (Err(primary), Ok(())) => Err(primary),
+                    | (Ok(()), Err(cleanup)) => Err(cleanup),
+                    | (Err(primary), Err(cleanup)) => Err(primary.with_secondary(cleanup)),
+                }
+            }
+        }
+    })
 }
 fn execute_opened(
     runtime: Runtime<'_>,
@@ -254,6 +287,7 @@ fn execute_opened(
         config_path: _,
         execution,
         id,
+        input_workspaces,
         inputs,
         plan,
         request,
@@ -266,10 +300,7 @@ fn execute_opened(
     let run_cancellation = request.cancellation.clone().unwrap_or_default();
     info!(target: "xylem_cli::commands::run", path = %journal_path.display(), run_id = id, "=> {} Execution journal", Label::using());
     let progress_disabled = request.no_progress || !io::stderr().is_terminal() || env::var_os("CI").is_some();
-    let preparation_total = match sandbox.is_some() {
-        | true => required_modules.len().saturating_mul(inputs.len()),
-        | false => config.modules.len(),
-    };
+    let preparation_total = required_modules.len().saturating_mul(inputs.len());
     let progress = WorkflowProgress::new(
         preparation_total as u64,
         config.modules.len().saturating_mul(inputs.len()) as u64,
@@ -283,22 +314,13 @@ fn execute_opened(
             .map_err(RunFailure::from),
         | false => Ok(()),
     };
-    let prepared = monitoring.and_then(|()| match sandbox.is_some() {
-        | true => Ok(config.with_options(options)),
-        | false => config
+    let prepared = monitoring.and_then(|()| {
+        config
             .with_options(options)
             .verify_requirements()
             .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
             .map(Config::verify_resources)
-            .and_then(|config| {
-                config
-                    .prepare_modules_selected(&execution, &required_modules, Some(&progress))
-                    .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
-            }),
     });
-    if sandbox.is_none() {
-        progress.finish_preparation(prepared.is_ok());
-    }
     let dispatched = match prepared {
         | Err(why) => Err(why),
         | Ok(prepared) => {
@@ -316,6 +338,7 @@ fn execute_opened(
                 execution: &execution,
                 id: &id,
                 input_kind,
+                input_workspaces: &input_workspaces,
                 inputs: &inputs,
                 journal: &journal,
                 journal_containers: &journal_containers,
@@ -332,9 +355,7 @@ fn execute_opened(
     let sandbox_succeeded = dispatched
         .as_ref()
         .is_ok_and(|outcomes| outcomes.iter().flatten().all(WorkflowOutcome::is_success));
-    if sandbox.is_some() {
-        progress.finish_preparation(sandbox_succeeded);
-    }
+    progress.finish_preparation(sandbox_succeeded);
     let sandbox_cleanup = sandbox.as_ref().map_or(Ok(()), |sandbox| {
         let outcome = sandbox.finish(sandbox_succeeded);
         let lifecycle = journal

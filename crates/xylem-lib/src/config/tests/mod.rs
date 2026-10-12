@@ -1108,6 +1108,26 @@ fn test_memory_configuration_round_trips_through_json_and_yaml() {
     );
 }
 #[test]
+fn test_non_local_environment_managers_are_rejected() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "name": "poetry",
+            "programmingLanguage": "python",
+            "template": {
+                "arguments": [],
+                "command": "python",
+                "environment": { "manager": "poetry", "name": "default" }
+            },
+            "type": "script",
+            "uri": "file:./module"
+        }],
+        "requirements": []
+    }))
+    .expect("configuration should deserialize before semantic validation");
+    let error = config.validate().expect_err("shared Poetry environment should be rejected");
+    assert!(error.iter().any(|issue| issue.path == "modules[0].template.environment.manager"));
+}
+#[test]
 fn test_preparation_and_execution_emit_progress_updates() {
     let config: Config = serde_json::from_value(serde_json::json!({
         "requirements": [],

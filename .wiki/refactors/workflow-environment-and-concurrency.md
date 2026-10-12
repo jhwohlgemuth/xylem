@@ -6,7 +6,7 @@ difficulty: high
 impact: critical
 package: [xylem-lib, xylem-cli]
 tags: [refactor, environment, concurrency, cancellation, workspace, determinism]
-status: planned
+status: in-progress
 ---
 
 # Goal
@@ -22,7 +22,7 @@ Rechecked on 2026-10-11.
 
 - `ExecutionContext` already owns a run-local Rayon pool, `InputBatch` is a positive concurrency ceiling, and `dispatch_inputs_fail_fast` provides rolling admission with result slots in configured input order. The dispatch methods still construct a second Rayon pool instead of using one run-level admission mechanism.
 - The current fail-fast dispatcher stops new admission but allows already-active inputs to settle. It has no cancellation token, no `continue` policy, and no structured dispatch report describing never-admitted work.
-- Module acquisition and environment preparation still run once for the shared `Config` before input dispatch, through a separate Rayon phase. The configured batch ceiling therefore does not bound the complete input lifecycle.
+- Native module acquisition, local materialization, and environment preparation now run per input inside the existing bounded dispatcher. The remaining scheduler work is to replace optional result slots, cancel active siblings on fail-fast, and add the `continue` policy.
 - `Config::get_environment_variables` merges workflow and module values into a mutable `HashMap`, expands them, and emits `_XYLEM_*` names before an immutable run context exists.
 - `EnvironmentValue::{set_variable,set_variables,set_namespaced_variables}` can mutate the parent process environment. Tests also mutate `_XYLEM_*` variables and depend on process-wide cleanup.
 - `Script` carries per-command environment overrides and uses ACORN managed
@@ -30,12 +30,8 @@ Rechecked on 2026-10-11.
   compatibility method still converts and combines output into `Vec<String>`,
   and module timeouts remain absent.
 - `Instruction::ShellFormat` still loses quoted and empty argument boundaries through whitespace splitting.
-- Configuration resolution uses a process-wide temporary source root, while module acquisition, virtual-environment preparation, and execution reuse run-level paths across inputs. Duplicate inputs can therefore collide even when their variable maps differ.
-- The CLI now splits preparation, execution, dispatch, executor, progress, and
-  reporting into separate modules, but it still creates
-  `${TMPDIR}/xylem/<random-id>` directly and has no RAII cleanup or
-  workspace-retention owner. Durable evidence lives independently in the
-  canonical run store.
+- Remote configuration resolution now uses the run-owned `configuration/` directory. Each input receives separate `modules/`, `environments/`, and `scratch/` paths, including repeated input values.
+- The CLI now owns `${TMPDIR}/xylem/workspaces/<run-id>` through `RunWorkspace`. It removes the tree after success, failure, or unwind; `--retain-workspace` transfers ownership and reports the path. Durable evidence remains independently owned by the canonical run store.
 - `RunCancellation` and durable `cancelled`/`not_started` states are landed.
   TUI-launched runs use the cancellation handle, but the headless CLI still has
   no signal integration and fail-fast does not cancel active siblings.
@@ -202,7 +198,7 @@ Kubernetes, or MCP behavior.
 
 1. Upgrade the published `acorn-cmd` contract, add Xylem result adaptation, and remove lossy parsing and output conversion.
 2. Add configuration and CLI policy, pure variable resolution, owned path resolution, and immutable contexts.
-3. Add the RAII workspace and per-input acquisition/preparation layout, with durable journals outside the disposable tree.
+3. **Implemented 2026-10-11:** add the RAII workspace and per-input acquisition/preparation layout, with durable journals outside the disposable tree.
 4. Replace the current optional-slot fail-fast result with `DispatchReport`, move mutable preparation behind the single bounded scheduler, and implement fail-fast sibling cancellation, continue, and external cancellation.
 5. Advance plan, journal, recovery, summary, schemas, reporters, TUI, and
    dry-run together from the current v12/v11 baseline.

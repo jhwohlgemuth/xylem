@@ -9,12 +9,20 @@ use xylem_lib::plan::ExecutionPlan;
 use xylem_lib::remote::RemotePolicy;
 use xylem_lib::sandbox::{EffectiveSandboxPolicy, SandboxProviderKind, DOCKER_SANDBOX_WARNING, OPENSHELL_WARNING};
 use xylem_lib::script::{EnvironmentValue, ModuleType, ModuleUri};
+use xylem_lib::workspace::RunWorkspace;
 
 pub(super) struct PreparedRun {
     pub(super) config: Config,
     pub(super) config_path: PathBuf,
+    pub(super) id: Option<String>,
     pub(super) inputs: Vec<Option<String>>,
     pub(super) plan: ExecutionPlan,
+    pub(super) workspace: Option<RunWorkspace>,
+}
+struct ResolvedRun {
+    config: Config,
+    id: Option<String>,
+    workspace: Option<RunWorkspace>,
 }
 fn apply_preview_artifact_output(config: &mut Config, output: &Path) -> Result<(), RunFailure> {
     output.to_str().map_or_else(
@@ -141,17 +149,10 @@ pub(super) fn prepare(request: &RunRequest<'_>) -> Result<PreparedRun, RunFailur
                 )
             })
         })
-        .and_then(|config_path| {
-            prepare_config(request, &config_path).map(|(config, inputs, plan)| PreparedRun {
-                config,
-                config_path,
-                inputs,
-                plan,
-            })
-        })
+        .and_then(|config_path| prepare_config(request, config_path))
 }
-fn prepare_config(request: &RunRequest<'_>, config_path: &Path) -> Result<(Config, Vec<Option<String>>, ExecutionPlan), RunFailure> {
-    Config::try_from(config_path)
+fn prepare_config(request: &RunRequest<'_>, config_path: PathBuf) -> Result<PreparedRun, RunFailure> {
+    Config::try_from(config_path.as_path())
         .map_err(|why| {
             let exit_code = match &why {
                 | ConfigReadError::UnsupportedExtension(_) => exitcode::USAGE,
@@ -161,6 +162,18 @@ fn prepare_config(request: &RunRequest<'_>, config_path: &Path) -> Result<(Confi
             RunFailure::new(exit_code, why.to_string())
         })
         .and_then(|preview| configure_preview(preview, request))
+        .and_then(|mut preview| {
+            match (request.artifact_output.is_some(), preview.output.as_ref()) {
+                | (false, Some(output)) if Path::new(output).is_relative() => config_path
+                    .parent()
+                    .map(|parent| parent.join(output).components().collect::<PathBuf>())
+                    .and_then(|output| output.to_str().map(str::to_string))
+                    .ok_or_else(|| RunFailure::new(exitcode::DATAERR, "workflow output path must be valid UTF-8"))
+                    .map(|output| preview.output = Some(output)),
+                | _ => Ok(()),
+            }
+            .map(|()| preview)
+        })
         .and_then(|preview| {
             preview
                 .options
@@ -177,62 +190,92 @@ fn prepare_config(request: &RunRequest<'_>, config_path: &Path) -> Result<(Confi
             RemotePolicy::from_hosts(allowed)
                 .map_err(|why| RunFailure::new(exitcode::USAGE, format!("invalid remote module allowlist — {why}")))
                 .and_then(|policy| {
-                    let source_root = env::temp_dir().join(EnvironmentValue::PREFIX).join("configuration-sources");
-                    preview
-                        .resolve_with_policy(config_path, &policy, &source_root, dry_run)
-                        .map(|mut resolved| {
-                            if let Some(output) = request.artifact_output.as_ref() {
-                                apply_resolved_artifact_output(&mut resolved, output);
-                            }
-                            resolved
-                        })
-                        .map_err(|why| {
-                            let exit_code = match why.is_availability() {
-                                | true => exitcode::UNAVAILABLE,
-                                | false => exitcode::DATAERR,
-                            };
-                            RunFailure::new(exit_code, why.to_string())
-                        })
+                    let owned = match dry_run {
+                        | true => Ok((None, None)),
+                        | false => {
+                            let id = nanoid::nanoid!(10, &nanoid::alphabet::SAFE);
+                            let parent = env::temp_dir().join(EnvironmentValue::PREFIX).join("workspaces");
+                            RunWorkspace::create(&parent, &id)
+                                .map(|workspace| (Some(id), Some(workspace)))
+                                .map_err(|why| RunFailure::new(exitcode::CANTCREAT, why.to_string()))
+                        }
+                    };
+                    owned.and_then(|(id, workspace)| {
+                        let source_root = workspace.as_ref().map_or_else(
+                            || PathBuf::from("<dry-run-workspace>/configuration"),
+                            |workspace| workspace.configuration().to_path_buf(),
+                        );
+                        preview
+                            .resolve_with_policy(&config_path, &policy, &source_root, dry_run)
+                            .map(|mut resolved| {
+                                if let Some(output) = request.artifact_output.as_ref() {
+                                    apply_resolved_artifact_output(&mut resolved, output);
+                                }
+                                ResolvedRun {
+                                    config: resolved,
+                                    id,
+                                    workspace,
+                                }
+                            })
+                            .map_err(|why| {
+                                let exit_code = match why.is_availability() {
+                                    | true => exitcode::UNAVAILABLE,
+                                    | false => exitcode::DATAERR,
+                                };
+                                RunFailure::new(exit_code, why.to_string())
+                            })
+                    })
                 })
         })
-        .and_then(|mut preview| normalize_sandbox_artifact_output(&mut preview).map(|()| preview))
-        .and_then(|preview| {
-            preview
+        .and_then(|mut resolved| normalize_sandbox_artifact_output(&mut resolved.config).map(|()| resolved))
+        .and_then(|resolved| {
+            resolved
+                .config
                 .validate()
                 .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
-                .map(|()| preview)
+                .map(|()| resolved)
         })
-        .and_then(|preview| {
-            preview
+        .and_then(|resolved| {
+            resolved
+                .config
                 .options
                 .as_ref()
                 .and_then(|options| options.sandbox_policy.as_ref())
                 .map_or(Ok(()), |policy| {
-                    policy.validate_input_discovery(&preview, config_path, request.cli_input.as_deref())
+                    policy.validate_input_discovery(&resolved.config, &config_path, request.cli_input.as_deref())
                 })
                 .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
-                .map(|()| preview)
+                .map(|()| resolved)
         })
-        .and_then(|preview| {
-            preview
-                .resolve_inputs(request.cli_input.as_deref(), config_path)
+        .and_then(|resolved| {
+            resolved
+                .config
+                .resolve_inputs(request.cli_input.as_deref(), &config_path)
                 .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
-                .map(|inputs| (preview, inputs))
+                .map(|inputs| (resolved, inputs))
         })
-        .and_then(|(preview, inputs)| {
-            preview
+        .and_then(|(resolved, inputs)| {
+            resolved
+                .config
                 .options
                 .as_ref()
                 .and_then(|options| options.sandbox_policy.as_ref())
-                .map_or(Ok(()), |policy| policy.validate_workflow(&preview, &inputs.values))
+                .map_or(Ok(()), |policy| policy.validate_workflow(&resolved.config, &inputs.values))
                 .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
-                .map(|()| (preview, inputs))
+                .map(|()| (resolved, inputs))
         })
-        .and_then(|(preview, inputs)| ensure_remote_modules_allowed(&preview).map(|()| (preview, inputs)))
-        .and_then(|(preview, inputs)| {
-            let resume = preview.options.as_ref().and_then(|options| options.resume).unwrap_or_default();
-            ExecutionPlan::build_resolved(&preview, config_path.display().to_string(), &inputs, resume)
+        .and_then(|(resolved, inputs)| ensure_remote_modules_allowed(&resolved.config).map(|()| (resolved, inputs)))
+        .and_then(|(resolved, inputs)| {
+            let resume = resolved.config.options.as_ref().and_then(|options| options.resume).unwrap_or_default();
+            ExecutionPlan::build_resolved(&resolved.config, config_path.display().to_string(), &inputs, resume)
                 .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
-                .map(|plan| (preview, inputs.values, plan))
+                .map(|plan| PreparedRun {
+                    config: resolved.config,
+                    config_path,
+                    id: resolved.id,
+                    inputs: inputs.values,
+                    plan,
+                    workspace: resolved.workspace,
+                })
         })
 }

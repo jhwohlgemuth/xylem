@@ -48,17 +48,20 @@ Options:
 
           [aliases: --output]
 
-  -i, --input <LIST>
-          Value(s) to use as INPUT variable in workflow
-
       --no-progress
           Disable interactive workflow progress indicators
 
-  -d, --dry-run
-          Execute workflow dry run (do not actually make changes to environment)
+      --retain-workspace
+          Keep the disposable run workspace for diagnostics
+
+  -i, --input <LIST>
+          Value(s) to use as INPUT variable in workflow
 
       --sandbox-policy <PATH>
           Trusted operator policy used only by workflows with `sandbox: true`
+
+  -d, --dry-run
+          Execute workflow dry run (do not actually make changes to environment)
 
       --gpu-monitor
           Collect run-wide NVIDIA GPU telemetry with nvidia-smi

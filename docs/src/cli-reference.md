@@ -37,6 +37,7 @@ The `run` command accepts:
 - `--offline` to prohibit remote module and sandbox-workload acquisition; the
   digest-pinned workload must already be available locally;
 - `--resume` to skip modules with complete declared outputs and a matching marker;
+- `--retain-workspace` to keep the disposable run workspace and print its path;
 - repeatable or comma-delimited `--allowed <HOST[:PORT]>` values to replace
   the workflow's configured remote-host allowlist;
 - `--skip-verify-checksum` and `--skip-verify-requirements` for explicit
@@ -58,6 +59,12 @@ isolated store root. `--report-output` exports additional requested reports with
 relocating canonical evidence. The configuration `output` field continues to
 describe workflow artifacts. The legacy `--output` spelling remains an alias
 for `--report-output`.
+
+Real runs also use `${TMPDIR}/xylem/workspaces/<run-id>` for copied modules,
+input-local environments, and scratch data. Xylem removes this disposable tree
+after success or failure. `--retain-workspace` transfers cleanup responsibility
+to the operator and prints the retained path; canonical journals and summaries
+remain outside that tree.
 
 The version 11 JSON summary includes the run and configuration identities,
 timestamps and duration, dry-run flag, final status, and ordered input/module

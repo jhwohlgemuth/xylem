@@ -15,6 +15,31 @@ fn test_add_dot_slash() {
     assert_eq!(add_dot_slash(PathBuf::from("foo/bar.json")), PathBuf::from("./foo/bar.json"));
 }
 #[test]
+fn test_conda_and_mamba_use_input_owned_prefixes() {
+    let prefix = std::env::temp_dir().join(format!("xylem-environment-prefix-{}", std::process::id()));
+    let prefix_string = prefix.to_string_lossy().into_owned();
+    let command = Command::init().name("python".to_string()).build();
+    let conda = VirtualEnvironment::init()
+        .name("ignored-name".to_string())
+        .path(prefix_string.clone())
+        .manager(VirtualEnvironmentManager::Conda)
+        .build();
+    let mamba = VirtualEnvironment::init()
+        .name("ignored-name".to_string())
+        .path(prefix_string.clone())
+        .manager(VirtualEnvironmentManager::Mamba)
+        .build();
+    let script = Script::init().command(command).arguments(["-V"]).build();
+    assert_eq!(
+        script.clone().with_virtual_environment(Some(conda)).to_string(),
+        format!("conda run --prefix {prefix_string} --no-capture-output python -V")
+    );
+    assert_eq!(
+        script.with_virtual_environment(Some(mamba)).to_string(),
+        format!("mamba run --prefix {prefix_string} python -V")
+    );
+}
+#[test]
 fn test_container_startup_resolution() {
     let image_default = ContainerEnvironment::init().name("default".to_string()).build();
     let explicit = ContainerEnvironment::init()
@@ -33,6 +58,27 @@ fn test_container_startup_resolution() {
     assert_eq!(
         keep_alive.resolved_startup(),
         (ContainerStartup::KeepAlive, ["sleep", "infinity"].map(OsString::from).to_vec())
+    );
+}
+#[test]
+fn test_create_conda_environment_uses_input_owned_prefix() {
+    let path = PathBuf::from(format!("{FIXTURES}/environment.yml"));
+    let prefix = std::env::temp_dir().join(format!("xylem-environment-create-prefix-{}", std::process::id()));
+    let script = Script::maybe_create_virtual_environment(
+        path.parent().expect("fixture parent").to_string_lossy().into_owned(),
+        Some(
+            VirtualEnvironment::init()
+                .name("ignored-name".to_string())
+                .path(prefix.display().to_string())
+                .manager(VirtualEnvironmentManager::Conda)
+                .build(),
+        ),
+    )
+    .expect("inspect Conda environment")
+    .expect("Conda manifest should produce a creation command");
+    assert_eq!(
+        script.to_string(),
+        format!("conda env create --prefix {} -f environment.yml", prefix.display())
     );
 }
 #[test]
@@ -85,7 +131,6 @@ fn test_resolve_pixi_environment() {
     let environment = ScriptTemplate::resolve_python_virtual_environment(path)
         .expect("inspect Pixi environment")
         .expect("Pixi should be detected from pixi.toml");
-
     assert_eq!(environment.name, "default");
     assert_eq!(environment.manager, VirtualEnvironmentManager::Pixi);
 }
@@ -95,14 +140,12 @@ fn test_resolve_pixi_environment_from_pyproject() {
     let environment = ScriptTemplate::resolve_python_virtual_environment(path)
         .expect("inspect Pixi environment")
         .expect("Pixi should be detected from pyproject.toml");
-
     assert_eq!(environment.name, "default");
     assert_eq!(environment.manager, VirtualEnvironmentManager::Pixi);
 }
 #[test]
 fn test_virtual_environment_manager_from_reference() {
     fn implements_try_from<T: for<'a> TryFrom<&'a str>>() {}
-
     implements_try_from::<VirtualEnvironmentManager>();
     assert_eq!(VirtualEnvironmentManager::from("conda"), VirtualEnvironmentManager::Conda);
     assert_eq!(VirtualEnvironmentManager::from("mamba"), VirtualEnvironmentManager::Mamba);

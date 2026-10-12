@@ -19,7 +19,7 @@
         "arguments": [
           "run.sh",
           "{{ INPUT }}",
-          "../output/greeting-{{ INPUT }}.txt"
+          "{{ OUTPUT_DIRECTORY }}/greeting-{{ INPUT }}.txt"
         ]
       },
       "completion": {

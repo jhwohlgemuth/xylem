@@ -1,5 +1,6 @@
 //! Progress events emitted by module preparation and workflow execution.
 use crate::journal::ExecutionState;
+use crate::sandbox::SandboxPreparationState;
 
 /// Receives progress updates without coupling the library to a terminal UI.
 pub trait ProgressObserver: Send + Sync {
@@ -75,6 +76,15 @@ impl From<ExecutionState> for ProgressState {
         }
     }
 }
+impl From<SandboxPreparationState> for ProgressState {
+    fn from(state: SandboxPreparationState) -> Self {
+        match state {
+            | SandboxPreparationState::Failed => Self::Failed,
+            | SandboxPreparationState::Finished => Self::Finished,
+            | SandboxPreparationState::Started => Self::Started,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -90,5 +100,11 @@ mod tests {
         assert_eq!(ProgressState::from(ExecutionState::Failed), ProgressState::Failed);
         assert_eq!(ProgressState::from(ExecutionState::Skipped), ProgressState::Skipped);
         assert_eq!(ProgressState::from(ExecutionState::SkippedExisting), ProgressState::SkippedExisting);
+    }
+    #[test]
+    fn test_sandbox_preparation_states_convert_to_progress_states() {
+        assert_eq!(ProgressState::from(SandboxPreparationState::Failed), ProgressState::Failed);
+        assert_eq!(ProgressState::from(SandboxPreparationState::Finished), ProgressState::Finished);
+        assert_eq!(ProgressState::from(SandboxPreparationState::Started), ProgressState::Started);
     }
 }

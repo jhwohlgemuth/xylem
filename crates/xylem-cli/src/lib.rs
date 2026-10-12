@@ -144,6 +144,7 @@ pub fn run_example(config: &str) -> Void {
         ExecutionLimits::default(),
         true,
         None,
+        false,
     ) {
         | Ok(()) => Ok(()),
         | Err(failure) => {

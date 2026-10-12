@@ -33,6 +33,7 @@ struct RunRequest<'a> {
     no_progress: bool,
     report_output: &'a Option<PathBuf>,
     reporter: &'a [ReporterType],
+    retain_workspace: bool,
     sandbox_policy: &'a Option<PathBuf>,
 }
 #[allow(clippy::too_many_arguments)]
@@ -57,6 +58,7 @@ pub fn run(
     limits: ExecutionLimits,
     no_progress: bool,
     cancellation: Option<RunCancellation>,
+    retain_workspace: bool,
 ) -> Result<(), RunFailure> {
     let request = RunRequest {
         artifact_output,
@@ -76,6 +78,7 @@ pub fn run(
         no_progress,
         report_output,
         reporter,
+        retain_workspace,
         sandbox_policy,
     };
     preparation::prepare(&request).and_then(|prepared| {

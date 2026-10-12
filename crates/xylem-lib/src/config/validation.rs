@@ -360,7 +360,10 @@ impl Validate for TemplateAttribute {
                     }
                     if matches!(
                         environment.manager,
-                        VirtualEnvironmentManager::Pyenv | VirtualEnvironmentManager::Unknown | VirtualEnvironmentManager::Virtualenv
+                        VirtualEnvironmentManager::Poetry
+                            | VirtualEnvironmentManager::Pyenv
+                            | VirtualEnvironmentManager::Unknown
+                            | VirtualEnvironmentManager::Virtualenv
                     ) {
                         report.add(
                             "environment.manager",

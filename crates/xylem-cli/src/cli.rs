@@ -38,6 +38,9 @@ pub enum Commands {
         /// Directory for the durable journal and file-based reports
         #[arg(short = 'o', long = "report-output", visible_alias = "output", value_name = "PATH", value_hint = clap::ValueHint::DirPath)]
         report_output: Option<PathBuf>,
+        /// Keep the disposable run workspace for diagnostics
+        #[arg(long)]
+        retain_workspace: bool,
         /// Value(s) to use as INPUT variable in workflow
         #[arg(short, long, value_name = "LIST", value_delimiter = ',')]
         input: Option<Vec<String>>,
