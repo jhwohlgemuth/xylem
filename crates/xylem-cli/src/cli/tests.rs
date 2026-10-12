@@ -21,6 +21,28 @@ fn test_allowed_accepts_repeated_and_comma_delimited_values() {
     }
 }
 #[test]
+fn test_insecure_http_is_an_explicit_operator_capability() {
+    match parse(&["xylem", "run", "--allow-insecure-http"]).command {
+        | Some(Commands::Run { allow_insecure_http, .. }) => assert!(allow_insecure_http),
+        | _ => panic!("run command should parse"),
+    }
+    match parse(&["xylem", "run"]).command {
+        | Some(Commands::Run { allow_insecure_http, .. }) => assert!(!allow_insecure_http),
+        | _ => panic!("run command should parse"),
+    }
+}
+#[test]
+fn test_checksum_escape_hatch_is_explicit() {
+    match parse(&["xylem", "run", "--skip-verify-checksum"]).command {
+        | Some(Commands::Run { skip_verify_checksum, .. }) => assert!(skip_verify_checksum),
+        | _ => panic!("run command should parse"),
+    }
+    match parse(&["xylem", "run"]).command {
+        | Some(Commands::Run { skip_verify_checksum, .. }) => assert!(!skip_verify_checksum),
+        | _ => panic!("run command should parse"),
+    }
+}
+#[test]
 fn test_artifact_and_report_outputs_are_distinct() {
     let args = parse(&["xylem", "run", "--artifact-output", "artifacts", "--report-output", "reports"]);
     match args.command {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::acquisition::{AcquisitionCacheStatus, AcquisitionIdentity, AcquisitionLimits, AcquisitionPolicyEvidence};
 use acorn_core::time::UnitOfTime;
 use acorn_schema::validation::Validate;
 use alloc::sync::Arc;
@@ -36,9 +37,31 @@ fn memory_evidence() -> RunMemoryEvidence {
         safety_millionths: 1_250_000,
     }
 }
+fn acquisition_evidence() -> AcquisitionEvidence {
+    AcquisitionEvidence {
+        acquired_at_unix_seconds: 1,
+        size: memory(64),
+        cache: AcquisitionCacheStatus::Miss,
+        entries: 1,
+        identity: AcquisitionIdentity::Sha256 {
+            digest: format!("sha256:{}", "a".repeat(64)),
+        },
+        limits: AcquisitionLimits::default(),
+        module_path: vec!["group".to_string(), "module".to_string()],
+        policy: AcquisitionPolicyEvidence {
+            allow_insecure_http: false,
+            git_ssh_enabled: false,
+            offline: false,
+            skip_checksum_verification: false,
+        },
+        source: "https://example.com/module".to_string(),
+        tree_digest: None,
+    }
+}
 fn metadata(run_id: &str) -> RunMetadata {
     RunMetadata {
         artifacts: None,
+        configuration_acquisitions: Vec::new(),
         run_id: run_id.to_string(),
         configuration: ConfigurationIdentity {
             path: "config.json".to_string(),
@@ -307,6 +330,7 @@ fn test_json_report_is_atomic_and_refuses_overwrite() {
     create_dir_all(&directory).expect("create reporter test directory");
     let summary = RunSummary {
         artifacts: None,
+        configuration_acquisitions: Vec::new(),
         schema_version: JOURNAL_SCHEMA_VERSION,
         containers: Vec::new(),
         run_id: "atomic-report".to_string(),
@@ -453,6 +477,28 @@ fn test_round_trips_all_states_and_recovers_a_summary() {
     assert_eq!(summary.inputs[0].modules[0].state, ExecutionState::Succeeded);
     assert_eq!(summary.inputs[0].modules[0].module_path, vec!["group", "module"]);
     assert_eq!(summary.inputs[1].state, ExecutionState::Skipped);
+    remove_file(path).expect("remove journal");
+}
+#[test]
+fn test_module_acquisition_is_exactly_once_before_execution_and_recovered() {
+    let path = path("module-acquisition");
+    let journal = RunJournal::create(
+        path.clone(),
+        metadata("run-module-acquisition"),
+        vec![JournalInput::new(0, None)],
+        vec![module()],
+    )
+    .expect("create journal");
+    let evidence = acquisition_evidence();
+    journal.record_module_acquisition(0, 0, evidence.clone()).expect("record acquisition");
+    assert!(journal.record_module_acquisition(0, 0, evidence.clone()).is_err());
+    journal.transition_input(0, ExecutionState::Running, None).expect("run input");
+    journal.transition_module(0, 0, ExecutionState::Running, None).expect("run module");
+    journal.transition_module(0, 0, ExecutionState::Succeeded, None).expect("finish module");
+    journal.transition_input(0, ExecutionState::Succeeded, None).expect("finish input");
+    journal.finish(FinalStatus::Succeeded, None).expect("finish run");
+    let summary = RunJournal::read(&path).expect("recover acquisition evidence");
+    assert_eq!(summary.inputs[0].modules[0].acquisition.as_ref(), Some(&evidence));
     remove_file(path).expect("remove journal");
 }
 #[test]

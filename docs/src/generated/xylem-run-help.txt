@@ -78,8 +78,11 @@ Options:
       --allowed <HOST[:PORT]>
           Exact remote module host(s) to allow; CLI values replace configured hosts
 
+      --allow-insecure-http
+          Permit cleartext HTTP for local development sources
+
       --skip-verify-checksum
-          Skip calculating and verifying checksum for downloaded binary files
+          Skip remote binary checksum verification (emergency use only)
 
       --skip-verify-requirements
           Skip enforcing workflow configured requirements (mostly for troubleshooting)

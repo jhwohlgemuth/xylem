@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+appdir="${APPDIR:-$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)}"
+
+if [ "$#" -eq 0 ]; then
+    set -- tui
+fi
+
+exec "${appdir}/usr/bin/xylem" "$@"

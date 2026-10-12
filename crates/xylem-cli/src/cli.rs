@@ -62,7 +62,10 @@ pub enum Commands {
         /// Exact remote module host(s) to allow; CLI values replace configured hosts
         #[arg(long = "allowed", value_name = "HOST[:PORT]", value_delimiter = ',')]
         allowed: Option<Vec<String>>,
-        /// Skip calculating and verifying checksum for downloaded binary files
+        /// Permit cleartext HTTP for local development sources
+        #[arg(long = "allow-insecure-http")]
+        allow_insecure_http: bool,
+        /// Skip remote binary checksum verification (emergency use only)
         #[arg(long = "skip-verify-checksum", value_name = "BOOL")]
         skip_verify_checksum: bool,
         /// Skip enforcing workflow configured requirements (mostly for troubleshooting)

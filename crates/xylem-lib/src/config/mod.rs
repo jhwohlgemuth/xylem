@@ -1,23 +1,25 @@
 extern crate alloc;
 
+use crate::acquisition::{
+    AcquisitionCache, AcquisitionError, AcquisitionEvidence, AcquisitionExecutor, AcquisitionLimits, AcquisitionPlan, AcquisitionPolicy,
+    AcquisitionSource,
+};
 use crate::completion::{CompletionDecision, CompletionPlan};
-use crate::error::{AcquisitionError, ProcessError, RequirementError};
+use crate::error::{ProcessError, RequirementError};
 use crate::execution::{ExecutionContext, InputBatch};
 use crate::journal::{ExecutionState, RunJournal};
 use crate::outcome::{ModuleOutcome, WorkflowOutcome};
 use crate::plan::PlanError;
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
-use crate::remote::{redact_url, RemotePolicy};
 use crate::sandbox::EffectiveSandboxPolicy;
 use crate::script::*;
 pub use crate::selection::{InputSelection, SelectionEngine, SelectionOptions, SelectionRequest};
 use crate::util::absolute_path;
 use crate::workspace::{materialize, InputWorkspace};
-use acorn_cmd::args;
-use acorn_core::util::{Checksum, MimeType, ParseOptionsExt, SemanticVersion};
+use acorn_core::util::{MimeType, ParseOptionsExt, SemanticVersion};
 use acorn_core::{Location, Scheme};
 use acorn_host::config::{read_jsonc, ConfigError as AcornConfigError};
-use acorn_host::fs::{file_checksum, make_executable, SafePath};
+use acorn_host::fs::{make_executable, SafePath};
 use acorn_host::terminal::Label;
 use acorn_macros::With;
 use acorn_schema::hardware::Memory;
@@ -122,7 +124,7 @@ pub enum ConfigurationModuleError {
 enum ConfigurationSource {
     File(PathBuf),
     Git { identity: String, path: PathBuf },
-    Http(String),
+    Http { identity: String },
 }
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -148,6 +150,10 @@ pub struct Check {
 #[builder(start_fn(name = init))]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Verified configuration-wrapper acquisitions retained for run metadata.
+    #[builder(default)]
+    #[serde(skip)]
+    pub acquisitions: Vec<AcquisitionEvidence>,
     /// Unique workflow identifier
     pub id: Option<String>,
     /// Configuration version in semver format
@@ -193,6 +199,18 @@ pub struct Config {
 #[builder(start_fn(name = init))]
 #[serde(deny_unknown_fields)]
 pub struct ConfigOptions {
+    /// Resource ceilings that nested configuration may only tighten.
+    pub acquisition_limits: Option<AcquisitionLimits>,
+    /// Runtime-only operator capability for cleartext HTTP.
+    #[builder(default)]
+    #[serde(skip)]
+    pub allow_insecure_http: bool,
+    /// Runtime-only immutable acquisition cache.
+    #[serde(skip)]
+    pub acquisition_cache: Option<AcquisitionCache>,
+    /// Runtime-only trusted root acquisition policy.
+    #[serde(skip)]
+    pub acquisition_policy: Option<AcquisitionPolicy>,
     pub root: Option<PathBuf>,
     /// Maximum number of top-level workflow inputs that may run concurrently.
     pub batch: Option<InputBatch>,
@@ -206,7 +224,8 @@ pub struct ConfigOptions {
     pub offline: Option<bool>,
     /// Skip modules whose declared outputs and marker are current.
     pub resume: Option<bool>,
-    #[serde(alias = "skip-checksum", alias = "skip-verify-checksum")]
+    /// Emergency escape hatch for remote binary checksum verification.
+    #[serde(skip)]
     pub skip_verify_checksum: Option<bool>,
     #[serde(alias = "skip-requirements", alias = "skip-verify-requirements")]
     pub skip_verify_requirements: Option<bool>,
@@ -292,12 +311,12 @@ impl Config {
         let source = canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
         self.resolve_at(
             ConfigurationSource::File(source),
-            Path::new(""),
             false,
             false,
             Vec::new(),
             Vec::new(),
             0,
+            None,
             None,
             None,
             None,
@@ -305,27 +324,35 @@ impl Config {
     }
     /// Resolve local and remote configuration modules before planning.
     ///
-    /// Remote documents are fetched only for a real run.
-    /// Git sources are cloned under the caller-provided managed source root and must expose `config.json` at repository root.
+    /// Remote documents and repositories are loaded only from verified immutable cache entries.
     pub fn resolve_with_policy(
-        self,
+        mut self,
         source: &Path,
-        policy: &RemotePolicy,
-        source_root: &Path,
+        policy: &AcquisitionPolicy,
+        cache: &AcquisitionCache,
         dry_run: bool,
     ) -> Result<Self, ConfigurationModuleError> {
-        let offline = self.options.as_ref().and_then(|options| options.offline).unwrap_or_default();
+        let offline = policy.offline();
+        let options = self.options.take().unwrap_or_else(|| ConfigOptions::init().build());
+        let policy = policy
+            .clone()
+            .with_checksum_verification_disabled(options.skip_verify_checksum.unwrap_or_default());
+        self.options = Some(
+            options
+                .with_acquisition_cache(Some(cache.clone()))
+                .with_acquisition_policy(Some(policy.clone())),
+        );
         self.resolve_at(
             ConfigurationSource::File(source.to_path_buf()),
-            source_root,
             dry_run,
             offline,
             Vec::new(),
             Vec::new(),
             0,
-            Some(policy.clone()),
+            Some(policy),
             None,
             None,
+            Some(cache.clone()),
         )
     }
     pub fn get_environment_variables(self, module: Option<Module>, input: Option<String>) -> HashMap<String, String> {
@@ -394,7 +421,7 @@ impl Config {
     }
     /// Prepare only modules required by at least one planned input.
     pub fn prepare_modules_selected(
-        self,
+        mut self,
         execution: &ExecutionContext,
         selected: &BTreeSet<usize>,
         observer: Option<&dyn ProgressObserver>,
@@ -407,50 +434,77 @@ impl Config {
                     ConfigOptions::init().build()
                 }
             };
-            RemotePolicy::from_hosts(options.allowed.as_deref())
-                .map_err(|why| AcquisitionError::Policy {
-                    source: io::Error::other(why),
-                })
-                .and_then(|policy| {
+            options.root.clone().as_ref().map_or_else(
+                || {
+                    Err(AcquisitionError::Policy {
+                        remote: "module preparation".to_string(),
+                        reason: "requires an owned root directory".to_string(),
+                    })
+                },
+                |root| {
                     self.modules
                         .par_iter()
                         .enumerate()
                         .filter(|(index, _)| selected.contains(index))
-                        .map(|(_, module)| {
+                        .map(|(index, module)| {
                             ProgressPhase::Preparation.emit(ProgressState::Started, &module.name, &module.module_path, observer, None);
-                            let result = match &module.module_type {
-                                | ModuleType::Binary { uri, checksum } => {
-                                    module.prepare_binary(uri.into(), checksum.as_deref(), &options, &policy).map(|_| ())
-                                }
-                                | ModuleType::Script { programming_language, uri } => match programming_language {
-                                    | Some(ModuleLanguage::Generic) | None => module.prepare_script(uri.into(), false, &options, &policy).map(|_| ()),
-                                    | Some(ModuleLanguage::Python) => module.prepare_script(uri.into(), true, &options, &policy).map(|_| ()),
-                                    | Some(language) => Err(format!("module {} uses unsupported script language {language}", module.name)),
+                            let module_root = root.join(format!("module-{index:06}"));
+                            let result = module
+                                .prepare_at(&module_root, &options, true)
+                                .map(|(module, path)| (index, module, path));
+                            ProgressPhase::Preparation.emit(
+                                match result.is_ok() {
+                                    | true => ProgressState::Finished,
+                                    | false => ProgressState::Failed,
                                 },
-                                | ModuleType::Configuration { .. } => Err(format!("module {} uses reserved configuration module type", module.name)),
-                            };
-                            match result {
-                                | Ok(()) => {
-                                    ProgressPhase::Preparation.emit(ProgressState::Finished, &module.name, &module.module_path, observer, None)
-                                }
-                                | Err(_) => ProgressPhase::Preparation.emit(ProgressState::Failed, &module.name, &module.module_path, observer, None),
-                            }
+                                &module.name,
+                                &module.module_path,
+                                observer,
+                                None,
+                            );
                             result.map_err(|why| AcquisitionError::Module {
                                 module: module.name.clone(),
                                 source: io::Error::other(why),
                             })
                         })
                         .collect::<Result<Vec<_>, _>>()
-                        .map(|_| self)
-                })
+                        .map(|prepared| {
+                            let mut workspace_modules = BTreeMap::new();
+                            prepared.into_iter().for_each(|(index, module, path)| {
+                                self.modules[index].acquisition = module.acquisition;
+                                workspace_modules.insert(index, path);
+                            });
+                            self.options = Some(options.with_workspace_modules(workspace_modules));
+                            self
+                        })
+                },
+            )
         })
     }
     /// Materialize and prepare selected modules inside one input workspace.
     pub fn prepare_modules_selected_in_workspace(
+        self,
+        selected: &BTreeSet<usize>,
+        observer: Option<&dyn ProgressObserver>,
+        workspace: &InputWorkspace,
+    ) -> Result<Config, AcquisitionError> {
+        self.prepare_modules_in_workspace(selected, observer, workspace, true)
+    }
+    /// Materialize selected modules for sandbox preparation without creating host environments.
+    pub fn materialize_modules_selected_in_workspace(
+        self,
+        selected: &BTreeSet<usize>,
+        observer: Option<&dyn ProgressObserver>,
+        workspace: &InputWorkspace,
+    ) -> Result<Config, AcquisitionError> {
+        self.prepare_modules_in_workspace(selected, observer, workspace, false)
+    }
+    fn prepare_modules_in_workspace(
         mut self,
         selected: &BTreeSet<usize>,
         observer: Option<&dyn ProgressObserver>,
         workspace: &InputWorkspace,
+        prepare_environment: bool,
     ) -> Result<Config, AcquisitionError> {
         let options = self
             .options
@@ -458,73 +512,49 @@ impl Config {
             .unwrap_or_else(|| ConfigOptions::init().build())
             .with_root(Some(workspace.modules().to_path_buf()))
             .with_environment_root(Some(workspace.environments().to_path_buf()));
-        RemotePolicy::from_hosts(options.allowed.as_deref())
-            .map_err(|source| AcquisitionError::Policy {
-                source: io::Error::other(source),
-            })
-            .and_then(|policy| {
-                self.modules
-                    .iter()
-                    .enumerate()
-                    .filter(|(index, _)| selected.contains(index))
-                    .map(|(index, module)| {
-                        ProgressPhase::Preparation.emit(ProgressState::Started, &module.name, &module.module_path, observer, None);
-                        let result = workspace.module(index).map_err(|why| why.to_string()).and_then(|module_root| {
-                            let module_environment = workspace.environments().join(format!("module-{index:06}"));
-                            let module_options = options
+        self.modules
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| selected.contains(index))
+            .map(|(index, module)| {
+                ProgressPhase::Preparation.emit(ProgressState::Started, &module.name, &module.module_path, observer, None);
+                let result = workspace.module(index).map_err(|why| why.to_string()).and_then(|module_root| {
+                    let module_environment = workspace.environments().join(format!("module-{index:06}"));
+                    module
+                        .prepare_at(
+                            &module_root,
+                            &options
                                 .clone()
                                 .with_root(Some(module_root.clone()))
-                                .with_environment_root(Some(module_environment));
-                            module
-                                .materialize_local(&module_root)
-                                .and_then(|local| {
-                                    create_dir_all(&module_root)
-                                        .map_err(|why| format!("create module workspace {}: {why}", module_root.display()))
-                                        .map(|()| local)
-                                })
-                                .and_then(|local| {
-                                    let mut prepared = module.clone();
-                                    if let Some(path) = local {
-                                        prepared.set_uri(path);
-                                    }
-                                    match &prepared.module_type {
-                                        | ModuleType::Binary { uri, checksum } => {
-                                            prepared.prepare_binary(uri.into(), checksum.as_deref(), &module_options, &policy)
-                                        }
-                                        | ModuleType::Script { programming_language, uri } => match programming_language {
-                                            | Some(ModuleLanguage::Generic) | None => {
-                                                prepared.prepare_script(uri.into(), false, &module_options, &policy)
-                                            }
-                                            | Some(ModuleLanguage::Python) => prepared.prepare_script(uri.into(), true, &module_options, &policy),
-                                            | Some(language) => Err(format!("module {} uses unsupported script language {language}", module.name)),
-                                        },
-                                        | ModuleType::Configuration { .. } => {
-                                            Err(format!("module {} uses reserved configuration module type", module.name))
-                                        }
-                                    }
-                                })
-                                .map(|path| (index, path))
-                        });
-                        ProgressPhase::Preparation.emit(
-                            match result.is_ok() {
-                                | true => ProgressState::Finished,
-                                | false => ProgressState::Failed,
-                            },
-                            &module.name,
-                            &module.module_path,
-                            observer,
-                            None,
-                        );
-                        result.map_err(|why| AcquisitionError::Module {
-                            module: module.name.clone(),
-                            source: io::Error::other(why),
-                        })
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-                    .map(|modules| {
-                        self.options = Some(options.with_workspace_modules(modules.into_iter().collect::<BTreeMap<_, _>>()));
-                        self
-                    })
+                                .with_environment_root(Some(module_environment)),
+                            prepare_environment,
+                        )
+                        .map(|(module, path)| (index, module, path))
+                });
+                ProgressPhase::Preparation.emit(
+                    match result.is_ok() {
+                        | true => ProgressState::Finished,
+                        | false => ProgressState::Failed,
+                    },
+                    &module.name,
+                    &module.module_path,
+                    observer,
+                    None,
+                );
+                result.map_err(|why| AcquisitionError::Module {
+                    module: module.name.clone(),
+                    source: io::Error::other(why),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|prepared| {
+                let mut workspace_modules = BTreeMap::new();
+                prepared.into_iter().for_each(|(index, module, path)| {
+                    self.modules[index].acquisition = module.acquisition;
+                    workspace_modules.insert(index, path);
+                });
+                self.options = Some(options.with_workspace_modules(workspace_modules));
+                self
             })
     }
     /// Return modules that must execute for at least one input.
@@ -676,8 +706,13 @@ impl Config {
                                     },
                                 );
                                 match journal {
-                                    | Some(journal) => journal
-                                        .transition_module(input_index, module_index, ExecutionState::Running, None)
+                                    | Some(journal) => executable
+                                        .acquisition
+                                        .clone()
+                                        .map_or(Ok(()), |acquisition| {
+                                            journal.record_module_acquisition(input_index, module_index, acquisition)
+                                        })
+                                        .and_then(|()| journal.transition_module(input_index, module_index, ExecutionState::Running, None))
                                         .map_err(|why| why.to_string()),
                                     | None => Ok(()),
                                 }
@@ -924,63 +959,6 @@ impl Config {
             | false => Some(variables),
         }
     }
-    fn clone_configuration(
-        location: &Location,
-        uri: &str,
-        source_root: &Path,
-        module: &str,
-    ) -> Result<(Self, ConfigurationSource), ConfigurationModuleError> {
-        let revision = Self::revision(location);
-        let destination_name = revision.map_or_else(
-            || location.hash(),
-            |revision| format!("{}-{}", location.hash(), revision.to_case(Case::Snake)),
-        );
-        let destination = source_root.join(&destination_name);
-        let identity = format!("git:{uri}#{}", revision.map_or("HEAD", String::as_str));
-        create_dir_all(source_root)
-            .map_err(|source| ConfigurationModuleError::Remote {
-                module: module.to_string(),
-                reason: source.to_string(),
-            })
-            .and_then(|()| match destination.join(".git").is_dir() {
-                | true => Ok(()),
-                | false => Script::init()
-                    .command(Command::init().name("git".to_string()).build())
-                    .arguments(args!["-c", "http.followRedirects=false", "clone", uri, destination_name])
-                    .current_dir(source_root.display().to_string())
-                    .build()
-                    .run_checked()
-                    .map(|_| ())
-                    .map_err(|source| ConfigurationModuleError::Remote {
-                        module: module.to_string(),
-                        reason: source.to_string(),
-                    }),
-            })
-            .and_then(|()| {
-                revision.map_or(Ok(()), |revision| {
-                    Script::init()
-                        .command(Command::init().name("git".to_string()).build())
-                        .arguments(args!["checkout", revision])
-                        .current_dir(destination.display().to_string())
-                        .build()
-                        .run_checked()
-                        .map(|_| ())
-                        .map_err(|source| ConfigurationModuleError::Remote {
-                            module: module.to_string(),
-                            reason: source.to_string(),
-                        })
-                })
-            })
-            .and_then(|()| {
-                let entrypoint = destination.join("config.json");
-                Config::read(entrypoint.clone())
-                    .map(|config| (config, ConfigurationSource::Git { identity, path: entrypoint }))
-                    .map_err(|source| ConfigurationModuleError::Read {
-                        module: module.to_string(),
-                        source,
-                    })
-            })
-    }
     fn identity(location: &Location, source: &ConfigurationSource) -> Option<String> {
         let uri = location.uri().unwrap_or_else(|| <&str>::from(location).to_string());
         match ModuleUri::from(location) {
@@ -996,18 +974,18 @@ impl Config {
             {
                 Some(uri)
             }
-            | ModuleUri::Url(_) => Some(format!("git:{uri}#{}", Self::revision(location).map_or("HEAD", String::as_str))),
+            | ModuleUri::Url(_) => Some(format!("git:{uri}#{}", Self::revision(location).map_or("unpinned", String::as_str))),
             | ModuleUri::Unknown(_) => None,
         }
     }
     fn load(
         location: &Location,
+        checksum: Option<&str>,
         source: &ConfigurationSource,
-        source_root: &Path,
         dry_run: bool,
-        offline: bool,
         module: &str,
-        policy: Option<&RemotePolicy>,
+        policy: Option<&AcquisitionPolicy>,
+        cache: Option<&AcquisitionCache>,
     ) -> Result<(Self, ConfigurationSource), ConfigurationModuleError> {
         let uri = location.uri().unwrap_or_else(|| <&str>::from(location).to_string());
         match ModuleUri::from(location) {
@@ -1033,38 +1011,76 @@ impl Config {
             | ModuleUri::Url(value) => {
                 let scheme = Scheme::from(value.scheme().as_str());
                 let direct_document = matches!(scheme, Scheme::HTTP | Scheme::HTTPS) && Self::is_remote_document(&uri);
-                match (dry_run, offline, policy, direct_document) {
-                    | (true, _, _, _) => Err(ConfigurationModuleError::RemoteDryRun {
+                match (policy, cache, direct_document, Self::revision(location), checksum) {
+                    | (None, _, _, _, _) | (_, None, _, _, _) => Err(ConfigurationModuleError::Source {
                         module: module.to_string(),
                         uri,
                     }),
-                    | (false, true, _, _) => Err(ConfigurationModuleError::Remote {
-                        module: module.to_string(),
-                        reason: format!("offline mode disallows {uri}"),
-                    }),
-                    | (false, false, None, _) => Err(ConfigurationModuleError::Source {
+                    | (Some(_), Some(_), true, Some(_), _) => Err(ConfigurationModuleError::Revision {
                         module: module.to_string(),
                         uri,
                     }),
-                    | (false, false, Some(_), true) if Self::revision(location).is_some() => Err(ConfigurationModuleError::Revision {
-                        module: module.to_string(),
-                        uri,
-                    }),
-                    | (false, false, Some(policy), true) => policy
-                        .read_text(&uri)
-                        .map_err(|source| ConfigurationModuleError::Remote {
-                            module: module.to_string(),
-                            reason: source.to_string(),
-                        })
-                        .and_then(|content| Self::read_remote_document(&content, &uri, module))
-                        .map(|config| (config, ConfigurationSource::Http(uri))),
-                    | (false, false, Some(policy), false) => policy
-                        .probe_git(&uri)
-                        .map_err(|source| ConfigurationModuleError::Remote {
-                            module: module.to_string(),
-                            reason: source.to_string(),
-                        })
-                        .and_then(|()| Self::clone_configuration(location, &uri, source_root, module)),
+                    | (Some(policy), Some(cache), direct_document, revision, checksum) => {
+                        let source = match direct_document {
+                            | true => AcquisitionSource::HttpDocument {
+                                sha256: checksum.unwrap_or_default().to_string(),
+                                url: uri.clone(),
+                            },
+                            | false => AcquisitionSource::Git {
+                                commit: revision.cloned().unwrap_or_default(),
+                                url: uri.clone(),
+                            },
+                        };
+                        let effective_policy = policy.restrict_offline(dry_run);
+                        AcquisitionPlan::build(module.split("::").map(str::to_string).collect(), source, &effective_policy)
+                            .and_then(|plan| AcquisitionExecutor::new(effective_policy, cache.clone()).execute(&plan))
+                            .map_err(|source| match (dry_run, source) {
+                                | (true, AcquisitionError::Offline { .. }) => ConfigurationModuleError::RemoteDryRun {
+                                    module: module.to_string(),
+                                    uri: uri.clone(),
+                                },
+                                | (_, source) => ConfigurationModuleError::Remote {
+                                    module: module.to_string(),
+                                    reason: source.to_string(),
+                                },
+                            })
+                            .and_then(|result| {
+                                let loaded = match direct_document {
+                                    | true => read_to_string(&result.path)
+                                        .map_err(|source| ConfigurationModuleError::Read {
+                                            module: module.to_string(),
+                                            source: ConfigReadError::Read {
+                                                format: Self::remote_format(&uri),
+                                                path: result.path.clone(),
+                                                source,
+                                            },
+                                        })
+                                        .and_then(|content| Self::read_remote_document(&content, &uri, module))
+                                        .map(|config| (config, ConfigurationSource::Http { identity: uri.clone() })),
+                                    | false => {
+                                        let entrypoint = result.path.join("config.json");
+                                        Config::read(entrypoint.clone())
+                                            .map(|config| {
+                                                (
+                                                    config,
+                                                    ConfigurationSource::Git {
+                                                        identity: format!("git:{uri}#{}", revision.map_or("unpinned", String::as_str)),
+                                                        path: entrypoint,
+                                                    },
+                                                )
+                                            })
+                                            .map_err(|source| ConfigurationModuleError::Read {
+                                                module: module.to_string(),
+                                                source,
+                                            })
+                                    }
+                                };
+                                loaded.map(|(mut config, source)| {
+                                    config.acquisitions.push(result.evidence);
+                                    (config, source)
+                                })
+                            })
+                    }
                 }
             }
             | ModuleUri::Unknown(_) => Err(ConfigurationModuleError::Source {
@@ -1074,18 +1090,15 @@ impl Config {
         }
     }
     fn is_remote_document(uri: &str) -> bool {
-        Url::parse(uri).ok().is_some_and(|url| {
-            let mime = MimeType::from(url.path());
-            mime.is_json() || mime.is_jsonc() || mime.is_yaml()
-        })
+        Url::parse(uri).ok().as_ref().is_some_and(Self::is_remote_document_url)
+    }
+    fn is_remote_document_url(url: &Url) -> bool {
+        let mime = MimeType::from(url.path());
+        matches!(Scheme::from(url.scheme()), Scheme::HTTP | Scheme::HTTPS) && (mime.is_json() || mime.is_jsonc() || mime.is_yaml())
     }
     fn read_remote_document(content: &str, uri: &str, module: &str) -> Result<Self, ConfigurationModuleError> {
         let path = PathBuf::from(uri);
-        let format = match Url::parse(uri).ok().map(|url| MimeType::from(url.path())) {
-            | Some(MimeType::Jsonc) => ConfigFormat::Jsonc,
-            | Some(MimeType::Yaml) => ConfigFormat::Yaml,
-            | _ => ConfigFormat::Json,
-        };
+        let format = Self::remote_format(uri);
         let parsed = match format {
             | ConfigFormat::Json => parse_json_configuration(content).map_err(|source| Box::new(source) as Box<dyn core::error::Error + Send + Sync>),
             | ConfigFormat::Jsonc => parse_jsonc_configuration(content),
@@ -1096,19 +1109,26 @@ impl Config {
             source: ConfigReadError::Invalid { format, path, source },
         })
     }
+    fn remote_format(uri: &str) -> ConfigFormat {
+        match Url::parse(uri).ok().map(|url| MimeType::from(url.path())) {
+            | Some(MimeType::Jsonc) => ConfigFormat::Jsonc,
+            | Some(MimeType::Yaml) => ConfigFormat::Yaml,
+            | _ => ConfigFormat::Json,
+        }
+    }
     #[allow(clippy::too_many_arguments)]
     fn resolve_at(
         self,
         source: ConfigurationSource,
-        source_root: &Path,
         dry_run: bool,
         offline: bool,
         ancestors: Vec<String>,
         path: Vec<String>,
         depth: usize,
-        policy: Option<RemotePolicy>,
+        policy: Option<AcquisitionPolicy>,
         inherited_variables: Option<Map<String, Value>>,
         inherited_output: Option<String>,
+        cache: Option<AcquisitionCache>,
     ) -> Result<Self, ConfigurationModuleError> {
         match depth > 16 {
             | true => Err(ConfigurationModuleError::Depth { path }),
@@ -1123,9 +1143,9 @@ impl Config {
                 self.modules
                     .into_iter()
                     .try_fold(
-                        (Vec::new(), self.requirements.clone()),
-                        |(mut modules, mut requirements), module| match module.module_type {
-                            | ModuleType::Configuration { uri } => {
+                        (Vec::new(), self.requirements.clone(), self.acquisitions.clone()),
+                        |(mut modules, mut requirements, mut acquisitions), module| match module.module_type {
+                            | ModuleType::Configuration { checksum, uri } => {
                                 let nested_path = path.iter().cloned().chain(once(module.name.clone())).collect::<Vec<_>>();
                                 match (module.template.is_some(), module.completion.is_some()) {
                                     | (true, _) => Err(ConfigurationModuleError::Wrapper {
@@ -1141,13 +1161,27 @@ impl Config {
                                             path: nested_path.clone(),
                                             location,
                                         }),
-                                        | None => Self::load(&uri, &source, source_root, dry_run, offline, &nested_path.join("::"), policy.as_ref()),
+                                        | None => Self::load(
+                                            &uri,
+                                            checksum.as_deref(),
+                                            &source,
+                                            dry_run,
+                                            &nested_path.join("::"),
+                                            policy.as_ref(),
+                                            cache.as_ref(),
+                                        ),
                                     }
                                     .and_then(|(child, child_source)| {
                                         let child_offline = offline || child.options.as_ref().and_then(|options| options.offline).unwrap_or_default();
                                         let child_policy = policy.as_ref().map_or(Ok(None), |policy| {
+                                            let limits = child
+                                                .options
+                                                .as_ref()
+                                                .and_then(|options| options.acquisition_limits.as_ref())
+                                                .unwrap_or_else(|| policy.limits());
                                             policy
-                                                .restrict(child.options.as_ref().and_then(|options| options.allowed.as_deref()))
+                                                .restrict(child.options.as_ref().and_then(|options| options.allowed.as_deref()), limits)
+                                                .map(|policy| policy.restrict_offline(child_offline))
                                                 .map(Some)
                                                 .map_err(|source| ConfigurationModuleError::Policy {
                                                     module: nested_path.join("::"),
@@ -1158,7 +1192,6 @@ impl Config {
                                             let inherited = Self::merge(variables.as_ref(), module.variables.as_ref(), None);
                                             child.resolve_at(
                                                 child_source,
-                                                source_root,
                                                 dry_run,
                                                 child_offline,
                                                 ancestors.clone(),
@@ -1167,17 +1200,19 @@ impl Config {
                                                 child_policy,
                                                 inherited,
                                                 output.clone(),
+                                                cache.clone(),
                                             )
                                         })
                                     })
                                     .map(|child| {
                                         modules.extend(child.modules);
+                                        acquisitions.extend(child.acquisitions);
                                         child.requirements.into_iter().for_each(|requirement| {
                                             if !requirements.contains(&requirement) {
                                                 requirements.push(requirement);
                                             }
                                         });
-                                        (modules, requirements)
+                                        (modules, requirements, acquisitions)
                                     }),
                                 }
                             }
@@ -1191,6 +1226,7 @@ impl Config {
                                         }
                                     }
                                     module.module_path = path.iter().chain(once(&module.name)).cloned().collect();
+                                    module.acquisition_policy = policy.clone();
                                     module.variables = Self::merge(variables.as_ref(), module.variables.as_ref(), None);
                                     if let Some(output) = output.as_ref() {
                                         module
@@ -1200,12 +1236,13 @@ impl Config {
                                             .or_insert_with(|| Value::String(output.clone()));
                                     }
                                     modules.push(module);
-                                    (modules, requirements)
+                                    (modules, requirements, acquisitions)
                                 })
                             }
                         },
                     )
-                    .map(|(modules, requirements)| Self {
+                    .map(|(modules, requirements, acquisitions)| Self {
+                        acquisitions,
                         modules,
                         requirements,
                         ..self
@@ -1222,36 +1259,32 @@ impl Config {
     fn validate_nested_leaf(
         module: &Module,
         source: &ConfigurationSource,
-        offline: bool,
+        _offline: bool,
         path: &[String],
-        policy: Option<&RemotePolicy>,
+        policy: Option<&AcquisitionPolicy>,
     ) -> Result<(), ConfigurationModuleError> {
         let location = match &module.module_type {
-            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => uri,
+            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri, .. } | ModuleType::Script { uri, .. } => uri,
         };
         let module_path = path.iter().chain(once(&module.name)).cloned().collect::<Vec<_>>().join("::");
-        match (path.is_empty(), source, ModuleUri::from(location), offline, policy) {
-            | (true, _, _, _, _) | (_, ConfigurationSource::File(_) | ConfigurationSource::Git { .. }, ModuleUri::File(_), _, _) => Ok(()),
-            | (false, ConfigurationSource::Http(_), ModuleUri::File(_), _, _) | (false, _, ModuleUri::Unknown(_), _, _) => {
+        match (path.is_empty(), source, ModuleUri::from(location), policy) {
+            | (true, _, _, _) | (_, ConfigurationSource::File(_) | ConfigurationSource::Git { .. }, ModuleUri::File(_), _) => Ok(()),
+            | (false, ConfigurationSource::Http { .. }, ModuleUri::File(_), _) | (false, _, ModuleUri::Unknown(_), _) => {
                 Err(ConfigurationModuleError::Source {
                     module: module_path,
                     uri: <&str>::from(location).to_string(),
                 })
             }
-            | (false, _, ModuleUri::Url(_), true, _) => Err(ConfigurationModuleError::Remote {
-                module: module_path,
-                reason: format!("offline mode disallows {}", <&str>::from(location)),
-            }),
-            | (false, _, ModuleUri::Url(_), false, Some(policy)) => {
-                policy
-                    .ensure_allowed(location.into())
+            | (false, _, ModuleUri::Url(_), Some(policy)) => {
+                module
+                    .acquisition_plan(policy)
                     .map(|_| ())
                     .map_err(|source| ConfigurationModuleError::Remote {
                         module: module_path,
                         reason: source.to_string(),
                     })
             }
-            | (false, _, ModuleUri::Url(_), false, None) => Err(ConfigurationModuleError::Source {
+            | (false, _, ModuleUri::Url(_), None) => Err(ConfigurationModuleError::Source {
                 module: module_path,
                 uri: <&str>::from(location).to_string(),
             }),
@@ -1321,13 +1354,13 @@ impl ConfigurationSource {
         match self {
             | Self::File(path) => canonicalize(path).unwrap_or_else(|_| path.clone()).display().to_string(),
             | Self::Git { identity, .. } => identity.clone(),
-            | Self::Http(uri) => uri.clone(),
+            | Self::Http { identity } => identity.clone(),
         }
     }
     fn path(&self) -> Option<&Path> {
         match self {
             | Self::File(path) | Self::Git { path, .. } => Some(path),
-            | Self::Http(_) => None,
+            | Self::Http { .. } => None,
         }
     }
 }
@@ -1341,221 +1374,137 @@ impl From<ConfigFormat> for MimeType {
     }
 }
 impl Module {
-    fn prepare_binary(&self, uri: &str, checksum: Option<&str>, options: &ConfigOptions, policy: &RemotePolicy) -> Result<PathBuf, String> {
-        match ModuleUri::from(&acorn_core::Location::from(uri)) {
-            | ModuleUri::Url(value) if matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS) => {
-                let url = value.to_string();
-                policy
-                    .ensure_allowed(&url)
-                    .map_err(|why| self.remote_error(&url, &why.to_string()))
-                    .and_then(|_| self.skip_or_reject_offline(&url, options))
-                    .and_then(|skip| match skip {
-                        | true => Ok(PathBuf::from(uri)),
-                        | false => policy
-                            .probe_http(&url)
-                            .map_err(|why| self.remote_error(&url, &why.to_string()))
-                            .and_then(|()| {
-                                debug!(module = self.name, url = redact_url(&url), "=> {} Remote binary", Label::found());
-                                match options.dry_run.unwrap_or_default() {
-                                    | true => {
-                                        info!(
-                                            module = self.name,
-                                            url = redact_url(&url),
-                                            "=> {} Download remote binary",
-                                            Label::dry_run()
-                                        );
-                                        Ok(PathBuf::from(uri))
-                                    }
-                                    | false => options
-                                        .root
-                                        .as_deref()
-                                        .ok_or_else(|| format!("module {} has no run root directory", self.name))
-                                        .and_then(|root| policy.download(&url, root).map_err(|why| self.remote_error(&url, &why.to_string())))
-                                        .and_then(|output| self.verify_downloaded_binary(&url, checksum, output.clone(), options).map(|()| output)),
-                                }
-                            }),
-                    })
-            }
-            | ModuleUri::Url(_) => Err(format!("module {} uses unsupported remote binary URI {}", self.name, redact_url(uri))),
-            | ModuleUri::File(path) => match path.try_exists() {
-                | Ok(true) if options.dry_run.unwrap_or_default() => {
-                    info!(
-                        module = self.name,
-                        path = path.display().to_string(),
-                        "=> {} Validate local binary",
-                        Label::dry_run()
-                    );
-                    Ok(path)
-                }
-                | Ok(true) => {
-                    debug!(
-                        module = self.name,
-                        path = path.display().to_string(),
-                        "=> {} Local binary",
-                        Label::found()
-                    );
-                    match make_executable(path.clone()) {
-                        | Ok(()) => {
-                            info!(
-                                module = self.name,
-                                path = path.display().to_string(),
-                                "=> {} Binary is executable",
-                                Label::pass()
-                            );
-                            Ok(path)
-                        }
-                        | Err(why) => Err(format!("module {} binary is not executable at {}: {why}", self.name, path.display())),
-                    }
-                }
-                | Ok(false) => Err(format!("module {} local binary was not found: {}", self.name, path.display())),
-                | Err(why) => Err(format!(
-                    "module {} local binary cannot be inspected at {}: {why}",
-                    self.name,
-                    path.display()
-                )),
+    pub(crate) fn acquisition_plan(&self, policy: &AcquisitionPolicy) -> Result<AcquisitionPlan, AcquisitionError> {
+        let source = match &self.module_type {
+            | ModuleType::Binary { checksum, uri } => match ModuleUri::from(uri) {
+                | ModuleUri::File(path) => Ok(AcquisitionSource::Local { path }),
+                | ModuleUri::Url(url) => match policy.checksum_verification_disabled() {
+                    | true => Ok(AcquisitionSource::HttpBinaryUnverified { url: url.to_string() }),
+                    | false => Ok(AcquisitionSource::HttpBinary {
+                        sha256: checksum.clone().unwrap_or_default(),
+                        url: url.to_string(),
+                    }),
+                },
+                | ModuleUri::Unknown(value) => Err(AcquisitionError::Identity {
+                    value,
+                    reason: "module URI must be a local file, HTTP(S) binary, or commit-pinned Git repository",
+                }),
             },
-            | ModuleUri::Unknown(_) => Err(format!("module {} has invalid binary URI: {uri}", self.name)),
-        }
-    }
-    fn verify_downloaded_binary(&self, url: &str, checksum: Option<&str>, output: PathBuf, options: &ConfigOptions) -> Result<(), String> {
-        let verification = match options.skip_verify_checksum.unwrap_or_default() {
-            | true => {
-                warn!(
-                    module = self.name,
-                    url = redact_url(url),
-                    "=> {} Skipping checksum verification",
-                    Label::pass()
-                );
-                Ok(())
-            }
-            | false => {
-                let calculated = file_checksum(output.clone(), None);
-                let expected = checksum.map(Checksum::from);
-                match (checksum, expected.as_ref(), calculated.as_ref()) {
-                    | (Some(_), Some(expected), Ok(calculated))
-                        if expected.algorithm == calculated.algorithm && expected.checksum_value == calculated.checksum_value =>
-                    {
-                        info!(
-                            module = self.name,
-                            url = redact_url(url),
-                            algorithm = %calculated.algorithm,
-                            "=> {} Checksum verified",
-                            Label::pass()
-                        );
-                        Ok(())
-                    }
-                    | (Some(value), _, Ok(calculated)) => Err(format!(
-                        "module {} checksum {value} does not match {}:{} for {}",
-                        self.name,
-                        calculated.algorithm,
-                        calculated.checksum_value,
-                        redact_url(url)
-                    )),
-                    | (Some(value), _, Err(why)) => Err(format!(
-                        "module {} could not calculate checksum {value} for {}: {why}",
-                        self.name,
-                        redact_url(url)
-                    )),
-                    | (None, _, _) => Err(format!("module {} requires a checksum for {}", self.name, redact_url(url))),
-                }
-            }
+            | ModuleType::Configuration { checksum, uri } => match ModuleUri::from(uri) {
+                | ModuleUri::File(path) => Ok(AcquisitionSource::Local { path }),
+                | ModuleUri::Url(url) if Config::is_remote_document(&url.to_string()) => Ok(AcquisitionSource::HttpDocument {
+                    sha256: checksum.clone().unwrap_or_default(),
+                    url: url.to_string(),
+                }),
+                | ModuleUri::Url(url) => Ok(AcquisitionSource::Git {
+                    commit: Config::revision(uri).cloned().unwrap_or_default(),
+                    url: url.to_string(),
+                }),
+                | ModuleUri::Unknown(value) => Err(AcquisitionError::Identity {
+                    value,
+                    reason: "configuration URI must be a local file, digest-pinned HTTP(S) document, or commit-pinned Git repository",
+                }),
+            },
+            | ModuleType::Script { uri, .. } => match ModuleUri::from(uri) {
+                | ModuleUri::File(path) => Ok(AcquisitionSource::Local { path }),
+                | ModuleUri::Url(url) => Ok(AcquisitionSource::Git {
+                    commit: Config::revision(uri).cloned().unwrap_or_default(),
+                    url: url.to_string(),
+                }),
+                | ModuleUri::Unknown(value) => Err(AcquisitionError::Identity {
+                    value,
+                    reason: "script URI must be a local file or commit-pinned Git repository",
+                }),
+            },
         };
-        verification.and_then(|()| match make_executable(output) {
-            | Ok(()) => {
-                info!(
-                    module = self.name,
-                    url = redact_url(url),
-                    "=> {} Downloaded binary is executable",
-                    Label::pass()
-                );
-                Ok(())
-            }
-            | Err(why) => Err(format!(
-                "module {} downloaded binary is not executable for {}: {why}",
-                self.name,
-                redact_url(url)
-            )),
-        })
+        source.and_then(|source| AcquisitionPlan::build(self.module_path.clone(), source, policy))
     }
-    fn prepare_script(&self, uri: &str, python: bool, options: &ConfigOptions, policy: &RemotePolicy) -> Result<PathBuf, String> {
-        match ModuleUri::from(&acorn_core::Location::from(uri)) {
-            | ModuleUri::Url(value)
-                if matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS)
-                    || value.scheme().as_str().eq_ignore_ascii_case("ssh") =>
-            {
-                let url = value.to_string();
-                policy
-                    .ensure_allowed(&url)
-                    .map_err(|why| self.remote_error(&url, &why.to_string()))
-                    .and_then(|_| self.skip_or_reject_offline(&url, options))
-                    .and_then(|skip| match skip {
-                        | true => Ok(PathBuf::from(uri)),
-                        | false => policy
-                            .probe_git(&url)
-                            .map_err(|why| self.remote_error(&url, &why.to_string()))
-                            .and_then(|()| {
-                                debug!(
-                                    module = self.name,
-                                    url = redact_url(&url),
-                                    "=> {} Remote script repository",
-                                    Label::found()
-                                );
-                                options
-                                    .root
-                                    .as_ref()
-                                    .ok_or_else(|| format!("module {} has no run root directory", self.name))
-                                    .and_then(|root| {
-                                        let current_dir = absolute_path(root);
-                                        module_working_directory(uri, Some(root))
-                                            .ok_or_else(|| format!("module {} has invalid URI: {}", self.name, redact_url(uri)))
-                                            .map(|module_root| (current_dir, module_root))
-                                    })
-                                    .and_then(|(current_dir, module_root)| {
-                                        match Script::maybe_git_clone(uri.to_string(), current_dir) {
-                                            | Some(script) if options.dry_run.unwrap_or_default() => {
-                                                info!(
-                                                    module = self.name,
-                                                    script = script.to_string(),
-                                                    cwd = script.current_dir,
-                                                    "=> {}",
-                                                    Label::dry_run()
-                                                );
-                                                Ok(module_root.into())
-                                            }
-                                            | Some(script) => {
-                                                script.run_checked().map(|_| PathBuf::from(&module_root)).map_err(|why| why.to_string())
-                                            }
-                                            | None => Ok(module_root.into()),
-                                        }
-                                        .and_then(|module_root| match python {
-                                            | true => self.prepare_python_environment(&module_root, options).map(|()| module_root),
-                                            | false => Ok(module_root),
-                                        })
-                                    })
-                            }),
-                    })
-            }
-            | ModuleUri::Url(_) => Err(format!("module {} uses unsupported remote script URI {}", self.name, redact_url(uri))),
-            | ModuleUri::File(path) => match path.try_exists() {
-                | Ok(true) => {
-                    let path = absolute_path(path);
-                    debug!(module = self.name, path, "=> {} Local script repository", Label::found());
-                    match python {
-                        | true => self
-                            .prepare_python_environment(&PathBuf::from(&path), options)
-                            .map(|()| PathBuf::from(path)),
-                        | false => Ok(PathBuf::from(path)),
-                    }
-                }
-                | Ok(false) => Err(format!("module {} local script was not found: {}", self.name, path.display())),
-                | Err(why) => Err(format!(
-                    "module {} local script cannot be inspected at {}: {why}",
-                    self.name,
-                    path.display()
-                )),
-            },
-            | ModuleUri::Unknown(_) => Err(format!("module {} has invalid script URI: {uri}", self.name)),
+    pub(crate) fn effective_acquisition_policy(&self, options: &ConfigOptions) -> Result<AcquisitionPolicy, AcquisitionError> {
+        self.acquisition_policy
+            .clone()
+            .or_else(|| options.acquisition_policy.clone())
+            .map_or_else(
+                || {
+                    AcquisitionPolicy::from_hosts(
+                        options.allowed.as_deref(),
+                        options.allow_insecure_http,
+                        None,
+                        options.offline.unwrap_or_default(),
+                        options.acquisition_limits.clone().unwrap_or_default(),
+                    )
+                },
+                Ok,
+            )
+            .map(|policy| policy.with_checksum_verification_disabled(options.skip_verify_checksum.unwrap_or_default()))
+    }
+    fn materialize_source(&self, source: &Path, module_root: &Path) -> Result<PathBuf, String> {
+        match &self.module_type {
+            | ModuleType::Binary { .. } => create_dir_all(module_root)
+                .map_err(|why| format!("create module workspace {}: {why}", module_root.display()))
+                .and_then(|()| SafePath::new("module").map_err(|why| why.to_string()))
+                .and_then(|destination| materialize(source, module_root, &destination).map_err(|why| why.to_string())),
+            | ModuleType::Script { .. } => module_root.parent().zip(module_root.file_name()).map_or_else(
+                || Err(format!("module {} has no workspace-relative materialization path", self.name)),
+                |(root, name)| {
+                    SafePath::new(name)
+                        .map_err(|why| why.to_string())
+                        .and_then(|destination| materialize(source, root, &destination).map_err(|why| why.to_string()))
+                },
+            ),
+            | ModuleType::Configuration { .. } => Err(format!("module {} uses reserved configuration module type", self.name)),
         }
+    }
+    fn prepare_at(&self, module_root: &Path, options: &ConfigOptions, prepare_environment: bool) -> Result<(Self, PathBuf), String> {
+        self.effective_acquisition_policy(options)
+            .map_err(|why| why.to_string())
+            .and_then(|policy| self.acquisition_plan(&policy).map(|plan| (policy, plan)).map_err(|why| why.to_string()))
+            .and_then(|(policy, plan)| match options.dry_run.unwrap_or_default() {
+                | true => {
+                    info!(module = self.name, source = %plan.source, action = ?plan.action, "=> {}", Label::dry_run());
+                    let path = match &plan.source {
+                        | AcquisitionSource::Local { path } => path.clone(),
+                        | AcquisitionSource::Git { url, .. }
+                        | AcquisitionSource::HttpBinary { url, .. }
+                        | AcquisitionSource::HttpBinaryUnverified { url }
+                        | AcquisitionSource::HttpDocument { url, .. } => PathBuf::from(url),
+                    };
+                    Ok((self.clone(), path))
+                }
+                | false => {
+                    let acquired = match &plan.source {
+                        | AcquisitionSource::Local { path } => Ok((path.clone(), None)),
+                        | AcquisitionSource::Git { .. }
+                        | AcquisitionSource::HttpBinary { .. }
+                        | AcquisitionSource::HttpBinaryUnverified { .. }
+                        | AcquisitionSource::HttpDocument { .. } => options
+                            .acquisition_cache
+                            .clone()
+                            .map_or_else(AcquisitionCache::system, Ok)
+                            .and_then(|cache| AcquisitionExecutor::new(policy, cache).execute(&plan))
+                            .map(|result| (result.path, Some(result.evidence))),
+                    };
+                    acquired
+                        .map_err(|why| why.to_string())
+                        .and_then(|(source, evidence)| self.materialize_source(&source, module_root).map(|path| (path, evidence)))
+                        .and_then(|(path, evidence)| match &self.module_type {
+                            | ModuleType::Binary { .. } => make_executable(path.clone())
+                                .map_err(|why| format!("module {} binary is not executable at {}: {why}", self.name, path.display()))
+                                .map(|()| (path, evidence)),
+                            | ModuleType::Script { programming_language, .. }
+                                if prepare_environment && matches!(programming_language, Some(ModuleLanguage::Python)) =>
+                            {
+                                self.prepare_python_environment(&path, options).map(|()| (path, evidence))
+                            }
+                            | ModuleType::Configuration { .. } | ModuleType::Script { .. } => Ok((path, evidence)),
+                        })
+                        .map(|(path, evidence)| {
+                            let mut prepared = self.clone();
+                            prepared.acquisition = evidence;
+                            prepared.set_uri(path.clone());
+                            (prepared, path)
+                        })
+                }
+            })
     }
     fn prepare_python_environment(&self, module_root: &Path, options: &ConfigOptions) -> Result<(), String> {
         let module_root = module_root.display().to_string();
@@ -1597,62 +1546,19 @@ impl Module {
                 })
             })
     }
-    fn materialize_local(&self, module_root: &Path) -> Result<Option<PathBuf>, String> {
-        let source = match &self.module_type {
-            | ModuleType::Binary { uri, .. } | ModuleType::Script { uri, .. } => match ModuleUri::from(uri) {
-                | ModuleUri::File(path) => Some(path),
-                | ModuleUri::Unknown(_) | ModuleUri::Url(_) => None,
-            },
-            | ModuleType::Configuration { .. } => None,
-        };
-        source.map_or(Ok(None), |source| {
-            let destination = match &self.module_type {
-                | ModuleType::Binary { .. } => SafePath::new("module")
-                    .map(|destination| (module_root, destination))
-                    .map_err(|why| why.to_string()),
-                | ModuleType::Configuration { .. } | ModuleType::Script { .. } => module_root.parent().zip(module_root.file_name()).map_or_else(
-                    || Err(format!("module {} has no workspace-relative materialization path", self.name)),
-                    |(root, name)| SafePath::new(name).map(|destination| (root, destination)).map_err(|why| why.to_string()),
-                ),
-            };
-            destination.and_then(|(root, destination)| materialize(&source, root, &destination).map_err(|why| why.to_string()).map(Some))
-        })
-    }
     fn set_uri(&mut self, path: PathBuf) {
         let uri = Location::from(format!("file:{}", path.display()).as_str());
         match &mut self.module_type {
-            | ModuleType::Binary { uri: value, .. } | ModuleType::Configuration { uri: value } | ModuleType::Script { uri: value, .. } => {
+            | ModuleType::Binary { uri: value, .. } | ModuleType::Configuration { uri: value, .. } | ModuleType::Script { uri: value, .. } => {
                 *value = uri
             }
         }
-    }
-    fn skip_or_reject_offline(&self, url: &str, options: &ConfigOptions) -> Result<bool, String> {
-        match (options.offline.unwrap_or_default(), options.dry_run.unwrap_or_default()) {
-            | (false, _) => Ok(false),
-            | (true, true) => {
-                info!(
-                    module = self.name,
-                    url = redact_url(url),
-                    "=> {} Remote module skipped in offline dry run",
-                    Label::dry_run()
-                );
-                Ok(true)
-            }
-            | (true, false) => Err(format!(
-                "module {} remote source is unavailable in offline mode: {}",
-                self.name,
-                redact_url(url)
-            )),
-        }
-    }
-    fn remote_error(&self, url: &str, why: &str) -> String {
-        format!("module {} remote source {} failed: {why}", self.name, redact_url(url))
     }
 }
 impl Module {
     fn absolutize(&mut self, source: &Path) {
         let uri = match &mut self.module_type {
-            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => uri,
+            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri, .. } | ModuleType::Script { uri, .. } => uri,
         };
         if let Some(value) = ModuleUri::from(uri).absolutize(source) {
             *uri = value;

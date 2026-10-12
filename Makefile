@@ -39,9 +39,17 @@ lint:
 	@cargo fmt --verbose
 	@cargo clippy --no-deps --all-targets --fix --allow-dirty
 	@hadolint sandbox/runner/Containerfile sandbox/runner/geospatial/Containerfile
+	@shellcheck scripts/install-appimage-tools.sh scripts/install-zigbuild.sh scripts/package-linux.sh scripts/upload-binaries.sh
 	@sh -n scripts/check-process-spawns.sh
 	@sh scripts/check-process-spawns.sh
 	@sh -n scripts/check-rootless-sandbox.sh
+	@sh -n scripts/install-appimage-tools.sh scripts/install-zigbuild.sh scripts/package-linux.sh scripts/upload-binaries.sh
+
+linux-packages:
+	@$(MUSL_BUILD) --release --package xylem-cli --target $(DEFAULT_TARGET)
+	@$(MUSL_BUILD) --release --package xylem-cli --target $(DEFAULT_ARM64_TARGET)
+	@./scripts/package-linux.sh $(VERSION) $(DEFAULT_TARGET) amd64 x86_64
+	@./scripts/package-linux.sh $(VERSION) $(DEFAULT_ARM64_TARGET) arm64 aarch64
 
 test:
 	@cargo nextest run
@@ -80,14 +88,20 @@ publish-book: book
 publish-crates:
 	@cargo xtask publish-crates
 
+release-checksums:
+	@$(call WRITE_SHA256,./bin/xylem-v$(VERSION))
+	@$(call WRITE_SHA256,./bin/xylem-v$(VERSION).exe)
+
 version: 
 	@cargo xtask version
 #
 # Variables
 #
+DEFAULT_ARM64_TARGET = aarch64-unknown-linux-musl
 VERSION = `awk -F ' = ' '$$1 == "version" { gsub(/["\r]/, "", $$2); print $$2; exit }' Cargo.toml`
 DEFAULT_TARGET = `awk -F ' = ' '$$1 ~ /default-target/ { gsub(/["]/, "", $$2); printf("%s",$$2) }' Cargo.toml | tr . _`
 DEFAULT_WINDOWS_TARGET = x86_64-pc-windows-gnu
+MUSL_BUILD ?= cargo build
 DEV_DEPENDENCIES = \
 	cargo-audit@0.22.2 \
 	cargo-deny@0.20.2 \
@@ -122,11 +136,14 @@ TASKS = \
 	help \
 	homebrew-formula \
 	lint \
+	linux-packages \
 	publish-book \
 	publish-crates \
+	release-checksums \
 	setup \
 	test \
 	test-ci \
 	version
+WRITE_SHA256 = file="$(1)"; directory="$$(dirname -- "$$file")"; name="$$(basename -- "$$file")"; if command -v sha256sum >/dev/null 2>&1; then (cd "$$directory" && sha256sum "$$name" > "$$name.sha256"); elif command -v shasum >/dev/null 2>&1; then (cd "$$directory" && shasum -a 256 "$$name" > "$$name.sha256"); else echo "A SHA-256 utility (sha256sum or shasum) is required" >&2; exit 1; fi
 
 .PHONY: $(TASKS)

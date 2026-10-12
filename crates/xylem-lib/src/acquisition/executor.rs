@@ -17,6 +17,12 @@ impl AcquisitionExecutor {
                 value: plan.source.to_string(),
                 reason: "local sources are not executed by the acquisition cache",
             }),
+            | AcquisitionAction::Download if matches!(&plan.source, AcquisitionSource::HttpBinaryUnverified { .. }) => match self.policy.offline {
+                | true => Err(AcquisitionError::Offline {
+                    remote: plan.source.to_string(),
+                }),
+                | false => self.download(plan),
+            },
             | AcquisitionAction::Download | AcquisitionAction::FetchGit => self.cache.lookup(plan).and_then(|entry| match entry {
                 | Some(entry) => Ok(entry.result(plan, &self.policy, AcquisitionCacheStatus::Hit)),
                 | None if self.policy.offline => Err(AcquisitionError::Offline {
@@ -32,15 +38,27 @@ impl AcquisitionExecutor {
     }
     fn download(&self, plan: &AcquisitionPlan) -> Result<AcquisitionResult, AcquisitionError> {
         let request = match &plan.source {
-            | AcquisitionSource::HttpBinary { sha256, url } => Ok((sha256, &plan.limits.binary, url)),
-            | AcquisitionSource::HttpDocument { sha256, url } => Ok((sha256, &plan.limits.document, url)),
+            | AcquisitionSource::HttpBinary { sha256, url } => Ok((Some(sha256.as_str()), &plan.limits.binary, url)),
+            | AcquisitionSource::HttpBinaryUnverified { url } => Ok((None, &plan.limits.binary, url)),
+            | AcquisitionSource::HttpDocument { sha256, url } => Ok((Some(sha256.as_str()), &plan.limits.document, url)),
             | AcquisitionSource::Git { .. } | AcquisitionSource::Local { .. } => Err(AcquisitionError::Identity {
                 value: plan.source.to_string(),
                 reason: "HTTP executor received a non-HTTP source",
             }),
         };
         request.and_then(|(expected, maximum, url)| {
-            self.cache.staging(plan).and_then(|staging| {
+            match expected {
+                | Some(_) => self.cache.staging(plan),
+                | None => {
+                    tracing::warn!(
+                        module_path = ?plan.module_path,
+                        remote = %redact_url(url),
+                        "checksum verification disabled — I hope you know what you're doing"
+                    );
+                    self.cache.staging_unverified(&plan.source)
+                }
+            }
+            .and_then(|staging| {
                 let payload = staging.path.join("payload");
                 self.policy
                     .http_client()
@@ -52,21 +70,32 @@ impl AcquisitionExecutor {
                             .map_err(|source| request_error("request remote source", url, source))
                     })
                     .and_then(|response| stream_response(response, url, &payload, maximum.checked_bytes().unwrap_or_default(), expected))
-                    .and_then(|bytes| {
-                        let manifest = CacheManifest {
-                            acquired_at_unix_seconds: now_seconds(),
-                            bytes,
-                            entries: 1,
-                            identity: plan.identity.clone().unwrap_or_else(|| AcquisitionIdentity::Sha256 {
-                                digest: expected.to_string(),
-                            }),
-                            source: redact_url(url),
-                            tree_digest: None,
-                            version: ACQUISITION_CACHE_VERSION,
-                        };
-                        self.cache
-                            .publish(plan, staging, manifest)
-                            .map(|entry| entry.result(plan, &self.policy, AcquisitionCacheStatus::Miss))
+                    .and_then(|(bytes, calculated)| {
+                        match expected {
+                            | Some(_) => Ok(plan.clone()),
+                            | None => AcquisitionPlan::build(
+                                plan.module_path.clone(),
+                                AcquisitionSource::HttpBinary {
+                                    sha256: calculated.clone(),
+                                    url: url.clone(),
+                                },
+                                &self.policy,
+                            ),
+                        }
+                        .and_then(|resolved| {
+                            let manifest = CacheManifest {
+                                acquired_at_unix_seconds: now_seconds(),
+                                bytes,
+                                entries: 1,
+                                identity: resolved.identity.clone().unwrap_or(AcquisitionIdentity::Sha256 { digest: calculated }),
+                                source: redact_url(url),
+                                tree_digest: None,
+                                version: ACQUISITION_CACHE_VERSION,
+                            };
+                            self.cache
+                                .publish(&resolved, staging, manifest)
+                                .map(|entry| entry.result(&resolved, &self.policy, AcquisitionCacheStatus::Miss))
+                        })
                     })
             })
         })
@@ -74,12 +103,13 @@ impl AcquisitionExecutor {
     fn fetch_git(&self, plan: &AcquisitionPlan) -> Result<AcquisitionResult, AcquisitionError> {
         let request = match &plan.source {
             | AcquisitionSource::Git { commit, url } => Ok((commit, url)),
-            | AcquisitionSource::HttpBinary { .. } | AcquisitionSource::HttpDocument { .. } | AcquisitionSource::Local { .. } => {
-                Err(AcquisitionError::Identity {
-                    value: plan.source.to_string(),
-                    reason: "Git executor received a non-Git source",
-                })
-            }
+            | AcquisitionSource::HttpBinary { .. }
+            | AcquisitionSource::HttpBinaryUnverified { .. }
+            | AcquisitionSource::HttpDocument { .. }
+            | AcquisitionSource::Local { .. } => Err(AcquisitionError::Identity {
+                value: plan.source.to_string(),
+                reason: "Git executor received a non-Git source",
+            }),
         };
         request.and_then(|(commit, url)| {
             self.cache.staging(plan).and_then(|staging| {

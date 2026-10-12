@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Xylem
+Comment=Run and monitor research data workflows
+Exec=xylem tui
+Icon=gov.ornl.xylem
+Terminal=true
+Categories=Science;Utility;
+Keywords=research;workflow;automation;data;

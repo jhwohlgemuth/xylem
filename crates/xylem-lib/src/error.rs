@@ -4,14 +4,7 @@ use core::fmt;
 use std::io;
 use std::path::PathBuf;
 
-/// Failure while preparing modules for execution.
-#[derive(Debug)]
-pub enum AcquisitionError {
-    /// A module could not be acquired or prepared.
-    Module { module: String, source: io::Error },
-    /// The configured remote-host policy is invalid.
-    Policy { source: io::Error },
-}
+pub use crate::acquisition::AcquisitionError;
 
 /// Failure while resolving a configured module into an executable script.
 #[derive(Debug)]
@@ -81,23 +74,6 @@ pub enum TemplateError {
 pub struct RequirementError {
     /// Executable name that was not found.
     pub command: String,
-}
-
-impl core::error::Error for AcquisitionError {
-    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
-        match self {
-            | Self::Module { source, .. } | Self::Policy { source } => Some(source),
-        }
-    }
-}
-
-impl fmt::Display for AcquisitionError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            | Self::Module { module, source } => write!(formatter, "prepare module {module}: {source}"),
-            | Self::Policy { source } => write!(formatter, "configure remote module policy: {source}"),
-        }
-    }
 }
 
 impl core::error::Error for ModuleLoadError {

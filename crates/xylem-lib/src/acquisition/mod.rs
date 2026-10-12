@@ -45,7 +45,7 @@ static STAGING_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AcquisitionAction {
-    /// Fetch an HTTP(S) resource and verify its digest.
+    /// Fetch an HTTP(S) resource and record its digest.
     Download,
     /// Fetch and verify an immutable Git commit.
     FetchGit,
@@ -103,6 +103,15 @@ pub enum AcquisitionError {
         maximum: u64,
         /// Observed value.
         observed: u64,
+    },
+    /// A module could not be acquired or prepared.
+    #[error("prepare module {module}: {source}")]
+    Module {
+        /// Configured module name.
+        module: String,
+        /// Underlying preparation failure.
+        #[source]
+        source: io::Error,
     },
     /// Offline policy prohibited a cache miss.
     #[error("offline acquisition cache miss for {remote}")]
@@ -181,6 +190,11 @@ pub enum AcquisitionSource {
     HttpBinary {
         /// Expected algorithm-qualified lowercase SHA-256 digest.
         sha256: String,
+        /// HTTP(S) source URL.
+        url: String,
+    },
+    /// HTTP(S) executable bytes acquired through the explicit checksum escape hatch.
+    HttpBinaryUnverified {
         /// HTTP(S) source URL.
         url: String,
     },
@@ -281,6 +295,7 @@ pub struct AcquisitionPolicy {
     limits: AcquisitionLimits,
     offline: bool,
     remote: RemotePolicy,
+    skip_checksum_verification: bool,
 }
 /// Non-secret policy decisions retained with acquisition provenance.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -291,6 +306,8 @@ pub struct AcquisitionPolicyEvidence {
     pub git_ssh_enabled: bool,
     /// Whether execution prohibited cache misses from reaching the network.
     pub offline: bool,
+    /// Whether the operator disabled pre-download checksum verification.
+    pub skip_checksum_verification: bool,
 }
 /// Verified materialization and its auditable provenance.
 #[derive(Clone, Debug, PartialEq)]

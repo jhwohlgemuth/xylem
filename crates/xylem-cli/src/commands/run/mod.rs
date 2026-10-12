@@ -18,6 +18,7 @@ pub use failure::RunFailure;
 struct RunRequest<'a> {
     artifact_output: &'a Option<PathBuf>,
     cancellation: Option<RunCancellation>,
+    cli_allow_insecure_http: bool,
     cli_allowed: &'a Option<Vec<String>>,
     cli_container_cleanup: Option<ContainerCleanup>,
     cli_dry_run: bool,
@@ -50,6 +51,7 @@ pub fn run(
     cli_offline: bool,
     cli_resume: bool,
     cli_allowed: &Option<Vec<String>>,
+    cli_allow_insecure_http: bool,
     cli_skip_verify_checksum: bool,
     cli_skip_verify_requirements: bool,
     cli_container_cleanup: Option<ContainerCleanup>,
@@ -63,6 +65,7 @@ pub fn run(
     let request = RunRequest {
         artifact_output,
         cancellation,
+        cli_allow_insecure_http,
         cli_allowed,
         cli_container_cleanup,
         cli_dry_run,

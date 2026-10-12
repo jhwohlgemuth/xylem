@@ -167,14 +167,13 @@ The ignored conformance test remains available for collecting detailed native
 gateway evidence.
 
 The OCI lifecycle uses a separate preparation container and execution
-container for every admitted input. Preparation verifies workflow requirements
-inside the pinned workload and supports local or HTTP(S) generic scripts,
-binaries, and Python modules. HTTP(S) script modules are acquired as Git
-repositories; HTTP(S) binaries are downloaded without redirects and verified
-against their configured checksum unless checksum verification is explicitly
-disabled. Python modules may prepare `environment.yml` with conda or mamba, or
-`pixi.toml` with pixi, when the selected workload provides the corresponding
-tool.
+container for every admitted input. Xylem first acquires and verifies remote
+sources through its content-addressed cache, then copies them into the owned
+input workspace. Sandbox providers receive only those materialized local
+sources; they do not contain a second URL-download or floating-Git path.
+Preparation verifies workflow requirements inside the pinned workload and may
+prepare `environment.yml` with conda or mamba, or `pixi.toml` with pixi, when
+the selected workload provides the corresponding tool.
 
 Preparation receives only read-only module sources and bounded private
 storage. Its network is either denied or unrestricted according to operator
@@ -263,7 +262,7 @@ so both fit concurrently within this budget. Reuse this model only for the
 measured module revisions and order; a different workflow needs its own
 identity and evidence.
 
-Execution-plan schema v12 records artifact publication and lifecycle intent, the budget,
+Execution-plan schema v13 records artifact publication, acquisition, and lifecycle intent, the budget,
 complete estimator, and one
 read-only sizing decision per resolved input. A regular file is sized by its
 logical length; a directory is sized as the checked sum of its recursively
@@ -352,7 +351,7 @@ MiB per scalar. Exceeding any limit fails before workflow execution.
 
 A non-empty CLI `--input` list has precedence and bypasses selection request
 validation, root access, discovery, compilation, and evaluation. Dry-run uses
-the same read-only selection snapshot as execution. Execution-plan schema v12
+the same read-only selection snapshot as execution. Execution-plan schema v13
 records canonical options, limits, engine/interpreter identity, counts, and
 SHA-256 script and inventory digests without recording the script, configured
 variable values, or unselected inventory.
@@ -373,10 +372,11 @@ Use a `configuration` module to expand another workflow in place:
 ```
 
 Nested workflows expand depth-first to executable leaves. Local paths are
-relative to the declaring configuration. HTTP(S) `.json`, `.yaml`, and `.yml`
-locations are read directly; Git locations load repository-root `config.json`
-and may use the structured form
-`{"scheme":"https","uri":"https://example.org/workflow.git","revision":"v1.2.3"}`.
+relative to the declaring configuration. HTTP(S) `.json`, `.jsonc`, `.yaml`,
+and `.yml` locations require an algorithm-qualified `checksum` and are read
+only after SHA-256 verification. Git locations load repository-root
+`config.json` and require a full lowercase 40- or 64-hex commit ID, for example
+`{"scheme":"https","uri":"https://example.org/workflow.git","revision":"0123456789abcdef0123456789abcdef01234567"}`.
 
 The root input and run options remain authoritative. Variables merge in
 parent, wrapper, child, then leaf order; child outputs replace inherited output
@@ -411,11 +411,17 @@ example, `GREETING` is available as `_XYLEM_GREETING`.
 
 ## Options
 
-Configuration options include `batch`, `dry_run`, `gpu_monitor`, `offline`, `allowed`,
-`resume`, `skip_verify_checksum`, and `skip_verify_requirements`. Enabling a
+Configuration options include `acquisition_limits`, `allowed`, `batch`,
+`dry_run`, `gpu_monitor`, `offline`, `resume`, and
+`skip_verify_requirements`. Enabling a
 Boolean CLI flag overrides a false or absent configuration value. When
 supplied, `--allowed`, `--input`, and `--artifact-output` replace their
 configured values.
+
+Checksum verification can only be disabled by the operator-only
+`--skip-verify-checksum` flag. This emergency path applies to remote binaries,
+emits a warning, records the observed digest, and cannot satisfy an offline
+cache lookup because no trusted identity exists before download.
 
 `gpu_monitor` enables run-wide NVIDIA GPU telemetry at a fixed one-second
 interval. Xylem invokes `nvidia-smi` on the host, journals raw utilization and
@@ -459,19 +465,26 @@ module processes internally.
 
 Host matching is case-insensitive and does not support wildcards or domain
 suffix matching. A host without a port permits the default port for the URL's
-scheme; a non-default port must be listed explicitly. When this option is
-absent or empty, remote hosts remain unrestricted for backward compatibility.
-The allowlist is enforced before remote work and across HTTP redirects.
+scheme; a non-default port must be listed explicitly. An absent or empty list
+denies remote module acquisition. The allowlist is enforced before remote work
+and across HTTP redirects. HTTPS is the default remote transport;
+`--allow-insecure-http` is an operator-only capability for local development
+and cannot be enabled by a workflow.
 
-Unless `offline` is active, Xylem checks an HTTP(S) binary or Git repository
-for reachability before downloading or cloning it. The execution plan records
-the acquisition action without performing it. Dry-run does not create a run
-directory, probe the network, change permissions, spawn a process, or write an
-environment variable.
+`acquisition_limits` may tighten maximum document, binary, Git tree, Git
+staging, and process-output sizes; HTTP/Git timeouts; redirect count; and Git
+entry count. Nested workflows can only narrow inherited hosts and ceilings or
+enable offline mode.
 
-Nested workflows may only tighten the inherited allowlist and may enable
-offline mode. A remote configuration wrapper fails without making a request in
-dry-run mode; local wrappers still produce a complete flattened plan.
+Remote binaries and direct configuration documents require a lowercase
+`sha256:` digest. Git-backed scripts and configurations require a full
+immutable commit ID. Xylem acquires those identities into a verified immutable
+cache and copies content into the run workspace before execution. Offline mode
+uses only matching verified cache entries; a miss never falls through to the
+network. Dry-run validates the acquisition plan and may inspect the cache, but
+does not connect, invoke Git, create a destination, change permissions, or
+populate the cache. A cached remote configuration wrapper can therefore be
+flattened during dry-run; a cache miss is reported without a request.
 
 See the repository's
 [module specification](https://code.ornl.gov/research-enablement/xylem/-/blob/main/MODULE_SPEC.md)

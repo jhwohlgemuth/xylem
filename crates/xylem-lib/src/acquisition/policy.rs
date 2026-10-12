@@ -19,7 +19,7 @@ impl AcquisitionLimits {
             process_output: minimum_memory(&self.process_output, &child.process_output),
         }
     }
-    fn validate(&self) -> Result<(), AcquisitionError> {
+    pub(crate) fn validate(&self) -> Result<(), AcquisitionError> {
         let invalid_memory = [
             ("binary", &self.binary),
             ("document", &self.document),
@@ -82,6 +82,7 @@ impl AcquisitionPlan {
                     Some(AcquisitionIdentity::Sha256 { digest: sha256.clone() }),
                     Some(sha256.strip_prefix("sha256:").unwrap_or(sha256).to_string()),
                 )),
+                | AcquisitionSource::HttpBinaryUnverified { .. } => Ok((AcquisitionAction::Download, None, None)),
                 | AcquisitionSource::Local { .. } => Ok((AcquisitionAction::UseLocal, None, None)),
             };
             planned.map(|(action, identity, cache_key)| Self {
@@ -124,29 +125,59 @@ impl AcquisitionPolicy {
                             limits,
                             offline,
                             remote,
+                            skip_checksum_verification: false,
                         })
                 })
         })
+    }
+    /// Enable the explicit operator escape hatch for HTTP binary checksums.
+    pub fn with_checksum_verification_disabled(self, disabled: bool) -> Self {
+        Self {
+            skip_checksum_verification: self.skip_checksum_verification || disabled,
+            ..self
+        }
+    }
+    /// Return whether the operator disabled pre-download checksum verification.
+    pub fn checksum_verification_disabled(&self) -> bool {
+        self.skip_checksum_verification
     }
     /// Return the effective resource ceilings.
     pub fn limits(&self) -> &AcquisitionLimits {
         &self.limits
     }
+    /// Return whether cache misses are prohibited from reaching the network.
+    pub fn offline(&self) -> bool {
+        self.offline
+    }
     /// Derive a nested policy that can only narrow hosts and resource ceilings.
     pub fn restrict(&self, hosts: Option<&[String]>, limits: &AcquisitionLimits) -> Result<Self, AcquisitionError> {
-        self.remote
-            .restrict_required(hosts)
-            .map(|remote| Self {
-                allow_insecure_http: self.allow_insecure_http,
-                git_ssh: self.git_ssh.clone(),
-                limits: self.limits.restrict(limits),
-                offline: self.offline,
-                remote,
-            })
-            .map_err(|source| AcquisitionError::Policy {
-                remote: "nested allowlist".to_string(),
-                reason: source.to_string(),
-            })
+        limits.validate().and_then(|()| {
+            self.remote
+                .restrict_required(hosts)
+                .map(|remote| Self {
+                    allow_insecure_http: self.allow_insecure_http,
+                    git_ssh: self.git_ssh.clone(),
+                    limits: self.limits.restrict(limits),
+                    offline: self.offline,
+                    remote,
+                    skip_checksum_verification: self.skip_checksum_verification,
+                })
+                .map_err(|source| AcquisitionError::Policy {
+                    remote: "nested allowlist".to_string(),
+                    reason: source.to_string(),
+                })
+        })
+    }
+    /// Preserve every capability while tightening offline behavior.
+    pub fn restrict_offline(&self, offline: bool) -> Self {
+        Self {
+            allow_insecure_http: self.allow_insecure_http,
+            git_ssh: self.git_ssh.clone(),
+            limits: self.limits.clone(),
+            offline: self.offline || offline,
+            remote: self.remote.clone(),
+            skip_checksum_verification: self.skip_checksum_verification,
+        }
     }
     pub(super) fn http_client(&self) -> Result<Client, AcquisitionError> {
         let remote = self.remote.clone();
@@ -226,6 +257,15 @@ impl AcquisitionPolicy {
                         })
                     })
                 }),
+            | AcquisitionSource::HttpBinaryUnverified { url } => match self.skip_checksum_verification {
+                | true => parse_url(url).and_then(|parsed| {
+                    validate_http_url(&self.remote, &parsed, self.allow_insecure_http).map_err(|source| AcquisitionError::Policy {
+                        remote: redact_url(url),
+                        reason: source.to_string(),
+                    })
+                }),
+                | false => Err(policy_error(url, "unverified HTTP requires that checksum-verification be disabled")),
+            },
             | AcquisitionSource::Local { .. } => Ok(()),
         }
     }
@@ -241,6 +281,7 @@ impl AcquisitionSource {
         match self {
             | Self::Git { .. } => "git",
             | Self::HttpBinary { .. } => "binary",
+            | Self::HttpBinaryUnverified { .. } => "binary",
             | Self::HttpDocument { .. } => "document",
             | Self::Local { .. } => "local",
         }
@@ -249,7 +290,9 @@ impl AcquisitionSource {
 impl fmt::Display for AcquisitionSource {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            | Self::Git { url, .. } | Self::HttpBinary { url, .. } | Self::HttpDocument { url, .. } => formatter.write_str(&redact_url(url)),
+            | Self::Git { url, .. } | Self::HttpBinary { url, .. } | Self::HttpBinaryUnverified { url } | Self::HttpDocument { url, .. } => {
+                formatter.write_str(&redact_url(url))
+            }
             | Self::Local { path } => path.display().fmt(formatter),
         }
     }

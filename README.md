@@ -12,9 +12,10 @@
 
 ## Installation
 
-The supported release target is static Linux (`x86_64-unknown-linux-musl`).
-Homebrew is tested on Linux and macOS. Windows builds are published for early
-use, but rigorous macOS and Windows support remains on the roadmap.
+The supported release targets are Linux x86_64 and ARM64 Debian packages and
+AppImages, plus a standalone static x86_64 binary. Homebrew is tested on Linux
+and macOS. Windows builds are published for early use, but rigorous macOS and
+Windows support remains on the roadmap.
 
 ### Install with Homebrew
 
@@ -33,18 +34,29 @@ Install the published command-line crate:
 cargo install --locked xylem-cli
 ```
 
-### Download pre-compiled binary
-- Download the Linux binary attached to the newest version on the
-  [releases page](https://code.ornl.gov/research-enablement/xylem/-/releases).
-- Make binary executable
-    ```shell
-    chmod +x ./xylem
-    ```
-- Move binary to folder on path (ex. `/usr/local/bin`)
-    ```shell
-    mv xylem /usr/local/bin
-    ```
-- Verify installation with `xylem --version` and `xylem --help`
+### Install a Linux release
+
+Download the artifact and matching `.sha256` file for your architecture from
+the [releases page](https://code.ornl.gov/research-enablement/xylem/-/releases),
+then verify it before installation:
+
+```shell
+sha256sum --check xylem_<VERSION>-1_amd64.deb.sha256
+sudo apt install ./xylem_<VERSION>-1_amd64.deb
+xylem --version
+```
+
+ARM64 Debian packages use the `arm64` suffix. AppImages use `x86_64` or
+`aarch64`; they are portable and open the Xylem dashboard when launched without
+arguments:
+
+```shell
+sha256sum --check xylem-v<VERSION>-x86_64.AppImage.sha256
+chmod +x xylem-v<VERSION>-x86_64.AppImage
+./xylem-v<VERSION>-x86_64.AppImage
+```
+
+The release also includes the standalone static x86_64 Linux binary.
 
 ### Build from source
 - Clone this project and navigate to it

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>gov.ornl.xylem</id>
+  <name>Xylem</name>
+  <summary>Run and monitor research data workflows</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Xylem runs structured research data workflows and provides a terminal dashboard for monitoring retained run history.</p>
+  </description>
+  <content_rating type="oars-1.1" />
+  <developer id="gov.ornl">
+    <name>Oak Ridge National Laboratory</name>
+  </developer>
+  <launchable type="desktop-id">gov.ornl.xylem.desktop</launchable>
+  <provides>
+    <binary>xylem</binary>
+  </provides>
+  <url type="homepage">https://xylem.ornl.gov</url>
+</component>

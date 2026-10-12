@@ -20,7 +20,6 @@ use xylem_lib::journal::{
 };
 use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::{ExecutionPlan, MemoryPlanMode};
-use xylem_lib::remote::RemotePolicy;
 use xylem_lib::run::store::{Bundle, Manifest, Store};
 use xylem_lib::run::telemetry::SystemMonitor;
 use xylem_lib::sandbox::{
@@ -165,7 +164,8 @@ fn create_journal(runtime: &Runtime<'_>, bundle: &Bundle, options: &ConfigOption
         .transpose()
         .map_err(|why| RunFailure::new(exitcode::SOFTWARE, format!("derive durable memory evidence — {why}")))
         .and_then(|memory| {
-            let metadata = RunMetadata::now(runtime.id.clone(), configuration, options.dry_run.unwrap_or_default(), sandbox);
+            let metadata = RunMetadata::now(runtime.id.clone(), configuration, options.dry_run.unwrap_or_default(), sandbox)
+                .with_configuration_acquisitions(runtime.config.acquisitions.clone());
             let metadata = match runtime.plan.artifacts.as_ref() {
                 | Some(artifacts) => metadata.with_artifacts(
                     ArtifactPublication::init()
@@ -435,11 +435,6 @@ fn execute_runtime(runtime: Runtime<'_>) -> Result<(), RunFailure> {
         .validate()
         .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
         .and_then(|()| {
-            let allowed = runtime.config.options.as_ref().and_then(|value| value.allowed.clone());
-            RemotePolicy::from_hosts(allowed.as_deref())
-                .map_err(|why| RunFailure::new(exitcode::USAGE, format!("invalid remote module allowlist — {why}")))
-        })
-        .and_then(|_| {
             let options = runtime
                 .config
                 .options

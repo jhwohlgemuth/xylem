@@ -40,8 +40,11 @@ The `run` command accepts:
 - `--retain-workspace` to keep the disposable run workspace and print its path;
 - repeatable or comma-delimited `--allowed <HOST[:PORT]>` values to replace
   the workflow's configured remote-host allowlist;
-- `--skip-verify-checksum` and `--skip-verify-requirements` for explicit
-  troubleshooting bypasses;
+- `--allow-insecure-http` to permit cleartext HTTP for local development;
+- `--skip-verify-checksum` as a conspicuous emergency escape hatch for remote
+  binaries; it emits a warning and records the observed digest in provenance;
+- `--skip-verify-requirements` for an explicit requirements troubleshooting
+  bypass;
 - repeatable or comma-delimited `--reporter <console|json>` values; and
 - `--report-output <PATH>` to export additional file-based reports.
 
@@ -66,9 +69,10 @@ after success or failure. `--retain-workspace` transfers cleanup responsibility
 to the operator and prints the retained path; canonical journals and summaries
 remain outside that tree.
 
-The version 11 JSON summary includes the run and configuration identities,
+The version 12 JSON summary includes the run and configuration identities,
 timestamps and duration, dry-run flag, final status, and ordered input/module
-states, plus explicit `sandbox` evidence (`mode: off` for compatibility runs).
+states, verified configuration and module acquisition provenance, plus explicit
+`sandbox` evidence (`mode: off` for compatibility runs).
 Required sandbox runs include the effective retention and stale-resource
 policy, exactly-once terminal resource outcomes, and any expired resources
 reconciled before the session opened. Retained resource identifiers remain in

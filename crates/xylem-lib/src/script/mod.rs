@@ -1,3 +1,4 @@
+use crate::acquisition::{AcquisitionEvidence, AcquisitionPolicy};
 use crate::completion::Completion;
 use crate::error::{ModuleLoadError, ProcessError, TemplateError};
 use crate::util::absolute_path;
@@ -125,7 +126,7 @@ pub enum ModuleType {
     Binary { checksum: Option<String>, uri: Location },
     /// Nested workflow module that allows for grouping modules
     #[serde(alias = "config")]
-    Configuration { uri: Location },
+    Configuration { checksum: Option<String>, uri: Location },
     /// Provides support for executing scripts
     Script {
         #[serde(alias = "language", alias = "programmingLanguage")]
@@ -314,6 +315,12 @@ pub struct ContainerMount {
 #[derive(Clone, Debug, Display, Serialize)]
 #[display("{name}")]
 pub struct Module {
+    /// Verified remote acquisition retained for durable reporting.
+    #[serde(skip)]
+    pub acquisition: Option<AcquisitionEvidence>,
+    /// Effective trusted policy after nested configuration intersection.
+    #[serde(skip)]
+    pub acquisition_policy: Option<AcquisitionPolicy>,
     pub name: String,
     /// Stable ancestry from the root workflow to this executable leaf.
     #[serde(skip)]
@@ -600,13 +607,14 @@ impl<'de> Deserialize<'de> for Module {
                 match (module_type, checksum, programming_language) {
                     | (RawModuleType::Binary, checksum, None) => Ok(ModuleType::Binary { checksum, uri }),
                     | (RawModuleType::Binary, _, Some(_)) => Err(D::Error::custom("binary modules do not accept programmingLanguage")),
-                    | (RawModuleType::Configuration, None, None) => Ok(ModuleType::Configuration { uri }),
-                    | (RawModuleType::Configuration, Some(_), _) => Err(D::Error::custom("configuration modules do not accept checksum")),
+                    | (RawModuleType::Configuration, checksum, None) => Ok(ModuleType::Configuration { checksum, uri }),
                     | (RawModuleType::Configuration, _, Some(_)) => Err(D::Error::custom("configuration modules do not accept programmingLanguage")),
                     | (RawModuleType::Script, None, programming_language) => Ok(ModuleType::Script { programming_language, uri }),
                     | (RawModuleType::Script, Some(_), _) => Err(D::Error::custom("script modules do not accept checksum")),
                 }
                 .map(|module_type| Self {
+                    acquisition: None,
+                    acquisition_policy: None,
                     after_script,
                     before_script,
                     completion,

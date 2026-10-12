@@ -1,6 +1,7 @@
 //! Durable, append-only execution journals and deterministic recovery
 extern crate alloc;
 
+use crate::acquisition::AcquisitionEvidence;
 use crate::memory::{MemoryEstimator, PlannedMemoryFallback};
 use crate::plan::{MemoryPlanMode, PlannedMemory};
 use crate::sandbox::{
@@ -27,7 +28,7 @@ use std::sync::Mutex;
 use strum::EnumIs;
 
 /// Current on-disk journal schema version.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 11;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 12;
 /// Maximum number of UTF-8 bytes retained for one journal error detail.
 pub const MAX_ERROR_BYTES: usize = 4096;
 trait Summary {
@@ -163,6 +164,15 @@ pub enum JournalEvent {
         input_index: usize,
         input_id: String,
         observed_peak: Memory,
+    },
+    /// Records one verified remote acquisition before module execution.
+    ModuleAcquired {
+        input_index: usize,
+        input_id: String,
+        module_index: usize,
+        module: String,
+        module_path: Vec<String>,
+        acquisition: Box<AcquisitionEvidence>,
     },
     /// Records a module transition for an input.
     ModuleState {
@@ -327,7 +337,7 @@ struct GpuRecovery {
     interval: Milliseconds,
 }
 /// Latest reconstructed input state and its ordered modules.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct InputSummary {
     /// Deterministic zero-based input position.
     pub index: usize,
@@ -403,6 +413,7 @@ struct JournalSink {
     input_observations: Vec<bool>,
     input_started: Vec<bool>,
     input_states: Vec<ExecutionState>,
+    module_acquisitions: Vec<Vec<bool>>,
     module_states: Vec<Vec<ExecutionState>>,
     sandbox_expected: bool,
     sandbox_finalized: bool,
@@ -435,8 +446,10 @@ struct MetricAggregate {
     sum: u128,
 }
 /// Latest reconstructed module state.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ModuleSummary {
+    /// Verified remote acquisition, absent for local modules.
+    pub acquisition: Option<AcquisitionEvidence>,
     /// Deterministic zero-based module position.
     pub index: usize,
     /// Configured module name.
@@ -488,6 +501,8 @@ pub struct RunMetadata {
     pub run_id: String,
     /// Configuration used for this run.
     pub configuration: ConfigurationIdentity,
+    /// Verified remote configuration wrappers loaded before the journal opened.
+    pub configuration_acquisitions: Vec<AcquisitionEvidence>,
     /// Whether this is a side-effect-free dry run.
     pub dry_run: bool,
     /// Portable memory admission evidence, when configured.
@@ -509,6 +524,8 @@ pub struct RunSummary {
     pub run_id: String,
     /// Configuration used for this run.
     pub configuration: ConfigurationIdentity,
+    /// Verified remote configuration wrappers used to build the workflow.
+    pub configuration_acquisitions: Vec<AcquisitionEvidence>,
     /// Whether this was a dry run.
     pub dry_run: bool,
     /// Effective sandbox mode and non-secret policy identity.
@@ -998,6 +1015,7 @@ impl RunJournal {
                         input_observations: vec![false; inputs.len()],
                         input_started: vec![false; inputs.len()],
                         input_states: vec![ExecutionState::NotStarted; inputs.len()],
+                        module_acquisitions: vec![vec![false; modules.len()]; inputs.len()],
                         module_states,
                         sandbox_expected,
                         sandbox_finalized: false,
@@ -1232,6 +1250,49 @@ impl RunJournal {
                                 sink.input_started[input_index] = true;
                             }
                         })
+                })
+            })
+    }
+    /// Durably record one verified remote module acquisition.
+    pub fn record_module_acquisition(&self, input_index: usize, module_index: usize, acquisition: AcquisitionEvidence) -> Result<(), JournalError> {
+        self.inputs
+            .get(input_index)
+            .ok_or_else(|| JournalError::Invalid(format!("unknown input index {input_index}")))
+            .and_then(|input| {
+                self.modules
+                    .get(module_index)
+                    .ok_or_else(|| JournalError::Invalid(format!("unknown module index {module_index}")))
+                    .map(|module| (input, module))
+            })
+            .and_then(|(input, module)| {
+                self.sink.lock().map_err(|_| JournalError::Poisoned).and_then(|mut sink| {
+                    let acquired = sink.module_acquisitions[input_index][module_index];
+                    let state = sink.module_states[input_index][module_index];
+                    let ancestry_matches = acquisition.module_path == module.module_path;
+                    match (acquired, state, ancestry_matches) {
+                        | (true, _, _) => Err(JournalError::Invalid(format!(
+                            "module {module_index} for input {input_index} already recorded acquisition evidence"
+                        ))),
+                        | (_, state, _) if !state.is_not_started() => Err(JournalError::Invalid(format!(
+                            "module {module_index} for input {input_index} recorded acquisition evidence after execution began"
+                        ))),
+                        | (_, _, false) => Err(JournalError::Invalid(format!(
+                            "module {module_index} acquisition ancestry does not match the journal declaration"
+                        ))),
+                        | (false, _, true) => sink
+                            .append_locked(
+                                &self.run_id,
+                                JournalEvent::ModuleAcquired {
+                                    input_index,
+                                    input_id: input.input_id.clone(),
+                                    module_index,
+                                    module: module.name.clone(),
+                                    module_path: module.module_path.clone(),
+                                    acquisition: Box::new(acquisition),
+                                },
+                            )
+                            .map(|()| sink.module_acquisitions[input_index][module_index] = true),
+                    }
                 })
             })
     }
@@ -1612,6 +1673,7 @@ impl RunMetadata {
             artifacts: None,
             run_id,
             configuration,
+            configuration_acquisitions: Vec::new(),
             dry_run,
             memory: None,
             sandbox,
@@ -2108,6 +2170,54 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                     .ok_or_else(|| JournalError::Invalid(format!("input {input_index} has no configured memory evidence")))
                                     .and_then(|memory| memory.observe(input_index, observed_peak)),
                             }),
+                        | JournalEvent::ModuleAcquired {
+                            input_index,
+                            input_id,
+                            module_index,
+                            module,
+                            module_path,
+                            acquisition,
+                        } => inputs
+                            .get_mut(&input_index)
+                            .ok_or_else(|| JournalError::Invalid(format!("module acquisition references unknown input {input_index}")))
+                            .and_then(|input| match input.input_id != input_id {
+                                | true => Err(JournalError::Invalid(format!(
+                                    "module acquisition input identity changed at index {input_index}"
+                                ))),
+                                | false => input
+                                    .modules
+                                    .get_mut(module_index)
+                                    .ok_or_else(|| {
+                                        JournalError::Invalid(format!(
+                                            "module acquisition references uninitialized module {module_index} for input {input_index}"
+                                        ))
+                                    })
+                                    .and_then(|summary| {
+                                        match (
+                                            summary.index == module_index && summary.name == module && summary.module_path == module_path,
+                                            summary.state.is_not_started(),
+                                            summary.acquisition.is_none(),
+                                            acquisition.module_path == module_path,
+                                        ) {
+                                            | (false, _, _, _) => Err(JournalError::Invalid(format!(
+                                                "module acquisition identity changed at input {input_index}, index {module_index}"
+                                            ))),
+                                            | (_, false, _, _) => Err(JournalError::Invalid(format!(
+                                                "module acquisition followed execution at input {input_index}, index {module_index}"
+                                            ))),
+                                            | (_, _, false, _) => Err(JournalError::Invalid(format!(
+                                                "module acquisition was repeated at input {input_index}, index {module_index}"
+                                            ))),
+                                            | (_, _, _, false) => Err(JournalError::Invalid(format!(
+                                                "module acquisition ancestry changed at input {input_index}, index {module_index}"
+                                            ))),
+                                            | (true, true, true, true) => {
+                                                summary.acquisition = Some(*acquisition);
+                                                Ok(())
+                                            }
+                                        }
+                                    }),
+                            }),
                         | JournalEvent::ModuleState {
                             input_index,
                             input_id,
@@ -2135,6 +2245,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                         }
                                         | None if state.is_not_started() && module_index == initialized_modules => {
                                             input.modules.push(ModuleSummary {
+                                                acquisition: None,
                                                 index: module_index,
                                                 name: module,
                                                 module_path,
@@ -2210,6 +2321,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                 schema_version: JOURNAL_SCHEMA_VERSION,
                                 run_id: metadata.run_id,
                                 configuration: metadata.configuration,
+                                configuration_acquisitions: metadata.configuration_acquisitions,
                                 dry_run: metadata.dry_run,
                                 sandbox: metadata.sandbox,
                                 started_at: metadata.started_at,

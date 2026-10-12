@@ -77,6 +77,35 @@ fn cache_reuses_verified_http_payload_offline() {
     assert_eq!(first.path, second.path);
 }
 #[test]
+fn checksum_escape_hatch_records_the_observed_digest() {
+    let body = b"emergency module bytes".to_vec();
+    let Some((url, server)) = serve(body.clone()) else {
+        return;
+    };
+    let parsed = Url::parse(&url).expect("parse fixture URL");
+    let hosts = vec![format!(
+        "{}:{}",
+        parsed.host_str().expect("fixture host"),
+        parsed.port().expect("fixture port")
+    )];
+    let source = AcquisitionSource::HttpBinaryUnverified { url };
+    let denied = AcquisitionPlan::build(vec!["binary".to_string()], source.clone(), &policy(&hosts, true, false));
+    assert!(matches!(denied, Err(AcquisitionError::Policy { .. })));
+    let enabled = policy(&hosts, true, false).with_checksum_verification_disabled(true);
+    let plan = AcquisitionPlan::build(vec!["binary".to_string()], source, &enabled).expect("plan unverified HTTP acquisition");
+    assert_eq!(plan.cache_key, None);
+    assert_eq!(plan.identity, None);
+    let root = TestDirectory::create("skip-checksum");
+    let result = AcquisitionExecutor::new(enabled, AcquisitionCache::new(root.0.clone()))
+        .execute(&plan)
+        .expect("acquire unverified HTTP binary");
+    server.join().expect("join acquisition server");
+    assert_eq!(result.evidence.cache, AcquisitionCacheStatus::Miss);
+    assert_eq!(result.evidence.identity, AcquisitionIdentity::Sha256 { digest: sha256(&body) });
+    assert!(result.evidence.policy.skip_checksum_verification);
+    assert_eq!(read(&result.path).expect("read acquired payload"), body);
+}
+#[test]
 fn corrupted_cache_entry_fails_closed_offline() {
     let body = b"verified module bytes".to_vec();
     let Some((url, server)) = serve(body.clone()) else {
@@ -146,6 +175,13 @@ fn limits_can_only_tighten() {
     let effective = parent.restrict(&child);
     assert_eq!(effective.binary, child.binary);
     assert_eq!(effective.git_entries, parent.git_entries);
+    let hosts = vec!["example.org".to_string()];
+    let policy = policy(&hosts, false, false);
+    let invalid = AcquisitionLimits {
+        git_entries: 0,
+        ..AcquisitionLimits::default()
+    };
+    assert!(matches!(policy.restrict(None, &invalid), Err(AcquisitionError::Identity { .. })));
 }
 #[test]
 fn offline_cache_miss_does_not_connect() {

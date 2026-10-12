@@ -1,6 +1,7 @@
 use super::*;
 use crate::completion::{Completion, CompletionPlan};
 use crate::memory::{MemoryEstimator, MemoryEstimatorError};
+use crate::remote::RemotePolicy;
 use acorn_core::validation::{digest, ValidationError};
 use acorn_schema::validation::{report_of, rules, Validate, ValidationReport};
 use core::mem;
@@ -93,6 +94,11 @@ impl Validate for Config {
             if let Err(error) = RemotePolicy::from_hosts(options.allowed.as_deref()) {
                 report.add("options.allowed", validation_error("hosts", error.to_string()));
             }
+            if let Some(limits) = &options.acquisition_limits {
+                if let Err(error) = limits.validate() {
+                    report.add("options.acquisition_limits", validation_error("positive", error.to_string()));
+                }
+            }
             if let Some(memory) = &options.memory {
                 report = report.merge("options.memory", report_of(memory.validate()));
             }
@@ -119,7 +125,7 @@ impl Validate for Config {
                         format!("{path}.checksum"),
                         validation_error(
                             "required",
-                            "remote binary requires a checksum unless checksum verification is explicitly disabled",
+                            "remote binary requires an algorithm-qualified checksum unless checksum verification is explicitly disabled",
                         ),
                     );
                 }
@@ -292,9 +298,30 @@ impl Validate for Module {
                     }
                 }
             }
-            | ModuleType::Configuration { uri } => {
+            | ModuleType::Configuration { checksum, uri } => {
                 if let Err(error) = rules::url(uri.into()) {
                     report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, or SSH"));
+                }
+                let remote_document = matches!(ModuleUri::from(uri), ModuleUri::Url(ref value) if matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS) && Config::is_remote_document(&value.to_string()));
+                match (ModuleUri::from(uri), checksum) {
+                    | (ModuleUri::File(_), Some(_)) => report.add(
+                        "checksum",
+                        validation_error("unsupported", "local configuration modules do not accept checksum"),
+                    ),
+                    | (ModuleUri::Url(_), None) if remote_document => report.add(
+                        "checksum",
+                        validation_error("required", "remote configuration document requires an algorithm-qualified checksum"),
+                    ),
+                    | (ModuleUri::Url(_), Some(value)) if remote_document => {
+                        if let Err(error) = digest(value) {
+                            report.add("checksum", error);
+                        }
+                    }
+                    | (ModuleUri::Url(_), Some(_)) => report.add(
+                        "checksum",
+                        validation_error("unsupported", "Git configuration modules use revision instead of checksum"),
+                    ),
+                    | _ => (),
                 }
                 if self.template.is_some() {
                     report.add(

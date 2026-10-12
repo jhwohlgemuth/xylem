@@ -1,13 +1,14 @@
 //! Deterministic, side-effect-free execution plans
 extern crate alloc;
 
+use crate::acquisition::{AcquisitionError, AcquisitionPlan};
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
-use crate::config::{Config, InputAttribute, MemoryEstimatorOptions, MemoryOptions};
+use crate::config::{Config, ConfigOptions, InputAttribute, MemoryEstimatorOptions, MemoryOptions};
 use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
 use crate::memory::{MemoryAdmissionError, MemoryCalculationError, MemoryEstimator, MemoryEstimatorError, PlannedMemoryInput};
 use crate::sandbox::{IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard, SandboxLifecycle, SandboxProviderKind, SandboxResources};
 use crate::script::{
-    module_working_directory, ContainerCleanup, ContainerEnvironment, ContainerRuntime, ContainerStartup, Module, ModuleType, ModuleUri, Script,
+    module_working_directory, ContainerCleanup, ContainerEnvironment, ContainerRuntime, ContainerStartup, Module, ModuleType, Script,
     TemplateAttribute,
 };
 use crate::selection::{InputSource, ResolvedInputs, SelectionError};
@@ -34,6 +35,8 @@ pub enum MemoryPlanMode {
 /// Failure to validate or render an execution plan.
 #[derive(Debug)]
 pub enum PlanError {
+    /// Remote source policy or immutable identity planning failed.
+    Acquisition(AcquisitionError),
     /// Completion resolution or observation failed.
     Completion(CompletionError),
     /// Input discovery could not produce a deterministic input set.
@@ -50,6 +53,12 @@ pub enum PlanError {
     Selection(SelectionError),
     /// Semantic configuration validation failed.
     Validation(ValidationReport),
+}
+impl PlanError {
+    /// Whether planning failed because an otherwise valid remote source is unavailable under policy.
+    pub fn is_availability(&self) -> bool {
+        matches!(self, Self::Acquisition(error) if !matches!(error, AcquisitionError::Identity { .. }))
+    }
 }
 /// Versioned dry-run plan rendered without mutating the host.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -87,14 +96,8 @@ pub struct PlanConfiguration {
     /// Optional configured workflow version.
     pub version: Option<String>,
 }
-/// Acquisition operation required before a module can execute.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct PlannedAcquisition {
-    /// Stable action vocabulary.
-    pub action: String,
-    /// Configured module source URI.
-    pub source: String,
-}
+/// Fully validated acquisition intent required before a module can execute.
+pub type PlannedAcquisition = AcquisitionPlan;
 /// Bounded whole-run artifact publication intent.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct PlannedArtifactPublication {
@@ -170,7 +173,7 @@ pub struct PlannedMemory {
     pub mode: MemoryPlanMode,
 }
 /// One planned module decision.
-#[derive(Builder, Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Builder, Clone, Debug, PartialEq, Serialize)]
 #[builder(on(String, into), start_fn(name = init))]
 pub struct PlannedModule {
     /// Read-only acquisition intent.
@@ -366,7 +369,7 @@ impl ExecutionPlan {
                                 modules,
                                 resume,
                                 sandbox,
-                                schema_version: 12,
+                                schema_version: 13,
                             })
                     })
             })
@@ -384,7 +387,7 @@ impl From<InputAttribute> for InputSource {
 impl Module {
     fn command(&self, variables: &BTreeMap<String, String>) -> PlannedCommand {
         let uri = match &self.module_type {
-            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => uri,
+            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri, .. } | ModuleType::Script { uri, .. } => uri,
         };
         let working_directory = module_working_directory(uri.into(), None);
         match &self.template {
@@ -437,9 +440,16 @@ impl Module {
             .into_iter()
             .collect::<BTreeMap<_, _>>();
         let hash_variables = variables.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
-        CompletionPlan::resolve(self, &hash_variables, config.output.as_deref())
+        let options = config.options.clone().unwrap_or_else(|| ConfigOptions::init().build());
+        self.effective_acquisition_policy(&options)
             .map_err(PlanError::from)
-            .and_then(|resolved| {
+            .and_then(|policy| self.acquisition_plan(&policy).map_err(PlanError::from))
+            .and_then(|acquisition| {
+                CompletionPlan::resolve(self, &hash_variables, config.output.as_deref())
+                    .map(|resolved| (acquisition, resolved))
+                    .map_err(PlanError::from)
+            })
+            .and_then(|(acquisition, resolved)| {
                 let decision = match resume {
                     | true => CompletionPlan::inspect(self, &hash_variables, true, config.output.as_deref())
                         .map_err(PlanError::from)
@@ -455,7 +465,7 @@ impl Module {
                         outputs: resolved.outputs.iter().map(|output| output.display().to_string()).collect(),
                     });
                     PlannedModule::init()
-                        .acquisition(self.clone().into())
+                        .acquisition(acquisition)
                         .command(self.command(&variables))
                         .maybe_completion(completion)
                         .decision(decision)
@@ -474,6 +484,7 @@ impl Module {
 impl core::error::Error for PlanError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
+            | Self::Acquisition(error) => Some(error),
             | Self::Completion(error) => Some(error),
             | Self::Input(_) => None,
             | Self::MemoryAdmission(error) => Some(error),
@@ -488,6 +499,7 @@ impl core::error::Error for PlanError {
 impl fmt::Display for PlanError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            | Self::Acquisition(error) => error.fmt(formatter),
             | Self::Completion(error) => error.fmt(formatter),
             | Self::Input(error) => formatter.write_str(error),
             | Self::MemoryAdmission(error) => error.fmt(formatter),
@@ -497,6 +509,11 @@ impl fmt::Display for PlanError {
             | Self::Selection(error) => error.fmt(formatter),
             | Self::Validation(error) => error.fmt(formatter),
         }
+    }
+}
+impl From<AcquisitionError> for PlanError {
+    fn from(error: AcquisitionError) -> Self {
+        Self::Acquisition(error)
     }
 }
 impl From<CompletionError> for PlanError {
@@ -527,33 +544,6 @@ impl From<SelectionError> for PlanError {
 impl From<ValidationReport> for PlanError {
     fn from(error: ValidationReport) -> Self {
         Self::Validation(error)
-    }
-}
-impl From<Module> for PlannedAcquisition {
-    fn from(module: Module) -> Self {
-        let (action, source) = match module.module_type {
-            | ModuleType::Binary { uri, .. } => (
-                match ModuleUri::from(&uri) {
-                    | ModuleUri::File(_) => "use_local",
-                    | ModuleUri::Url(_) => "download",
-                    | ModuleUri::Unknown(_) => "reject",
-                },
-                uri.uri().unwrap_or_else(|| <&str>::from(&uri).to_string()),
-            ),
-            | ModuleType::Configuration { uri } => ("reject", uri.uri().unwrap_or_else(|| <&str>::from(&uri).to_string())),
-            | ModuleType::Script { uri, .. } => (
-                match ModuleUri::from(&uri) {
-                    | ModuleUri::File(_) => "use_local",
-                    | ModuleUri::Url(_) => "clone",
-                    | ModuleUri::Unknown(_) => "reject",
-                },
-                uri.uri().unwrap_or_else(|| <&str>::from(&uri).to_string()),
-            ),
-        };
-        Self {
-            action: action.to_string(),
-            source,
-        }
     }
 }
 impl PlannedContainer {

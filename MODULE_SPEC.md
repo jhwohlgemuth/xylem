@@ -37,13 +37,13 @@ The fields have these meanings:
 | --- | --- | --- |
 | `name` | Yes | Human-readable module name. Xylem converts it to snake case in `MODULE_LIST`. |
 | `type` | Yes | `script`, `binary`, or the reusable workflow wrapper `configuration`. |
-| `uri` | Yes | A scalar local `file:` or remote Git/HTTP URI, or a structured location with `scheme`, `uri`, and optional Git `revision`. |
+| `uri` | Yes | A scalar local `file:` URI or a structured remote location with `scheme`, `uri`, and an immutable Git `revision` where applicable. |
 | `programmingLanguage` | No | `python` or `generic` in version 1.0. Omission selects generic behavior; the JSON aliases `language` and `programming_language` are also accepted. |
 | `description` | No | Human-readable purpose. |
 | `variables` | No | Module-scoped scalar variables. These override workflow variables. |
 | `template` | No | An inline template or a path relative to the module directory. |
 | `completion` | No | Explicit marker and output declarations used by resumable execution. |
-| `checksum` | Remote binary modules | Lowercase SHA-256 digest prefixed with `sha256:`. |
+| `checksum` | Remote binary and direct HTTP configuration modules | Lowercase SHA-256 digest prefixed with `sha256:`. |
 
 ## 2. Module URI and directory
 
@@ -59,19 +59,23 @@ example/
 └── lib/                # module implementation; layout is language-specific
 ```
 
-Remote script modules are cloned into Xylem's per-run working directory before
-execution and, for Python modules, environment preparation. HTTP, HTTPS, and
-SSH Git transports are accepted.
+Remote script modules MUST select a full lowercase 40- or 64-hex commit ID in
+`revision`. Xylem verifies that commit and normalized origin in its immutable
+cache, then copies the repository into the per-run working directory before
+execution and, for Python modules, environment preparation. HTTPS is accepted
+by default. HTTP requires `--allow-insecure-http`; SSH requires an explicit
+operator credential policy.
 
 ## Configuration modules
 
 A `configuration` module references another JSON or YAML workflow and expands
 in place to its executable leaves. Local `file:` references are relative to the
-configuration that declares them. An HTTP(S) URI ending in `.json`, `.yaml`, or
-`.yml` is read directly; other remote locations are treated as Git repositories
-whose root must contain `config.json`. A structured Git location may select a
-branch, tag, or commit with `revision`. Direct HTTP documents do not accept a
-revision.
+configuration that declares them. An HTTP(S) URI ending in `.json`, `.jsonc`,
+`.yaml`, or `.yml` is a direct document and MUST provide `checksum`; Xylem reads
+it only after verifying that digest. Other remote locations are treated as Git
+repositories whose root must contain `config.json` and MUST select a full
+lowercase 40- or 64-hex commit ID in `revision`. Direct HTTP documents MUST NOT
+declare `revision`.
 
 Expansion is depth-first and limited to 16 nested wrappers. Xylem rejects
 source cycles and reports each leaf with its full `module_path`, such as
@@ -85,11 +89,12 @@ default, while an explicit `OUTPUT_DIRECTORY` variable and the CLI
 `--artifact-output` override remain authoritative. `MODULE_LIST` contains the
 qualified, depth-first leaf identities.
 
-The root dry-run, resume, batch, verification, and artifact-output choices
-apply at every depth. A child may tighten `options.allowed` or enable
-`offline`; it cannot loosen inherited policy. Remote configuration sources are
-rejected without a request during dry-run, and all remote sources are rejected
-when the effective policy is offline.
+The root dry-run, resume, batch, and artifact-output choices apply at every
+depth. A child may tighten `options.allowed` and `acquisition_limits` or enable
+`offline`; it cannot loosen inherited policy. Dry-run MAY read a matching
+verified cache entry but MUST NOT connect, invoke Git, create a destination, or
+populate the cache. Offline mode follows the same cache-only rule and reports a
+typed cache miss rather than falling through to the network.
 
 ## Completion and resume
 
@@ -120,13 +125,12 @@ The workflow `output` field is the default artifact root and supplies
 placement is separate and uses `--report-output` (`--output` remains its legacy
 alias).
 
-Workflows MAY restrict remote modules with `options.allowed`, whose
+Workflows MUST allow every remote module host with `options.allowed`, whose
 entries are exact host names or IP literals with an optional non-default port.
-Xylem checks the original URL and HTTP redirect targets against that list, then
-performs a bounded reachability check before acquisition. Git checks are
-non-interactive. If no allowlist is supplied, hosts are unrestricted for
-compatibility with existing 1.x workflows. `--allowed` replaces the
-configured list for a run.
+Xylem checks the original URL and HTTP redirect targets against that list as
+part of bounded acquisition; it does not perform a separate reachability
+probe. An absent or empty allowlist denies remote acquisition. `--allowed`
+replaces the configured list for a run.
 
 ## 3. Command template
 
@@ -237,9 +241,14 @@ environment with `mamba env` and `mamba run --name <name>`.
 ## 6. Binary modules
 
 A local binary URI MUST identify an existing file. Xylem ensures it is
-executable before running it. A remote binary MUST supply a valid SHA-256
-checksum unless checksum verification is explicitly disabled. Remote downloads
-support HTTP and HTTPS in version 1.0.
+executable before running it. Under normal policy, a remote binary MUST supply
+a valid algorithm-qualified SHA-256 checksum. Xylem streams and verifies
+bounded bytes into an immutable cache, then copies the binary into the owned
+run workspace. The operator MAY use `--skip-verify-checksum` as an emergency
+escape hatch; Xylem MUST warn, enforce all non-identity acquisition limits,
+record the observed digest, and MUST NOT use an offline cache entry without a
+pretrusted identity. HTTPS is supported by default; HTTP requires
+`--allow-insecure-http`.
 
 ## 7. Conformance checklist
 

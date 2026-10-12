@@ -717,7 +717,7 @@ fn test_policy_accepts_failure_retention_with_durable_lifecycle_support() {
         .expect("parse retention plan configuration")
         .with_options(ConfigOptions::init().build().with_sandbox_policy(Some(policy.clone())));
     let plan = crate::plan::ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect("build retention execution plan");
-    assert_eq!(plan.schema_version, 12);
+    assert_eq!(plan.schema_version, 13);
     assert_eq!(plan.sandbox.lifecycle, Some(policy.policy.lifecycle));
     remove_dir_all(directory).expect("remove policy fixture directory");
 }

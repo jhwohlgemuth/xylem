@@ -19,17 +19,30 @@ cargo install --locked xylem-cli
 xylem --version
 ```
 
-## Download a Linux release
+## Install a Linux release
 
-Download the current Linux binary from the
-[Xylem releases](https://code.ornl.gov/research-enablement/xylem/-/releases),
-make it executable, and place it on `PATH`:
+Download the Debian package and matching checksum for your architecture from
+the [Xylem releases](https://code.ornl.gov/research-enablement/xylem/-/releases).
+Verify and install an amd64 package with:
 
 ```shell
-chmod +x ./xylem
-sudo mv ./xylem /usr/local/bin/xylem
+sha256sum --check xylem_<VERSION>-1_amd64.deb.sha256
+sudo apt install ./xylem_<VERSION>-1_amd64.deb
 xylem --version
 ```
+
+ARM64 Debian packages use the `arm64` suffix. AppImages use `x86_64` or
+`aarch64`. Verify and launch an x86_64 AppImage with:
+
+```shell
+sha256sum --check xylem-v<VERSION>-x86_64.AppImage.sha256
+chmod +x xylem-v<VERSION>-x86_64.AppImage
+./xylem-v<VERSION>-x86_64.AppImage
+```
+
+Launching an AppImage without arguments opens the Xylem dashboard. Command-line
+arguments such as `--version`, `--help`, and `run` are forwarded normally. The
+release also includes the standalone static x86_64 Linux binary.
 
 ## Build from source
 

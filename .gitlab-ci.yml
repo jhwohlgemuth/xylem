@@ -15,6 +15,7 @@ variables:
   SANDBOX_RUNNER_SAVANNAH_IMAGE: savannah.ornl.gov/research-enablement/xylem/runner
   SANDBOX_GEOSPATIAL_GHCR_IMAGE: ghcr.io/jhwohlgemuth/xylem-geospatial
   SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE: savannah.ornl.gov/research-enablement/xylem/geospatial
+  XDG_CACHE_HOME: "$CI_PROJECT_DIR/.cache"
 
 stages:
   - prepare
@@ -22,6 +23,11 @@ stages:
   - build
   - release
   - docs
+
+.rust-arm64:
+  image: ghcr.io/jhwohlgemuth/acorn:rust-latest
+  tags:
+    - arm64
 
 prepare-environment:
   stage: prepare
@@ -34,10 +40,21 @@ prepare-environment:
     - if: '$CI_COMMIT_TAG =~ /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/'
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
         - Cargo.toml
+        - Makefile
+        - crates/xylem-cli/Cargo.toml
+        - docs/src/_assets/xylem-app-icon.svg
+        - packaging/linux/**/*
+        - scripts/install-appimage-tools.sh
+        - scripts/install-zigbuild.sh
+        - scripts/package-linux.sh
+        - scripts/upload-binaries.sh
   script:
     - echo "PKG_VERSION=$(awk -F ' = ' '$1 == "version" { gsub(/["\r]/, "", $2); print $2; exit }' Cargo.toml)" >> variables.env
     - echo "PKG_REGISTRY_URL=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic" >> variables.env
+    - echo "DEFAULT_ARM64_TARGET=$(awk -F ' *= *' '$1=="DEFAULT_ARM64_TARGET"{ sub(/\r$/,"",$2); print $2; exit }' Makefile)" >> variables.env
     - echo "DEFAULT_TARGET=$(awk -F ' = ' '$1 ~ /default-target/ { gsub(/["]/, "", $2); printf("%s",$2) }' Cargo.toml | tr . _)" >> variables.env
     - echo "DEFAULT_WINDOWS_TARGET=$(awk -F ' *= *' '$1=="DEFAULT_WINDOWS_TARGET"{ sub(/\r$/,"",$2); print $2; exit }' Makefile)" >> variables.env
     - test -z "${CI_COMMIT_TAG:-}" || test "${CI_COMMIT_TAG}" = "v$(awk -F ' = ' '$1 == "version" { gsub(/["\r]/, "", $2); print $2; exit }' Cargo.toml)"
@@ -324,19 +341,156 @@ build-release:
     - job: prepare-environment
       artifacts: true
     - job: test
+      optional: true
   before_script:
-    - rustup target add "${DEFAULT_TARGET}" "${DEFAULT_WINDOWS_TARGET}"
+    - rustup target add "${DEFAULT_ARM64_TARGET}" "${DEFAULT_TARGET}" "${DEFAULT_WINDOWS_TARGET}"
   script:
-    - make build
+    - command -v appstreamcli >/dev/null && command -v desktop-file-validate >/dev/null && command -v file >/dev/null && command -v xmllint >/dev/null && command -v xz >/dev/null || (apt-get update && apt-get install --no-install-recommends --yes appstream desktop-file-utils file libxml2-utils xz-utils)
+    - command -v cargo-zigbuild >/dev/null && command -v zig >/dev/null || sh scripts/install-zigbuild.sh "${XDG_CACHE_HOME}/zigbuild"
+    - export PATH="${XDG_CACHE_HOME}/zigbuild/bin:${PATH}"
+    - cargo deb --version 2>/dev/null | grep -Eq 'cargo-deb 3\.8\.0$' || cargo install --locked --force cargo-deb --version 3.8.0
+    - sh scripts/install-appimage-tools.sh "${XDG_CACHE_HOME}/appimage"
+    - export APPIMAGE_RUNTIME_DIR="${XDG_CACHE_HOME}/appimage/lib/appimage"
+    - export PATH="${XDG_CACHE_HOME}/appimage/bin:${PATH}"
+    - appstreamcli validate --no-net packaging/linux/gov.ornl.xylem.metainfo.xml
+    - cargo-zigbuild --version
+    - cargo-deb --version
+    - cargo --version
+    - desktop-file-validate packaging/linux/gov.ornl.xylem.desktop
+    - rustc --version
+    - xmllint --noout docs/src/_assets/xylem-app-icon.svg packaging/linux/gov.ornl.xylem.metainfo.xml
+    - zig version
+    - MUSL_BUILD="cargo zigbuild" make build linux-packages release-checksums
+    - mkdir -p target/linux-package-checksums
+    - cp bin/*.AppImage.sha256 bin/*.deb.sha256 target/linux-package-checksums/
+    - MUSL_BUILD="cargo zigbuild" make linux-packages
+    - for checksum in target/linux-package-checksums/*; do cmp "$checksum" "bin/$(basename "$checksum")"; done
   rules:
     - if: $CI_COMMIT_TAG
       when: never
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
         - Cargo.toml
+        - Makefile
+        - crates/xylem-cli/Cargo.toml
+        - docs/src/_assets/xylem-app-icon.svg
+        - packaging/linux/**/*
+        - scripts/install-appimage-tools.sh
+        - scripts/install-zigbuild.sh
+        - scripts/package-linux.sh
   artifacts:
     paths:
-      - bin/  
+      - bin/
+
+validate-linux-amd64:
+  stage: build
+  image: ghcr.io/jhwohlgemuth/acorn:rust-latest
+  tags:
+    - amd64
+  needs:
+    - job: prepare-environment
+      artifacts: true
+    - job: build-release
+      artifacts: true
+  script:
+    - appimage="$(pwd)/bin/xylem-v${PKG_VERSION}-x86_64.AppImage"
+    - package="$(pwd)/bin/xylem_${PKG_VERSION}-1_amd64.deb"
+    - test "$(dpkg-deb --field "$package" Package)" = xylem
+    - test "$(dpkg-deb --field "$package" Architecture)" = amd64
+    - test "$(dpkg-deb --field "$package" Version)" = "${PKG_VERSION}-1"
+    - test "$(dpkg-deb --field "$package" Depends)" = ca-certificates
+    - (cd bin && sha256sum -c "$(basename "$appimage").sha256")
+    - (cd bin && sha256sum -c "$(basename "$package").sha256")
+    - file "$appimage" | grep -Fq 'x86-64'
+    - mkdir -p target/appimage-x86_64
+    - dpkg-deb --contents "$package" > target/appimage-x86_64/deb-contents.txt
+    - grep -Eq ' ./usr/bin/xylem$' target/appimage-x86_64/deb-contents.txt
+    - grep -Eq ' ./usr/share/applications/gov\.ornl\.xylem\.desktop$' target/appimage-x86_64/deb-contents.txt
+    - grep -Eq ' ./usr/share/icons/hicolor/scalable/apps/gov\.ornl\.xylem\.svg$' target/appimage-x86_64/deb-contents.txt
+    - chmod 755 "$appimage"
+    - APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --version
+    - APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --help >/dev/null
+    - (cd target/appimage-x86_64 && "$appimage" --appimage-extract >/dev/null)
+    - test -x target/appimage-x86_64/squashfs-root/AppRun
+    - test -x target/appimage-x86_64/squashfs-root/usr/bin/xylem
+    - test -f target/appimage-x86_64/squashfs-root/gov.ornl.xylem.desktop
+    - test -f target/appimage-x86_64/squashfs-root/gov.ornl.xylem.svg
+    - test -f target/appimage-x86_64/squashfs-root/usr/share/metainfo/gov.ornl.xylem.appdata.xml
+    - grep -Fxq 'Exec=xylem tui' target/appimage-x86_64/squashfs-root/gov.ornl.xylem.desktop
+    - DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends --yes "$package"
+    - xylem --version
+    - xylem --help >/dev/null
+    - dpkg -r xylem
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - Makefile
+        - crates/xylem-cli/Cargo.toml
+        - docs/src/_assets/xylem-app-icon.svg
+        - packaging/linux/**/*
+        - scripts/install-appimage-tools.sh
+        - scripts/install-zigbuild.sh
+        - scripts/package-linux.sh
+
+validate-linux-arm64:
+  extends: .rust-arm64
+  stage: build
+  needs:
+    - job: prepare-environment
+      artifacts: true
+    - job: build-release
+      artifacts: true
+  script:
+    - appimage="$(pwd)/bin/xylem-v${PKG_VERSION}-aarch64.AppImage"
+    - package="$(pwd)/bin/xylem_${PKG_VERSION}-1_arm64.deb"
+    - test "$(dpkg-deb --field "$package" Package)" = xylem
+    - test "$(dpkg-deb --field "$package" Architecture)" = arm64
+    - test "$(dpkg-deb --field "$package" Version)" = "${PKG_VERSION}-1"
+    - test "$(dpkg-deb --field "$package" Depends)" = ca-certificates
+    - (cd bin && sha256sum -c "$(basename "$appimage").sha256")
+    - (cd bin && sha256sum -c "$(basename "$package").sha256")
+    - file "$appimage" | grep -Eq 'ARM aarch64|ARM64'
+    - mkdir -p target/appimage-aarch64
+    - dpkg-deb --contents "$package" > target/appimage-aarch64/deb-contents.txt
+    - grep -Eq ' ./usr/bin/xylem$' target/appimage-aarch64/deb-contents.txt
+    - grep -Eq ' ./usr/share/applications/gov\.ornl\.xylem\.desktop$' target/appimage-aarch64/deb-contents.txt
+    - grep -Eq ' ./usr/share/icons/hicolor/scalable/apps/gov\.ornl\.xylem\.svg$' target/appimage-aarch64/deb-contents.txt
+    - chmod 755 "$appimage"
+    - APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --version
+    - APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --help >/dev/null
+    - (cd target/appimage-aarch64 && "$appimage" --appimage-extract >/dev/null)
+    - test -x target/appimage-aarch64/squashfs-root/AppRun
+    - test -x target/appimage-aarch64/squashfs-root/usr/bin/xylem
+    - test -f target/appimage-aarch64/squashfs-root/gov.ornl.xylem.desktop
+    - test -f target/appimage-aarch64/squashfs-root/gov.ornl.xylem.svg
+    - test -f target/appimage-aarch64/squashfs-root/usr/share/metainfo/gov.ornl.xylem.appdata.xml
+    - grep -Fxq 'Exec=xylem tui' target/appimage-aarch64/squashfs-root/gov.ornl.xylem.desktop
+    - DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends --yes "$package"
+    - xylem --version
+    - xylem --help >/dev/null
+    - dpkg -r xylem
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - Makefile
+        - crates/xylem-cli/Cargo.toml
+        - docs/src/_assets/xylem-app-icon.svg
+        - packaging/linux/**/*
+        - scripts/install-appimage-tools.sh
+        - scripts/install-zigbuild.sh
+        - scripts/package-linux.sh
 
 build-sandbox-runner:
   stage: build
@@ -446,8 +600,28 @@ publish-release-linux:
       links:
         - name: "${BINARY_NAME} v${PKG_VERSION} (Linux)"
           url: "${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${PKG_VERSION}/${BINARY_NAME}"
+        - name: "${BINARY_NAME} v${PKG_VERSION} (Linux SHA-256)"
+          url: "${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${PKG_VERSION}/${BINARY_NAME}.sha256"
         - name: "${BINARY_NAME} v${PKG_VERSION} (Windows)"
           url: "${PKG_REGISTRY_URL}/${DEFAULT_WINDOWS_TARGET}/v${PKG_VERSION}/${BINARY_NAME}.exe"
+        - name: "${BINARY_NAME} v${PKG_VERSION} (Windows SHA-256)"
+          url: "${PKG_REGISTRY_URL}/${DEFAULT_WINDOWS_TARGET}/v${PKG_VERSION}/${BINARY_NAME}.exe.sha256"
+        - name: "${BINARY_NAME} AppImage v${PKG_VERSION} (ARM64)"
+          url: "${PKG_REGISTRY_URL}/${DEFAULT_ARM64_TARGET}/v${PKG_VERSION}/${BINARY_NAME}-v${PKG_VERSION}-aarch64.AppImage"
+        - name: "${BINARY_NAME} AppImage v${PKG_VERSION} (ARM64 SHA-256)"
+          url: "${PKG_REGISTRY_URL}/${DEFAULT_ARM64_TARGET}/v${PKG_VERSION}/${BINARY_NAME}-v${PKG_VERSION}-aarch64.AppImage.sha256"
+        - name: "${BINARY_NAME} AppImage v${PKG_VERSION} (x86_64)"
+          url: "${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${PKG_VERSION}/${BINARY_NAME}-v${PKG_VERSION}-x86_64.AppImage"
+        - name: "${BINARY_NAME} AppImage v${PKG_VERSION} (x86_64 SHA-256)"
+          url: "${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${PKG_VERSION}/${BINARY_NAME}-v${PKG_VERSION}-x86_64.AppImage.sha256"
+        - name: "${BINARY_NAME} Debian v${PKG_VERSION} (amd64)"
+          url: "${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${PKG_VERSION}/${BINARY_NAME}_${PKG_VERSION}-1_amd64.deb"
+        - name: "${BINARY_NAME} Debian v${PKG_VERSION} (amd64 SHA-256)"
+          url: "${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${PKG_VERSION}/${BINARY_NAME}_${PKG_VERSION}-1_amd64.deb.sha256"
+        - name: "${BINARY_NAME} Debian v${PKG_VERSION} (ARM64)"
+          url: "${PKG_REGISTRY_URL}/${DEFAULT_ARM64_TARGET}/v${PKG_VERSION}/${BINARY_NAME}_${PKG_VERSION}-1_arm64.deb"
+        - name: "${BINARY_NAME} Debian v${PKG_VERSION} (ARM64 SHA-256)"
+          url: "${PKG_REGISTRY_URL}/${DEFAULT_ARM64_TARGET}/v${PKG_VERSION}/${BINARY_NAME}_${PKG_VERSION}-1_arm64.deb.sha256"
 
 publish-sandbox-runner:
   stage: release
@@ -556,11 +730,16 @@ upload-binaries:
     - amd64
   inherit:
     variables: true
+  interruptible: false
+  resource_group: gitlab-package-uploads
+  retry: 0
   needs:
     - job: prepare-environment
       artifacts: true
     - job: build-release
       artifacts: true
+    - job: validate-linux-amd64
+    - job: validate-linux-arm64
   rules:
     - if: $CI_COMMIT_TAG
       when: never
@@ -569,8 +748,7 @@ upload-binaries:
         - Cargo.toml
   script:
     - ls -la bin/
-    - 'curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file bin/${BINARY_NAME}-v${PKG_VERSION} ${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${PKG_VERSION}/${BINARY_NAME}'
-    - 'curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file bin/${BINARY_NAME}-v${PKG_VERSION}.exe ${PKG_REGISTRY_URL}/${DEFAULT_WINDOWS_TARGET}/v${PKG_VERSION}/${BINARY_NAME}.exe'
+    - sh scripts/upload-binaries.sh
 
 publish-crates:
   stage: release

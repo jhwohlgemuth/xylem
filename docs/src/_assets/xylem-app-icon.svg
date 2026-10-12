@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Xylem app icon">
+  <title>Xylem app icon</title>
+  <defs>
+    <mask id="channels" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="white"/>
+      <path d="M -32 -32 L 544 544 M 544 -32 L -32 544" fill="none" stroke="black" stroke-width="22"/>
+    </mask>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#1D2922"/>
+  <g transform="translate(91 91) scale(.64453125)"><path d="M 256 150 C 345 150 411 88 422 4 C 459 27 488 56 508 90 C 424 102 362 166 362 256 C 362 345 424 411 508 422 C 485 459 456 488 422 508 C 410 424 346 362 256 362 C 167 362 101 424 90 508 C 53 485 24 456 4 422 C 88 410 150 346 150 256 C 150 167 88 101 4 90 C 27 53 56 24 90 4 C 102 88 166 150 256 150 Z" fill="#7DBA00" mask="url(#channels)"/></g>
+</svg>

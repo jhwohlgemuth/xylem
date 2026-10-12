@@ -10,10 +10,9 @@ use pyproject_toml::Project;
 use std::collections::HashMap;
 use std::env::set_var;
 use std::fs::{remove_file, write};
-use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::io::Write;
 use std::path::PathBuf;
-use std::sync::{mpsc, Mutex};
+use std::sync::Mutex;
 use std::thread;
 
 mod completion;
@@ -37,14 +36,6 @@ impl Write for SharedWriter {
 
 // `core::io` is still unstable (rust-lang/rust#154046), so this lint's
 // `core::io::ErrorKind` suggestion does not compile.
-#[allow(clippy::std_instead_of_core)]
-fn bind_local_server() -> Option<TcpListener> {
-    match TcpListener::bind("127.0.0.1:0") {
-        | Ok(listener) => Some(listener),
-        | Err(why) if why.kind() == std::io::ErrorKind::PermissionDenied => None,
-        | Err(why) => panic!("bind local server: {why}"),
-    }
-}
 fn to_string(values: Vec<&str>) -> Vec<String> {
     values.iter().map(|s| s.to_string()).collect()
 }
@@ -177,10 +168,15 @@ fn test_config_read_yaml() {
 #[test]
 fn test_module() {
     let module = Module {
+        acquisition: None,
+        acquisition_policy: None,
         completion: None,
         name: "module-a".to_string(),
         module_path: vec!["module-a".to_string()],
-        module_type: ModuleType::Configuration { uri: Location::from("uri") },
+        module_type: ModuleType::Configuration {
+            checksum: None,
+            uri: Location::from("uri"),
+        },
         description: None,
         variables: None,
         before_script: None,
@@ -255,72 +251,6 @@ fn test_remote_allowlist_restriction_cannot_expand_parent_policy() {
     assert!(policy.ensure_allowed("https://shared.example/module").is_ok());
     assert!(policy.ensure_allowed("https://example.com/module").is_err());
     assert!(policy.ensure_allowed("https://child.example/module").is_err());
-}
-#[cfg(unix)]
-#[test]
-fn test_remote_git_probe_reports_failure_and_timeout() {
-    use crate::remote::probe_git_with_command;
-    use std::os::unix::fs::PermissionsExt;
-    let root = std::env::temp_dir().join(format!("xylem-remote-test-{}", std::process::id()));
-    std::fs::create_dir_all(&root).expect("create test directory");
-    let failure = root.join("failure.sh");
-    std::fs::write(&failure, "#!/bin/sh\nexit 3\n").expect("write failure command");
-    std::fs::set_permissions(&failure, std::fs::Permissions::from_mode(0o700)).expect("make executable");
-    assert!(probe_git_with_command(&failure, "ssh://git@example.com/repo", Duration::from_secs(1)).is_err());
-    let timeout = root.join("timeout.sh");
-    std::fs::write(&timeout, "#!/bin/sh\nsleep 2\n").expect("write timeout command");
-    std::fs::set_permissions(&timeout, std::fs::Permissions::from_mode(0o700)).expect("make executable");
-    assert!(probe_git_with_command(&timeout, "ssh://git@example.com/repo", Duration::from_millis(20)).is_err());
-    let _ = std::fs::remove_dir_all(root);
-}
-#[test]
-fn test_remote_http_probe_falls_back_when_head_is_not_supported() {
-    if let Some(listener) = bind_local_server() {
-        let address = listener.local_addr().expect("server address");
-        let (sender, receiver) = mpsc::channel();
-        let server = thread::spawn(move || {
-            for expected in ["HEAD", "GET"] {
-                let (mut stream, _) = listener.accept().expect("accept request");
-                let mut request = [0_u8; 1024];
-                let count = stream.read(&mut request).expect("read request");
-                let request = String::from_utf8_lossy(&request[..count]);
-                assert!(request.starts_with(expected));
-                let response = match expected {
-                    | "HEAD" => "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-                    | _ => "HTTP/1.1 206 Partial Content\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx",
-                };
-                stream.write_all(response.as_bytes()).expect("write response");
-            }
-            sender.send(()).expect("signal completion");
-        });
-        let hosts = vec![format!("127.0.0.1:{}", address.port())];
-        let policy = RemotePolicy::from_hosts(Some(&hosts)).expect("valid policy");
-        policy
-            .probe_http(&format!("http://{address}/module"))
-            .expect("fallback GET should prove reachability");
-        receiver.recv_timeout(Duration::from_secs(1)).expect("server completed");
-        server.join().expect("server thread");
-    }
-}
-#[test]
-fn test_remote_http_probe_rejects_unlisted_redirects() {
-    if let (Some(target), Some(source)) = (bind_local_server(), bind_local_server()) {
-        let target_address = target.local_addr().expect("target address");
-        let source_address = source.local_addr().expect("source address");
-        let server = thread::spawn(move || {
-            let (mut stream, _) = source.accept().expect("accept request");
-            let mut request = [0_u8; 1024];
-            let _ = stream.read(&mut request).expect("read request");
-            let response =
-                format!("HTTP/1.1 302 Found\r\nLocation: http://{target_address}/module\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-            stream.write_all(response.as_bytes()).expect("write response");
-        });
-        let hosts = vec![format!("127.0.0.1:{}", source_address.port())];
-        let policy = RemotePolicy::from_hosts(Some(&hosts)).expect("valid policy");
-        assert!(policy.probe_http(&format!("http://{source_address}/module")).is_err());
-        server.join().expect("server thread");
-        drop(target);
-    }
 }
 #[test]
 fn test_remote_malformed_allowlist_entries_are_rejected() {

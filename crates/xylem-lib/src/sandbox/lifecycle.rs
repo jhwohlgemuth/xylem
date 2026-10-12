@@ -109,7 +109,7 @@ impl Config {
                 };
                 let location = Location::from(format!("file:{}", path.display()).as_str());
                 match &mut module.module_type {
-                    | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => *uri = location,
+                    | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri, .. } | ModuleType::Script { uri, .. } => *uri = location,
                 }
                 if artifacts {
                     module.completion = None;
@@ -398,38 +398,10 @@ impl EffectiveSandboxPolicy {
                             "/xylem/prepared",
                             args!["cp", "-a", format!("/xylem/source-{module_index}/."), &destination],
                         ),
-                        | ModuleUri::Url(url) if binary => self.execute_preparation(
-                            container_name,
-                            "/xylem/prepared",
-                            args![
-                                "curl",
-                                "--fail",
-                                "--proto",
-                                "=http,https",
-                                "--show-error",
-                                "--silent",
-                                "--output",
-                                format!("{destination}/module"),
-                                url.to_string()
-                            ],
-                        ),
-                        | ModuleUri::Url(url) => self.execute_preparation(
-                            container_name,
-                            "/xylem/prepared",
-                            args![
-                                "git",
-                                "-c",
-                                "credential.helper=",
-                                "-c",
-                                "core.hooksPath=/dev/null",
-                                "-c",
-                                "http.followRedirects=false",
-                                "clone",
-                                "--no-recurse-submodules",
-                                url.to_string(),
-                                &destination
-                            ],
-                        ),
+                        | ModuleUri::Url(_) => Err(SandboxError::Validation(format!(
+                            "module {} remote source was not materialized before sandbox preparation",
+                            module.name
+                        ))),
                         | ModuleUri::Unknown(value) => Err(SandboxError::Validation(format!("module {} has invalid URI {value}", module.name))),
                     };
                     acquisition
@@ -768,36 +740,27 @@ impl OciResource {
 }
 impl SandboxInput<Requested> {
     pub(super) fn verify_binary_checksums(&self, prepared_root: &Path) -> Result<(), SandboxError> {
-        let skip = self
-            .config()
-            .options
-            .as_ref()
-            .and_then(|options| options.skip_verify_checksum)
-            .unwrap_or_default();
         self.module_indices()
             .iter()
             .try_for_each(|index| match self.config().modules.get(*index) {
                 | Some(Module {
-                    module_type: ModuleType::Binary { checksum, uri },
+                    module_type: ModuleType::Binary { checksum, .. },
                     name,
                     ..
-                }) if matches!(ModuleUri::from(uri), ModuleUri::Url(_)) && !skip => checksum
-                    .as_deref()
-                    .ok_or_else(|| SandboxError::Validation(format!("module {name} requires a checksum for remote sandbox acquisition")))
-                    .and_then(|expected| {
-                        file_checksum(prepared_root.join("modules").join(index.to_string()).join("module"), None)
-                            .map_err(|why| SandboxError::Runtime(format!("calculate sandbox binary checksum for module {name}: {why}")))
-                            .and_then(|calculated| {
-                                let expected = Checksum::from(expected);
-                                match expected.algorithm == calculated.algorithm && expected.checksum_value == calculated.checksum_value {
-                                    | true => Ok(()),
-                                    | false => Err(SandboxError::Validation(format!(
-                                        "module {name} checksum {expected} does not match {}:{}",
-                                        calculated.algorithm, calculated.checksum_value
-                                    ))),
-                                }
-                            })
-                    }),
+                }) => checksum.as_deref().map_or(Ok(()), |expected| {
+                    file_checksum(prepared_root.join("modules").join(index.to_string()).join("module"), None)
+                        .map_err(|why| SandboxError::Runtime(format!("calculate sandbox binary checksum for module {name}: {why}")))
+                        .and_then(|calculated| {
+                            let expected = Checksum::from(expected);
+                            match expected.algorithm == calculated.algorithm && expected.checksum_value == calculated.checksum_value {
+                                | true => Ok(()),
+                                | false => Err(SandboxError::Validation(format!(
+                                    "module {name} checksum {expected} does not match {}:{}",
+                                    calculated.algorithm, calculated.checksum_value
+                                ))),
+                            }
+                        })
+                }),
                 | _ => Ok(()),
             })
     }

@@ -4,11 +4,11 @@ use acorn_host::config::resolve_config_path;
 use acorn_schema::validation::Validate;
 use std::env;
 use std::path::{Path, PathBuf};
+use xylem_lib::acquisition::{AcquisitionCache, AcquisitionLimits, AcquisitionPolicy};
 use xylem_lib::config::{Config, ConfigOptions, ConfigReadError};
 use xylem_lib::plan::ExecutionPlan;
-use xylem_lib::remote::RemotePolicy;
 use xylem_lib::sandbox::{EffectiveSandboxPolicy, SandboxProviderKind, DOCKER_SANDBOX_WARNING, OPENSHELL_WARNING};
-use xylem_lib::script::{EnvironmentValue, ModuleType, ModuleUri};
+use xylem_lib::script::EnvironmentValue;
 use xylem_lib::workspace::RunWorkspace;
 
 pub(super) struct PreparedRun {
@@ -98,6 +98,7 @@ fn configure_preview(mut preview: Config, request: &RunRequest<'_>) -> Result<Co
                 preview.options = Some(
                     options
                         .with_allowed(allowed)
+                        .with_allow_insecure_http(request.cli_allow_insecure_http)
                         .with_dry_run(Some(dry_run))
                         .with_gpu_monitor(Some(gpu_monitor))
                         .with_offline(Some(offline))
@@ -111,24 +112,6 @@ fn configure_preview(mut preview: Config, request: &RunRequest<'_>) -> Result<Co
                 preview
             })
     })
-}
-fn ensure_remote_modules_allowed(config: &Config) -> Result<(), RunFailure> {
-    RemotePolicy::from_hosts(config.options.as_ref().and_then(|options| options.allowed.as_deref()))
-        .map_err(|why| RunFailure::new(exitcode::USAGE, format!("invalid remote module allowlist — {why}")))
-        .and_then(|policy| {
-            config.modules.iter().try_for_each(|module| {
-                let uri = match &module.module_type {
-                    | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => uri,
-                };
-                match ModuleUri::from(uri) {
-                    | ModuleUri::Url(_) => policy
-                        .ensure_allowed(uri.into())
-                        .map(|_| ())
-                        .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, format!("module {}: {why}", module.name))),
-                    | ModuleUri::File(_) | ModuleUri::Unknown(_) => Ok(()),
-                }
-            })
-        })
 }
 fn normalize_sandbox_artifact_output(config: &mut Config) -> Result<(), RunFailure> {
     match (config.sandbox, config.output.as_ref()) {
@@ -187,9 +170,21 @@ fn prepare_config(request: &RunRequest<'_>, config_path: PathBuf) -> Result<Prep
             let options = preview.options.as_ref();
             let allowed = options.and_then(|value| value.allowed.as_deref());
             let dry_run = options.and_then(|value| value.dry_run).unwrap_or_default();
-            RemotePolicy::from_hosts(allowed)
-                .map_err(|why| RunFailure::new(exitcode::USAGE, format!("invalid remote module allowlist — {why}")))
+            let offline = options.and_then(|value| value.offline).unwrap_or_default();
+            let allow_insecure_http = options.is_some_and(|value| value.allow_insecure_http);
+            let skip_verify_checksum = options.and_then(|value| value.skip_verify_checksum).unwrap_or_default();
+            let limits = options
+                .and_then(|value| value.acquisition_limits.clone())
+                .unwrap_or_else(AcquisitionLimits::default);
+            AcquisitionPolicy::from_hosts(allowed, allow_insecure_http, None, offline, limits)
+                .map(|policy| policy.with_checksum_verification_disabled(skip_verify_checksum))
+                .map_err(|why| RunFailure::new(exitcode::USAGE, format!("invalid acquisition policy — {why}")))
                 .and_then(|policy| {
+                    AcquisitionCache::system()
+                        .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
+                        .map(|cache| (policy, cache))
+                })
+                .and_then(|(policy, cache)| {
                     let owned = match dry_run {
                         | true => Ok((None, None)),
                         | false => {
@@ -201,12 +196,8 @@ fn prepare_config(request: &RunRequest<'_>, config_path: PathBuf) -> Result<Prep
                         }
                     };
                     owned.and_then(|(id, workspace)| {
-                        let source_root = workspace.as_ref().map_or_else(
-                            || PathBuf::from("<dry-run-workspace>/configuration"),
-                            |workspace| workspace.configuration().to_path_buf(),
-                        );
                         preview
-                            .resolve_with_policy(&config_path, &policy, &source_root, dry_run)
+                            .resolve_with_policy(&config_path, &policy, &cache, dry_run)
                             .map(|mut resolved| {
                                 if let Some(output) = request.artifact_output.as_ref() {
                                     apply_resolved_artifact_output(&mut resolved, output);
@@ -264,11 +255,16 @@ fn prepare_config(request: &RunRequest<'_>, config_path: PathBuf) -> Result<Prep
                 .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
                 .map(|()| (resolved, inputs))
         })
-        .and_then(|(resolved, inputs)| ensure_remote_modules_allowed(&resolved.config).map(|()| (resolved, inputs)))
         .and_then(|(resolved, inputs)| {
             let resume = resolved.config.options.as_ref().and_then(|options| options.resume).unwrap_or_default();
             ExecutionPlan::build_resolved(&resolved.config, config_path.display().to_string(), &inputs, resume)
-                .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
+                .map_err(|why| {
+                    let exit_code = match why.is_availability() {
+                        | true => exitcode::UNAVAILABLE,
+                        | false => exitcode::DATAERR,
+                    };
+                    RunFailure::new(exit_code, why.to_string())
+                })
                 .map(|plan| PreparedRun {
                     config: resolved.config,
                     config_path,

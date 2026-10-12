@@ -115,44 +115,10 @@ impl DockerSandboxClient {
                                 })
                         })
                 }),
-                | ModuleUri::Url(url) if binary => self
-                    .execute_command(sandbox, "/xylem/prepared", &BTreeMap::new(), &["mkdir", "-p", &destination])
-                    .and_then(|()| {
-                        self.execute_command(
-                            sandbox,
-                            "/xylem/prepared",
-                            &BTreeMap::new(),
-                            &[
-                                "curl",
-                                "--fail",
-                                "--proto",
-                                "=http,https",
-                                "--show-error",
-                                "--silent",
-                                "--output",
-                                &format!("{destination}/module"),
-                                &url.to_string(),
-                            ],
-                        )
-                    }),
-                | ModuleUri::Url(url) => self.execute_command(
-                    sandbox,
-                    "/xylem/prepared",
-                    &BTreeMap::new(),
-                    &[
-                        "git",
-                        "-c",
-                        "credential.helper=",
-                        "-c",
-                        "core.hooksPath=/dev/null",
-                        "-c",
-                        "http.followRedirects=false",
-                        "clone",
-                        "--no-recurse-submodules",
-                        &url.to_string(),
-                        &destination,
-                    ],
-                ),
+                | ModuleUri::Url(_) => Err(SandboxError::Validation(format!(
+                    "module {} remote source was not materialized before sandbox preparation",
+                    module.name
+                ))),
                 | ModuleUri::Unknown(value) => Err(SandboxError::Validation(format!("module {} has invalid URI {value}", module.name))),
             };
             acquisition

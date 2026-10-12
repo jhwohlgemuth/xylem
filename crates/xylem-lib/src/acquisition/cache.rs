@@ -53,7 +53,7 @@ impl AcquisitionCache {
             .map(|key| self.root.join(plan.source.namespace()).join(key))
             .ok_or_else(|| AcquisitionError::Identity {
                 value: plan.source.to_string(),
-                reason: "local sources do not have cache entries",
+                reason: "source does not have an immutable cache identity",
             })
     }
     pub(super) fn lookup(&self, plan: &AcquisitionPlan) -> Result<Option<CacheEntry>, AcquisitionError> {
@@ -109,6 +109,10 @@ impl AcquisitionCache {
                 .and_then(|parent| validate_cache_parent(&self.root, parent, true).and_then(|()| StagingDirectory::create(parent)))
         })
     }
+    pub(super) fn staging_unverified(&self, source: &AcquisitionSource) -> Result<StagingDirectory, AcquisitionError> {
+        let parent = self.root.join(source.namespace());
+        validate_cache_parent(&self.root, &parent, true).and_then(|()| StagingDirectory::create(&parent))
+    }
 }
 impl CacheEntry {
     pub(super) fn result(self, plan: &AcquisitionPlan, policy: &AcquisitionPolicy, cache: AcquisitionCacheStatus) -> AcquisitionResult {
@@ -125,6 +129,7 @@ impl CacheEntry {
                     allow_insecure_http: policy.allow_insecure_http,
                     git_ssh_enabled: policy.git_ssh.is_some(),
                     offline: policy.offline,
+                    skip_checksum_verification: policy.skip_checksum_verification,
                 },
                 source: self.manifest.source,
                 tree_digest: self.manifest.tree_digest,
@@ -294,7 +299,9 @@ fn validate_cache_path(path: &Path, directory: bool) -> Result<(), AcquisitionEr
 fn validate_entry(plan: &AcquisitionPlan, path: &Path, manifest: CacheManifest) -> Result<CacheEntry, AcquisitionError> {
     let payload = match &plan.source {
         | AcquisitionSource::Git { .. } => path.join("repository"),
-        | AcquisitionSource::HttpBinary { .. } | AcquisitionSource::HttpDocument { .. } => path.join("payload"),
+        | AcquisitionSource::HttpBinary { .. } | AcquisitionSource::HttpBinaryUnverified { .. } | AcquisitionSource::HttpDocument { .. } => {
+            path.join("payload")
+        }
         | AcquisitionSource::Local { .. } => path.join("payload"),
     };
     validate_cache_path(path, true)
@@ -339,6 +346,10 @@ fn validate_entry(plan: &AcquisitionPlan, path: &Path, manifest: CacheManifest) 
                                 reason: "cached Git tree does not match its manifest".to_string(),
                             }),
                         }
+                    }),
+                    | AcquisitionSource::HttpBinaryUnverified { .. } => Err(AcquisitionError::Identity {
+                        value: plan.source.to_string(),
+                        reason: "unverified HTTP sources do not have reusable cache entries",
                     }),
                     | AcquisitionSource::Local { .. } => Err(AcquisitionError::Identity {
                         value: plan.source.to_string(),

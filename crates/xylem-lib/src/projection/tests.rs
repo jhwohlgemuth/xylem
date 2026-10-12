@@ -5,6 +5,7 @@ use acorn_core::time::UnitOfTime;
 fn summary(state: ExecutionState, started: u64, updated: u64) -> RunSummary {
     RunSummary {
         artifacts: None,
+        configuration_acquisitions: Vec::new(),
         schema_version: JOURNAL_SCHEMA_VERSION,
         run_id: "run".to_string(),
         configuration: ConfigurationIdentity {
@@ -30,6 +31,7 @@ fn summary(state: ExecutionState, started: u64, updated: u64) -> RunSummary {
             started_at: Some(Milliseconds::new(started)),
             updated_at: Milliseconds::new(updated),
             modules: vec![ModuleSummary {
+                acquisition: None,
                 index: 0,
                 name: "module".to_string(),
                 module_path: vec!["module".to_string()],

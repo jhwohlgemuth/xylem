@@ -136,29 +136,36 @@ fn execute_active_input(context: &DispatchContext<'_>, index: usize, input: &Opt
                         .get(index)
                         .ok_or_else(|| format!("input {index} workspace is missing"))
                         .and_then(|workspace| {
-                            SandboxInput::new_with_input_count(
-                                context.config.clone(),
-                                index,
-                                context.inputs.len(),
-                                context.required_modules.iter().copied(),
-                                workspace.scratch().join("sandbox"),
-                                input.clone(),
-                            )
-                            .and_then(|requested| {
-                                requested.prepare(session.as_ref(), |module_index, state| {
-                                    if let Some(module) = context.config.modules.get(module_index) {
-                                        ProgressPhase::Preparation.emit(
-                                            state.into(),
-                                            &module.name,
-                                            &module.module_path,
-                                            Some(context.progress),
-                                            input.as_deref(),
-                                        );
-                                    }
+                            context
+                                .config
+                                .clone()
+                                .materialize_modules_selected_in_workspace(context.required_modules, None, workspace)
+                                .map_err(|why| why.to_string())
+                                .and_then(|materialized| {
+                                    SandboxInput::new_with_input_count(
+                                        materialized.clone(),
+                                        index,
+                                        context.inputs.len(),
+                                        context.required_modules.iter().copied(),
+                                        workspace.scratch().join("sandbox"),
+                                        input.clone(),
+                                    )
+                                    .and_then(|requested| {
+                                        requested.prepare(session.as_ref(), |module_index, state| {
+                                            if let Some(module) = materialized.modules.get(module_index) {
+                                                ProgressPhase::Preparation.emit(
+                                                    state.into(),
+                                                    &module.name,
+                                                    &module.module_path,
+                                                    Some(context.progress),
+                                                    input.as_deref(),
+                                                );
+                                            }
+                                        })
+                                    })
+                                    .map(|sandbox_input| (materialized, Some(sandbox_input)))
+                                    .map_err(|why| why.to_string())
                                 })
-                            })
-                            .map(|sandbox_input| (context.config.clone(), Some(sandbox_input)))
-                            .map_err(|why| why.to_string())
                         })
                 },
             );

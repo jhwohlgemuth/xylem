@@ -1001,7 +1001,7 @@ impl SandboxProvider for EffectiveSandboxPolicy {
 impl Module {
     fn sandbox_source(&self) -> Result<Location, SandboxError> {
         let location = match &self.module_type {
-            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri } | ModuleType::Script { uri, .. } => uri,
+            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri, .. } | ModuleType::Script { uri, .. } => uri,
         };
         match location.is_local() || location.is_http_or_https() {
             | true => Ok(location.clone()),

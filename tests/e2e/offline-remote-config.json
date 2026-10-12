@@ -7,7 +7,11 @@
       "name": "Remote Probe",
       "type": "script",
       "programmingLanguage": "generic",
-      "uri": "ssh://git@example.com/project.git",
+      "uri": {
+        "revision": "0123456789abcdef0123456789abcdef01234567",
+        "scheme": "https",
+        "uri": "https://example.com/project.git"
+      },
       "template": {
         "command": "echo",
         "arguments": ["offline"]

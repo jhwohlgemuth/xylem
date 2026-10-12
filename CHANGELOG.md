@@ -15,6 +15,10 @@
 - Add native rootless OCI preflight checks, retained conformance evidence, and an A/P-capable sandbox workload definition.
 - Complete reusable local, HTTP(S), and Git-backed configuration modules with recursive policy-constrained flattening and qualified runtime identities.
 - Complete sandbox Phase 4 with bounded private artifact export, typed exactly-once resource outcomes, policy-authorized failure retention, lease-aware stale reconciliation, and plan v12/run-summary v11 lifecycle evidence.
+- Route remote configurations, binaries, and Git modules through fail-closed
+  immutable acquisition plans, bounded verified caching, owned workspace
+  materialization, and plan v13/run-summary v12 provenance evidence, with a
+  warned and provenance-recorded CLI checksum escape hatch for emergencies.
 
 ### 🐛 Bug Fixes
 

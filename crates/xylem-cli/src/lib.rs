@@ -138,6 +138,7 @@ pub fn run_example(config: &str) -> Void {
         &None,
         false,
         false,
+        false,
         None,
         false,
         Verbosity::default(),

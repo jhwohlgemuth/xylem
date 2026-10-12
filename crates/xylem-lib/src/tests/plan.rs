@@ -1,3 +1,4 @@
+use crate::acquisition::AcquisitionAction;
 use crate::config::{Config, InputAttribute};
 use crate::journal::{MemoryEvidenceMode, MemoryFallbackEvidence, RunMemoryEvidence};
 use crate::plan::{ExecutionPlan, MemoryPlanMode};
@@ -130,7 +131,7 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
     let first = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("build plan");
     let second = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("rebuild plan");
     assert_eq!(first, second);
-    assert_eq!(first.schema_version, 12);
+    assert_eq!(first.schema_version, 13);
     assert!(first.memory.is_none());
     assert_eq!(first.sandbox.mode, "off");
     assert_eq!(first.inputs.source, InputSource::List);
@@ -139,7 +140,7 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
     let yaml_plan = ExecutionPlan::build(&yaml, "config.yaml".to_string(), &inputs, false).expect("build YAML plan");
     assert_eq!(first, yaml_plan);
     assert_eq!(first.configuration.output.as_deref(), Some(output.to_str().expect("UTF-8 output")));
-    assert_eq!(first.modules[0].acquisition.action, "use_local");
+    assert_eq!(first.modules[0].acquisition.action, AcquisitionAction::UseLocal);
     assert_eq!(first.modules[0].command.program.as_deref(), Some("probe"));
     assert_eq!(first.modules[0].command.arguments[0], "input-a");
     assert_eq!(
@@ -283,7 +284,7 @@ fn test_execution_plan_reports_container_startup_strategies() {
             .find(|container| container.name == name)
             .and_then(|container| container.startup)
     };
-    assert_eq!(plan.schema_version, 12);
+    assert_eq!(plan.schema_version, 13);
     assert_eq!(plan.sandbox.mode, "off");
     assert_eq!(startup("explicit"), Some(ContainerStartup::ExplicitCommand));
     assert_eq!(startup("external"), None);
@@ -358,7 +359,7 @@ fn test_execution_plan_reports_validated_memory_fallback() {
     assert_eq!(serialized["memory"]["estimator"]["slope_millionths"], 0);
     assert_eq!(serialized["memory"]["inputs"][0]["fallback"]["kind"], "no_input");
     assert_eq!(serialized["memory"]["mode"], "fixed_fallback");
-    assert_eq!(serialized["schema_version"], 12);
+    assert_eq!(serialized["schema_version"], 13);
 }
 #[test]
 fn test_execution_plan_uses_memory_aware_reservations() {

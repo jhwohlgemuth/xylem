@@ -44,5 +44,21 @@ xylem-tui = { version = "1.0.3", path = "../xylem-tui", optional = true }
 [dev-dependencies]
 assert_cmd = "2.1.1"
 
+[package.metadata.deb]
+assets = [
+  ["target/release/xylem", "usr/bin/", "755"],
+  ["../../README.md", "usr/share/doc/xylem/README.md", "644"],
+  ["../../docs/src/_assets/xylem-app-icon.svg", "usr/share/icons/hicolor/scalable/apps/gov.ornl.xylem.svg", "644"],
+  ["../../packaging/linux/gov.ornl.xylem.desktop", "usr/share/applications/gov.ornl.xylem.desktop", "644"],
+  ["../../packaging/linux/gov.ornl.xylem.metainfo.xml", "usr/share/metainfo/gov.ornl.xylem.metainfo.xml", "644"],
+]
+depends = "ca-certificates"
+extended-description = "Xylem runs structured research data workflows and provides a terminal dashboard for monitoring retained run history."
+license-file = ["../../LICENSE", "0"]
+maintainer = "Jason Wohlgemuth <wohlgemuthjh@ornl.gov>"
+name = "xylem"
+priority = "optional"
+section = "science"
+
 [lints]
 workspace = true

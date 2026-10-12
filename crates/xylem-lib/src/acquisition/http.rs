@@ -8,7 +8,13 @@ pub(super) fn request_error(action: &'static str, url: &str, source: reqwest::Er
         reason: source.to_string(),
     }
 }
-pub(super) fn stream_response(response: Response, url: &str, destination: &Path, maximum: u64, expected: &str) -> Result<u64, AcquisitionError> {
+pub(super) fn stream_response(
+    response: Response,
+    url: &str,
+    destination: &Path,
+    maximum: u64,
+    expected: Option<&str>,
+) -> Result<(u64, String), AcquisitionError> {
     let status = response.status();
     let encoded = response
         .headers()
@@ -87,13 +93,13 @@ pub(super) fn stream_response(response: Response, url: &str, destination: &Path,
                             })
                             .and_then(|()| {
                                 let calculated = format!("sha256:{:x}", hasher.finalize());
-                                match calculated == expected {
-                                    | true => Ok(total),
-                                    | false => Err(AcquisitionError::Sha256Mismatch {
+                                match expected {
+                                    | Some(expected) if calculated != expected => Err(AcquisitionError::Sha256Mismatch {
                                         calculated,
                                         expected: expected.to_string(),
                                         remote: redact_url(url),
                                     }),
+                                    | Some(_) | None => Ok((total, calculated)),
                                 }
                             })
                     })

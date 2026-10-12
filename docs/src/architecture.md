@@ -14,10 +14,12 @@ Planning resolves CLI precedence,
 inputs, artifact roots, variables, acquisition intent, command arguments, and
 completion declarations before Xylem creates its run workspace. Resume adds
 explicitly labeled read-only completion observations; ordinary planning is
-host-write-free. Git-backed configuration discovery is the bounded exception:
-it checks out the source in the managed configuration-source workspace before
-the immutable plan is built. Remote configuration resolution is disabled in
-dry-run mode.
+host-write-free. Remote configuration discovery and executable module
+preparation share one bounded acquisition executor and immutable verified
+cache. Verified content is copied into the owned workspace before host or
+sandbox execution; cache paths are never executed directly. Dry-run performs
+policy and identity planning without network, Git, destination, permission, or
+cache-write side effects.
 
 ```text
 configuration (JSON, JSONC, or YAML)
@@ -64,10 +66,11 @@ classification to a process exit code and renders the terminal diagnostic.
 Resume decisions are made before module preparation from explicit completion
 declarations. The runtime requires both non-empty declared outputs and an exact
 canonical marker identity, and records skips as `skipped_existing`. Execution
-plans use schema version 12, including per-input memory sizing, reservation,
-fallback decisions, and sandbox lifecycle intent. Journals and recovered
-summaries use schema version 11 with the durable `cancelled` state, explicit
-sandbox lifecycle/resource evidence, and nullable memory evidence. Configured runs
+plans use schema version 13, including acquisition plans, per-input memory
+sizing, reservation, fallback decisions, and sandbox lifecycle intent.
+Journals and recovered summaries use schema version 12 with verified
+configuration/module acquisition provenance, the durable `cancelled` state,
+explicit sandbox lifecycle/resource evidence, and nullable memory evidence. Configured runs
 record the estimator identity, budget, base estimate, safety reserve, enforced
 reservation, and structured fallback for every input. Optional observed peaks
 are separate journal events so platform telemetry does not alter portable

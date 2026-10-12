@@ -1,16 +1,25 @@
+use crate::acquisition::{AcquisitionCache, AcquisitionCacheStatus, AcquisitionLimits, AcquisitionPolicy};
 use crate::config::*;
 use crate::execution::{ExecutionContext, ExecutionLimits, InputBatch};
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState, ProgressUpdate};
-use crate::remote::RemotePolicy;
+use crate::workspace::RunWorkspace;
 use acorn_schema::validation::Validate;
+use alloc::collections::BTreeSet;
+use sha2::{Digest, Sha256};
 use std::fs::{create_dir_all, read_dir, remove_dir_all, remove_file, write};
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::process::Command as ProcessCommand;
 use std::sync::Mutex;
 use std::thread;
 
 const FIXTURES: &str = "../../tests/fixtures";
+
+fn acquisition_policy(hosts: Option<&[String]>, allow_insecure_http: bool, offline: bool) -> AcquisitionPolicy {
+    AcquisitionPolicy::from_hosts(hosts, allow_insecure_http, None, offline, AcquisitionLimits::default()).expect("valid acquisition policy")
+}
+fn checksum(content: &str) -> String {
+    format!("sha256:{:x}", Sha256::digest(content.as_bytes()))
+}
 struct CancelledExecutor;
 #[derive(Default)]
 struct RecordingProgress {
@@ -127,6 +136,17 @@ fn test_allowed_round_trips_in_configuration_options() {
     );
 }
 #[test]
+fn test_acquisition_limits_must_be_positive() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "modules": [],
+        "options": { "acquisition_limits": { "git_entries": 0 } },
+        "requirements": []
+    }))
+    .expect("configuration should deserialize before semantic validation");
+    let report = config.validate().expect_err("zero acquisition limit should fail");
+    assert!(report.iter().any(|issue| issue.path == "options.acquisition_limits"));
+}
+#[test]
 fn test_batch_rejects_zero_negative_non_numeric_and_overflow_values() {
     let overflow = (usize::MAX as u128 + 1).to_string();
     for value in ["0".to_string(), "-1".to_string(), "\"many\"".to_string(), overflow] {
@@ -239,78 +259,6 @@ fn test_configuration_errors_preserve_format_path_and_source() {
     remove_file(empty).expect("remove empty YAML configuration");
 }
 #[test]
-fn test_configuration_modules_checkout_git_revision_and_resolve_relative_leaves() {
-    if ProcessCommand::new("git").arg("--version").output().is_ok() {
-        let root = std::env::temp_dir().join(format!("xylem-configuration-git-{}", std::process::id()));
-        let repository = root.join("repository");
-        create_dir_all(&repository).expect("create Git configuration repository");
-        let git = |arguments: &[&str]| {
-            ProcessCommand::new("git")
-                .args(arguments)
-                .current_dir(&repository)
-                .output()
-                .expect("run Git command")
-        };
-        assert!(git(&["init"]).status.success());
-        write(
-            repository.join("config.json"),
-            r#"{
-                "id": "first",
-                "requirements": [],
-                "modules": [{ "name": "Leaf", "type": "script", "uri": "file:./module" }]
-            }"#,
-        )
-        .expect("write first Git configuration");
-        assert!(git(&["add", "config.json"]).status.success());
-        assert!(
-            git(&["-c", "user.name=Xylem", "-c", "user.email=xylem@example.com", "commit", "-m", "first"])
-                .status
-                .success()
-        );
-        let revision = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout)
-            .expect("UTF-8 revision")
-            .trim()
-            .to_string();
-        write(repository.join("config.json"), r#"{ "id": "second", "requirements": [], "modules": [] }"#).expect("write second Git configuration");
-        assert!(git(&["add", "config.json"]).status.success());
-        assert!(
-            git(&["-c", "user.name=Xylem", "-c", "user.email=xylem@example.com", "commit", "-m", "second"])
-                .status
-                .success()
-        );
-        let uri = format!("file://{}", repository.display());
-        let location: Location = serde_json::from_value(serde_json::json!({
-            "scheme": "file",
-            "uri": uri,
-            "revision": revision
-        }))
-        .expect("valid Git location");
-        let sources = root.join("sources");
-        let (config, source) = Config::clone_configuration(&location, &uri, &sources, "Git").expect("clone pinned configuration");
-        let resolved = config
-            .resolve_at(
-                source,
-                &sources,
-                false,
-                false,
-                Vec::new(),
-                vec!["Git".to_string()],
-                1,
-                Some(RemotePolicy::default()),
-                None,
-                None,
-            )
-            .expect("resolve cloned configuration");
-        assert_eq!(resolved.id.as_deref(), Some("first"));
-        assert_eq!(resolved.modules[0].module_path, vec!["Git", "Leaf"]);
-        match &resolved.modules[0].module_type {
-            | ModuleType::Script { uri, .. } => assert!(<&str>::from(uri).contains("/sources/"), "{uri}"),
-            | _ => panic!("Git child leaf should remain executable"),
-        }
-        remove_dir_all(root).expect("remove Git configuration test directory");
-    }
-}
-#[test]
 fn test_configuration_modules_child_policy_cannot_expand_remote_leaf_access() {
     let root = std::env::temp_dir().join(format!("xylem-configuration-policy-{}", std::process::id()));
     create_dir_all(&root).expect("create configuration directory");
@@ -329,15 +277,24 @@ fn test_configuration_modules_child_policy_cannot_expand_remote_leaf_access() {
         r#"{
             "requirements": [],
             "options": { "allowed": ["child.example"] },
-            "modules": [{ "name": "Leaf", "type": "script", "uri": "https://parent.example/module" }]
+            "modules": [{
+                "name": "Leaf",
+                "type": "script",
+                "uri": {
+                    "scheme": "https",
+                    "uri": "https://parent.example/module",
+                    "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                }
+            }]
         }"#,
     )
     .expect("write child configuration");
     let hosts = vec!["parent.example".to_string()];
-    let policy = RemotePolicy::from_hosts(Some(&hosts)).expect("valid root policy");
+    let policy = acquisition_policy(Some(&hosts), false, false);
+    let cache = AcquisitionCache::new(root.join("cache"));
     let error = Config::read(parent.clone())
         .expect("read parent configuration")
-        .resolve_with_policy(&parent, &policy, &root.join("sources"), false)
+        .resolve_with_policy(&parent, &policy, &cache, false)
         .expect_err("child policy must intersect root policy");
     assert!(error.is_availability());
     assert!(error.to_string().contains("Group::Leaf"));
@@ -455,10 +412,11 @@ fn test_configuration_modules_preserve_nested_context_with_policy() {
         }"#,
     )
     .expect("write grandchild configuration");
-    let source_root = root.join("sources");
+    let policy = acquisition_policy(None, false, false);
+    let cache = AcquisitionCache::new(root.join("cache"));
     let config = Config::read(parent.clone())
         .expect("read parent configuration")
-        .resolve_with_policy(&parent, &RemotePolicy::default(), &source_root, false)
+        .resolve_with_policy(&parent, &policy, &cache, false)
         .expect("resolve nested configuration");
     assert_eq!(config.requirements, vec!["sh", "python", "ruby"]);
     assert_eq!(config.modules[0].module_path, vec!["Outer", "Inner", "Leaf"]);
@@ -481,7 +439,7 @@ fn test_configuration_modules_preserve_nested_context_with_policy() {
         .get_or_insert_default()
         .insert("OUTPUT_DIRECTORY".to_string(), Value::String("artifact-output".to_string()));
     let overridden = overridden
-        .resolve_with_policy(&parent, &RemotePolicy::default(), &source_root, false)
+        .resolve_with_policy(&parent, &policy, &cache, false)
         .expect("resolve nested configuration with output override");
     assert_eq!(
         overridden.modules[0].variables.as_ref().expect("merged override variables")["OUTPUT_DIRECTORY"],
@@ -542,11 +500,13 @@ fn test_configuration_modules_reject_http_source_cycles_before_a_second_request(
     if let Some(listener) = bind_local_server() {
         let address = listener.local_addr().expect("server address");
         let uri = format!("http://{address}/config.json");
+        let nested_checksum = format!("sha256:{}", "a".repeat(64));
         let document = serde_json::json!({
             "requirements": [],
-            "modules": [{ "name": "Again", "type": "configuration", "uri": uri }]
+            "modules": [{ "checksum": nested_checksum, "name": "Again", "type": "configuration", "uri": uri }]
         })
         .to_string();
+        let document_checksum = checksum(&document);
         listener.set_nonblocking(false).expect("use blocking listener");
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept configuration request");
@@ -560,13 +520,19 @@ fn test_configuration_modules_reject_http_source_cycles_before_a_second_request(
         });
         let config: Config = serde_json::from_value(serde_json::json!({
             "requirements": [],
-            "modules": [{ "name": "Outer", "type": "configuration", "uri": format!("http://{address}/config.json") }]
+            "modules": [{
+                "checksum": document_checksum,
+                "name": "Outer",
+                "type": "configuration",
+                "uri": format!("http://{address}/config.json")
+            }]
         }))
         .expect("valid root configuration");
         let hosts = vec![address.to_string()];
-        let policy = RemotePolicy::from_hosts(Some(&hosts)).expect("valid policy");
+        let policy = acquisition_policy(Some(&hosts), true, false);
+        let cache = AcquisitionCache::new(std::env::temp_dir().join(format!("xylem-cycle-cache-{address}")));
         let error = config
-            .resolve_with_policy(Path::new("config.json"), &policy, Path::new("sources"), false)
+            .resolve_with_policy(Path::new("config.json"), &policy, &cache, false)
             .expect_err("HTTP source cycle should fail");
         server.join().expect("configuration server");
         assert!(matches!(error, ConfigurationModuleError::Cycle { .. }));
@@ -578,6 +544,7 @@ fn test_configuration_modules_reject_offline_remote_sources() {
     let config: Config = serde_json::from_value(serde_json::json!({
         "requirements": [],
         "modules": [{
+            "checksum": format!("sha256:{}", "a".repeat(64)),
             "name": "Remote",
             "type": "configuration",
             "uri": "https://example.com/config.json"
@@ -585,11 +552,14 @@ fn test_configuration_modules_reject_offline_remote_sources() {
         "options": { "offline": true }
     }))
     .expect("valid root configuration");
+    let hosts = vec!["example.com".to_string()];
+    let policy = acquisition_policy(Some(&hosts), false, true);
+    let cache = AcquisitionCache::new(std::env::temp_dir().join("xylem-offline-configuration-cache"));
     let error = config
-        .resolve_with_policy(Path::new("config.json"), &RemotePolicy::default(), Path::new("sources"), false)
+        .resolve_with_policy(Path::new("config.json"), &policy, &cache, false)
         .expect_err("offline remote source should fail");
     assert!(error.is_availability());
-    assert!(error.to_string().contains("offline mode"));
+    assert!(error.to_string().contains("offline acquisition cache miss"));
 }
 #[test]
 fn test_configuration_modules_reject_revisions_for_http_documents() {
@@ -606,8 +576,14 @@ fn test_configuration_modules_reject_revisions_for_http_documents() {
         }]
     }))
     .expect("valid structured location");
+    let hosts = vec!["example.com".to_string()];
     let error = config
-        .resolve_with_policy(Path::new("config.json"), &RemotePolicy::default(), Path::new("sources"), false)
+        .resolve_with_policy(
+            Path::new("config.json"),
+            &acquisition_policy(Some(&hosts), false, false),
+            &AcquisitionCache::new(std::env::temp_dir().join("xylem-revision-configuration-cache")),
+            false,
+        )
         .expect_err("direct document revision should fail");
     assert!(matches!(error, ConfigurationModuleError::Revision { .. }));
 }
@@ -633,7 +609,12 @@ fn test_configuration_modules_reject_wrapper_fields_with_policy() {
     .expect("write parent configuration");
     let error = Config::read(parent.clone())
         .expect("read parent configuration")
-        .resolve_with_policy(&parent, &RemotePolicy::default(), &root.join("sources"), false)
+        .resolve_with_policy(
+            &parent,
+            &acquisition_policy(None, false, false),
+            &AcquisitionCache::new(root.join("cache")),
+            false,
+        )
         .expect_err("wrapper template should fail");
     assert!(matches!(error, ConfigurationModuleError::Wrapper { .. }));
     remove_dir_all(root).expect("remove configuration test directory");
@@ -646,6 +627,7 @@ fn test_configuration_modules_remote_dry_run_is_request_free() {
         let config: Config = serde_json::from_value(serde_json::json!({
             "requirements": [],
             "modules": [{
+                "checksum": format!("sha256:{}", "a".repeat(64)),
                 "name": "Remote",
                 "type": "configuration",
                 "uri": format!("http://{address}/config.json")
@@ -653,9 +635,10 @@ fn test_configuration_modules_remote_dry_run_is_request_free() {
         }))
         .expect("valid root configuration");
         let hosts = vec![address.to_string()];
-        let policy = RemotePolicy::from_hosts(Some(&hosts)).expect("valid policy");
+        let policy = acquisition_policy(Some(&hosts), true, false);
+        let cache = AcquisitionCache::new(std::env::temp_dir().join(format!("xylem-dry-run-cache-{address}")));
         let error = config
-            .resolve_with_policy(Path::new("config.json"), &policy, Path::new("sources"), true)
+            .resolve_with_policy(Path::new("config.json"), &policy, &cache, true)
             .expect_err("remote dry run should fail");
         assert!(matches!(error, ConfigurationModuleError::RemoteDryRun { .. }));
         assert!(listener.accept().is_err(), "dry run must not connect to the remote source");
@@ -665,11 +648,12 @@ fn test_configuration_modules_remote_dry_run_is_request_free() {
 fn test_configuration_modules_report_malformed_http_documents_with_context() {
     if let Some(listener) = bind_local_server() {
         let address = listener.local_addr().expect("server address");
+        let body = "{".to_string();
+        let body_checksum = checksum(&body);
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept configuration request");
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request).expect("read configuration request");
-            let body = "{";
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
@@ -679,6 +663,7 @@ fn test_configuration_modules_report_malformed_http_documents_with_context() {
         let config: Config = serde_json::from_value(serde_json::json!({
             "requirements": [],
             "modules": [{
+                "checksum": body_checksum,
                 "name": "Remote",
                 "type": "configuration",
                 "uri": format!("http://{address}/config.json")
@@ -686,9 +671,10 @@ fn test_configuration_modules_report_malformed_http_documents_with_context() {
         }))
         .expect("valid root configuration");
         let hosts = vec![address.to_string()];
-        let policy = RemotePolicy::from_hosts(Some(&hosts)).expect("valid policy");
+        let policy = acquisition_policy(Some(&hosts), true, false);
+        let cache = AcquisitionCache::new(std::env::temp_dir().join(format!("xylem-malformed-cache-{address}")));
         let error = config
-            .resolve_with_policy(Path::new("config.json"), &policy, Path::new("sources"), false)
+            .resolve_with_policy(Path::new("config.json"), &policy, &cache, false)
             .expect_err("malformed remote document should fail");
         server.join().expect("configuration server");
         assert!(matches!(error, ConfigurationModuleError::Read { .. }));
@@ -702,25 +688,29 @@ fn test_configuration_modules_resolve_nested_http_documents() {
         let root = std::env::temp_dir().join(format!("xylem-configuration-http-{}", std::process::id()));
         create_dir_all(&root).expect("create HTTP configuration test directory");
         let child_uri = format!("http://{address}/child.json");
+        let child_document = serde_json::json!({
+            "requirements": ["child-tool"],
+            "modules": [{
+                "checksum": format!("sha256:{}", "a".repeat(64)),
+                "name": "Leaf",
+                "type": "binary",
+                "uri": format!("http://{address}/module-source"),
+                "template": { "command": "true", "arguments": [] }
+            }]
+        })
+        .to_string();
+        let child_checksum = checksum(&child_document);
         let parent_document = serde_json::json!({
             "requirements": ["parent-tool"],
             "modules": [{
+                "checksum": child_checksum,
                 "name": "Inner",
                 "type": "configuration",
                 "uri": child_uri
             }]
         })
         .to_string();
-        let child_document = serde_json::json!({
-            "requirements": ["child-tool"],
-            "modules": [{
-                "name": "Leaf",
-                "type": "script",
-                "uri": format!("http://{address}/module-source"),
-                "template": { "command": "true", "arguments": [] }
-            }]
-        })
-        .to_string();
+        let parent_checksum = checksum(&parent_document);
         let server = thread::spawn(move || {
             for body in [parent_document, child_document] {
                 let (mut stream, _) = listener.accept().expect("accept configuration request");
@@ -737,6 +727,7 @@ fn test_configuration_modules_resolve_nested_http_documents() {
         let config: Config = serde_json::from_value(serde_json::json!({
             "requirements": ["root-tool"],
             "modules": [{
+                "checksum": parent_checksum,
                 "name": "Outer",
                 "type": "configuration",
                 "uri": format!("http://{address}/parent.json")
@@ -744,14 +735,86 @@ fn test_configuration_modules_resolve_nested_http_documents() {
         }))
         .expect("valid root configuration");
         let hosts = vec![address.to_string()];
-        let policy = RemotePolicy::from_hosts(Some(&hosts)).expect("valid policy");
+        let policy = acquisition_policy(Some(&hosts), true, false);
+        let cache = AcquisitionCache::new(root.join("cache"));
         let resolved = config
-            .resolve_with_policy(Path::new("config.json"), &policy, &root.join("sources"), false)
+            .resolve_with_policy(Path::new("config.json"), &policy, &cache, false)
             .expect("resolve nested HTTP configurations");
         server.join().expect("configuration server");
         assert_eq!(resolved.requirements, vec!["root-tool", "parent-tool", "child-tool"]);
         assert_eq!(resolved.modules[0].module_path, vec!["Outer", "Inner", "Leaf"]);
         remove_dir_all(root).expect("remove HTTP configuration test directory");
+    }
+}
+#[test]
+fn test_checksum_escape_hatch_allows_an_unpinned_remote_binary() {
+    let module = serde_json::json!({
+        "modules": [{
+            "name": "Remote",
+            "type": "binary",
+            "uri": "https://example.org/tool"
+        }],
+        "requirements": []
+    });
+    let denied: Config = serde_json::from_value(module.clone()).expect("parse remote binary configuration");
+    assert!(denied.validate().is_err());
+    let mut allowed: Config = serde_json::from_value(module).expect("parse checksum escape hatch configuration");
+    allowed.options = Some(ConfigOptions::init().skip_verify_checksum(true).build());
+    assert!(allowed.validate().is_ok());
+}
+#[test]
+fn test_remote_binary_is_verified_and_copied_into_the_input_workspace() {
+    if let Some(listener) = bind_local_server() {
+        let address = listener.local_addr().expect("server address");
+        let body = "#!/bin/sh\nexit 0\n";
+        let expected = body.as_bytes().to_vec();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept binary request");
+            let mut request = [0_u8; 1024];
+            let count = stream.read(&mut request).expect("read binary request");
+            assert!(String::from_utf8_lossy(&request[..count]).starts_with("GET "));
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).expect("write binary response");
+        });
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "modules": [{
+                "checksum": checksum(body),
+                "name": "Remote",
+                "type": "binary",
+                "uri": format!("http://{address}/tool")
+            }],
+            "requirements": []
+        }))
+        .expect("valid remote binary configuration");
+        let hosts = vec![address.to_string()];
+        let policy = acquisition_policy(Some(&hosts), true, false);
+        let root = std::env::temp_dir().join(format!("xylem-binary-workspace-{address}"));
+        let cache = AcquisitionCache::new(root.join("cache"));
+        let workspace = RunWorkspace::create(&root.join("workspaces"), "run").expect("create run workspace");
+        let input = workspace.input(0).expect("create input workspace");
+        let prepared = config
+            .resolve_with_policy(Path::new("config.json"), &policy, &cache, false)
+            .expect("resolve remote binary")
+            .prepare_modules_selected_in_workspace(&BTreeSet::from([0]), None, &input)
+            .expect("prepare remote binary");
+        server.join().expect("binary server");
+        let module = &prepared.modules[0];
+        let path = prepared
+            .options
+            .as_ref()
+            .and_then(|options| options.workspace_modules.get(&0))
+            .expect("materialized binary path");
+        assert!(path.starts_with(input.modules()));
+        assert_eq!(std::fs::read(path).expect("read materialized binary"), expected);
+        assert_eq!(
+            module.acquisition.as_ref().expect("remote acquisition evidence").cache,
+            AcquisitionCacheStatus::Miss
+        );
+        workspace.close().expect("close run workspace");
+        remove_dir_all(root).expect("remove remote binary test directory");
     }
 }
 #[test]

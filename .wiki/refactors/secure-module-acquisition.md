@@ -56,12 +56,28 @@ provenance records. Tests cover policy and identity validation, bounded HTTP
 downloads, cache corruption, offline behavior, plan tampering, and escaping Git
 symlinks.
 
-`workflow-environment-and-concurrency` phase 3 now provides an owned workspace
-for each input and copies local modules into it. Runtime configuration, script,
-schema, and sandbox wiring for the hardened executor remain deferred. The
-legacy remote acquisition paths remain active until that integration can
-switch configuration, binary, and Git handling together without exposing cache
-materializations directly to execution.
+The runtime-integration stage was implemented on 2026-10-12. CLI policy is
+resolved before remote configuration loading; direct documents, binaries, and
+Git modules now use typed immutable acquisition plans and the verified cache.
+Executable content is copied from cache into each owned input workspace before
+host or sandbox preparation, and sandbox providers reject any unmaterialized
+remote URI. The checksum bypass is now an explicit CLI-only emergency policy:
+it warns, remains bounded, records the observed digest, and cannot perform an
+offline lookup without a pretrusted identity. Request-only probes, the floating
+Git path, and legacy unbounded download/read helpers were removed.
+
+Execution-plan schema v13 carries complete acquisition intent. Journal and
+run-summary schema v12 carry verified configuration and per-input module
+acquisition evidence. Integration tests cover request-free dry-run, offline
+miss and cache reuse, bounded document/binary acquisition, workspace copying,
+nested policy intersection, and exactly-once provenance recovery. Workspace
+tests, Clippy with warnings denied, and the complete test suite pass.
+
+The plan remains in progress pending the broader Git transport/concurrency and
+cross-platform qualification matrix. The dependency audit also reports
+RUSTSEC-2026-0194 and RUSTSEC-2026-0195 in `quick-xml` 0.39.4 through the pinned
+ACORN 0.4.0 dependency; remediation requires an ACORN revision that accepts
+`quick-xml` 0.41 or newer.
 
 # Recommendation
 
