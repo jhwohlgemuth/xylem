@@ -296,7 +296,7 @@ fn test_execution_plan_reports_gpu_monitoring_without_host_queries() {
     config.options = Some(crate::config::ConfigOptions::init().gpu_monitor(true).build());
     let plan = ExecutionPlan::build(&config, "config.json".to_string(), &[Some("input-a".to_string())], false).expect("build GPU monitoring plan");
     let monitoring = plan.gpu_monitoring.expect("planned GPU monitoring");
-    assert_eq!(monitoring.interval, crate::gpu::GPU_SAMPLE_INTERVAL_MS);
+    assert_eq!(monitoring.interval, *crate::gpu::GPU_SAMPLE_INTERVAL_MS);
     assert_eq!(monitoring.source, "nvidia-smi");
 }
 #[test]

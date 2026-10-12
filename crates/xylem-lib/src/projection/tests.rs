@@ -1,5 +1,6 @@
 use super::*;
 use crate::journal::{ConfigurationIdentity, InputSummary, ModuleSummary, SandboxEvidence, JOURNAL_SCHEMA_VERSION};
+use acorn_core::time::UnitOfTime;
 
 fn summary(state: ExecutionState, started: u64, updated: u64) -> RunSummary {
     RunSummary {

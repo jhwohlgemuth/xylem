@@ -146,6 +146,18 @@ impl Default for RemotePolicy {
     }
 }
 impl RemotePolicy {
+    /// Construct a deny-by-default policy from required exact authorities.
+    pub fn from_required_hosts(hosts: Option<&[String]>) -> Result<Self, RemoteError> {
+        hosts
+            .unwrap_or_default()
+            .iter()
+            .map(|value| AllowedAuthority::try_from(value.as_str()))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|authorities| Self {
+                allow_all: false,
+                authorities,
+            })
+    }
     /// Construct a policy from `HOST` or `HOST:PORT` entries.
     ///
     /// An absent or empty list preserves the historical allow-all behavior.
@@ -175,6 +187,21 @@ impl RemotePolicy {
                     .collect(),
             },
         })
+    }
+    /// Intersect a fail-closed nested allowlist with this policy.
+    pub fn restrict_required(&self, hosts: Option<&[String]>) -> Result<Self, RemoteError> {
+        match hosts {
+            | None => Ok(self.clone()),
+            | Some(hosts) => Self::from_required_hosts(Some(hosts)).map(|child| Self {
+                allow_all: false,
+                authorities: self
+                    .authorities
+                    .iter()
+                    .filter(|authority| child.authorities.contains(authority))
+                    .cloned()
+                    .collect(),
+            }),
+        }
     }
     /// Validate that a URL is permitted by this policy.
     pub fn ensure_allowed(&self, value: &str) -> Result<Url, RemoteError> {

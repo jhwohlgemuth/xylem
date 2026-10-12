@@ -358,7 +358,7 @@ impl ExecutionPlan {
                                     .and_then(|options| options.gpu_monitor)
                                     .unwrap_or_default()
                                     .then(|| PlannedGpuMonitoring {
-                                        interval: GPU_SAMPLE_INTERVAL_MS,
+                                        interval: *GPU_SAMPLE_INTERVAL_MS,
                                         source: "nvidia-smi".to_string(),
                                     }),
                                 inputs: inputs.clone(),

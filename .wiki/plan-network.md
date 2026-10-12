@@ -36,8 +36,9 @@ redefine them incidentally.
   sandbox, memory, journal, reporter, resume, and run-store behavior.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) consumes
   typed errors, managed process execution, configuration validation, and the
-  eventual immutable context/workspace boundary. Its pure planner and cache
-  primitives may land before host-run integration.
+  eventual immutable context/workspace boundary. Its planner, bounded
+  executors, and cache have landed; host-run integration waits for that
+  workspace boundary.
 - [Kubernetes workflow execution](features/kubernetes-workflow-backend.md)
   follows immutable contexts, owned workspaces, structured cancellation, and a
   reusable local execution boundary. It also requires qualified shared storage,

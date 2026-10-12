@@ -3,7 +3,7 @@ extern crate alloc;
 
 use crate::journal::{GpuDevice, GpuReading, JournalError, RunJournal};
 use acorn_cmd::CommandSpec;
-use acorn_core::time::Milliseconds;
+use acorn_core::time::{Milliseconds, UnitOfTime};
 use alloc::sync::Arc;
 use core::fmt;
 use core::str::FromStr;
@@ -11,15 +11,16 @@ use core::time::Duration;
 use csv::ReaderBuilder;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::LazyLock;
 use std::thread::{Builder, JoinHandle};
 use which::which;
 
-/// Fixed interval between GPU samples.
-pub const GPU_SAMPLE_INTERVAL_MS: Milliseconds = Milliseconds::new(1000);
+const FORMAT_ARGUMENT: &str = "--format=csv,noheader,nounits";
 const GPU_QUERY_TIMEOUT_SECONDS: u64 = 5;
+/// Fixed interval between GPU samples.
+pub static GPU_SAMPLE_INTERVAL_MS: LazyLock<Milliseconds> = LazyLock::new(|| Milliseconds::new(1000));
 const NVIDIA_SMI: &str = "nvidia-smi";
 const QUERY_ARGUMENT: &str = "--query-gpu=index,uuid,name,memory.total,utilization.gpu,memory.used";
-const FORMAT_ARGUMENT: &str = "--format=csv,noheader,nounits";
 
 /// GPU monitor startup, persistence, or worker failure.
 #[derive(Debug, thiserror::Error)]
@@ -34,16 +35,16 @@ pub enum GpuMonitorError {
     #[error("GPU monitor worker failed: {0}")]
     Thread(String),
 }
-#[derive(Debug)]
-struct GpuQuery {
-    devices: Vec<GpuDevice>,
-    readings: Vec<GpuReading>,
-}
 /// Active run-wide GPU monitor.
 #[derive(Debug)]
 pub struct GpuMonitor {
     stop: Sender<()>,
     worker: Option<JoinHandle<Result<(), GpuMonitorError>>>,
+}
+#[derive(Debug)]
+struct GpuQuery {
+    devices: Vec<GpuDevice>,
+    readings: Vec<GpuReading>,
 }
 impl Drop for GpuMonitor {
     fn drop(&mut self) {
@@ -54,7 +55,7 @@ impl GpuMonitor {
     /// Start monitoring every NVIDIA GPU visible to `nvidia-smi`.
     pub fn start(journal: Arc<RunJournal>) -> Result<Self, GpuMonitorError> {
         journal
-            .start_gpu_monitoring(GPU_SAMPLE_INTERVAL_MS)
+            .start_gpu_monitoring(*GPU_SAMPLE_INTERVAL_MS)
             .map_err(GpuMonitorError::Journal)
             .and_then(|()| {
                 which(NVIDIA_SMI)
@@ -133,7 +134,7 @@ impl RunJournal {
     }
 }
 fn monitor(program: PathBuf, devices: Vec<GpuDevice>, journal: Arc<RunJournal>, stop: Receiver<()>) -> Result<(), GpuMonitorError> {
-    let interval = Duration::from(GPU_SAMPLE_INTERVAL_MS);
+    let interval = Duration::from(*GPU_SAMPLE_INTERVAL_MS);
     loop {
         match stop.recv_timeout(interval) {
             | Err(RecvTimeoutError::Timeout) => match GpuQuery::try_from(program.as_path())

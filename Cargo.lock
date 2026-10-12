@@ -4,10 +4,10 @@ version = 4
 
 [[package]]
 name = "acorn-cmd"
-version = "0.3.4"
-source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=36cd74041eaa4669636b7743071f3c334cdb3b7d#36cd74041eaa4669636b7743071f3c334cdb3b7d"
+version = "0.4.0"
+source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa#aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa"
 dependencies = [
- "acorn-macros",
+ "acorn-macros 0.4.0",
  "command-group",
  "shell-words",
  "thiserror 2.0.18",
@@ -16,8 +16,8 @@ dependencies = [
 
 [[package]]
 name = "acorn-core"
-version = "0.3.4"
-source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=36cd74041eaa4669636b7743071f3c334cdb3b7d#36cd74041eaa4669636b7743071f3c334cdb3b7d"
+version = "0.4.0"
+source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa#aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa"
 dependencies = [
  "aho-corasick",
  "bon",
@@ -42,8 +42,8 @@ dependencies = [
 
 [[package]]
 name = "acorn-host"
-version = "0.3.4"
-source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=36cd74041eaa4669636b7743071f3c334cdb3b7d#36cd74041eaa4669636b7743071f3c334cdb3b7d"
+version = "0.4.0"
+source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa#aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa"
 dependencies = [
  "acorn-core",
  "data-encoding",
@@ -71,12 +71,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "acorn-macros"
+version = "0.4.0"
+source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa#aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.116",
+]
+
+[[package]]
 name = "acorn-schema"
-version = "0.3.4"
-source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=36cd74041eaa4669636b7743071f3c334cdb3b7d#36cd74041eaa4669636b7743071f3c334cdb3b7d"
+version = "0.4.0"
+source = "git+https://code.ornl.gov/research-enablement/acorn.git?rev=aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa#aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa"
 dependencies = [
  "acorn-core",
- "acorn-macros",
+ "acorn-macros 0.4.0",
  "aho-corasick",
  "bon",
  "convert_case 0.11.0",
@@ -4251,7 +4262,7 @@ dependencies = [
  "acorn-cmd",
  "acorn-core",
  "acorn-host",
- "acorn-macros",
+ "acorn-macros 0.3.4",
  "acorn-schema",
  "bon",
  "cel",

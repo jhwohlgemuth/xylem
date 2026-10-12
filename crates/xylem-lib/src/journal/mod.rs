@@ -9,7 +9,7 @@ use crate::sandbox::{
 };
 use crate::util::timestamp;
 use crate::ReporterType;
-use acorn_core::time::Milliseconds;
+use acorn_core::time::{Milliseconds, UnitOfTime};
 use acorn_core::validation::ValidationError;
 use acorn_macros::With;
 use acorn_schema::hardware::Memory;

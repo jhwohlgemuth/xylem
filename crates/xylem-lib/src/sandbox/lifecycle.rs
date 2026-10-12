@@ -29,6 +29,8 @@
 //! ```
 extern crate alloc;
 
+use acorn_core::time::UnitOfTime;
+
 #[cfg(target_os = "linux")]
 use super::memory;
 use super::{

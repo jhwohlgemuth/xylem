@@ -6,7 +6,7 @@ difficulty: high
 impact: critical
 package: [xylem-lib, xylem-cli]
 tags: [security, downloads, git, checksum, offline, supply-chain]
-status: planned
+status: in-progress
 ---
 
 # Goal
@@ -46,6 +46,22 @@ Builds on the existing typed-error, validated-planning, managed-run-root, and
 workflow-environment contracts. Coordinate with sandbox policy: acquisition
 owns source validation and materialization, while sandboxing owns the
 capability boundary for network, Git, credentials, and subprocess execution.
+
+# Implementation status
+
+The first stage was implemented on 2026-10-11. `xylem-lib` now has a dormant
+acquisition planner, fail-closed nested policy, bounded HTTP and Git executors,
+verified content-addressed cache, atomic publication, offline cache reuse, and
+provenance records. Tests cover policy and identity validation, bounded HTTP
+downloads, cache corruption, offline behavior, plan tampering, and escaping Git
+symlinks.
+
+Runtime configuration, script, CLI, schema, and sandbox wiring remain deferred
+until `workflow-environment-and-concurrency` provides an owned workspace for
+each input. Activating the executor sooner would expose cache materializations
+directly to execution instead of copying verified content into an input-owned
+workspace. The legacy acquisition paths remain active until that integration
+can switch configuration, binary, and Git handling together.
 
 # Recommendation
 

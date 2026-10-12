@@ -2,7 +2,7 @@
 extern crate alloc;
 
 use crate::journal::{ExecutionState, RunStatus, RunSummary};
-use acorn_core::time::Milliseconds;
+use acorn_core::time::{Milliseconds, UnitOfTime};
 use alloc::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 

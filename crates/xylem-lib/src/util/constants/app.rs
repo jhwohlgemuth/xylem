@@ -1,5 +1,7 @@
 //! Canonical Xylem application identity
 
+/// Optional acquisition-cache root override for tests and embedded deployments.
+pub const ACQUISITION_CACHE_ENV: &str = "XYLEM_ACQUISITION_CACHE";
 /// Canonical application name.
 pub const APPLICATION: &str = "xylem";
 /// Organization name.

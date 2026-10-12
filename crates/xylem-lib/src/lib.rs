@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::read_to_string;
 use std::path::PathBuf;
 
+pub mod acquisition;
 pub mod completion;
 // These legacy API modules predate the workspace documentation gate. Keep the
 // exception at module boundaries so new top-level APIs remain denied by default.

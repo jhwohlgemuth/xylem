@@ -533,7 +533,7 @@ fn projection_text(dashboard: &Dashboard) -> String {
                         |projection| {
                             format!(
                                 "{}s · {:?} · {} of {} steps",
-                                projection.eta.get() / 1000,
+                                u64::from(projection.eta) / 1000,
                                 projection.confidence,
                                 projection.completed_steps,
                                 projection.total_steps

@@ -1,4 +1,4 @@
-use acorn_core::time::Milliseconds;
+use acorn_core::time::{Milliseconds, UnitOfTime};
 use std::fs::canonicalize;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};

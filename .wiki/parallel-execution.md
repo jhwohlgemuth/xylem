@@ -28,9 +28,10 @@ disjoint and neither slice holds the same integration lock.
 
 1. [MCP-enabled tenant tools](features/mcp-tenant-tools.md), beginning with
    qualification of ACORN `aa36e93f` or a newer accepted 0.4.0 revision.
-2. [Secure module acquisition](refactors/secure-module-acquisition.md). Pure
-   planner/cache primitives may proceed separately, but manifest,
-   configuration, run-state, and CLI integrations serialize with MCP.
+2. [Secure module acquisition](refactors/secure-module-acquisition.md). Its
+   planner, executors, and cache are implemented. Manifest, configuration,
+   run-state, and CLI integration waits for an owned workspace and serializes
+   with MCP.
 
 ### Lane B: execution runtime
 
