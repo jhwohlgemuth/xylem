@@ -1,8 +1,31 @@
+include:
+  - project: research-enablement/templates
+    file: /gitlab/rust-release.yml
+    ref: v1
+
+# Override the shared workflow's rules. The template also admits scheduled
+# pipelines and the modelpack drift check, which are acorn-specific and would
+# create empty pipelines here. `rules` is an array, so this replaces it
+# outright; `auto_cancel` is a map, so it is still deep merged from the
+# template.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - when: never
+
 variables:
   BINARY_NAME: xylem
+  DEB_PACKAGE_NAME: xylem
+  DESKTOP_ID: gov.ornl.xylem
+  METAINFO_FILE: packaging/linux/gov.ornl.xylem.metainfo.xml
+  DESKTOP_FILE: packaging/linux/gov.ornl.xylem.desktop
+  ICON_SVG: docs/src/_assets/xylem-app-icon.svg
+  LINUX_PACKAGE_TARGETS: build linux-packages release-checksums
   CHANGELOG: https://code.ornl.gov/research-enablement/xylem/-/blob/main/CHANGELOG.md
-  USER: Xylem CI
-  EMAIL: $GITLAB_USER_EMAIL
+  GIT_USER_EMAIL: $GITLAB_USER_EMAIL
+  GIT_USER_NAME: Xylem CI
   HOMEBREW_TAP_REPO_URL: https://code.ornl.gov/research-enablement/homebrew-xylem.git
   HOMEBREW_TAP_BRANCH: main
   HOMEBREW_TAP_FORMULA_PATH: Formula/xylem.rb
@@ -20,180 +43,18 @@ variables:
 stages:
   - prepare
   - test
+  - sandbox
   - build
   - release
   - docs
 
-.rust-arm64:
-  image: ghcr.io/jhwohlgemuth/acorn:rust-latest
-  tags:
-    - arm64
-
-prepare-environment:
-  stage: prepare
-  image: ubuntu
-  tags:
-    - amd64
-  inherit:
-    variables: false
-  rules:
-    - if: '$CI_COMMIT_TAG =~ /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/'
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - .gitlab-ci.yml
-        - Cargo.lock
-        - Cargo.toml
-        - Makefile
-        - crates/xylem-cli/Cargo.toml
-        - docs/src/_assets/xylem-app-icon.svg
-        - packaging/linux/**/*
-        - scripts/install-appimage-tools.sh
-        - scripts/install-zigbuild.sh
-        - scripts/package-linux.sh
-        - scripts/upload-binaries.sh
-  script:
-    - echo "PKG_VERSION=$(awk -F ' = ' '$1 == "version" { gsub(/["\r]/, "", $2); print $2; exit }' Cargo.toml)" >> variables.env
-    - echo "PKG_REGISTRY_URL=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic" >> variables.env
-    - echo "DEFAULT_ARM64_TARGET=$(awk -F ' *= *' '$1=="DEFAULT_ARM64_TARGET"{ sub(/\r$/,"",$2); print $2; exit }' Makefile)" >> variables.env
-    - echo "DEFAULT_TARGET=$(awk -F ' = ' '$1 ~ /default-target/ { gsub(/["]/, "", $2); printf("%s",$2) }' Cargo.toml | tr . _)" >> variables.env
-    - echo "DEFAULT_WINDOWS_TARGET=$(awk -F ' *= *' '$1=="DEFAULT_WINDOWS_TARGET"{ sub(/\r$/,"",$2); print $2; exit }' Makefile)" >> variables.env
-    - test -z "${CI_COMMIT_TAG:-}" || test "${CI_COMMIT_TAG}" = "v$(awk -F ' = ' '$1 == "version" { gsub(/["\r]/, "", $2); print $2; exit }' Cargo.toml)"
-  artifacts:
-    reports:
-      dotenv: variables.env
-
-test:
-  stage: test
-  image: savannah.ornl.gov/research-enablement/acorn/rust:latest
-  tags:
-    - amd64
-  inherit:
-    variables: true
-  rules:
-    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
-    - if: $CI_COMMIT_TAG
-      when: never
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - crates/${BINARY_NAME}-cli/**/*
-        - crates/${BINARY_NAME}-lib/**/*
-        - Cargo.toml
-  before_script:
-    - rustup component add rustfmt clippy
-    - mkdir -p /tmp/xylem-ci-bin
-    - curl -LsSf --output /tmp/xylem-ci-bin/hadolint "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-x86_64"
-    - printf '%s  %s\n' "${HADOLINT_SHA256}" /tmp/xylem-ci-bin/hadolint | sha256sum --check -
-    - chmod 0755 /tmp/xylem-ci-bin/hadolint
-    - export PATH="/tmp/xylem-ci-bin:${PATH}"
-  script:
-    - make test-ci
-
-sandbox-docker-conformance:
-  stage: test
-  tags:
-    - sandbox-docker-rootless-amd64
-  variables:
-    XYLEM_SANDBOX_EVIDENCE_DIR: $CI_PROJECT_DIR/sandbox-conformance-evidence/docker
-    XYLEM_SANDBOX_RUNTIME: docker
-  rules:
-    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
-    - if: $CI_COMMIT_TAG
-      when: never
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes:
-        - .gitlab-ci.yml
-        - Cargo.lock
-        - Cargo.toml
-        - sandbox/runner/**/*
-        - scripts/check-rootless-sandbox.sh
-        - crates/xylem-cli/**/*
-        - crates/xylem-lib/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-  script:
-    - test "$(uname -s)" = Linux
-    - test "$(uname -m)" = x86_64
-    - test -n "${XYLEM_SANDBOX_WORKLOAD:-}"
-    - docker pull "${XYLEM_SANDBOX_WORKLOAD}"
-    - sh scripts/check-rootless-sandbox.sh "${XYLEM_SANDBOX_RUNTIME}" "${XYLEM_SANDBOX_WORKLOAD}" 1073741824
-    - cargo test -p xylem-cli test_native_rootless_sandbox_conformance -- --ignored --exact
-    - cargo test -p xylem-cli test_native_sandbox_controller_death_and_retention_recovery -- --ignored --exact
-  artifacts:
-    when: always
-    paths:
-      - sandbox-conformance-evidence/docker/
-
-sandbox-podman-conformance:
-  stage: test
-  tags:
-    - sandbox-podman-rootless-amd64
-  variables:
-    XYLEM_SANDBOX_EVIDENCE_DIR: $CI_PROJECT_DIR/sandbox-conformance-evidence/podman
-    XYLEM_SANDBOX_RUNTIME: podman
-  rules:
-    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
-    - if: $CI_COMMIT_TAG
-      when: never
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes:
-        - .gitlab-ci.yml
-        - Cargo.lock
-        - Cargo.toml
-        - sandbox/runner/**/*
-        - scripts/check-rootless-sandbox.sh
-        - crates/xylem-cli/**/*
-        - crates/xylem-lib/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-  script:
-    - test "$(uname -s)" = Linux
-    - test "$(uname -m)" = x86_64
-    - test -n "${XYLEM_SANDBOX_WORKLOAD:-}"
-    - podman pull "${XYLEM_SANDBOX_WORKLOAD}"
-    - sh scripts/check-rootless-sandbox.sh "${XYLEM_SANDBOX_RUNTIME}" "${XYLEM_SANDBOX_WORKLOAD}" 1073741824
-    - cargo test -p xylem-cli test_native_rootless_sandbox_conformance -- --ignored --exact
-    - cargo test -p xylem-cli test_native_sandbox_controller_death_and_retention_recovery -- --ignored --exact
-  artifacts:
-    when: always
-    paths:
-      - sandbox-conformance-evidence/podman/
-
-docker-sandbox-conformance:
-  stage: test
-  allow_failure: true
-  tags:
-    - sandbox-docker-rootless-amd64
-  variables:
-    XYLEM_SANDBOX_EVIDENCE_DIR: $CI_PROJECT_DIR/sandbox-conformance-evidence/docker-sandbox
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes:
-        - .gitlab-ci.yml
-        - Cargo.lock
-        - Cargo.toml
-        - crates/xylem-cli/**/*
-        - crates/xylem-lib/**/*
-        - examples/docker-sandbox-provider/**/*
-      when: manual
-      allow_failure: true
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      when: manual
-      allow_failure: true
-  script:
-    - mkdir -p "${XYLEM_SANDBOX_EVIDENCE_DIR}"
-    - sbx version --json | tee "${XYLEM_SANDBOX_EVIDENCE_DIR}/sbx-version.json"
-    - sbx ls --json | tee "${XYLEM_SANDBOX_EVIDENCE_DIR}/sbx-before.json"
-    - cargo test -p xylem-lib sandbox::docker_sandbox::tests::test_native_docker_sandbox_feasibility -- --ignored --exact
-    - cargo test -p xylem-cli test_docker_sandbox_example_native_end_to_end -- --ignored --exact
-  after_script:
-    - mkdir -p "${XYLEM_SANDBOX_EVIDENCE_DIR}"
-    - sbx ls --json > "${XYLEM_SANDBOX_EVIDENCE_DIR}/sbx-after.json" || true
-  artifacts:
-    when: always
-    paths:
-      - sandbox-conformance-evidence/docker-sandbox/
+# Hidden job templates. Anchors must precede any job that extends them.
 
 .openshell-conformance:
-  stage: test
+  stage: sandbox
   allow_failure: true
+  when: manual
+  timeout: 20 minutes
   variables:
     XYLEM_OPENSHELL_VERSION: "0.1.2"
     XYLEM_SANDBOX_EVIDENCE_DIR: $CI_PROJECT_DIR/sandbox-conformance-evidence/openshell/$XYLEM_OPENSHELL_DRIVER
@@ -222,21 +83,43 @@ docker-sandbox-conformance:
     paths:
       - sandbox-conformance-evidence/openshell/
 
-openshell-docker-conformance:
-  extends: .openshell-conformance
-  tags:
-    - sandbox-docker-rootless-amd64
-  variables:
-    XYLEM_OPENSHELL_DRIVER: docker
+# ---------------------------------------------------------------- prepare ----
 
-openshell-podman-conformance:
-  extends: .openshell-conformance
-  tags:
-    - sandbox-podman-rootless-amd64
-  variables:
-    XYLEM_OPENSHELL_DRIVER: podman
+prepare-environment:
+  extends: .prepare-environment
+  inherit:
+    variables: false
+  rules:
+    # Inlined: this job sets inherit: variables: false, so $IS_VERSION_TAGGED is
+    # unavailable here. Keep in sync with IS_VERSION_TAGGED above.
+    - if: '$CI_COMMIT_TAG =~ /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - Makefile
+        - crates/xylem-cli/Cargo.toml
+        - docs/src/_assets/xylem-app-icon.svg
+        - packaging/linux/**/*
+        - scripts/install-appimage-tools.sh
+        - scripts/install-zigbuild.sh
+        - scripts/package-linux.sh
+        - scripts/upload-binaries.sh
+  script:
+    - echo "PKG_VERSION=$(awk -F ' = ' '$1 == "version" { gsub(/["\r]/, "", $2); print $2; exit }' Cargo.toml)" >> variables.env
+    - echo "PKG_REGISTRY_URL=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic" >> variables.env
+    - echo "DEFAULT_ARM64_TARGET=$(awk -F ' *= *' '$1=="DEFAULT_ARM64_TARGET"{ sub(/\r$/,"",$2); print $2; exit }' Makefile)" >> variables.env
+    - echo "DEFAULT_TARGET=$(awk -F ' = ' '$1 ~ /default-target/ { gsub(/["]/, "", $2); printf("%s",$2) }' Cargo.toml | tr . _)" >> variables.env
+    - echo "DEFAULT_WINDOWS_TARGET=$(awk -F ' *= *' '$1=="DEFAULT_WINDOWS_TARGET"{ sub(/\r$/,"",$2); print $2; exit }' Makefile)" >> variables.env
+    - test -z "${CI_COMMIT_TAG:-}" || test "${CI_COMMIT_TAG}" = "v$(awk -F ' = ' '$1 == "version" { gsub(/["\r]/, "", $2); print $2; exit }' Cargo.toml)"
+  artifacts:
+    reports:
+      dotenv: variables.env
 
-dependency-security:
+# ------------------------------------------------------------------- test ----
+
+test:
   stage: test
   image: savannah.ornl.gov/research-enablement/acorn/rust:latest
   tags:
@@ -245,12 +128,20 @@ dependency-security:
     - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
     - if: $CI_COMMIT_TAG
       when: never
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - crates/${BINARY_NAME}-cli/**/*
+        - crates/${BINARY_NAME}-lib/**/*
+        - Cargo.toml
   before_script:
-    - cargo install --locked cargo-audit@0.22.2 cargo-deny@0.20.2 cargo-shear@1.14.0
+    - rustup component add rustfmt clippy
+    - mkdir -p /tmp/xylem-ci-bin
+    - curl -LsSf --output /tmp/xylem-ci-bin/hadolint "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-x86_64"
+    - printf '%s  %s\n' "${HADOLINT_SHA256}" /tmp/xylem-ci-bin/hadolint | sha256sum --check -
+    - chmod 0755 /tmp/xylem-ci-bin/hadolint
+    - export PATH="/tmp/xylem-ci-bin:${PATH}"
   script:
-    - make audit
+    - make test-ci
 
 test-docs:
   stage: test
@@ -330,170 +221,50 @@ test-homebrew-formula:
       printf '\n# drift\n' >> "${test_directory}/second.rb"
       expect_failure cmp "${test_directory}/first.rb" "${test_directory}/second.rb"
 
-build-release:
-  stage: build
-  image: savannah.ornl.gov/research-enablement/acorn/rust:latest
+# ---------------------------------------------------------------- sandbox ----
+
+build-geospatial-sandbox-workload:
+  stage: sandbox
+  allow_failure: true
+  when: manual
+  timeout: 20 minutes
+  image:
+    name: moby/buildkit:rootless@sha256:f8a833b2de9d68e27f0815e4a737abdfaf8a2e4c615650557df11025101557b4
+    entrypoint: [""]
   tags:
     - amd64
-  inherit:
-    variables: true
-  needs:
-    - job: prepare-environment
-      artifacts: true
-    - job: test
-      optional: true
-  before_script:
-    - rustup target add "${DEFAULT_ARM64_TARGET}" "${DEFAULT_TARGET}" "${DEFAULT_WINDOWS_TARGET}"
-  script:
-    - command -v appstreamcli >/dev/null && command -v desktop-file-validate >/dev/null && command -v file >/dev/null && command -v xmllint >/dev/null && command -v xz >/dev/null || (apt-get update && apt-get install --no-install-recommends --yes appstream desktop-file-utils file libxml2-utils xz-utils)
-    - command -v cargo-zigbuild >/dev/null && command -v zig >/dev/null || sh scripts/install-zigbuild.sh "${XDG_CACHE_HOME}/zigbuild"
-    - export PATH="${XDG_CACHE_HOME}/zigbuild/bin:${PATH}"
-    - cargo deb --version 2>/dev/null | grep -Eq 'cargo-deb 3\.8\.0$' || cargo install --locked --force cargo-deb --version 3.8.0
-    - sh scripts/install-appimage-tools.sh "${XDG_CACHE_HOME}/appimage"
-    - export APPIMAGE_RUNTIME_DIR="${XDG_CACHE_HOME}/appimage/lib/appimage"
-    - export PATH="${XDG_CACHE_HOME}/appimage/bin:${PATH}"
-    - appstreamcli validate --no-net packaging/linux/gov.ornl.xylem.metainfo.xml
-    - cargo-zigbuild --version
-    - cargo-deb --version
-    - cargo --version
-    - desktop-file-validate packaging/linux/gov.ornl.xylem.desktop
-    - rustc --version
-    - xmllint --noout docs/src/_assets/xylem-app-icon.svg packaging/linux/gov.ornl.xylem.metainfo.xml
-    - zig version
-    - MUSL_BUILD="cargo zigbuild" make build linux-packages release-checksums
-    - mkdir -p target/linux-package-checksums
-    - cp bin/*.AppImage.sha256 bin/*.deb.sha256 target/linux-package-checksums/
-    - MUSL_BUILD="cargo zigbuild" make linux-packages
-    - for checksum in target/linux-package-checksums/*; do cmp "$checksum" "bin/$(basename "$checksum")"; done
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+    SOURCE_DATE_EPOCH: "1789689600"
   rules:
-    - if: $CI_COMMIT_TAG
-      when: never
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - .gitlab-ci.yml
-        - Cargo.lock
-        - Cargo.toml
-        - Makefile
-        - crates/xylem-cli/Cargo.toml
-        - docs/src/_assets/xylem-app-icon.svg
-        - packaging/linux/**/*
-        - scripts/install-appimage-tools.sh
-        - scripts/install-zigbuild.sh
-        - scripts/package-linux.sh
+        - sandbox/runner/geospatial/**/*
+  script:
+    - >-
+      buildctl-daemonless.sh build
+      --frontend dockerfile.v0
+      --local context=sandbox/runner/geospatial
+      --local dockerfile=sandbox/runner/geospatial
+      --opt filename=Containerfile
+      --opt platform=linux/amd64
+      --opt build-arg:SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}"
+      --metadata-file geospatial-sandbox-metadata.json
+      --output type=oci,dest=geospatial-sandbox.tar,oci-mediatypes=true,rewrite-timestamp=true,compatibility-version=30
+    - digest="$(awk -F '"' '$2 == "containerimage.digest" { print $4 }' geospatial-sandbox-metadata.json)"
+    - test -n "${digest}"
   artifacts:
+    expire_in: 1 week
     paths:
-      - bin/
-
-validate-linux-amd64:
-  stage: build
-  image: ghcr.io/jhwohlgemuth/acorn:rust-latest
-  tags:
-    - amd64
-  needs:
-    - job: prepare-environment
-      artifacts: true
-    - job: build-release
-      artifacts: true
-  script:
-    - appimage="$(pwd)/bin/xylem-v${PKG_VERSION}-x86_64.AppImage"
-    - package="$(pwd)/bin/xylem_${PKG_VERSION}-1_amd64.deb"
-    - test "$(dpkg-deb --field "$package" Package)" = xylem
-    - test "$(dpkg-deb --field "$package" Architecture)" = amd64
-    - test "$(dpkg-deb --field "$package" Version)" = "${PKG_VERSION}-1"
-    - test "$(dpkg-deb --field "$package" Depends)" = ca-certificates
-    - (cd bin && sha256sum -c "$(basename "$appimage").sha256")
-    - (cd bin && sha256sum -c "$(basename "$package").sha256")
-    - file "$appimage" | grep -Fq 'x86-64'
-    - mkdir -p target/appimage-x86_64
-    - dpkg-deb --contents "$package" > target/appimage-x86_64/deb-contents.txt
-    - grep -Eq ' ./usr/bin/xylem$' target/appimage-x86_64/deb-contents.txt
-    - grep -Eq ' ./usr/share/applications/gov\.ornl\.xylem\.desktop$' target/appimage-x86_64/deb-contents.txt
-    - grep -Eq ' ./usr/share/icons/hicolor/scalable/apps/gov\.ornl\.xylem\.svg$' target/appimage-x86_64/deb-contents.txt
-    - chmod 755 "$appimage"
-    - APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --version
-    - APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --help >/dev/null
-    - (cd target/appimage-x86_64 && "$appimage" --appimage-extract >/dev/null)
-    - test -x target/appimage-x86_64/squashfs-root/AppRun
-    - test -x target/appimage-x86_64/squashfs-root/usr/bin/xylem
-    - test -f target/appimage-x86_64/squashfs-root/gov.ornl.xylem.desktop
-    - test -f target/appimage-x86_64/squashfs-root/gov.ornl.xylem.svg
-    - test -f target/appimage-x86_64/squashfs-root/usr/share/metainfo/gov.ornl.xylem.appdata.xml
-    - grep -Fxq 'Exec=xylem tui' target/appimage-x86_64/squashfs-root/gov.ornl.xylem.desktop
-    - DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends --yes "$package"
-    - xylem --version
-    - xylem --help >/dev/null
-    - dpkg -r xylem
-  rules:
-    - if: $CI_COMMIT_TAG
-      when: never
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - .gitlab-ci.yml
-        - Cargo.lock
-        - Cargo.toml
-        - Makefile
-        - crates/xylem-cli/Cargo.toml
-        - docs/src/_assets/xylem-app-icon.svg
-        - packaging/linux/**/*
-        - scripts/install-appimage-tools.sh
-        - scripts/install-zigbuild.sh
-        - scripts/package-linux.sh
-
-validate-linux-arm64:
-  extends: .rust-arm64
-  stage: build
-  needs:
-    - job: prepare-environment
-      artifacts: true
-    - job: build-release
-      artifacts: true
-  script:
-    - appimage="$(pwd)/bin/xylem-v${PKG_VERSION}-aarch64.AppImage"
-    - package="$(pwd)/bin/xylem_${PKG_VERSION}-1_arm64.deb"
-    - test "$(dpkg-deb --field "$package" Package)" = xylem
-    - test "$(dpkg-deb --field "$package" Architecture)" = arm64
-    - test "$(dpkg-deb --field "$package" Version)" = "${PKG_VERSION}-1"
-    - test "$(dpkg-deb --field "$package" Depends)" = ca-certificates
-    - (cd bin && sha256sum -c "$(basename "$appimage").sha256")
-    - (cd bin && sha256sum -c "$(basename "$package").sha256")
-    - file "$appimage" | grep -Eq 'ARM aarch64|ARM64'
-    - mkdir -p target/appimage-aarch64
-    - dpkg-deb --contents "$package" > target/appimage-aarch64/deb-contents.txt
-    - grep -Eq ' ./usr/bin/xylem$' target/appimage-aarch64/deb-contents.txt
-    - grep -Eq ' ./usr/share/applications/gov\.ornl\.xylem\.desktop$' target/appimage-aarch64/deb-contents.txt
-    - grep -Eq ' ./usr/share/icons/hicolor/scalable/apps/gov\.ornl\.xylem\.svg$' target/appimage-aarch64/deb-contents.txt
-    - chmod 755 "$appimage"
-    - APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --version
-    - APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --help >/dev/null
-    - (cd target/appimage-aarch64 && "$appimage" --appimage-extract >/dev/null)
-    - test -x target/appimage-aarch64/squashfs-root/AppRun
-    - test -x target/appimage-aarch64/squashfs-root/usr/bin/xylem
-    - test -f target/appimage-aarch64/squashfs-root/gov.ornl.xylem.desktop
-    - test -f target/appimage-aarch64/squashfs-root/gov.ornl.xylem.svg
-    - test -f target/appimage-aarch64/squashfs-root/usr/share/metainfo/gov.ornl.xylem.appdata.xml
-    - grep -Fxq 'Exec=xylem tui' target/appimage-aarch64/squashfs-root/gov.ornl.xylem.desktop
-    - DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends --yes "$package"
-    - xylem --version
-    - xylem --help >/dev/null
-    - dpkg -r xylem
-  rules:
-    - if: $CI_COMMIT_TAG
-      when: never
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - .gitlab-ci.yml
-        - Cargo.lock
-        - Cargo.toml
-        - Makefile
-        - crates/xylem-cli/Cargo.toml
-        - docs/src/_assets/xylem-app-icon.svg
-        - packaging/linux/**/*
-        - scripts/install-appimage-tools.sh
-        - scripts/install-zigbuild.sh
-        - scripts/package-linux.sh
+      - geospatial-sandbox-metadata.json
+      - geospatial-sandbox.tar
 
 build-sandbox-runner:
-  stage: build
+  stage: sandbox
+  allow_failure: true
+  when: manual
+  timeout: 20 minutes
   image:
     name: moby/buildkit:rootless@sha256:f8a833b2de9d68e27f0815e4a737abdfaf8a2e4c615650557df11025101557b4
     entrypoint: [""]
@@ -538,8 +309,82 @@ build-sandbox-runner:
       - sandbox-runner-metadata.json
       - sandbox-runner.tar
 
-build-geospatial-sandbox-workload:
-  stage: build
+dependency-security:
+  stage: sandbox
+  allow_failure: true
+  when: manual
+  timeout: 20 minutes
+  image: savannah.ornl.gov/research-enablement/acorn/rust:latest
+  tags:
+    - amd64
+  rules:
+    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  before_script:
+    - cargo install --locked cargo-audit@0.22.2 cargo-deny@0.20.2 cargo-shear@1.14.0
+  script:
+    - make audit
+
+docker-sandbox-conformance:
+  stage: sandbox
+  allow_failure: true
+  when: manual
+  timeout: 20 minutes
+  tags:
+    - sandbox-docker-rootless-amd64
+  variables:
+    XYLEM_SANDBOX_EVIDENCE_DIR: $CI_PROJECT_DIR/sandbox-conformance-evidence/docker-sandbox
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - crates/xylem-cli/**/*
+        - crates/xylem-lib/**/*
+        - examples/docker-sandbox-provider/**/*
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+  script:
+    - mkdir -p "${XYLEM_SANDBOX_EVIDENCE_DIR}"
+    - sbx version --json | tee "${XYLEM_SANDBOX_EVIDENCE_DIR}/sbx-version.json"
+    - sbx ls --json | tee "${XYLEM_SANDBOX_EVIDENCE_DIR}/sbx-before.json"
+    - cargo test -p xylem-lib sandbox::docker_sandbox::tests::test_native_docker_sandbox_feasibility -- --ignored --exact
+    - cargo test -p xylem-cli test_docker_sandbox_example_native_end_to_end -- --ignored --exact
+  after_script:
+    - mkdir -p "${XYLEM_SANDBOX_EVIDENCE_DIR}"
+    - sbx ls --json > "${XYLEM_SANDBOX_EVIDENCE_DIR}/sbx-after.json" || true
+  artifacts:
+    when: always
+    paths:
+      - sandbox-conformance-evidence/docker-sandbox/
+
+openshell-docker-conformance:
+  extends: .openshell-conformance
+  tags:
+    - sandbox-docker-rootless-amd64
+  variables:
+    XYLEM_OPENSHELL_DRIVER: docker
+
+openshell-podman-conformance:
+  extends: .openshell-conformance
+  tags:
+    - sandbox-podman-rootless-amd64
+  variables:
+    XYLEM_OPENSHELL_DRIVER: podman
+
+publish-geospatial-sandbox-workload:
+  extends: .publish
+  stage: sandbox
+  allow_failure: true
+  when: manual
+  timeout: 20 minutes
   image:
     name: moby/buildkit:rootless@sha256:f8a833b2de9d68e27f0815e4a737abdfaf8a2e4c615650557df11025101557b4
     entrypoint: [""]
@@ -547,13 +392,24 @@ build-geospatial-sandbox-workload:
     - amd64
   variables:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+    DOCKER_CONFIG: /tmp/xylem-geospatial-docker
     SOURCE_DATE_EPOCH: "1789689600"
+  resource_group: sandbox-geospatial-workload
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
+    - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
         - .gitlab-ci.yml
         - sandbox/runner/geospatial/**/*
+  before_script:
+    - test -n "${GHCR_TOKEN:-}"
+    - mkdir -p "${DOCKER_CONFIG}"
+    - ghcr_auth="$(printf '%s:%s' "${GHCR_USER}" "${GHCR_TOKEN}" | base64 | tr -d '\n')"
+    - savannah_auth="$(printf '%s:%s' "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')"
+    - printf '{"auths":{"ghcr.io":{"auth":"%s"},"%s":{"auth":"%s"}}}\n' "${ghcr_auth}" "${CI_REGISTRY}" "${savannah_auth}" > "${DOCKER_CONFIG}/config.json"
   script:
+    - image_names="${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}:${CI_COMMIT_SHA},${SANDBOX_GEOSPATIAL_GHCR_IMAGE}:${CI_COMMIT_SHA},${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}:latest,${SANDBOX_GEOSPATIAL_GHCR_IMAGE}:latest"
+    - if [ -n "${CI_COMMIT_TAG:-}" ]; then version="${CI_COMMIT_TAG#v}"; image_names="${image_names},${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}:${version},${SANDBOX_GEOSPATIAL_GHCR_IMAGE}:${version}"; fi
     - >-
       buildctl-daemonless.sh build
       --frontend dockerfile.v0
@@ -563,23 +419,262 @@ build-geospatial-sandbox-workload:
       --opt platform=linux/amd64
       --opt build-arg:SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}"
       --metadata-file geospatial-sandbox-metadata.json
-      --output type=oci,dest=geospatial-sandbox.tar,oci-mediatypes=true,rewrite-timestamp=true,compatibility-version=30
+      --output type=image,name="${image_names}",push=true,name-canonical=true,oci-mediatypes=true,rewrite-timestamp=true,compatibility-version=30
     - digest="$(awk -F '"' '$2 == "containerimage.digest" { print $4 }' geospatial-sandbox-metadata.json)"
     - test -n "${digest}"
+    - printf 'XYLEM_SANDBOX_GEOSPATIAL_WORKLOAD=%s@%s\n' "${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}" "${digest}" > geospatial-sandbox.env
+    - printf 'XYLEM_SANDBOX_GEOSPATIAL_WORKLOAD_GHCR=%s@%s\n' "${SANDBOX_GEOSPATIAL_GHCR_IMAGE}" "${digest}" >> geospatial-sandbox.env
+    - printf 'XYLEM_SANDBOX_GEOSPATIAL_WORKLOAD_SAVANNAH=%s@%s\n' "${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}" "${digest}" >> geospatial-sandbox.env
   artifacts:
-    expire_in: 1 week
+    reports:
+      dotenv: geospatial-sandbox.env
     paths:
       - geospatial-sandbox-metadata.json
-      - geospatial-sandbox.tar
 
-publish-release-linux:
-  stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
+sandbox-docker-conformance:
+  stage: sandbox
+  allow_failure: true
+  when: manual
+  timeout: 20 minutes
+  tags:
+    - sandbox-docker-rootless-amd64
+  variables:
+    XYLEM_SANDBOX_EVIDENCE_DIR: $CI_PROJECT_DIR/sandbox-conformance-evidence/docker
+    XYLEM_SANDBOX_RUNTIME: docker
+  rules:
+    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - sandbox/runner/**/*
+        - scripts/check-rootless-sandbox.sh
+        - crates/xylem-cli/**/*
+        - crates/xylem-lib/**/*
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - test "$(uname -s)" = Linux
+    - test "$(uname -m)" = x86_64
+    - test -n "${XYLEM_SANDBOX_WORKLOAD:-}"
+    - docker pull "${XYLEM_SANDBOX_WORKLOAD}"
+    - sh scripts/check-rootless-sandbox.sh "${XYLEM_SANDBOX_RUNTIME}" "${XYLEM_SANDBOX_WORKLOAD}" 1073741824
+    - cargo test -p xylem-cli test_native_rootless_sandbox_conformance -- --ignored --exact
+    - cargo test -p xylem-cli test_native_sandbox_controller_death_and_retention_recovery -- --ignored --exact
+  artifacts:
+    when: always
+    paths:
+      - sandbox-conformance-evidence/docker/
+
+sandbox-podman-conformance:
+  stage: sandbox
+  allow_failure: true
+  when: manual
+  timeout: 20 minutes
+  tags:
+    - sandbox-podman-rootless-amd64
+  variables:
+    XYLEM_SANDBOX_EVIDENCE_DIR: $CI_PROJECT_DIR/sandbox-conformance-evidence/podman
+    XYLEM_SANDBOX_RUNTIME: podman
+  rules:
+    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - sandbox/runner/**/*
+        - scripts/check-rootless-sandbox.sh
+        - crates/xylem-cli/**/*
+        - crates/xylem-lib/**/*
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - test "$(uname -s)" = Linux
+    - test "$(uname -m)" = x86_64
+    - test -n "${XYLEM_SANDBOX_WORKLOAD:-}"
+    - podman pull "${XYLEM_SANDBOX_WORKLOAD}"
+    - sh scripts/check-rootless-sandbox.sh "${XYLEM_SANDBOX_RUNTIME}" "${XYLEM_SANDBOX_WORKLOAD}" 1073741824
+    - cargo test -p xylem-cli test_native_rootless_sandbox_conformance -- --ignored --exact
+    - cargo test -p xylem-cli test_native_sandbox_controller_death_and_retention_recovery -- --ignored --exact
+  artifacts:
+    when: always
+    paths:
+      - sandbox-conformance-evidence/podman/
+
+# ------------------------------------------------------------------ build ----
+
+build-release:
+  extends: .build-release
+  stage: build
+  image: savannah.ornl.gov/research-enablement/acorn/rust:latest
   tags:
     - amd64
-  inherit:
-    default: false
-    variables: true
+  needs:
+    - job: prepare-environment
+      artifacts: true
+    - job: test
+      optional: true
+  before_script:
+    - rustup target add "${DEFAULT_ARM64_TARGET}" "${DEFAULT_TARGET}" "${DEFAULT_WINDOWS_TARGET}"
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - Makefile
+        - crates/xylem-cli/Cargo.toml
+        - docs/src/_assets/xylem-app-icon.svg
+        - packaging/linux/**/*
+        - scripts/install-appimage-tools.sh
+        - scripts/install-zigbuild.sh
+        - scripts/package-linux.sh
+  artifacts:
+    paths:
+      - bin/
+
+validate-linux-amd64:
+  extends: .validate-linux
+  variables:
+    DEB_ARCH: amd64
+    APPIMAGE_ARCH: x86_64
+    EXPECT_FILE_TYPE: x86-64
+    EXPECT_EXEC: xylem tui
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - Makefile
+        - crates/xylem-cli/Cargo.toml
+        - docs/src/_assets/xylem-app-icon.svg
+        - packaging/linux/**/*
+        - scripts/install-appimage-tools.sh
+        - scripts/install-zigbuild.sh
+        - scripts/package-linux.sh
+
+validate-linux-arm64:
+  extends:
+    - .validate-linux
+    - .rust-arm64
+  variables:
+    DEB_ARCH: arm64
+    APPIMAGE_ARCH: aarch64
+    EXPECT_FILE_TYPE: "ARM aarch64|ARM64"
+    EXPECT_EXEC: xylem tui
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - .gitlab-ci.yml
+        - Cargo.lock
+        - Cargo.toml
+        - Makefile
+        - crates/xylem-cli/Cargo.toml
+        - docs/src/_assets/xylem-app-icon.svg
+        - packaging/linux/**/*
+        - scripts/install-appimage-tools.sh
+        - scripts/install-zigbuild.sh
+        - scripts/package-linux.sh
+
+# ---------------------------------------------------------------- release ----
+
+publish-crates:
+  extends: .publish
+  stage: release
+  image: savannah.ornl.gov/research-enablement/acorn/rust:latest
+  tags:
+    - amd64
+  resource_group: crates-io
+  rules:
+    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
+  script:
+    - cargo xtask publish-crates
+
+publish-homebrew-formula:
+  extends: .publish
+  stage: release
+  image: alpine@sha256:79ff19e9084a00eece421b2523fb93e22d730e2c0e525905de047e848e56d95f
+  tags:
+    - amd64
+  resource_group: homebrew-tap
+  needs:
+    - job: prepare-environment
+      artifacts: true
+    - job: test
+    - job: test-homebrew-formula
+    - job: publish-crates
+  rules:
+    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
+  before_script:
+    - apk add --no-cache cargo curl git
+  script:
+    - |
+      set -eu
+      test -n "${HOMEBREW_TAP_REPO_URL:-}" || { echo "HOMEBREW_TAP_REPO_URL is required" >&2; exit 1; }
+      test -n "${HOMEBREW_TAP_ACCESS_TOKEN:-}" || { echo "HOMEBREW_TAP_ACCESS_TOKEN is required" >&2; exit 1; }
+      version="${CI_COMMIT_TAG#v}"
+      test "${version}" = "${PKG_VERSION}"
+      cargo xtask homebrew-formula "${version}" Formula/xylem.rb
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --range 0-0 --output /dev/null --retry 5 --retry-all-errors -LsSf "${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${version}/${BINARY_NAME}"
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --range 0-0 --output /dev/null --retry 5 --retry-all-errors -LsSf "${PKG_REGISTRY_URL}/${DEFAULT_WINDOWS_TARGET}/v${version}/${BINARY_NAME}.exe"
+
+      tap_branch="${HOMEBREW_TAP_BRANCH:-main}"
+      tap_formula_path="${HOMEBREW_TAP_FORMULA_PATH:-Formula/xylem.rb}"
+      release_branch="release/xylem-v${version}"
+      authenticated_url="https://oauth2:${HOMEBREW_TAP_ACCESS_TOKEN}@${HOMEBREW_TAP_REPO_URL#https://}"
+      git clone "${authenticated_url}" tap
+      git -C tap remote set-url origin "${HOMEBREW_TAP_REPO_URL}"
+      git -C tap config user.name "${GIT_USER_NAME}"
+      git -C tap config user.email "${GIT_USER_EMAIL:-xylem-ci@noreply.invalid}"
+
+      if git -C tap show-ref --verify --quiet "refs/remotes/origin/${tap_branch}"; then
+        git -C tap checkout -B "${tap_branch}" "origin/${tap_branch}"
+      else
+        git -C tap checkout --orphan "${tap_branch}"
+        cp scripts/homebrew/tap.README.md tap/README.md
+        git -C tap add README.md
+        git -C tap commit -m "chore: initialize Xylem tap"
+        git -C tap push "${authenticated_url}" "HEAD:${tap_branch}"
+      fi
+
+      if git -C tap show-ref --verify --quiet "refs/remotes/origin/${release_branch}"; then
+        git -C tap checkout -B "${release_branch}" "origin/${release_branch}"
+      else
+        git -C tap checkout -B "${release_branch}"
+      fi
+      mkdir -p "tap/$(dirname "${tap_formula_path}")"
+      cp Formula/xylem.rb "tap/${tap_formula_path}"
+      cp scripts/homebrew/tap.gitlab-ci.yml tap/.gitlab-ci.yml
+      git -C tap add "${tap_formula_path}" .gitlab-ci.yml
+      if git -C tap diff --cached --quiet; then
+        echo "No Homebrew tap changes detected"
+        exit 0
+      fi
+      git -C tap commit -m "chore(homebrew): update xylem v${version}"
+      git -C tap push \
+        -o merge_request.create \
+        -o "merge_request.target=${tap_branch}" \
+        -o merge_request.remove_source_branch \
+        -o "merge_request.title=chore(homebrew): update xylem v${version}" \
+        "${authenticated_url}" "HEAD:${release_branch}"
+
+publish-release-linux:
+  extends: .publish
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:v0.25.0
+  tags:
+    - amd64
   needs:
     - job: prepare-environment
       artifacts: true
@@ -624,6 +719,7 @@ publish-release-linux:
           url: "${PKG_REGISTRY_URL}/${DEFAULT_ARM64_TARGET}/v${PKG_VERSION}/${BINARY_NAME}_${PKG_VERSION}-1_arm64.deb.sha256"
 
 publish-sandbox-runner:
+  extends: .publish
   stage: release
   image:
     name: moby/buildkit:rootless@sha256:f8a833b2de9d68e27f0815e4a737abdfaf8a2e4c615650557df11025101557b4
@@ -634,9 +730,7 @@ publish-sandbox-runner:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
     DOCKER_CONFIG: /tmp/xylem-docker
     SOURCE_DATE_EPOCH: "1789689600"
-  interruptible: false
   resource_group: sandbox-runner
-  retry: 0
   rules:
     - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
     - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -673,66 +767,13 @@ publish-sandbox-runner:
     paths:
       - sandbox-runner-metadata.json
 
-publish-geospatial-sandbox-workload:
-  stage: release
-  image:
-    name: moby/buildkit:rootless@sha256:f8a833b2de9d68e27f0815e4a737abdfaf8a2e4c615650557df11025101557b4
-    entrypoint: [""]
-  tags:
-    - amd64
-  variables:
-    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
-    DOCKER_CONFIG: /tmp/xylem-geospatial-docker
-    SOURCE_DATE_EPOCH: "1789689600"
-  interruptible: false
-  resource_group: sandbox-geospatial-workload
-  retry: 0
-  rules:
-    - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
-    - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - .gitlab-ci.yml
-        - sandbox/runner/geospatial/**/*
-  before_script:
-    - test -n "${GHCR_TOKEN:-}"
-    - mkdir -p "${DOCKER_CONFIG}"
-    - ghcr_auth="$(printf '%s:%s' "${GHCR_USER}" "${GHCR_TOKEN}" | base64 | tr -d '\n')"
-    - savannah_auth="$(printf '%s:%s' "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')"
-    - printf '{"auths":{"ghcr.io":{"auth":"%s"},"%s":{"auth":"%s"}}}\n' "${ghcr_auth}" "${CI_REGISTRY}" "${savannah_auth}" > "${DOCKER_CONFIG}/config.json"
-  script:
-    - image_names="${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}:${CI_COMMIT_SHA},${SANDBOX_GEOSPATIAL_GHCR_IMAGE}:${CI_COMMIT_SHA},${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}:latest,${SANDBOX_GEOSPATIAL_GHCR_IMAGE}:latest"
-    - if [ -n "${CI_COMMIT_TAG:-}" ]; then version="${CI_COMMIT_TAG#v}"; image_names="${image_names},${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}:${version},${SANDBOX_GEOSPATIAL_GHCR_IMAGE}:${version}"; fi
-    - >-
-      buildctl-daemonless.sh build
-      --frontend dockerfile.v0
-      --local context=sandbox/runner/geospatial
-      --local dockerfile=sandbox/runner/geospatial
-      --opt filename=Containerfile
-      --opt platform=linux/amd64
-      --opt build-arg:SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}"
-      --metadata-file geospatial-sandbox-metadata.json
-      --output type=image,name="${image_names}",push=true,name-canonical=true,oci-mediatypes=true,rewrite-timestamp=true,compatibility-version=30
-    - digest="$(awk -F '"' '$2 == "containerimage.digest" { print $4 }' geospatial-sandbox-metadata.json)"
-    - test -n "${digest}"
-    - printf 'XYLEM_SANDBOX_GEOSPATIAL_WORKLOAD=%s@%s\n' "${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}" "${digest}" > geospatial-sandbox.env
-    - printf 'XYLEM_SANDBOX_GEOSPATIAL_WORKLOAD_GHCR=%s@%s\n' "${SANDBOX_GEOSPATIAL_GHCR_IMAGE}" "${digest}" >> geospatial-sandbox.env
-    - printf 'XYLEM_SANDBOX_GEOSPATIAL_WORKLOAD_SAVANNAH=%s@%s\n' "${SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE}" "${digest}" >> geospatial-sandbox.env
-  artifacts:
-    reports:
-      dotenv: geospatial-sandbox.env
-    paths:
-      - geospatial-sandbox-metadata.json
-
 upload-binaries:
+  extends: .publish
   stage: release
-  image: curlimages/curl:latest
+  image: curlimages/curl@sha256:b375ea94488a70540f48df7a7029bcce50e650915816e6497774db9451b4f877
   tags:
     - amd64
-  inherit:
-    variables: true
-  interruptible: false
   resource_group: gitlab-package-uploads
-  retry: 0
   needs:
     - job: prepare-environment
       artifacts: true
@@ -750,113 +791,10 @@ upload-binaries:
     - ls -la bin/
     - sh scripts/upload-binaries.sh
 
-publish-crates:
-  stage: release
-  image: savannah.ornl.gov/research-enablement/acorn/rust:latest
-  tags:
-    - amd64
-  inherit:
-    variables: true
-  interruptible: false
-  resource_group: crates-io
-  retry: 0
-  rules:
-    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
-  script:
-    - cargo xtask publish-crates
-
-publish-homebrew-formula:
-  stage: release
-  image: alpine@sha256:79ff19e9084a00eece421b2523fb93e22d730e2c0e525905de047e848e56d95f
-  tags:
-    - amd64
-  inherit:
-    variables: true
-  interruptible: false
-  resource_group: homebrew-tap
-  retry: 0
-  needs:
-    - job: prepare-environment
-      artifacts: true
-    - job: test
-    - job: test-homebrew-formula
-    - job: publish-crates
-  rules:
-    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
-  before_script:
-    - apk add --no-cache cargo curl git
-  script:
-    - |
-      set -eu
-      test -n "${HOMEBREW_TAP_REPO_URL:-}" || { echo "HOMEBREW_TAP_REPO_URL is required" >&2; exit 1; }
-      test -n "${HOMEBREW_TAP_ACCESS_TOKEN:-}" || { echo "HOMEBREW_TAP_ACCESS_TOKEN is required" >&2; exit 1; }
-      version="${CI_COMMIT_TAG#v}"
-      test "${version}" = "${PKG_VERSION}"
-      cargo xtask homebrew-formula "${version}" Formula/xylem.rb
-      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --range 0-0 --output /dev/null --retry 5 --retry-all-errors -LsSf "${PKG_REGISTRY_URL}/${DEFAULT_TARGET}/v${version}/${BINARY_NAME}"
-      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --range 0-0 --output /dev/null --retry 5 --retry-all-errors -LsSf "${PKG_REGISTRY_URL}/${DEFAULT_WINDOWS_TARGET}/v${version}/${BINARY_NAME}.exe"
-
-      tap_branch="${HOMEBREW_TAP_BRANCH:-main}"
-      tap_formula_path="${HOMEBREW_TAP_FORMULA_PATH:-Formula/xylem.rb}"
-      release_branch="release/xylem-v${version}"
-      authenticated_url="https://oauth2:${HOMEBREW_TAP_ACCESS_TOKEN}@${HOMEBREW_TAP_REPO_URL#https://}"
-      git clone "${authenticated_url}" tap
-      git -C tap remote set-url origin "${HOMEBREW_TAP_REPO_URL}"
-      git -C tap config user.name "${USER}"
-      git -C tap config user.email "${EMAIL:-xylem-ci@noreply.invalid}"
-
-      if git -C tap show-ref --verify --quiet "refs/remotes/origin/${tap_branch}"; then
-        git -C tap checkout -B "${tap_branch}" "origin/${tap_branch}"
-      else
-        git -C tap checkout --orphan "${tap_branch}"
-        cp scripts/homebrew/tap.README.md tap/README.md
-        git -C tap add README.md
-        git -C tap commit -m "chore: initialize Xylem tap"
-        git -C tap push "${authenticated_url}" "HEAD:${tap_branch}"
-      fi
-
-      if git -C tap show-ref --verify --quiet "refs/remotes/origin/${release_branch}"; then
-        git -C tap checkout -B "${release_branch}" "origin/${release_branch}"
-      else
-        git -C tap checkout -B "${release_branch}"
-      fi
-      mkdir -p "tap/$(dirname "${tap_formula_path}")"
-      cp Formula/xylem.rb "tap/${tap_formula_path}"
-      cp scripts/homebrew/tap.gitlab-ci.yml tap/.gitlab-ci.yml
-      git -C tap add "${tap_formula_path}" .gitlab-ci.yml
-      if git -C tap diff --cached --quiet; then
-        echo "No Homebrew tap changes detected"
-        exit 0
-      fi
-      git -C tap commit -m "chore(homebrew): update xylem v${version}"
-      git -C tap push \
-        -o merge_request.create \
-        -o "merge_request.target=${tap_branch}" \
-        -o merge_request.remove_source_branch \
-        -o "merge_request.title=chore(homebrew): update xylem v${version}" \
-        "${authenticated_url}" "HEAD:${release_branch}"
+# ------------------------------------------------------------------- docs ----
 
 publish-book:
-  stage: docs
+  extends: .publish-book
   image: savannah.ornl.gov/research-enablement/acorn/rust:latest
   tags:
     - amd64
-  inherit:
-    variables: true
-  interruptible: false
-  resource_group: documentation-site
-  retry: 0
-  rules:
-    - if: $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - docs/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      when: manual
-  script:
-    - command -v mdbook >/dev/null && command -v mdbook-mermaid >/dev/null && command -v mdbook-pikchr >/dev/null || cargo install --locked mdbook@0.5.2 mdbook-mermaid@0.17.0 mdbook-pikchr@0.2.0
-    - mdbook --version
-    - git config --global user.name "${USER}"
-    - git config --global user.email "${EMAIL}"
-    - make publish-book
-  allow_failure: true
