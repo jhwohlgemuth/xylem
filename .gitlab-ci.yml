@@ -1,7 +1,7 @@
 include:
   - project: research-enablement/templates
     file: /gitlab/rust-release.gitlab-ci.yml
-    ref: v1
+    ref: main
 
 # Override the shared workflow's rules. The template also admits scheduled
 # pipelines and the modelpack drift check, which are acorn-specific and would
