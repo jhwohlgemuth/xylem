@@ -125,6 +125,7 @@ enum ConfigurationSource {
     File(PathBuf),
     Git { identity: String, path: PathBuf },
     Http { identity: String },
+    Oci { identity: String, path: PathBuf },
 }
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -728,7 +729,7 @@ impl Config {
                                                     .parent()
                                                     .map(absolute_path)
                                                     .ok_or_else(|| format!("binary module URI has no parent directory: {uri}")),
-                                                | ModuleUri::Url(_) => Ok(root.clone()),
+                                                | ModuleUri::Url(_) | ModuleUri::Oci(_) => Ok(root.clone()),
                                                 | ModuleUri::Unknown(_) => Err(format!("module URI is invalid: {uri}")),
                                             };
                                             working_dir.and_then(|working_dir| {
@@ -974,6 +975,7 @@ impl Config {
             {
                 Some(uri)
             }
+            | ModuleUri::Oci(_) => Some(format!("oci:{uri}")),
             | ModuleUri::Url(_) => Some(format!("git:{uri}#{}", Self::revision(location).map_or("unpinned", String::as_str))),
             | ModuleUri::Unknown(_) => None,
         }
@@ -1083,6 +1085,43 @@ impl Config {
                     }
                 }
             }
+            | ModuleUri::Oci(reference) => match (policy, cache) {
+                | (Some(policy), Some(cache)) => AcquisitionSource::oci(reference)
+                    .and_then(|source| {
+                        let effective_policy = policy.restrict_offline(dry_run);
+                        AcquisitionPlan::build(module.split("::").map(str::to_string).collect(), source, &effective_policy)
+                            .and_then(|plan| AcquisitionExecutor::new(effective_policy, cache.clone()).execute(&plan))
+                    })
+                    .map_err(|source| ConfigurationModuleError::Remote {
+                        module: module.to_string(),
+                        reason: source.to_string(),
+                    })
+                    .and_then(|result| {
+                        let entrypoint = result.path.join("config.json");
+                        Config::read(entrypoint.clone())
+                            .map(|config| {
+                                (
+                                    config,
+                                    ConfigurationSource::Oci {
+                                        identity: format!("oci:{uri}"),
+                                        path: entrypoint,
+                                    },
+                                )
+                            })
+                            .map_err(|source| ConfigurationModuleError::Read {
+                                module: module.to_string(),
+                                source,
+                            })
+                            .map(|(mut config, source)| {
+                                config.acquisitions.push(result.evidence);
+                                (config, source)
+                            })
+                    }),
+                | _ => Err(ConfigurationModuleError::Source {
+                    module: module.to_string(),
+                    uri,
+                }),
+            },
             | ModuleUri::Unknown(_) => Err(ConfigurationModuleError::Source {
                 module: module.to_string(),
                 uri,
@@ -1268,7 +1307,8 @@ impl Config {
         };
         let module_path = path.iter().chain(once(&module.name)).cloned().collect::<Vec<_>>().join("::");
         match (path.is_empty(), source, ModuleUri::from(location), policy) {
-            | (true, _, _, _) | (_, ConfigurationSource::File(_) | ConfigurationSource::Git { .. }, ModuleUri::File(_), _) => Ok(()),
+            | (true, _, _, _)
+            | (_, ConfigurationSource::File(_) | ConfigurationSource::Git { .. } | ConfigurationSource::Oci { .. }, ModuleUri::File(_), _) => Ok(()),
             | (false, ConfigurationSource::Http { .. }, ModuleUri::File(_), _) | (false, _, ModuleUri::Unknown(_), _) => {
                 Err(ConfigurationModuleError::Source {
                     module: module_path,
@@ -1285,6 +1325,19 @@ impl Config {
                     })
             }
             | (false, _, ModuleUri::Url(_), None) => Err(ConfigurationModuleError::Source {
+                module: module_path,
+                uri: <&str>::from(location).to_string(),
+            }),
+            | (false, _, ModuleUri::Oci(_), Some(policy)) => {
+                module
+                    .acquisition_plan(policy)
+                    .map(|_| ())
+                    .map_err(|source| ConfigurationModuleError::Remote {
+                        module: module_path,
+                        reason: source.to_string(),
+                    })
+            }
+            | (false, _, ModuleUri::Oci(_), None) => Err(ConfigurationModuleError::Source {
                 module: module_path,
                 uri: <&str>::from(location).to_string(),
             }),
@@ -1353,13 +1406,13 @@ impl ConfigurationSource {
     fn identity(&self) -> String {
         match self {
             | Self::File(path) => canonicalize(path).unwrap_or_else(|_| path.clone()).display().to_string(),
-            | Self::Git { identity, .. } => identity.clone(),
+            | Self::Git { identity, .. } | Self::Oci { identity, .. } => identity.clone(),
             | Self::Http { identity } => identity.clone(),
         }
     }
     fn path(&self) -> Option<&Path> {
         match self {
-            | Self::File(path) | Self::Git { path, .. } => Some(path),
+            | Self::File(path) | Self::Git { path, .. } | Self::Oci { path, .. } => Some(path),
             | Self::Http { .. } => None,
         }
     }
@@ -1385,6 +1438,10 @@ impl Module {
                         url: url.to_string(),
                     }),
                 },
+                | ModuleUri::Oci(value) => Err(AcquisitionError::Identity {
+                    value,
+                    reason: "binary modules must use a local file or a digest-pinned HTTP(S) URL",
+                }),
                 | ModuleUri::Unknown(value) => Err(AcquisitionError::Identity {
                     value,
                     reason: "module URI must be a local file, HTTP(S) binary, or commit-pinned Git repository",
@@ -1396,6 +1453,7 @@ impl Module {
                     sha256: checksum.clone().unwrap_or_default(),
                     url: url.to_string(),
                 }),
+                | ModuleUri::Oci(reference) => AcquisitionSource::oci(reference),
                 | ModuleUri::Url(url) => Ok(AcquisitionSource::Git {
                     commit: Config::revision(uri).cloned().unwrap_or_default(),
                     url: url.to_string(),
@@ -1407,6 +1465,7 @@ impl Module {
             },
             | ModuleType::Script { uri, .. } => match ModuleUri::from(uri) {
                 | ModuleUri::File(path) => Ok(AcquisitionSource::Local { path }),
+                | ModuleUri::Oci(reference) => AcquisitionSource::oci(reference),
                 | ModuleUri::Url(url) => Ok(AcquisitionSource::Git {
                     commit: Config::revision(uri).cloned().unwrap_or_default(),
                     url: url.to_string(),
@@ -1464,6 +1523,7 @@ impl Module {
                     let path = match &plan.source {
                         | AcquisitionSource::Local { path } => path.clone(),
                         | AcquisitionSource::Git { url, .. }
+                        | AcquisitionSource::Oci { reference: url, .. }
                         | AcquisitionSource::HttpBinary { url, .. }
                         | AcquisitionSource::HttpBinaryUnverified { url }
                         | AcquisitionSource::HttpDocument { url, .. } => PathBuf::from(url),
@@ -1474,6 +1534,7 @@ impl Module {
                     let acquired = match &plan.source {
                         | AcquisitionSource::Local { path } => Ok((path.clone(), None)),
                         | AcquisitionSource::Git { .. }
+                        | AcquisitionSource::Oci { .. }
                         | AcquisitionSource::HttpBinary { .. }
                         | AcquisitionSource::HttpBinaryUnverified { .. }
                         | AcquisitionSource::HttpDocument { .. } => options

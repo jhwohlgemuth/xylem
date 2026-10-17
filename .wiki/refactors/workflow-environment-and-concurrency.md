@@ -70,7 +70,7 @@ Xylem adapts `Script` to the ACORN API and owns configuration, variable preceden
 4. Allocate the next execution-plan and journal/run-summary versions from v12
    and v11. Preserve selection, sandbox, artifact, memory, lifecycle,
    cancellation, and run-store compatibility; coordinate version allocation
-   with MCP and Kubernetes.
+   with Kubernetes.
 
 This plan follows the typed workflow-outcome contract and preserves the
 existing `options.batch` ceiling plus landed memory-aware admission. Its
@@ -192,7 +192,7 @@ Keep the six phases independently reviewable, but reserve the process adapter,
 configuration, scheduler, run-state, CLI, and documentation locks for each
 integration in order. Start with the host process/result adapter and pure
 context construction; do not combine this refactor with acquisition,
-Kubernetes, or MCP behavior.
+Kubernetes behavior.
 
 # Implementation phases
 

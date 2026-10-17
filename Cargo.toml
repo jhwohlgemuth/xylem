@@ -29,11 +29,11 @@ std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
 
 [workspace.dependencies]
-acorn-cmd = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa", version = "0.4.0", default-features = false }
-acorn-core = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa", version = "0.4.0", features = ["alloc"], default-features = false }
-acorn-host = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa", version = "0.4.0", features = ["config", "fs", "terminal"], default-features = false }
-acorn-macros = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "36cd74041eaa4669636b7743071f3c334cdb3b7d", version = "0.3.4", default-features = false }
-acorn-schema = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "aa36e93f76ec22a9b3d2be9ceccf2a8d9cd891aa", version = "0.4.0", features = ["alloc"], default-features = false }
+acorn-cmd = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "0c256bae0ff42da1c96de50fd525146a95965c66", version = "0.4.0", default-features = false }
+acorn-core = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "0c256bae0ff42da1c96de50fd525146a95965c66", version = "0.4.0", features = ["alloc"], default-features = false }
+acorn-host = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "0c256bae0ff42da1c96de50fd525146a95965c66", version = "0.4.0", features = ["config", "fs", "terminal"], default-features = false }
+acorn-macros = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "0c256bae0ff42da1c96de50fd525146a95965c66", version = "0.4.0", default-features = false }
+acorn-schema = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "0c256bae0ff42da1c96de50fd525146a95965c66", version = "0.4.0", features = ["alloc"], default-features = false }
 cel = { version = "=0.14.5", default-features = false }
 clap = { version = "4.5.51", default-features = false }
 clap-verbosity-flag = { version = "3.0.4", features = ["log"], default-features = false }

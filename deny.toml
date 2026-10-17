@@ -14,10 +14,7 @@ yanked = "deny"
 unmaintained = "all"
 unsound = "all"
 ignore = [
-    { id = "RUSTSEC-2026-0097", reason = "@o9w review by 2026-10-28; rand is transitive through retained runtime dependencies" },
-    { id = "RUSTSEC-2026-0173", reason = "@o9w review by 2026-10-28; proc-macro-error2 is transitive through ACORN validator support" },
-    { id = "RUSTSEC-2026-0194", reason = "@o9w review by 2026-10-28; ACORN revision 5d29344660334e2f0fd09b96a6f84b4510e57286 pins quick-xml below 0.41" },
-    { id = "RUSTSEC-2026-0195", reason = "@o9w review by 2026-10-28; ACORN revision 5d29344660334e2f0fd09b96a6f84b4510e57286 pins quick-xml below 0.41" },
+    { id = "RUSTSEC-2026-0097", reason = "Review by 2026-10-28; rand is transitive through retained runtime dependencies" },
 ]
 unused-ignored-advisory = "deny"
 

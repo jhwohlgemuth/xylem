@@ -111,7 +111,7 @@ impl EffectiveSandboxPolicy {
                     | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri, .. } | ModuleType::Script { uri, .. } => {
                         match ModuleUri::from(uri) {
                             | ModuleUri::Url(url) => Some(url.to_string()),
-                            | ModuleUri::File(_) | ModuleUri::Unknown(_) => None,
+                            | ModuleUri::File(_) | ModuleUri::Oci(_) | ModuleUri::Unknown(_) => None,
                         }
                     }
                 })
@@ -227,7 +227,7 @@ impl OpenShellClient {
                                 })
                         })
                 }),
-                | ModuleUri::Url(_) => Err(SandboxError::Validation(format!(
+                | ModuleUri::Url(_) | ModuleUri::Oci(_) => Err(SandboxError::Validation(format!(
                     "module {} remote source was not materialized before sandbox preparation",
                     module.name
                 ))),

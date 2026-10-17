@@ -1,11 +1,11 @@
 ---
 type: Plan
 title: "Harden remote module acquisition"
-description: "Validate, pin, verify, bound, and safely materialize remote configuration, binaries, and repositories under offline and dry-run policy."
+description: "Validate, pin, verify, bound, and safely materialize remote configuration, binaries, Git repositories, and OCI artifact trees under offline and dry-run policy."
 difficulty: high
 impact: critical
 package: [xylem-lib, xylem-cli]
-tags: [security, downloads, git, checksum, offline, supply-chain]
+tags: [security, downloads, git, oci, checksum, offline, supply-chain]
 status: in-progress
 ---
 
@@ -20,25 +20,20 @@ have different materialization contracts and must not share an implicit
 
 # Current evidence
 
-Rechecked on 2026-10-11.
+Rechecked on 2026-10-17.
 
-The existing exact-host policy, redirect checks, URL redaction, typed remote
-errors, checksum requirement for normal binary downloads, and dry-run handling
-for remote configuration wrappers are the baseline. The remaining gaps are:
-
-- The default allowlist is still allow-all, and HTTP is not distinguished from HTTPS by policy.
-- Binary downloads use `Response::copy_to` without a byte limit or streamed digest, derive a filename from the URL, and write under the run root without an Xylem-owned staging/collision policy.
-- Remote configuration documents are read fully into a `String` without a response-size limit or cache identity.
-- `--skip-verify-checksum` is still an ordinary configuration field and CLI flag rather than an explicitly unsafe operator policy.
-- Dry-run binary preparation still performs a reachability request before reporting the planned download; executable remote acquisition must be request-free.
-- Git-backed scripts and configuration modules can clone floating `HEAD`, use an unbounded clone, and do not verify the checked-out commit or remote origin after materialization.
-- Offline mode rejects remote sources rather than using a previously verified cache, and acquisition emits no provenance record for run reporters.
+- Runtime integration landed on 2026-10-12: remote documents, binaries, and Git modules use immutable acquisition plans, bounded executors, verified cache entries, and durable provenance.
+- Existing tests cover policy and identity validation, bounded HTTP responses, offline cache behavior, cache corruption, SSH environment isolation, and escaping Git symlinks.
+- Concurrent acquisition of the same immutable identity now has a focused HTTP/cache publication test, and Git origin normalization has direct coverage.
+- The broader Git transport, resource-bound, cancellation, and cross-platform qualification matrix is not yet recorded.
+- Xylem now pins all ACORN crates to accepted revision `0c256bae0ff42da1c96de50fd525146a95965c66`; the lockfile resolves `quick-xml` 0.41.0 and the advisory scan passes.
+- OCI module acquisition now accepts digest-pinned ORAS artifacts as file trees, applies the exact-host policy and existing staging/tree ceilings, and records the OCI manifest digest and extracted tree evidence. ORAS is a host runtime prerequisite.
 
 # Project code boundaries
 
-- **Update:** `crates/xylem-lib/src/remote.rs`, acquisition and preparation logic in `crates/xylem-lib/src/config/mod.rs` and `script/mod.rs`, location/checksum and options types, CLI security options, typed outcomes/journal metadata, tests, schemas, and user-facing configuration/module documentation.
-- **Create:** an acquisition planner/executor boundary, explicit source-policy and limit types, safe staging/cache/materialization helpers, fake HTTP/Git fixtures, and provenance records.
-- **Delete:** routine configuration-controlled checksum bypasses; network probes during dry-run; unbounded response and Git operations; floating Git checkout behavior; direct writes to caller-selected roots; and unsupported remote source fallbacks.
+- **Update:** acquisition qualification tests, workspace ACORN pins, `Cargo.lock`, and `deny.toml`.
+- **Create:** only Git fixtures needed to cover a demonstrated gap in the remaining qualification matrix.
+- **Delete:** resolved advisory exceptions when accepted dependency revisions clear them.
 
 # Dependencies and ordering
 
@@ -66,18 +61,25 @@ it warns, remains bounded, records the observed digest, and cannot perform an
 offline lookup without a pretrusted identity. Request-only probes, the floating
 Git path, and legacy unbounded download/read helpers were removed.
 
-Execution-plan schema v13 carries complete acquisition intent. Journal and
-run-summary schema v12 carry verified configuration and per-input module
+Execution-plan schema v14 carries complete acquisition intent, including
+digest-pinned OCI artifact trees. Journal and run-summary schema v13 carry verified configuration and per-input module
 acquisition evidence. Integration tests cover request-free dry-run, offline
 miss and cache reuse, bounded document/binary acquisition, workspace copying,
 nested policy intersection, and exactly-once provenance recovery. Workspace
 tests, Clippy with warnings denied, and the complete test suite pass.
 
-The plan remains in progress pending the broader Git transport/concurrency and
-cross-platform qualification matrix. The dependency audit also reports
-RUSTSEC-2026-0194 and RUSTSEC-2026-0195 in `quick-xml` 0.39.4 through the pinned
-ACORN 0.4.0 dependency; remediation requires an ACORN revision that accepts
-`quick-xml` 0.41 or newer.
+The concurrent cache-publication and Git-origin normalization tests now pass on
+the current macOS host. ACORN revision `0c256bae0ff42da1c96de50fd525146a95965c66`
+upgrades `quick-xml` to 0.41.0; Xylem has moved its ACORN pins to that revision
+and removed the two resolved advisory exceptions. The plan remains in progress
+pending the broader Git transport/cancellation and cross-platform qualification
+matrix.
+
+## Remaining phases
+
+1. Qualify OCI artifact format handling, registry authorization behavior, ORAS cancellation and cleanup, and offline cache reuse; ensure registry auth redirects and token-service hosts respect the host policy.
+2. Complete Git transport, bounded-resource, cancellation, and interrupted-cleanup qualification; run the containment, permissions, atomicity, and same-identity concurrency matrix on every supported platform.
+3. Qualify the accepted ACORN revision's narrow feature path, rerun the advisory audit, and complete workspace, native, and Windows checks.
 
 # Recommendation
 

@@ -4,6 +4,10 @@ Examples are grouped by the dependencies they require:
 
 - [`offline-smoke`](./offline-smoke/) is the supported first-run example. It
   uses only a local POSIX shell and works with `--offline`.
+- [`oci-local`](./oci-local/) pulls a digest-pinned module directly from a
+  checked-in OCI image layout bundle; [`oci-local-registry`](./oci-local-registry/)
+  pulls the same artifact from a local registry; [`oci-remote`](./oci-remote/)
+  pulls a digest-pinned artifact from Savannah.
 - [`memory-aware`](./memory-aware/) is an offline example of per-input memory
   reservations, budget-constrained admission, and out-of-range fallback.
 - [`docker-sandbox-provider`](./docker-sandbox-provider/) demonstrates the

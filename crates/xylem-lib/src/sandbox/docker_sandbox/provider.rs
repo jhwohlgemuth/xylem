@@ -115,7 +115,7 @@ impl DockerSandboxClient {
                                 })
                         })
                 }),
-                | ModuleUri::Url(_) => Err(SandboxError::Validation(format!(
+                | ModuleUri::Url(_) | ModuleUri::Oci(_) => Err(SandboxError::Validation(format!(
                     "module {} remote source was not materialized before sandbox preparation",
                     module.name
                 ))),

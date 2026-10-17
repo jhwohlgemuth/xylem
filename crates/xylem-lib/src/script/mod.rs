@@ -135,7 +135,7 @@ pub enum ModuleType {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, EnumIs, PartialEq, Eq)]
 pub enum ModuleUri<'a> {
     /// File URIs can be absolute or relative.
     ///
@@ -174,6 +174,8 @@ pub enum ModuleUri<'a> {
     /// ```
     //TODO: Implement Serialize/Deserialize for URI - https://serde.rs/impl-serialize.html
     Url(Box<URI<'a>>),
+    /// Digest-pinned OCI artifact that materializes as a module tree.
+    Oci(String),
     Unknown(String),
 }
 
@@ -643,7 +645,7 @@ impl ModuleUri<'_> {
                 .parent()
                 .map(|parent| parent.join(path).components().collect::<PathBuf>())
                 .map(|path| Location::from(format!("file:{}", path.display()).as_str())),
-            | Self::File(_) | Self::Unknown(_) | Self::Url(_) => None,
+            | Self::File(_) | Self::Unknown(_) | Self::Url(_) | Self::Oci(_) => None,
         }
     }
     pub fn from(value: &Location) -> ModuleUri<'_> {
@@ -651,6 +653,7 @@ impl ModuleUri<'_> {
         match URI::try_from(value) {
             | Ok(uri) => match (Scheme::from(uri.scheme().as_str()), uri.scheme().as_str().eq_ignore_ascii_case("ssh")) {
                 | (Scheme::HTTP | Scheme::HTTPS | Scheme::SSH, _) | (Scheme::Unsupported, true) => ModuleUri::Url(Box::new(uri)),
+                | (Scheme::OCI, _) => ModuleUri::Oci(value.to_string()),
                 | (Scheme::File, _) => ModuleUri::File(PathBuf::from(uri.path().to_string())),
                 | (Scheme::Unsupported, false) => ModuleUri::Unknown(value.to_string()),
             },
@@ -661,7 +664,7 @@ impl ModuleUri<'_> {
         match ModuleUri::from(value) {
             | ModuleUri::File(path) if path.is_absolute() => Some(path),
             | ModuleUri::File(path) => source.parent().map(|parent| parent.join(path)),
-            | ModuleUri::Unknown(_) | ModuleUri::Url(_) => None,
+            | ModuleUri::Unknown(_) | ModuleUri::Oci(_) | ModuleUri::Url(_) => None,
         }
     }
 }
@@ -1359,8 +1362,8 @@ fn create_environment_script(
                 }
                 | Some(_) => {
                     let arguments = prefix.map_or_else(
-                        || args!["env", "create", "-f", "environment.yml"],
-                        |prefix| args!["env", "create", "--prefix", prefix, "-f", "environment.yml"],
+                        || args!["env", "create", "--yes", "-f", "environment.yml"],
+                        |prefix| args!["env", "create", "--yes", "--prefix", prefix, "-f", "environment.yml"],
                     );
                     let command = Command::init().name(manager.to_string()).build();
                     Some(Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir))
@@ -1507,6 +1510,7 @@ pub(crate) fn module_working_directory(uri: &str, root: Option<&PathBuf>) -> Opt
     let location = Location::from(uri);
     match ModuleUri::from(&location) {
         | ModuleUri::Url(_) => Some(root.map_or_else(|| location.hash(), |path| absolute_path(path.join(location.hash())))),
+        | ModuleUri::Oci(_) => root.map(|path| absolute_path(path.clone())),
         | ModuleUri::File(path) => Some(absolute_path(path)),
         | ModuleUri::Unknown(_) => None,
     }

@@ -28,7 +28,7 @@ use std::sync::Mutex;
 use strum::EnumIs;
 
 /// Current on-disk journal schema version.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 12;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 13;
 /// Maximum number of UTF-8 bytes retained for one journal error detail.
 pub const MAX_ERROR_BYTES: usize = 4096;
 trait Summary {

@@ -288,7 +288,9 @@ impl Validate for Module {
                 if let Err(error) = rules::url(uri.into()) {
                     report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, or SSH"));
                 }
-                let unsupported_remote = matches!(ModuleUri::from(uri), ModuleUri::Url(value) if !matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS));
+                let parsed_uri = ModuleUri::from(uri);
+                let unsupported_remote = parsed_uri.is_oci()
+                    || matches!(parsed_uri, ModuleUri::Url(value) if !matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS));
                 if unsupported_remote {
                     report.add("uri", validation_error("scheme", "remote binary URI must use HTTP or HTTPS"));
                 }
@@ -320,6 +322,10 @@ impl Validate for Module {
                     | (ModuleUri::Url(_), Some(_)) => report.add(
                         "checksum",
                         validation_error("unsupported", "Git configuration modules use revision instead of checksum"),
+                    ),
+                    | (ModuleUri::Oci(_), Some(_)) => report.add(
+                        "checksum",
+                        validation_error("unsupported", "OCI configuration modules use the manifest digest in the URI"),
                     ),
                     | _ => (),
                 }

@@ -2,8 +2,8 @@
 
 ## Planned
 
+- [Local OCI bundle module URIs](local-oci-bundle-uris.md) - Acquire digest-pinned OCI image layout directories and archives as local modules without a registry.
 - [Kubernetes workflow execution backend](kubernetes-workflow-backend.md) - Submit one complete run as a reconnectable Kubernetes Job with shared-PVC state and a versioned runner contract.
-- [MCP-enabled tenant tools](mcp-tenant-tools.md) - Invoke explicitly configured remote MCP tools from a workflow through ACORN's policy-checked client boundary.
 
 ## Waiting on validation
 

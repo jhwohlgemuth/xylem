@@ -1,0 +1,27 @@
+{
+  "version": "1.0.0",
+  "id": "oci-remote",
+  "description": "Run a digest-pinned module published to Savannah OCI",
+  "requirements": ["sh"],
+  "input": ["Ada", "Grace"],
+  "output": "./output",
+  "options": {
+    "allowed": ["savannah.ornl.gov"]
+  },
+  "modules": [
+    {
+      "name": "RemoteGreeting",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "oci://savannah.ornl.gov/research-enablement/xylem/example@sha256:d107458ec25c1a214cbf8f80cbe5a1cae6a723470c71da0e3343850141fcf97c",
+      "template": {
+        "command": "sh",
+        "arguments": [
+          "run.sh",
+          "{{ INPUT }}",
+          "{{ OUTPUT_DIRECTORY }}/greeting-{{ INPUT }}.txt"
+        ]
+      }
+    }
+  ]
+}

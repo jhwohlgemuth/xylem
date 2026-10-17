@@ -486,6 +486,15 @@ does not connect, invoke Git, create a destination, change permissions, or
 populate the cache. A cached remote configuration wrapper can therefore be
 flattened during dry-run; a cache miss is reported without a request.
 
+OCI module references use `oci://registry/repository@sha256:<64 lowercase hex>`.
+The digest pins the image manifest; its config and file-layer sizes are checked
+against `git_staging`, and the extracted tree is checked against `git_tree` and
+`git_entries` before it enters the verified cache. Script modules execute from
+the artifact root. Configuration modules read `config.json` from that root.
+Xylem invokes the ORAS CLI (`oras`) for registry transfers, so it must be
+installed on the host. OCI registry hosts use the same exact-host allowlist as
+other remote sources, and offline mode requires a verified cache hit.
+
 See the repository's
 [module specification](https://code.ornl.gov/research-enablement/xylem/-/blob/main/MODULE_SPEC.md)
 for the normative Xylem 1.x module contract.

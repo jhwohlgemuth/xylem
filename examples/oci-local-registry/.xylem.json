@@ -1,0 +1,27 @@
+{
+  "version": "1.0.0",
+  "id": "oci-local-registry",
+  "description": "Run a digest-pinned module from a locally hosted OCI registry",
+  "requirements": ["sh"],
+  "input": ["Ada", "Grace"],
+  "output": "./output",
+  "options": {
+    "allowed": ["localhost:5000"]
+  },
+  "modules": [
+    {
+      "name": "LocalGreeting",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "oci://localhost:5000/research-enablement/xylem/oci-local-registry@sha256:98970c614c6c50785f7fc7b220e2b966249e95d6705f60cbc9b451923a74f805",
+      "template": {
+        "command": "sh",
+        "arguments": [
+          "run.sh",
+          "{{ INPUT }}",
+          "{{ OUTPUT_DIRECTORY }}/greeting-{{ INPUT }}.txt"
+        ]
+      }
+    }
+  ]
+}

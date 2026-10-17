@@ -1,6 +1,7 @@
 use super::cache::CacheManifest;
 use super::git::{git_environment, inspect_tree, remaining_timeout, run_git_command, verify_git, GitCommandContext};
 use super::http::{request_error, stream_response};
+use super::oci::pull_tree;
 use super::policy::normalize_origin;
 use super::util::{io_error, now_seconds};
 use super::*;
@@ -23,17 +24,20 @@ impl AcquisitionExecutor {
                 }),
                 | false => self.download(plan),
             },
-            | AcquisitionAction::Download | AcquisitionAction::FetchGit => self.cache.lookup(plan).and_then(|entry| match entry {
-                | Some(entry) => Ok(entry.result(plan, &self.policy, AcquisitionCacheStatus::Hit)),
-                | None if self.policy.offline => Err(AcquisitionError::Offline {
-                    remote: plan.source.to_string(),
-                }),
-                | None => match plan.action {
-                    | AcquisitionAction::Download => self.download(plan),
-                    | AcquisitionAction::FetchGit => self.fetch_git(plan),
-                    | AcquisitionAction::UseLocal => unreachable!("local acquisition returned before cache lookup"),
-                },
-            }),
+            | AcquisitionAction::Download | AcquisitionAction::FetchGit | AcquisitionAction::FetchOci => {
+                self.cache.lookup(plan).and_then(|entry| match entry {
+                    | Some(entry) => Ok(entry.result(plan, &self.policy, AcquisitionCacheStatus::Hit)),
+                    | None if self.policy.offline => Err(AcquisitionError::Offline {
+                        remote: plan.source.to_string(),
+                    }),
+                    | None => match plan.action {
+                        | AcquisitionAction::Download => self.download(plan),
+                        | AcquisitionAction::FetchGit => self.fetch_git(plan),
+                        | AcquisitionAction::FetchOci => self.fetch_oci(plan),
+                        | AcquisitionAction::UseLocal => unreachable!("local acquisition returned before cache lookup"),
+                    },
+                })
+            }
         })
     }
     fn download(&self, plan: &AcquisitionPlan) -> Result<AcquisitionResult, AcquisitionError> {
@@ -41,7 +45,7 @@ impl AcquisitionExecutor {
             | AcquisitionSource::HttpBinary { sha256, url } => Ok((Some(sha256.as_str()), &plan.limits.binary, url)),
             | AcquisitionSource::HttpBinaryUnverified { url } => Ok((None, &plan.limits.binary, url)),
             | AcquisitionSource::HttpDocument { sha256, url } => Ok((Some(sha256.as_str()), &plan.limits.document, url)),
-            | AcquisitionSource::Git { .. } | AcquisitionSource::Local { .. } => Err(AcquisitionError::Identity {
+            | AcquisitionSource::Git { .. } | AcquisitionSource::Oci { .. } | AcquisitionSource::Local { .. } => Err(AcquisitionError::Identity {
                 value: plan.source.to_string(),
                 reason: "HTTP executor received a non-HTTP source",
             }),
@@ -106,6 +110,7 @@ impl AcquisitionExecutor {
             | AcquisitionSource::HttpBinary { .. }
             | AcquisitionSource::HttpBinaryUnverified { .. }
             | AcquisitionSource::HttpDocument { .. }
+            | AcquisitionSource::Oci { .. }
             | AcquisitionSource::Local { .. } => Err(AcquisitionError::Identity {
                 value: plan.source.to_string(),
                 reason: "Git executor received a non-Git source",
@@ -153,6 +158,49 @@ impl AcquisitionExecutor {
                     })
             })
         })
+    }
+    fn fetch_oci(&self, plan: &AcquisitionPlan) -> Result<AcquisitionResult, AcquisitionError> {
+        match &plan.source {
+            | AcquisitionSource::Oci { digest, reference } => {
+                let started = Instant::now();
+                self.cache.staging(plan).and_then(|staging| {
+                    let repository = staging.path.join("repository");
+                    create_dir(&repository)
+                        .map_err(|source| io_error("create OCI staging tree", repository.clone(), source))
+                        .and_then(|()| {
+                            pull_tree(
+                                reference,
+                                &repository,
+                                &plan.limits.git_staging,
+                                plan.limits.git_entries,
+                                &plan.limits.process_output,
+                                started,
+                                plan.limits.git_timeout,
+                                self.policy.allow_insecure_http,
+                            )
+                        })
+                        .and_then(|()| inspect_tree(&repository, &plan.limits))
+                        .and_then(|(bytes, entries, tree_digest)| {
+                            let manifest = CacheManifest {
+                                acquired_at_unix_seconds: now_seconds(),
+                                bytes,
+                                entries,
+                                identity: AcquisitionIdentity::OciDigest { digest: digest.to_string() },
+                                source: reference.to_string(),
+                                tree_digest: Some(tree_digest),
+                                version: ACQUISITION_CACHE_VERSION,
+                            };
+                            self.cache
+                                .publish(plan, staging, manifest)
+                                .map(|entry| entry.result(plan, &self.policy, AcquisitionCacheStatus::Miss))
+                        })
+                })
+            }
+            | _ => Err(AcquisitionError::Identity {
+                value: plan.source.to_string(),
+                reason: "OCI executor received a non-OCI source",
+            }),
+        }
     }
     fn run_git(&self, plan: &AcquisitionPlan, repository: &Path, url: &str, commit: &str) -> Result<(), AcquisitionError> {
         let started = Instant::now();

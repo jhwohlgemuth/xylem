@@ -756,6 +756,7 @@ impl EffectiveSandboxPolicy {
                             .modules
                             .iter()
                             .map(|module| {
+                                let offline = config.options.as_ref().and_then(|options| options.offline).unwrap_or_default();
                                 module.sandbox_source().and_then(|location| match ModuleUri::from(&location) {
                                     | ModuleUri::File(path) => {
                                         validate_granted_path(&path, &self.policy.paths.module_roots, "module").and_then(|module_source| {
@@ -772,10 +773,7 @@ impl EffectiveSandboxPolicy {
                                             })
                                         })
                                     }
-                                    | ModuleUri::Url(url) => match (
-                                        config.options.as_ref().and_then(|options| options.offline).unwrap_or_default(),
-                                        self.policy.preparation_network,
-                                    ) {
+                                    | ModuleUri::Url(url) => match (offline, self.policy.preparation_network) {
                                         | (true, _) => Err(SandboxError::Validation(format!(
                                             "module {} remote source is unavailable in offline sandbox mode",
                                             module.name
@@ -790,6 +788,29 @@ impl EffectiveSandboxPolicy {
                                                 SandboxError::Validation(format!("module {} remote source failed: {why}", module.name))
                                             })
                                         }
+                                    },
+                                    | ModuleUri::Oci(reference) => match (offline, self.policy.preparation_network) {
+                                        | (true, _) => Err(SandboxError::Validation(format!(
+                                            "module {} OCI source is unavailable in offline sandbox mode",
+                                            module.name
+                                        ))),
+                                        | (_, PreparationNetwork::Deny) => Err(SandboxError::Validation(format!(
+                                            "module {} requires registry networking denied by sandbox policy",
+                                            module.name
+                                        ))),
+                                        | (false, PreparationNetwork::Unrestricted) => reference
+                                            .strip_prefix("oci://")
+                                            .and_then(|value| value.split('/').next())
+                                            .filter(|registry| !registry.is_empty())
+                                            .map(|registry| format!("https://{registry}/"))
+                                            .ok_or_else(|| {
+                                                SandboxError::Validation(format!("module {} has an invalid OCI registry reference", module.name))
+                                            })
+                                            .and_then(|registry| {
+                                                remote_policy.ensure_allowed(&registry).map(|_| None).map_err(|why| {
+                                                    SandboxError::Validation(format!("module {} OCI source failed: {why}", module.name))
+                                                })
+                                            }),
                                     },
                                     | ModuleUri::Unknown(value) => Err(SandboxError::Validation(format!(
                                         "module {} has invalid sandbox source {value}",
@@ -1003,7 +1024,7 @@ impl Module {
         let location = match &self.module_type {
             | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri, .. } | ModuleType::Script { uri, .. } => uri,
         };
-        match location.is_local() || location.is_http_or_https() {
+        match location.is_local() || location.is_http_or_https() || location.is_oci_reference() {
             | true => Ok(location.clone()),
             | false => Err(SandboxError::Validation(format!(
                 "module {} must use a local or HTTP(S) source",

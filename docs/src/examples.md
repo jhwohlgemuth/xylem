@@ -1,5 +1,13 @@
 # Examples
 
+The [`oci-local`](../../examples/oci-local/),
+[`oci-local-registry`](../../examples/oci-local-registry/), and
+[`oci-remote`](../../examples/oci-remote/) examples show digest-pinned OCI
+artifact workflows. `oci-local` runs ORAS against a checked-in OCI image layout
+directory without a registry. `oci-local-registry` publishes the layout to a
+local registry and uses Xylem's `oci://` registry acquisition. `oci-remote`
+pulls a public artifact from Savannah.
+
 The repository's [`examples/`](https://code.ornl.gov/research-enablement/xylem/-/tree/main/examples)
 directory contains single-module and composed workflows.
 
@@ -24,6 +32,18 @@ run without spelling out a configuration path:
 
 ```shell
 cargo run --example failure-logging
+```
+
+OCI workflow targets include:
+
+```shell
+cargo run --example oci-local        # local OCI layout bundle; no registry
+cargo run --example oci-remote       # requires Savannah access
+```
+
+The other runnable targets include:
+
+```shell
 cargo run --example offline-smoke
 cargo run --example kitchensink
 cargo run --example multi-module

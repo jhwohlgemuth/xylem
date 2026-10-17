@@ -1,0 +1,417 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xylem.ornl.gov/schema/execution-plan-v14.schema.json",
+  "title": "Xylem execution plan version 14",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifacts", "configuration", "containers", "gpu_monitoring", "inputs", "memory", "modules", "resume", "sandbox", "schema_version"],
+  "$defs": {
+    "acquisition_identity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["digest", "type"],
+          "properties": {
+            "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "type": { "const": "oci_digest" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commit", "origin", "type"],
+          "properties": {
+            "commit": { "type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$" },
+            "origin": { "type": "string", "minLength": 1 },
+            "type": { "const": "git_commit" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["digest", "type"],
+          "properties": {
+            "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "type": { "const": "sha256" }
+          }
+        }
+      ]
+    },
+    "acquisition_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binary", "connect_timeout", "document", "git_entries", "git_staging", "git_timeout", "git_tree", "http_timeout", "process_output", "redirects"],
+      "properties": {
+        "binary": { "$ref": "#/$defs/memory_quantity" },
+        "connect_timeout": { "type": "integer", "minimum": 1 },
+        "document": { "$ref": "#/$defs/memory_quantity" },
+        "git_entries": { "type": "integer", "minimum": 1 },
+        "git_staging": { "$ref": "#/$defs/memory_quantity" },
+        "git_timeout": { "type": "integer", "minimum": 1 },
+        "git_tree": { "$ref": "#/$defs/memory_quantity" },
+        "http_timeout": { "type": "integer", "minimum": 1 },
+        "process_output": { "$ref": "#/$defs/memory_quantity" },
+        "redirects": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "acquisition_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "cache_key", "identity", "limits", "module_path", "source"],
+      "properties": {
+        "action": { "enum": ["download", "fetch_git", "fetch_oci", "use_local"] },
+        "cache_key": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "identity": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/acquisition_identity" }
+          ]
+        },
+        "limits": { "$ref": "#/$defs/acquisition_limits" },
+        "module_path": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "source": { "$ref": "#/$defs/acquisition_source" }
+      }
+    },
+    "acquisition_source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["digest", "reference", "type"],
+          "properties": {
+            "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "reference": { "type": "string", "pattern": "^oci://.+@sha256:[0-9a-f]{64}$" },
+            "type": { "const": "oci" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commit", "type", "url"],
+          "properties": {
+            "commit": { "type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$" },
+            "type": { "const": "git" },
+            "url": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha256", "type", "url"],
+          "properties": {
+            "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "type": { "enum": ["http_binary", "http_document"] },
+            "url": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "url"],
+          "properties": {
+            "type": { "const": "http_binary_unverified" },
+            "url": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "type"],
+          "properties": {
+            "path": { "type": "string" },
+            "type": { "const": "local" }
+          }
+        }
+      ]
+    },
+    "memory_quantity": {
+      "type": "string",
+      "pattern": "^\\d+(\\.\\d+)?\\s*(GB|KB|MB|TB)$"
+    }
+  },
+  "properties": {
+    "artifacts": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bytes_per_input", "destination", "entries_per_input", "mode"],
+          "properties": {
+            "bytes_per_input": { "type": "string", "pattern": "^\\d+(\\.\\d+)?\\s*(GB|KB|MB|TB)$" },
+            "destination": { "type": "string", "minLength": 1 },
+            "entries_per_input": { "type": "integer", "minimum": 1 },
+            "mode": { "const": "whole_run_atomic" }
+          }
+        }
+      ]
+    },
+    "configuration": { "type": "object" },
+    "containers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "cleanup", "image", "module_indices", "mounts", "name", "runtime", "startup_timeout_seconds", "startup"],
+        "properties": {
+          "action": { "enum": ["would_create", "would_verify_existing"] },
+          "cleanup": { "enum": ["always", "never", "on_success", null] },
+          "image": { "type": ["string", "null"] },
+          "module_indices": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "mounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["read_only", "source", "target"],
+              "properties": {
+                "read_only": { "type": "boolean" },
+                "source": { "type": "string" },
+                "target": { "type": "string" }
+              }
+            }
+          },
+          "name": { "type": "string" },
+          "runtime": { "enum": ["apptainer", "docker", "podman", "unknown"] },
+          "startup_timeout_seconds": { "type": "integer", "minimum": 1 },
+          "startup": { "enum": ["explicit_command", "image_default", "keep_alive", null] }
+        }
+      }
+    },
+    "gpu_monitoring": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["interval", "source"],
+          "properties": {
+            "interval": { "const": 1000 },
+            "source": { "const": "nvidia-smi" }
+          }
+        }
+      ]
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "values"],
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": { "kind": { "enum": ["cli", "directory", "list", "none"] } }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["candidate_count", "engine", "interpreter", "interpreter_version", "inventory_digest", "kind", "language", "language_version", "limits", "options", "script_digest", "skipped_unsupported_entries"],
+              "properties": {
+                "candidate_count": { "type": "integer", "minimum": 0 },
+                "engine": { "const": "cel" },
+                "interpreter": { "const": "cel-rust" },
+                "interpreter_version": { "const": "0.14.5" },
+                "inventory_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "kind": { "const": "selection" },
+                "language": { "const": "CEL" },
+                "language_version": { "const": "selection-subset-v1" },
+                "limits": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["ast_depth", "ast_nodes", "candidates", "evaluation_cost", "intermediate", "intermediate_records", "metadata_operations", "path", "roots", "script", "traversal_depth", "variable_depth", "variable_nodes", "variable_scalar", "visited_entries"],
+                  "properties": {
+                    "ast_depth": { "const": 64 },
+                    "ast_nodes": { "const": 1024 },
+                    "candidates": { "const": 50000 },
+                    "evaluation_cost": { "const": 10000000 },
+                    "intermediate": { "const": "16MB" },
+                    "intermediate_records": { "const": 50000 },
+                    "metadata_operations": { "const": 250000 },
+                    "path": { "const": "16MB" },
+                    "roots": { "const": 16 },
+                    "script": { "const": "16KB" },
+                    "traversal_depth": { "const": 32 },
+                    "variable_depth": { "const": 32 },
+                    "variable_nodes": { "const": 10000 },
+                    "variable_scalar": { "const": "1MB" },
+                    "visited_entries": { "const": 100000 }
+                  }
+                },
+                "options": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["recursive", "roots"],
+                  "properties": {
+                    "recursive": { "type": "boolean" },
+                    "roots": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+                  }
+                },
+                "script_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "skipped_unsupported_entries": { "type": "integer", "minimum": 0 }
+              }
+            }
+          ]
+        },
+        "values": { "type": "array", "minItems": 1, "items": { "type": ["string", "null"] } }
+      }
+    },
+    "memory": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["budget", "estimator", "inputs", "mode"],
+          "properties": {
+            "budget": { "type": "string", "pattern": "^\\d+(\\.\\d+)?\\s*(GB|KB|MB|TB)$" },
+            "estimator": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["identity", "intercept", "maximum_input", "minimum_input", "safety_millionths", "slope_millionths"],
+              "properties": {
+                "identity": { "type": "string", "minLength": 1 },
+                "intercept": { "type": "string", "pattern": "^\\d+(\\.\\d+)?\\s*(GB|KB|MB|TB)$" },
+                "maximum_input": { "type": "string", "pattern": "^\\d+(\\.\\d+)?\\s*(GB|KB|MB|TB)$" },
+                "minimum_input": { "type": "string", "pattern": "^\\d+(\\.\\d+)?\\s*(GB|KB|MB|TB)$" },
+                "safety_millionths": { "type": "integer", "minimum": 1000000 },
+                "slope_millionths": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "inputs": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["fallback", "input_bytes", "input_index", "reservation"],
+                "properties": {
+                  "fallback": {
+                    "oneOf": [
+                      { "type": "null" },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["kind", "maximum_input_bytes", "minimum_input_bytes"],
+                        "properties": {
+                          "kind": { "const": "input_out_of_range" },
+                          "maximum_input_bytes": { "type": "integer", "minimum": 1 },
+                          "minimum_input_bytes": { "type": "integer", "minimum": 1 }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["detail", "kind"],
+                        "properties": {
+                          "detail": { "type": "string", "minLength": 1 },
+                          "kind": { "const": "input_unavailable" }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["kind"],
+                        "properties": { "kind": { "const": "no_input" } }
+                      }
+                    ]
+                  },
+                  "input_bytes": { "type": ["integer", "null"], "minimum": 0 },
+                  "input_index": { "type": "integer", "minimum": 0 },
+                  "reservation": {
+                    "oneOf": [
+                      { "type": "null" },
+                      { "type": "string", "pattern": "^\\d+(\\.\\d+)?\\s*(GB|KB|MB|TB)$" }
+                    ]
+                  }
+                }
+              }
+            },
+            "mode": { "enum": ["fixed_fallback", "memory_aware"] }
+          }
+        }
+      ]
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["acquisition", "command", "completion", "decision", "input_index", "input", "module_index", "module", "module_path", "observed_completion", "variables"],
+        "properties": {
+          "acquisition": { "$ref": "#/$defs/acquisition_plan" },
+          "command": { "type": "object" },
+          "completion": { "type": ["object", "null"] },
+          "decision": { "enum": ["would_run", "would_skip_existing"] },
+          "input_index": { "type": "integer", "minimum": 0 },
+          "input": { "type": ["string", "null"] },
+          "module_index": { "type": "integer", "minimum": 0 },
+          "module": { "type": "string" },
+          "module_path": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "observed_completion": { "type": "boolean" },
+          "variables": { "type": "object", "additionalProperties": { "type": "string" } }
+        }
+      }
+    },
+    "resume": { "type": "boolean" },
+    "sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lifecycle", "minimum_isolation", "mode", "policy_digest", "preparation_network", "process_guards", "provider", "resources", "runtime", "session_model", "workload"],
+      "properties": {
+        "lifecycle": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["retention", "stale_after_seconds"],
+              "properties": {
+                "retention": { "enum": ["delete", "retain_on_failure"] },
+                "stale_after_seconds": { "type": "integer", "minimum": 1 }
+              }
+            }
+          ]
+        },
+        "minimum_isolation": { "enum": ["process", "shared_kernel", "separate_kernel", null] },
+        "mode": { "enum": ["off", "required"] },
+        "policy_digest": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "preparation_network": { "enum": ["deny", "unrestricted", null] },
+        "process_guards": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "array", "uniqueItems": true, "items": { "enum": ["bubblewrap", "nono", "nsjail"] } }
+          ]
+        },
+        "provider": { "enum": ["docker_sandbox", "oci", "openshell", null] },
+        "resources": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["artifact_bytes", "artifact_files", "captured_output_bytes", "cpu_millis", "memory_bytes", "pids", "scratch_bytes", "wall_time_seconds"],
+              "properties": {
+                "artifact_bytes": { "type": "integer", "minimum": 1 },
+                "artifact_files": { "type": "integer", "minimum": 1 },
+                "captured_output_bytes": { "type": "integer", "minimum": 1 },
+                "cpu_millis": { "type": "integer", "minimum": 1 },
+                "memory_bytes": { "type": "integer", "minimum": 1 },
+                "pids": { "type": "integer", "minimum": 1 },
+                "scratch_bytes": { "type": "integer", "minimum": 1 },
+                "wall_time_seconds": { "type": "integer", "minimum": 1 }
+              }
+            }
+          ]
+        },
+        "runtime": { "enum": ["docker", "podman", null] },
+        "session_model": { "enum": ["per_input", null] },
+        "workload": { "type": ["string", "null"] }
+      }
+    },
+    "schema_version": { "const": 14 }
+  }
+}

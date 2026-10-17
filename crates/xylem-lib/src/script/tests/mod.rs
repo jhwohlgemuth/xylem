@@ -78,7 +78,7 @@ fn test_create_conda_environment_uses_input_owned_prefix() {
     .expect("Conda manifest should produce a creation command");
     assert_eq!(
         script.to_string(),
-        format!("conda env create --prefix {} -f environment.yml", prefix.display())
+        format!("conda env create --yes --prefix {} -f environment.yml", prefix.display())
     );
 }
 #[test]

@@ -398,7 +398,7 @@ impl EffectiveSandboxPolicy {
                             "/xylem/prepared",
                             args!["cp", "-a", format!("/xylem/source-{module_index}/."), &destination],
                         ),
-                        | ModuleUri::Url(_) => Err(SandboxError::Validation(format!(
+                        | ModuleUri::Url(_) | ModuleUri::Oci(_) => Err(SandboxError::Validation(format!(
                             "module {} remote source was not materialized before sandbox preparation",
                             module.name
                         ))),
@@ -423,7 +423,7 @@ impl Module {
     pub(super) fn sandbox_local_source(&self) -> Result<Option<PathBuf>, SandboxError> {
         self.sandbox_source().and_then(|location| match ModuleUri::from(&location) {
             | ModuleUri::File(path) => Ok(Some(path)),
-            | ModuleUri::Url(_) => Ok(None),
+            | ModuleUri::Url(_) | ModuleUri::Oci(_) => Ok(None),
             | ModuleUri::Unknown(value) => Err(SandboxError::Validation(format!("module {} has invalid URI {value}", self.name))),
         })
     }

@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::thread;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use strum::EnumIs;
 use sysinfo::{Pid, System};
 use url::Url;
 
@@ -33,6 +34,7 @@ mod cache;
 mod executor;
 mod git;
 mod http;
+mod oci;
 mod policy;
 mod util;
 /// Current immutable acquisition-cache format.
@@ -49,6 +51,8 @@ pub enum AcquisitionAction {
     Download,
     /// Fetch and verify an immutable Git commit.
     FetchGit,
+    /// Pull and verify a digest-pinned OCI artifact tree.
+    FetchOci,
     /// Use a caller-provided local source without remote acquisition.
     UseLocal,
 }
@@ -174,9 +178,14 @@ pub enum AcquisitionIdentity {
         /// Algorithm-qualified lowercase SHA-256 digest.
         digest: String,
     },
+    /// Digest of an OCI artifact manifest.
+    OciDigest {
+        /// Algorithm-qualified lowercase SHA-256 digest.
+        digest: String,
+    },
 }
 /// Explicit source categories with distinct materialization contracts.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, EnumIs, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AcquisitionSource {
     /// Commit-pinned Git repository.
@@ -185,6 +194,13 @@ pub enum AcquisitionSource {
         commit: String,
         /// Repository URL.
         url: String,
+    },
+    /// Digest-pinned OCI artifact whose files form a module tree.
+    Oci {
+        /// Expected OCI manifest digest.
+        digest: String,
+        /// `oci://` registry reference, pinned by digest.
+        reference: String,
     },
     /// Digest-pinned HTTP(S) executable bytes.
     HttpBinary {
@@ -210,6 +226,18 @@ pub enum AcquisitionSource {
         /// Caller-owned local path.
         path: PathBuf,
     },
+}
+impl AcquisitionSource {
+    /// Construct an OCI source from its digest-pinned registry reference.
+    pub fn oci(reference: String) -> Result<Self, AcquisitionError> {
+        match reference.rsplit_once('@').map(|(_, digest)| digest.to_string()) {
+            | Some(digest) => Ok(Self::Oci { digest, reference }),
+            | None => Err(AcquisitionError::Identity {
+                value: reference,
+                reason: "OCI module references must be pinned by a sha256 manifest digest",
+            }),
+        }
+    }
 }
 /// Immutable, content-addressed acquisition cache.
 #[derive(Clone, Debug)]

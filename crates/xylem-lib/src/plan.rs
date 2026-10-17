@@ -369,7 +369,7 @@ impl ExecutionPlan {
                                 modules,
                                 resume,
                                 sandbox,
-                                schema_version: 13,
+                                schema_version: 14,
                             })
                     })
             })

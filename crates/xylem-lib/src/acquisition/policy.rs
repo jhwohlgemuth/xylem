@@ -1,6 +1,9 @@
 use super::util::sha256;
 use super::*;
-use acorn_core::validation::{digest, ValidationError};
+use acorn_core::{
+    validation::{digest, ValidationError},
+    Location,
+};
 use acorn_schema::validation::{rules, Validate, ValidationReport};
 
 impl AcquisitionLimits {
@@ -77,6 +80,11 @@ impl AcquisitionPlan {
                     let key = digest.strip_prefix("sha256:").unwrap_or(&digest).to_string();
                     (AcquisitionAction::FetchGit, Some(identity), Some(key))
                 }),
+                | AcquisitionSource::Oci { digest, .. } => Ok((
+                    AcquisitionAction::FetchOci,
+                    Some(AcquisitionIdentity::OciDigest { digest: digest.clone() }),
+                    Some(digest.strip_prefix("sha256:").unwrap_or(digest).to_string()),
+                )),
                 | AcquisitionSource::HttpBinary { sha256, .. } | AcquisitionSource::HttpDocument { sha256, .. } => Ok((
                     AcquisitionAction::Download,
                     Some(AcquisitionIdentity::Sha256 { digest: sha256.clone() }),
@@ -244,6 +252,22 @@ impl AcquisitionPolicy {
                         )),
                     })
                 }),
+            | AcquisitionSource::Oci { digest, reference } => rules::digest(digest)
+                .map_err(|_| AcquisitionError::Identity {
+                    value: digest.clone(),
+                    reason: "OCI artifact identity must be a sha256 digest",
+                })
+                .and_then(|()| validate_oci_reference(reference, digest))
+                .and_then(|registry| {
+                    let scheme = match self.allow_insecure_http {
+                        | true => "http",
+                        | false => "https",
+                    };
+                    self.remote
+                        .ensure_allowed(&format!("{scheme}://{registry}/"))
+                        .map(|_| ())
+                        .map_err(|error| policy_error(reference, &error.to_string()))
+                }),
             | AcquisitionSource::HttpBinary { sha256, url } | AcquisitionSource::HttpDocument { sha256, url } => digest(sha256)
                 .map_err(|_| AcquisitionError::Identity {
                     value: sha256.clone(),
@@ -280,6 +304,7 @@ impl AcquisitionSource {
     pub(super) fn namespace(&self) -> &'static str {
         match self {
             | Self::Git { .. } => "git",
+            | Self::Oci { .. } => "oci",
             | Self::HttpBinary { .. } => "binary",
             | Self::HttpBinaryUnverified { .. } => "binary",
             | Self::HttpDocument { .. } => "document",
@@ -290,6 +315,7 @@ impl AcquisitionSource {
 impl fmt::Display for AcquisitionSource {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            | Self::Oci { reference, .. } => formatter.write_str(reference),
             | Self::Git { url, .. } | Self::HttpBinary { url, .. } | Self::HttpBinaryUnverified { url } | Self::HttpDocument { url, .. } => {
                 formatter.write_str(&redact_url(url))
             }
@@ -332,6 +358,29 @@ fn parse_url(value: &str) -> Result<Url, AcquisitionError> {
         remote: redact_url(value),
         reason: source.to_string(),
     })
+}
+fn validate_oci_reference(reference: &str, expected_digest: &str) -> Result<String, AcquisitionError> {
+    let registry_reference = reference.strip_prefix("oci://").unwrap_or(reference);
+    let location = Location::from(registry_reference);
+    let invalid = || AcquisitionError::Identity {
+        value: reference.to_string(),
+        reason: "OCI module references must use oci://registry/repository@sha256:<64 lowercase hex>",
+    };
+    rules::nonempty(reference)
+        .ok()
+        .filter(|_| reference.starts_with("oci://") && location.is_oci_reference() && !registry_reference.contains(['?', '#']))
+        .and_then(|_| registry_reference.rsplit_once('@'))
+        .filter(|(_, digest)| *digest == expected_digest)
+        .and_then(|_| registry_reference.split_once('/').map(|(registry, _)| registry))
+        .and_then(|registry| Url::parse(&format!("https://{registry}/")).ok())
+        .filter(|url| url.username().is_empty() && url.password().is_none() && url.path() == "/" && url.query().is_none() && url.fragment().is_none())
+        .and_then(|url| {
+            url.host_str().map(|host| match url.port() {
+                | Some(port) => format!("{host}:{port}"),
+                | None => host.to_string(),
+            })
+        })
+        .ok_or_else(invalid)
 }
 fn policy_error(source: &str, reason: &str) -> AcquisitionError {
     AcquisitionError::Policy {

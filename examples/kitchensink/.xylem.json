@@ -89,7 +89,7 @@
             "type": "binary",
             "uri": "file:./binary/finalize",
             "template": {
-                "command": "finalize",
+                "command": "./module",
                 "arguments": [
                     "../output/{{ PARENT_DIRECTORY }}/script.txt",
                     "../output/{{ PARENT_DIRECTORY }}/final.txt"

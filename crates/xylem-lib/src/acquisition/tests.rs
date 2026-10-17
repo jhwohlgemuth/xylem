@@ -1,9 +1,12 @@
-use super::git::{git_environment, inspect_tree};
+use super::git::{git_environment, inspect_tree, remaining_timeout};
+use super::policy::normalize_origin;
 use super::util::sha256;
 use super::*;
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::sync::Barrier;
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 struct TestDirectory(PathBuf);
 impl Drop for TestDirectory {
@@ -19,7 +22,6 @@ impl TestDirectory {
         Self(path)
     }
 }
-
 fn policy(hosts: &[String], allow_http: bool, offline: bool) -> AcquisitionPolicy {
     AcquisitionPolicy::from_hosts(Some(hosts), allow_http, None, offline, AcquisitionLimits::default()).expect("construct acquisition policy")
 }
@@ -37,6 +39,30 @@ fn serve(body: Vec<u8>) -> Option<(String, JoinHandle<()>)> {
         let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
         stream.write_all(header.as_bytes()).expect("write acquisition response header");
         stream.write_all(&body).expect("write acquisition response body");
+    });
+    Some((format!("http://{address}/module"), handle))
+}
+fn serve_many(body: Vec<u8>, requests: usize) -> Option<(String, JoinHandle<()>)> {
+    let listener = match TcpListener::bind("127.0.0.1:0") {
+        | Ok(listener) => listener,
+        | Err(error) if error.kind() == io::ErrorKind::PermissionDenied => return None,
+        | Err(error) => panic!("bind acquisition test server: {error}"),
+    };
+    let address = listener.local_addr().expect("read acquisition test address");
+    let handle = thread::spawn(move || {
+        let mut streams = (0..requests)
+            .map(|_| listener.accept().expect("accept acquisition request").0)
+            .map(|mut stream| {
+                let mut request = [0_u8; 1024];
+                let _ = stream.read(&mut request);
+                stream
+            })
+            .collect::<Vec<_>>();
+        streams.iter_mut().for_each(|stream| {
+            let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            stream.write_all(header.as_bytes()).expect("write acquisition response header");
+            stream.write_all(&body).expect("write acquisition response body");
+        });
     });
     Some((format!("http://{address}/module"), handle))
 }
@@ -106,6 +132,49 @@ fn checksum_escape_hatch_records_the_observed_digest() {
     assert_eq!(read(&result.path).expect("read acquired payload"), body);
 }
 #[test]
+fn test_concurrent_requests_share_one_published_cache_entry() {
+    let body = b"concurrent verified module bytes".to_vec();
+    let Some((url, server)) = serve_many(body.clone(), 2) else {
+        return;
+    };
+    let parsed = Url::parse(&url).expect("parse fixture URL");
+    let hosts = vec![format!(
+        "{}:{}",
+        parsed.host_str().expect("fixture host"),
+        parsed.port().expect("fixture port")
+    )];
+    let policy = policy(&hosts, true, false);
+    let plan = AcquisitionPlan::build(
+        vec!["binary".to_string()],
+        AcquisitionSource::HttpBinary { sha256: sha256(&body), url },
+        &policy,
+    )
+    .expect("plan concurrent HTTP acquisition");
+    let root = TestDirectory::create("concurrent-cache-publication");
+    let executor = AcquisitionExecutor::new(policy, AcquisitionCache::new(root.0.clone()));
+    let barrier = Arc::new(Barrier::new(2));
+    let results = (0..2)
+        .map(|_| {
+            let executor = executor.clone();
+            let barrier = Arc::clone(&barrier);
+            let plan = plan.clone();
+            thread::spawn(move || {
+                barrier.wait();
+                executor.execute(&plan)
+            })
+        })
+        .collect::<Vec<_>>();
+    let acquired = results
+        .into_iter()
+        .map(|result| result.join().expect("join acquisition worker"))
+        .collect::<Result<Vec<_>, _>>()
+        .expect("acquire identical source concurrently");
+    server.join().expect("join acquisition server");
+    assert_eq!(acquired[0].path, acquired[1].path);
+    assert_eq!(read(&acquired[0].path).expect("read published cache payload"), body);
+    assert_eq!(read_dir(root.0.join("binary")).expect("read cache namespace").count(), 1);
+}
+#[test]
 fn corrupted_cache_entry_fails_closed_offline() {
     let body = b"verified module bytes".to_vec();
     let Some((url, server)) = serve(body.clone()) else {
@@ -138,9 +207,7 @@ fn corrupted_cache_entry_fails_closed_offline() {
         b"tampered",
     )
     .expect("tamper with cached payload");
-
     let result = AcquisitionExecutor::new(policy(&hosts, true, true), AcquisitionCache::new(root.0.clone())).execute(&plan);
-
     assert!(matches!(result, Err(AcquisitionError::Corrupt { .. })));
 }
 #[test]
@@ -158,11 +225,41 @@ fn executor_rejects_a_tampered_plan_before_materialization() {
     .expect("plan HTTP acquisition");
     plan.cache_key = Some("../../outside-cache".to_string());
     let root = TestDirectory::create("tampered-plan");
-
     let result = AcquisitionExecutor::new(policy, AcquisitionCache::new(root.0.clone())).execute(&plan);
-
     assert!(matches!(result, Err(AcquisitionError::Policy { .. })));
     assert_eq!(read_dir(&root.0).expect("read empty cache root").count(), 0);
+}
+#[test]
+fn test_git_origin_normalization_discards_query_and_fragment() {
+    let normalized = normalize_origin("https://EXAMPLE.org/project.git/?token=hidden#fragment");
+    assert!(normalized.is_ok_and(|origin| origin == "https://example.org/project.git"));
+}
+#[test]
+fn test_git_tree_entry_limit_fails_closed() {
+    let root = TestDirectory::create("git-tree-entry-limit");
+    let repository = root.0.join("repository");
+    create_dir(&repository).expect("create Git tree fixture");
+    std::fs::write(repository.join("first.txt"), b"first").expect("write first Git tree entry");
+    std::fs::write(repository.join("second.txt"), b"second").expect("write second Git tree entry");
+    let limits = AcquisitionLimits {
+        git_entries: 1,
+        ..AcquisitionLimits::default()
+    };
+    assert!(matches!(
+        inspect_tree(&repository, &limits),
+        Err(AcquisitionError::Limit {
+            limit: "Git tree entries",
+            ..
+        })
+    ));
+}
+#[test]
+fn test_git_timeout_uses_one_shared_deadline() {
+    let started = Instant::now()
+        .checked_sub(Duration::from_secs(2))
+        .expect("construct expired Git deadline");
+    assert!(remaining_timeout(started, Seconds::new(1)).is_err());
+    assert!(remaining_timeout(Instant::now(), Seconds::new(10)).is_ok());
 }
 #[test]
 fn limits_can_only_tighten() {
@@ -197,9 +294,7 @@ fn offline_cache_miss_does_not_connect() {
     )
     .expect("plan offline acquisition");
     let root = TestDirectory::create("offline-miss");
-
     let result = AcquisitionExecutor::new(offline, AcquisitionCache::new(root.0.clone())).execute(&plan);
-
     assert!(matches!(result, Err(AcquisitionError::Offline { .. })));
     assert!(!root.0.join("document").exists());
 }
@@ -351,8 +446,6 @@ fn tree_inspection_rejects_escaping_symlinks() {
     let outside = root.0.join("outside");
     std::fs::write(&outside, b"outside").expect("write outside fixture");
     symlink(&outside, repository.join("escape")).expect("create escaping symlink");
-
     let result = inspect_tree(&repository, &AcquisitionLimits::default());
-
     assert!(matches!(result, Err(AcquisitionError::Corrupt { .. })));
 }

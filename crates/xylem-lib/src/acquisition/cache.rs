@@ -298,14 +298,14 @@ fn validate_cache_path(path: &Path, directory: bool) -> Result<(), AcquisitionEr
 }
 fn validate_entry(plan: &AcquisitionPlan, path: &Path, manifest: CacheManifest) -> Result<CacheEntry, AcquisitionError> {
     let payload = match &plan.source {
-        | AcquisitionSource::Git { .. } => path.join("repository"),
+        | AcquisitionSource::Git { .. } | AcquisitionSource::Oci { .. } => path.join("repository"),
         | AcquisitionSource::HttpBinary { .. } | AcquisitionSource::HttpBinaryUnverified { .. } | AcquisitionSource::HttpDocument { .. } => {
             path.join("payload")
         }
         | AcquisitionSource::Local { .. } => path.join("payload"),
     };
     validate_cache_path(path, true)
-        .and_then(|()| validate_cache_path(&payload, matches!(plan.source, AcquisitionSource::Git { .. })))
+        .and_then(|()| validate_cache_path(&payload, plan.source.is_git() || plan.source.is_oci()))
         .and_then(|()| {
             let identity_matches = plan.identity.as_ref() == Some(&manifest.identity);
             let version_matches = manifest.version == ACQUISITION_CACHE_VERSION;
@@ -334,19 +334,20 @@ fn validate_entry(plan: &AcquisitionPlan, path: &Path, manifest: CacheManifest) 
                                 }),
                             })
                     }
-                    | AcquisitionSource::Git { .. } => inspect_tree(&payload, &plan.limits).and_then(|(bytes, entries, tree_digest)| {
-                        match (
-                            bytes == manifest.bytes,
-                            entries == manifest.entries,
-                            manifest.tree_digest.as_deref() == Some(tree_digest.as_str()),
-                        ) {
-                            | (true, true, true) => Ok(CacheEntry { manifest, payload }),
-                            | _ => Err(AcquisitionError::Corrupt {
-                                path: payload,
-                                reason: "cached Git tree does not match its manifest".to_string(),
-                            }),
-                        }
-                    }),
+                    | AcquisitionSource::Git { .. } | AcquisitionSource::Oci { .. } => {
+                        inspect_tree(&payload, &plan.limits).and_then(|(bytes, entries, tree_digest)| {
+                            let matches_manifest = bytes == manifest.bytes
+                                && entries == manifest.entries
+                                && manifest.tree_digest.as_deref() == Some(tree_digest.as_str());
+                            match matches_manifest {
+                                | true => Ok(CacheEntry { manifest, payload }),
+                                | false => Err(AcquisitionError::Corrupt {
+                                    path: payload,
+                                    reason: "cached source tree does not match its manifest".to_string(),
+                                }),
+                            }
+                        })
+                    }
                     | AcquisitionSource::HttpBinaryUnverified { .. } => Err(AcquisitionError::Identity {
                         value: plan.source.to_string(),
                         reason: "unverified HTTP sources do not have reusable cache entries",
