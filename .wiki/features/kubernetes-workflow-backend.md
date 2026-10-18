@@ -7,6 +7,8 @@ impact: critical
 package: [xylem-lib, xylem-cli, workspace]
 tags: [feature, kubernetes, execution, job, pvc, orchestration, runner, release]
 status: planned
+execution: phased
+phase_budget_hours: 5
 ---
 
 # Goal
@@ -55,7 +57,9 @@ The first release does not:
 
 # Current evidence
 
-Rechecked against the 2026-10-11 worktree.
+Rechecked against the 2026-10-18 committed tree and schema set. Kubernetes
+operator demand, shared storage, cluster access, and image runners still need
+owner-provided evidence before implementation starts.
 
 - Run orchestration is split across preparation, execution, dispatch, executor,
   progress, and reporting modules. This is a useful composition seam, but
@@ -73,19 +77,20 @@ Rechecked against the 2026-10-11 worktree.
   once per run, journaled as run-scoped resources, and cleaned after input
   dispatch. A Kubernetes Job cannot safely inherit this behavior through a
   new match arm.
-- `ExecutionPlan` is deterministic and write-free, but v12 describes local
+- `ExecutionPlan` is deterministic and write-free, but v14 describes local
   acquisition, module commands, local containers, resume, GPU monitoring,
   memory admission, and sandbox intent without an execution target.
-- Journal/run-summary v11 retains selection, cancellation, sandbox lifecycle,
+- Journal/run-summary v13 retains selection, cancellation, sandbox lifecycle,
   atomic artifacts, memory evidence, and durable dashboard state. Kubernetes
-  must allocate new plan and durable-state versions from the v12/v11 baseline
-  rather than modifying current artifacts in place.
+  must allocate new plan and durable-state versions after the environment
+  plan's version allocation, preserving the current v14/v13 baseline instead
+  of modifying current artifacts in place.
 - `RunJournal` is append-only, flushed at every transition, and recovered into
   `RunSummary`. It is the correct authoritative worker result once its path is
   placed on durable shared storage.
-- A random run root is currently created under the controller's operating
-  system temporary directory. That directory cannot be assumed to exist in a
-  Pod and has no controller/worker mapping contract.
+- `RunWorkspace` owns a run root under the controller's temporary directory.
+  That root cannot be assumed to exist in a Pod and has no controller/worker
+  mapping contract.
 - Dry-run intentionally performs no writes, network requests, process spawns,
   or runtime actions. Kubernetes dry-run must preserve that contract.
 - The CLI exposes generated help as a checked-in contract. New target and
@@ -933,8 +938,8 @@ current path.
 
 ## Prerequisites
 
-- Preserve the landed execution-plan v12 and journal/report v11 contracts;
-  Kubernetes allocates the next versions when implementation begins.
+- Preserve the current execution-plan v14 and journal/report v13 contracts;
+  Kubernetes allocates versions after the environment plan's schema phase.
 - Preserve managed child cancellation and reaping, then complete lossless
   process results, module timeouts, and headless signal handling before
   claiming graceful Pod termination.
@@ -971,87 +976,225 @@ unverified binary.
 
 Do not start the controller or worker implementation yet. First confirm an
 operator-owned shared filesystem and cluster, accepted Kubernetes demand,
-required authentication, and an image publication path through the Phase 0
-spike. Pure profile, mapping, protocol, and Job construction work may begin
+required authentication, and an image publication path through K8S-01.
+Pure profile, mapping, protocol, and Job construction work may begin
 only with those deployment assumptions recorded.
 
-# Implementation phases
+# Execution phases
 
-## Phase 0: dependency and API spike
+The following phases have one primary integration lock each. A blocked phase
+names its missing external evidence; waiting for a host, reviewer, or CI queue
+does not consume its five active hours. A newly found defect receives a separate
+bounded repair phase instead of expanding a phase below.
 
-- Pin a kube-rs/k8s-openapi/Tokio combination compatible with the workspace
-  MSRV, musl binary, Windows controller build, Kubernetes 1.31 wire APIs, and
-  supported kubeconfig authentication.
-- Measure resolved package count, duplicate versions, clean build time, binary
-  size, and audit results.
-- Prototype create/watch/log/delete against Kind 1.31 and the newest release.
-- Verify shared filesystem atomic directory creation and rename in both the
-  controller and Pod views.
-- Prototype amd64 and arm64 reference images and run the hidden worker version
-  handshake under emulation or native runners.
+## K8S-01 — Qualify operator demand and shared storage
 
-Exit gate: the dependency/security review is accepted, required authentication
-works without `kubectl`, stable APIs cover the lifecycle, and the PVC contract
-passes on the intended storage class.
+- Status: blocked
+- Budget: 5 active hours maximum
+- Prerequisites: an operator-owned cluster, Kubernetes 1.31+ access, shared filesystem/PVC, and named first deployment owner
+- Exact write set: operator cluster and PVC, `docs/src/kubernetes.md`
+- Primary integration lock: Kubernetes deployment assumptions
+- Outcome: Record accepted authentication, atomic filesystem semantics, target storage class, image path, and operator demand.
+- Focused validation: controller- and Pod-side create/rename probe on the intended shared volume and read-only API discovery.
+- Handoff: Record cluster/version/storage evidence and decisions; remove K8S-01 only after the deployment assumptions are accepted.
 
-## Phase 1: reusable run orchestration
+## K8S-02 — Pin a native client and prove its supported builds
 
-- Extract pure CLI/config precedence and plan preparation from the current run
-  function.
-- Add an explicit immutable run request, injected run ID, run workspace, and
-  cancellation token.
-- Separate local execution from reporter rendering and exit mapping.
-- Preserve existing local command behavior and workflow tests byte-for-byte
-  where output is contractual.
-- Complete structured process cancellation and immutable child environment
-  prerequisites.
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-01
+- Exact write set: `Cargo.toml`, `Cargo.lock`, `crates/xylem-cli/Cargo.toml`, `deny.toml`
+- Primary integration lock: manifest
+- Outcome: A kube-rs/k8s-openapi/Tokio combination supports the required stable APIs, MSRV, musl, Windows controller build, and accepted authentication.
+- Focused validation: feature-tree and audit review plus Linux musl and Windows checks; record dependency count, build time, and binary size.
+- Handoff: Record selected versions and cost evidence; remove K8S-02 after the dependency/security review passes.
 
-Exit gate: local runs and examples pass through the new boundary without a
-behavior or schema regression, and no production path requires global mutable
-workflow state.
+## K8S-03 — Extract a reusable local run request
 
-## Phase 2: target/profile/path/protocol model
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: ENV-09 and K8S-02
+- Exact write set: `crates/xylem-cli/src/commands/run/mod.rs`, `crates/xylem-cli/src/commands/run/preparation.rs`, `crates/xylem-cli/src/commands/run/execution.rs`
+- Primary integration lock: run orchestration
+- Outcome: Local execution accepts an explicit immutable request, injected run identity, workspace, and cancellation handle without changing local behavior.
+- Focused validation: focused local CLI/workflow tests and output snapshots.
+- Handoff: Record the reusable boundary and local regression result; remove K8S-03 when accepted.
 
-- Add `ExecutionTarget`, strict profile types, pure validation, canonical
-  hashing, and component-safe path mapping.
-- Add the v1 request, submission, and result protocols with atomic persistence.
-- Add target evidence in newly versioned plans, journals, and summaries.
-- Add deterministic Job construction as a pure conversion from validated
-  profile plus request metadata.
-- Reject module containers and unsupported controller inputs during planning.
+## K8S-04 — Model target and operator profile
 
-Exit gate: dry-run renders a deterministic current-version Kubernetes plan
-without writes or API access, and all profile/path/protocol/Job tests pass
-without a cluster.
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-01 and K8S-03
+- Exact write set: `crates/xylem-lib/src/lib.rs`, `crates/xylem-lib/src/kubernetes/mod.rs`, `crates/xylem-lib/src/kubernetes/profile.rs`, `crates/xylem-lib/src/config/validation.rs`
+- Primary integration lock: configuration
+- Outcome: Strict target and profile types validate digest images, namespace, PVC, resources, and scheduling inputs.
+- Focused validation: pure profile parsing, defaults, unknown fields, canonical hash, and unsupported-module tests.
+- Handoff: Record the accepted profile contract; remove K8S-04 when accepted.
 
-## Phase 3: native controller and worker
+## K8S-05 — Map host and Pod paths safely
 
-- Implement kubeconfig loading, live preflight, least-authority checks, Job
-  submission, watches, logs, result validation, and typed failures.
-- Add the hidden worker, durable lock, downward identity, explicit run root,
-  signal handling, journal finalization, and atomic result.
-- Add attached/detached run plus check/status/logs/cancel commands.
-- Preserve primary/secondary errors and stable CLI exit codes.
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-04
+- Exact write set: `crates/xylem-lib/src/kubernetes/paths.rs`, `crates/xylem-lib/src/kubernetes/tests.rs`
+- Primary integration lock: workspace path mapping
+- Outcome: Host/PVC paths map to Pod paths only under the configured roots, with reverse mapping for durable evidence.
+- Focused validation: root, nested, sibling-prefix, `..`, symlink, non-UTF-8, missing-leaf, and reverse-mapping cases.
+- Handoff: Record accepted mapping examples and rejected paths; remove K8S-05 when accepted.
 
-Exit gate: fake-client fault tests cover every lifecycle operation, and Kind
-success/failure/detach/reconnect/cancel/duplicate cases produce valid durable
-summaries.
+## K8S-06 — Persist the controller/worker protocol
 
-## Phase 4: image, CI, and documentation
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-05
+- Exact write set: `crates/xylem-lib/src/kubernetes/protocol.rs`, `crates/xylem-lib/src/kubernetes/tests.rs`
+- Primary integration lock: worker protocol
+- Outcome: Strict v1 request, submission, and result files persist atomically and reject wrong identity, version, digest, or partial content.
+- Focused validation: protocol round trips, concurrent replacement, mismatched identity, truncation, and duplicate-claim fixtures.
+- Handoff: Record the accepted wire contract; remove K8S-06 when accepted.
 
-- Build, scan, and publish amd64/arm64 reference images from immutable release
-  binaries.
-- Add Kind 1.31 and newest-version required jobs on capable Linux runners.
-- Add architecture-specific image smoke tests and manifest/SBOM/provenance
-  validation.
-- Publish sample namespace RBAC, PVC/profile fixtures, operator guide, module
-  compatibility table, and troubleshooting guidance.
-- Update supported-target claims only after the required cluster and image
-  jobs pass.
+## K8S-07 — Build deterministic plans and Jobs
 
-Exit gate: a tagged release publishes matching binaries, crates, docs, and a
-multi-architecture runner digest, and the documented offline-smoke Job passes
-on both supported image architectures.
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-05 and K8S-06
+- Exact write set: `crates/xylem-lib/src/plan.rs`, `crates/xylem-lib/src/kubernetes/job.rs`, `crates/xylem-lib/src/kubernetes/tests.rs`
+- Primary integration lock: Kubernetes plan construction
+- Outcome: Pure plan and Job construction render deterministic target/path evidence without writes or API calls.
+- Focused validation: Job spec snapshots for default, resources, GPU, offline, scheduling, deadline, and security contexts; dry-run purity tests.
+- Handoff: Record rendered examples and rejected inputs; remove K8S-07 when accepted.
+
+## K8S-08 — Version durable target evidence
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: ENV-08 and K8S-07; environment plan has allocated v15/v14
+- Exact write set: `crates/xylem-lib/src/plan.rs`, `crates/xylem-lib/src/journal/mod.rs`, `crates/xylem-lib/src/run/store.rs`, `crates/xylem-tui/src/lib.rs`, `crates/xylem-cli/src/commands/run/reporting.rs`, `docs/schema/execution-plan-v16.schema.json`, `docs/schema/run-summary-v15.schema.json`
+- Primary integration lock: run state
+- Outcome: Local and Kubernetes artifacts carry target, profile, image, Job, PVC, and Pod evidence without credentials.
+- Focused validation: current-version round trips, recovery, old-version rejection, and local default regression tests.
+- Handoff: Record version and reader coverage; remove K8S-08 when accepted.
+
+## K8S-09 — Register the target and write-free dry-run
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-07 and K8S-08
+- Exact write set: `crates/xylem-cli/src/cli.rs`, `crates/xylem-cli/src/main.rs`, `crates/xylem-cli/src/commands/mod.rs`, `crates/xylem-cli/src/commands/kubernetes/mod.rs`, `crates/xylem-cli/src/commands/kubernetes/tests.rs`, `docs/src/generated/xylem-help.txt`, `docs/src/generated/xylem-run-help.txt`
+- Primary integration lock: CLI
+- Outcome: Explicit target selection and dry-run render deterministic plans without creating a run directory or contacting Kubernetes.
+- Focused validation: CLI parsing, local-default regression, generated help, and write-free dry-run tests.
+- Handoff: Record the exposed target contract; remove K8S-09 when accepted.
+
+## K8S-10 — Preflight and submit one Job
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-02 and K8S-09
+- Exact write set: `crates/xylem-cli/src/commands/kubernetes/client.rs`, `crates/xylem-cli/src/commands/kubernetes/controller.rs`, `crates/xylem-cli/src/commands/kubernetes/tests.rs`
+- Primary integration lock: Kubernetes controller
+- Outcome: Native client validates server, namespace, PVC, RBAC, profile, and paths before creating exactly one owned Job.
+- Focused validation: fake-client denied/missing-resource cases, foreign-name conflict, and idempotent submission.
+- Handoff: Record preflight and submitted-identity evidence; remove K8S-10 when accepted.
+
+## K8S-11 — Reconnect status and logs
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-10
+- Exact write set: `crates/xylem-cli/src/cli.rs`, `crates/xylem-cli/src/main.rs`, `crates/xylem-cli/src/commands/kubernetes/controller.rs`, `crates/xylem-cli/src/commands/kubernetes/client.rs`, `crates/xylem-cli/src/commands/kubernetes/tests.rs`
+- Primary integration lock: Kubernetes controller
+- Outcome: Attached and detached runs can reconnect status and logs after watch expiry or controller exit.
+- Focused validation: fake-client watch disconnect, resource-version expiry, terminal races, Pod ordering, and TTL recovery.
+- Handoff: Record reconnect behavior and remove K8S-11 when accepted.
+
+## K8S-12 — Claim a run once inside the worker
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-06 and K8S-10
+- Exact write set: `crates/xylem-cli/src/cli.rs`, `crates/xylem-cli/src/main.rs`, `crates/xylem-cli/src/commands/kubernetes/worker.rs`, `crates/xylem-lib/src/kubernetes/protocol.rs`, `crates/xylem-cli/src/commands/kubernetes/tests.rs`
+- Primary integration lock: worker protocol
+- Outcome: A hidden worker validates its request and downward identity and only one Pod claims a run.
+- Focused validation: duplicate Pod winner/waiter, stale winner, timeout, and wrong-version cases.
+- Handoff: Record claim evidence and remove K8S-12 when accepted.
+
+## K8S-13 — Execute the workflow and finalize its result
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-03, K8S-08, and K8S-12
+- Exact write set: `crates/xylem-cli/src/commands/kubernetes/worker.rs`, `crates/xylem-cli/src/commands/run/execution.rs`, `crates/xylem-cli/src/commands/kubernetes/tests.rs`
+- Primary integration lock: worker execution
+- Outcome: The worker runs requirement checks, acquisition, preparation, dispatch, and journal finalization, then writes one atomic result.
+- Focused validation: fake worker success/failure, journal/result identity, and missing-result cases.
+- Handoff: Record durable result evidence and remove K8S-13 when accepted.
+
+## K8S-14 — Cancel and recover terminal runs
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-11 and K8S-13
+- Exact write set: `crates/xylem-cli/src/cli.rs`, `crates/xylem-cli/src/main.rs`, `crates/xylem-cli/src/commands/kubernetes/controller.rs`, `crates/xylem-cli/src/commands/kubernetes/worker.rs`, `crates/xylem-cli/src/commands/kubernetes/tests.rs`
+- Primary integration lock: Kubernetes lifecycle
+- Outcome: Cancel and Pod termination attempt bounded child cleanup and journal finalization while preserving the primary worker failure.
+- Focused validation: fake-client cancellation before scheduling, during execution, after success, after TTL, and with controller reporting failure.
+- Handoff: Record terminal-state matrix and remove K8S-14 when accepted.
+
+## K8S-15 — Build the immutable amd64 runner image
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-13 and an accepted immutable release-binary path
+- Exact write set: `packaging/kubernetes/Containerfile`, `packaging/kubernetes/build.sh`, `Makefile`
+- Primary integration lock: delivery
+- Outcome: A tagged amd64 binary produces a non-root, read-only runner image whose handshake matches its release identity.
+- Focused validation: amd64 image smoke, binary version/checksum comparison, and container security settings.
+- Handoff: Record amd64 digest and build evidence; remove K8S-15 when accepted.
+
+## K8S-16 — Publish the arm64 image and release manifest
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-15 and a capable arm64 builder
+- Exact write set: `packaging/kubernetes/build.sh`, `.gitlab-ci.yml`
+- Primary integration lock: delivery
+- Outcome: Verified arm64 and amd64 images publish under one immutable manifest-list digest with SBOM and provenance.
+- Focused validation: arm64 image smoke plus manifest-member version, checksum, SBOM, and provenance inspection.
+- Handoff: Record manifest digest and both architecture results; remove K8S-16 when accepted.
+
+## K8S-17 — Qualify the Kubernetes 1.31 lifecycle
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-14, K8S-16, and a schedulable Kind 1.31 runner
+- Exact write set: `tests/kubernetes/kind/v1-31.sh`, `tests/kubernetes/kind/fixtures.yaml`, `.gitlab-ci.yml`
+- Primary integration lock: cluster CI
+- Outcome: The required 1.31 job covers success, failure, detach/reconnect, cancellation, duplicate worker, PVC, RBAC, and TTL.
+- Focused validation: required Kind 1.31 matrix with the amd64 reference image.
+- Handoff: Record cluster and image versions and failure evidence; remove K8S-17 when accepted.
+
+## K8S-18 — Qualify the newest cluster and arm64 image
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-17 and schedulable newest-version and arm64 runners
+- Exact write set: `tests/kubernetes/kind/latest.sh`, `.gitlab-ci.yml`
+- Primary integration lock: cluster CI
+- Outcome: The same lifecycle contract passes on the newest supported cluster, and the arm64 image passes required smoke.
+- Focused validation: newest-version Kind matrix and arm64 image smoke on a capable runner or required emulation.
+- Handoff: Record version and architecture matrix; remove K8S-18 when accepted.
+
+## K8S-19 — Publish operator guidance and retire the plan
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: K8S-18
+- Exact write set: `docs/src/kubernetes.md`, `docs/src/architecture.md`, `docs/src/cli-reference.md`, `docs/src/SUMMARY.md`, `examples/kubernetes-offline-smoke/README.md`
+- Primary integration lock: documentation
+- Outcome: Operator guide, RBAC/PVC/profile fixtures, compatibility table, and offline smoke example reflect verified behavior.
+- Focused validation: documentation links, offline smoke on both image architectures, and required release checks.
+- Handoff: Preserve accepted support matrix in user docs and release history, then retire this plan and its index, network, and lane entries.
 
 # Validation
 

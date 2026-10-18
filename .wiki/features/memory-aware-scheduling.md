@@ -7,6 +7,8 @@ impact: high
 package: [xylem-lib, xylem-cli]
 tags: [feature, scheduler, memory, resources, telemetry, concurrency, validation]
 status: waiting-on-validation
+execution: phased
+phase_budget_hours: 5
 ---
 
 # Goal
@@ -18,12 +20,12 @@ concurrent holdout measurements pass.
 
 # Current evidence
 
-Rechecked on 2026-10-11.
+Runtime schema and checked-in evidence rechecked on 2026-10-18.
 
 - The pure fixed-point estimator and FIFO admission queue are implemented.
 - `options.memory` validation, deterministic input sizing, fixed-batch fallback,
   and budget-plus-`options.batch` admission are active.
-- Execution-plan v12 and journal/run-summary v11 retain estimator identity,
+- Execution-plan v14 and journal/run-summary v13 retain estimator identity,
   reservations, fallback reasons, and optional observed peaks.
 - Linux OCI-sandboxed runs collect cgroup v2 `memory.peak` before cleanup when
   memory evidence is configured. Unsupported and unsandboxed runs leave the
@@ -76,9 +78,10 @@ When A/P/O becomes the active rollout target:
 # Dependencies and ordering
 
 This validation is tracked by [work item #13](https://code.ornl.gov/research-enablement/xylem/-/work_items/13).
-It waits for an active A/P/O rollout decision, access to the pinned input
-corpus, and owner-provided Earthdata credentials. It does not block the shipped
-module-agnostic scheduler or the accepted A/P estimator.
+No A/P/O rollout decision is recorded in the checked-in evidence. The gate
+requires that decision, access to the pinned input corpus, and owner-provided
+Earthdata credentials. It does not block the shipped module-agnostic scheduler
+or the accepted A/P estimator.
 
 # Acceptance criteria
 
@@ -96,3 +99,27 @@ module-agnostic scheduler or the accepted A/P estimator.
 # Related plans
 
 - [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
+
+# Execution phases
+
+## APO-01 — Measure the pinned A/P/O inputs individually
+
+- Status: blocked
+- Budget: 5 active hours maximum
+- Prerequisites: an A/P/O rollout decision, access to the pinned fifth-case corpus, and owner-provided Earthdata credentials
+- Exact write set: Oklahoma measurement host, `tools/memory-spike/evidence/apo-rollout/individual.json`, `tools/memory-spike/evidence/apo-rollout/manifest.json`
+- Primary integration lock: A/P/O measurement evidence
+- Outcome: Sanitized individual observations establish the held-out peak and prediction margin for every pinned input.
+- Focused validation: run `tools/memory-spike/run-expanded-module-o-oklahoma.sh` once on Oklahoma, then review its individual observations for secrets and underprediction; the unattended measurement time is external waiting.
+- Handoff: Record the source revision, corpus identity, host, and result; remove APO-01 when all individual cases are valid.
+
+## APO-02 — Measure the concurrent mix and record the rollout decision
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: APO-01 and the concurrent observations from the same pinned measurement run
+- Exact write set: Oklahoma measurement host, `tools/memory-spike/evidence/apo-rollout/concurrent.json`, `tools/memory-spike/evidence/apo-rollout/report.md`, `tools/memory-spike/README.md`
+- Primary integration lock: A/P/O measurement evidence
+- Outcome: A sanitized concurrent holdout report records GO or no-go against the existing memory budget and admission rules.
+- Focused validation: review the script's concurrent observations for OOM, extrapolation, prediction error, budget, and credential redaction.
+- Handoff: Keep concurrency at one for no-go; for GO, record operator sign-off and accepted estimator identity, then retire this plan and its index, network, and lane entries.

@@ -17,65 +17,64 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Portfolio review
 
-Rechecked on 2026-10-17 against the current worktree, schema set, Homebrew tap
-merge request, and adjacent ACORN 0.4.0 source. Quality measures current
-evidence, bounded scope, explicit dependencies, delivery phases, and verifiable
-acceptance criteria. Difficulty is remaining work rather than original scope.
+Rechecked on 2026-10-18 against committed source `97d5203`, current schemas,
+and the uncommitted acquisition worktree. All six active plans are executable
+and use five-hour phases. External tap, runner, cluster, and credential claims
+remain prerequisites until their owners provide current evidence. Quality
+reflects evidence, bounded phases, dependencies, and acceptance criteria;
+difficulty describes remaining work.
 
-| Plan | Quality | Impact | Remaining difficulty | Value | Assessment |
-|---|---:|---:|---:|---:|---|
-| [Homebrew release activation](features/homebrew-export.md) | 4/5 | High | Low | Very high | Merge request [!2](https://code.ornl.gov/research-enablement/homebrew-xylem/-/merge_requests/2) remains open and mergeable. Linux passes; the allowed-to-fail macOS job is canceled and a compatible runner is still unavailable. Runner assignment and required validation remain the only activation blockers. |
-| [Secure module acquisition](refactors/secure-module-acquisition.md) | 5/5 | Critical | High | Very high | Runtime integration and plan v13/journal v12 evidence are implemented. Remaining work is concurrent cache-publication qualification, the broader Git transport and cross-platform matrix, and an accepted ACORN revision that clears the `quick-xml` advisories. |
-| [Local OCI bundle module URIs](features/local-oci-bundle-uris.md) | 4/5 | High | Medium | High | Planned extension: consume digest-pinned OCI layout directories and archives as local modules, building on registry OCI acquisition without requiring a registry. |
-| [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md) | 4/5 | Critical | Very high | High | Run orchestration is split and cancellation primitives exist, but host execution still mutates process-global environment, creates nested worker pools, shares mutable preparation, and lacks immutable contexts, continue policy, sibling cancellation, and owned workspaces. |
-| [A/P/O memory validation](features/memory-aware-scheduling.md) | 5/5 | High | Low | Conditional high | The module-agnostic scheduler, v12 plan, v11 durable evidence, Linux OCI peak collection, A/P expanded gate, and operational reruns are complete. Only the credentialed A/P/O rollout gate remains; do not schedule it until that workflow is selected for rollout. |
-| [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) | 4/5 | Critical | Very high | Conditional high | The controller/worker, PVC, protocol, and failure contracts remain coherent, but implementation still depends on immutable host-run contexts, shared-filesystem qualification, a worker image pipeline, cluster runners, and demonstrated operator demand. |
+| Plan | Quality | Impact | Remaining difficulty | Readiness | Assessment |
+|---|---:|---:|---:|---|---|
+| [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md) | 4/5 | Critical | High | Ready | The workspace and split run path are landed. Process results, immutable contexts, policy, cancellation, and schema integration remain. |
+| [Secure module acquisition](refactors/secure-module-acquisition.md) | 4/5 | Critical | Medium | In progress | Core acquisition and v14/v13 evidence are landed. Uncommitted registry work needs review; OCI, Git, platform, and audit qualification remain. The prior `quick-xml` blocker is cleared. |
+| [Local OCI archive qualification](features/local-oci-bundle-uris.md) | 4/5 | High | Medium | Blocked on acquisition lock | Native directory URIs and the example are landed; archive and sandbox qualification remain. |
+| [Homebrew release activation](features/homebrew-export.md) | 4/5 | High | Low | Ready | The assigned Mac runner is online, but its tap jobs were canceled. A passing macOS job, required two-platform pipeline, merge, and install/upgrade evidence remain. |
+| [A/P/O memory validation](features/memory-aware-scheduling.md) | 5/5 | High | Low | Blocked on rollout decision | The scheduler and A/P evidence are landed. Run the pinned credentialed A/P/O holdout only when selected for rollout. |
+| [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) | 4/5 | Critical | Very high | Blocked on operator gates | Controller/worker work requires accepted demand, shared storage, authentication, image path, and the immutable environment boundary. |
 
-The completed sandbox execution plan was removed on 2026-10-11. OCI,
-OpenShell, and Docker Sandbox providers, policy v1, execution-plan v12,
-run-summary v11, lifecycle reconciliation, artifact publication, conformance,
-examples, and documentation are now landed baselines. Process guards and any
-new provider require a focused plan before work starts.
+The current landed baselines include execution-plan v14, run-summary v13,
+verified acquisition, owned workspaces, sandbox providers, memory admission,
+and durable run storage. New runtime work must preserve those contracts.
 
 ## Recommended execution order
 
-1. Complete secure acquisition's Git transport/concurrency and platform
-   qualification, then clear its ACORN dependency audit blocker.
-2. Add native local OCI layout directory/archive URIs after the acquisition
-   integration lock is released.
-3. Finish the workflow environment and concurrency phases that remain, while
-   preserving the landed sandbox and memory contracts.
-4. Assign a compatible macOS runner, make both tap jobs required, merge the
-   v1.0.3 formula, and publish the verified Homebrew command.
-5. Run the A/P/O memory gate only after a rollout decision and credentials are
-   available.
-6. Start Kubernetes only after its operator-demand, storage, image, and cluster
-   gates are approved.
+1. Run ENV-01 and SEC-01 on disjoint process and acquisition locks; review the
+   uncommitted acquisition work before accepting SEC evidence.
+2. Start OCI-01 when SEC releases the configuration/acquisition lock; continue
+   the environment phases in order as their locks become available.
+3. Start BRW-01 on the assigned online Mac runner. Run APO-01 only
+   after the A/P/O rollout decision, corpus access, and credentials arrive.
+4. Start K8S-01 when the operator gates are available; runtime phases follow
+   the environment context and schema work.
 
 ## Planning gaps
 
 Roadmap milestones and deferred ideas are not schedulable plans. Create a
-focused page with current evidence, ownership, validation, and acceptance
-criteria before starting process guards, another sandbox provider, or any
-other deferred scope.
+focused page with current evidence, ownership, validation, acceptance
+criteria, and bounded phases before starting process guards, another sandbox
+provider, or other deferred scope.
 
 ## Adding a plan
 
 1. Create one semantically named Markdown file for one atomic topic.
-2. Add `type: Plan`, `title`, `description`, `difficulty`, `impact`, a non-empty `package` list, `tags`, and `status` to YAML frontmatter.
+2. Add `type: Plan`, `title`, `description`, `difficulty`, `impact`, a non-empty `package` list, `tags`, `status`, `execution: phased`, and `phase_budget_hours: 5` to YAML frontmatter.
 3. Use `low`, `medium`, `high`, `mixed`, or `not-assessed` for difficulty; use `low`, `medium`, `high`, `critical`, `mixed`, or `not-assessed` for impact.
 4. Use `planned`, `in-progress`, or `waiting-on-validation` for status. Add
    `priority: next` only for an immediate unblocked candidate.
-5. Document the goal, current evidence, project code boundaries, dependencies, recommendation, validation, and acceptance criteria.
+5. Document the goal, current evidence, project code boundaries, dependencies, recommendation, validation, and acceptance criteria. Separate accepted facts from remaining work.
 6. In project code boundaries, identify files to update, create, and delete. Write `None` when a category is intentionally empty.
-7. Add the plan to its directory index, the [plan dependency network](plan-network.md), and a lane in the [parallel execution guide](parallel-execution.md).
+7. Add `# Execution phases`. Each phase has a stable ID, `planned`, `ready`, `blocked`, or `in-progress` status, at most five active hours, prerequisites, an exact write set or named external system, one primary integration lock, a mergeable outcome, focused validation, and a handoff.
+8. Add the plan to its directory index, the [plan dependency network](plan-network.md), and a lane in the [parallel execution guide](parallel-execution.md).
 
 ## Maintaining plans
 
 1. Recheck evidence against the current source, lockfile, tests, and CI configuration before implementation.
 2. Update frontmatter and body together when scope, priority, package ownership, or status changes.
-3. Delete completed plans and remove their index, dependency-network, and lane entries.
+3. Remove completed phases and checked tasks. Preserve stable IDs for unfinished phases. Delete completed plans and remove their index, dependency-network, and lane entries after durable evidence is preserved outside `.wiki`.
 4. Consolidate overlapping proposals instead of creating competing owners for the same contract.
 5. Keep internal links valid and external claims cited.
 6. Reconcile code boundaries and integration locks whenever files or modules move.
 7. Treat the dependency network and parallel guide as coordination records, not implementation jobs.
+8. Treat external waiting as a prerequisite outside the five-hour active budget. Give a validation defect its own bounded repair phase rather than expanding the active phase.
+9. Run the planning skill's `validate_wiki.py` and inspect the diff after changes.

@@ -4,75 +4,63 @@ okf_version: "0.1"
 
 # Plan dependency network
 
-Rechecked on 2026-10-17. An arrow means the left side establishes a contract
-required by the right side. Landed baselines are not active plans.
+Rechecked on 2026-10-18 against committed source `97d5203`. Arrows denote a
+required contract or gate, not a whole-plan serialization. Current landed
+baselines are execution-plan v14, run-summary v13, verified acquisition,
+owned workspaces, sandbox providers, memory admission, and run storage.
 
 ## Delivery paths
 
 ```text
-ACORN 0.4.0 process contract --> environment/concurrency --> Kubernetes target
-                              \-> secure acquisition
-
-macOS runner + required tap jobs --> Homebrew activation
-
-A/P/O rollout decision + credentials --> A/P/O memory validation
+ACORN 0.4.0 process contract -> ENV-01 -> ENV-03 -> ENV-05/06 -> ENV-07/08/09 -> K8S-03 onward
+accepted acquisition lock release -> OCI-01 -> OCI-02 -> OCI-03 -> OCI-04
+operator demand + cluster/PVC/image path -> K8S-01 -> K8S-02 onward
+assigned Mac runner -> successful macOS job BRW-01 -> BRW-02 -> BRW-03
+A/P/O rollout + corpus + credentials -> APO-01 -> APO-02
 ```
 
-The sandbox policy/provider boundary, memory admission seam, execution-plan
-v12, journal/run-summary v11, run store, cancellation vocabulary, and split run
-orchestration are landed constraints. Active plans extend them; they do not
-redefine them incidentally.
+SEC-01 through SEC-07 qualify the landed acquisition path. OCI-01 needs the
+shared configuration/acquisition lock released, not completion of unrelated
+Git and platform qualification. K8S worker and schema phases require the
+immutable environment, cancellation, and durable-state contracts from ENV.
 
 ## Direct dependency edges
 
 - [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md)
-  consumes the published ACORN process contract and must preserve current
-  sandbox, memory, journal, reporter, resume, and run-store behavior.
-- [Secure module acquisition](refactors/secure-module-acquisition.md) consumes
-  typed errors, managed process execution, configuration validation, and the
-  eventual immutable context/workspace boundary. Its planner, bounded
-  executors, and cache have landed; host-run integration waits for that
-  workspace boundary.
-- [Local OCI bundle module URIs](features/local-oci-bundle-uris.md) extends the
-  registry OCI source model with digest-pinned local image layouts. It follows
-  secure acquisition's source, cache, and workspace contracts and must wait for
-  its shared configuration/acquisition write lock to be released.
+  preserves the landed sandbox, memory, reporter, resume, and run-store
+  contracts while completing process results and immutable contexts.
+- [Secure module acquisition](refactors/secure-module-acquisition.md) owns
+  remaining OCI/Git transport and platform qualification. Uncommitted work is
+  not an accepted prerequisite until reviewed and validated.
+- [Local OCI archive qualification](features/local-oci-bundle-uris.md) extends
+  landed directory support after the acquisition/configuration lock is free.
 - [Kubernetes workflow execution](features/kubernetes-workflow-backend.md)
-  follows immutable contexts, owned workspaces, structured cancellation, and a
-  reusable local execution boundary. It also requires qualified shared storage,
-  cluster runners, and an immutable worker-image pipeline.
+  begins with operator demand and storage qualification; executable runtime
+  phases follow the environment context and schema phases.
 - [A/P/O memory validation](features/memory-aware-scheduling.md) has no runtime
-  implementation dependency. It waits for a rollout decision, the pinned
-  corpus, and owner-provided Earthdata credentials.
-- [Homebrew release activation](features/homebrew-export.md) waits for a
-  compatible macOS runner and required two-platform tap validation.
+  implementation dependency and waits for a rollout decision and credentials.
+- [Homebrew release activation](features/homebrew-export.md) has an assigned
+  online Mac runner; BRW-01 must diagnose canceled jobs before required jobs
+  and merge.
 
 ## Shared integration boundaries
 
-| Boundary | Active plans | Coordination rule |
+| Boundary | Phase owners | Coordination rule |
 |---|---|---|
-| `Cargo.toml`, crate manifests, `Cargo.lock`, `deny.toml` | acquisition, Kubernetes | One manifest owner at a time; inspect the feature tree and audit the regenerated lockfile. |
-| `crates/xylem-lib/src/config/` | environment, acquisition, Kubernetes | Preserve typed validation, `options.batch`, memory fallback, resume, source nesting, and sandbox opt-in. |
-| `crates/xylem-lib/src/script/` | environment, acquisition, Kubernetes | Environment/concurrency owns the host adapter changes; acquisition and Kubernetes consume the accepted process contract. |
-| `crates/xylem-lib/src/execution.rs` and `crates/xylem-cli/src/commands/run/dispatch.rs` | environment, Kubernetes | Keep one ordered admission seam and preserve fixed and memory-aware limits. |
-| `crates/xylem-lib/src/sandbox/` and provider fixtures | landed baseline | No active plan owns this boundary. Changes require a focused plan and must preserve provider conformance and lifecycle evidence. |
-| Plan, journal, run store, projection, telemetry, and reporter modules | environment, Kubernetes | Allocate schema revisions serially and update writers, recovery, projections, reporters, schemas, and TUI together. |
-| `crates/xylem-cli/src/commands/run/`, CLI roots, and generated help | environment, Kubernetes | One CLI integration owner at a time; preserve CLI-owned exit mapping and dry-run behavior. |
-| `Makefile`, `.gitlab-ci.yml`, release exporters, runner images | Kubernetes, Homebrew | Kubernetes images consume immutable binaries; Homebrew activation changes the tap only after both validation jobs pass. |
-| Top-level and `docs/` Markdown plus `examples/` | every user-visible plan | Final names and behavior land before documentation integration. |
-
-## Target ownership
-
-| Package | Boundary | Active plans |
-|---|---|---|
-| `xylem-lib` | Configuration, planning, acquisition, execution policy, outcomes, scheduling, journals, run storage, telemetry, projections | environment, acquisition, Kubernetes |
-| `xylem-cli` | Argument precedence, orchestration, execution targets, presentation, exit status, cancellation, workspace lifetime | environment, acquisition, Kubernetes |
-| `xylem-tui` | Durable run projection and interaction | none |
-| `workspace` | Dependency graph, CI, releases, images, exports, documentation, examples | acquisition, Kubernetes, Homebrew, memory validation |
+| Manifests and `Cargo.lock` | SEC-01/07, ENV-06, K8S-02 | One dependency owner at a time; inspect feature tree and audit the accepted lockfile. |
+| `crates/xylem-lib/src/config/` | ENV-02/03/04, SEC-01, OCI-01, K8S-04 | Serialize writes while preserving batching, memory, resume, source nesting, and sandbox opt-in. |
+| `crates/xylem-lib/src/script/` | ENV-01/09, OCI-01 | Environment phases own the host process adapter; local URI edits use the separate parser lock. |
+| `crates/xylem-lib/src/execution.rs` and `commands/run/dispatch.rs` | ENV-05, K8S-03 | Preserve ordered fixed and memory-aware admission. |
+| Acquisition executor and cache | SEC-01/02/03, OCI-02 | One publication and transport owner at a time. |
+| Plan, journal, run store, projection, telemetry, reporter, and TUI | ENV-07/08, K8S-08 | Allocate schema revisions serially and update durable readers and views together. |
+| CLI roots and `commands/run/` | ENV-06, K8S-03/09/10/11/14 | One CLI integration owner at a time; preserve exit mapping and dry-run purity. |
+| Sandbox providers | OCI-03 | Keep the landed provider boundary; run focused conformance for any preparation change. |
+| Delivery files and release images | SEC-04/05, BRW-02, K8S-15/16/17/18 | Serialize CI/release wiring; runner administration owns no repository files. |
+| User documentation and examples | BRW-03, OCI-04, ENV-09, K8S-19 | Document only accepted behavior and tested commands. |
 
 ## Handoff checklist
 
-Before implementation, record the plan, exact files, claimed locks, public
-contracts, baseline commit, prerequisite revision, focused validation, and
-landing order. Before handoff, report changed files, schema or public-contract
-changes, generated artifacts, validation results, and any lock still required.
+Before a phase starts, record its exact write set, primary lock, baseline
+commit, external prerequisites, and focused validation. At handoff, record
+changed files, public/schema changes, validation outcomes, and the next
+eligible phase. Remove completed phases and retire plans with no work left.

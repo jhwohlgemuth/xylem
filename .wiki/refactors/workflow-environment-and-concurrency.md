@@ -6,7 +6,9 @@ difficulty: high
 impact: critical
 package: [xylem-lib, xylem-cli]
 tags: [refactor, environment, concurrency, cancellation, workspace, determinism]
-status: in-progress
+status: planned
+execution: phased
+phase_budget_hours: 5
 ---
 
 # Goal
@@ -18,7 +20,7 @@ Xylem owns workflow policy. Generic child-process mechanics come from ACORN's
 
 # Current evidence
 
-Rechecked on 2026-10-11.
+Rechecked on 2026-10-18 against the committed tree and current schema set.
 
 - `ExecutionContext` already owns a run-local Rayon pool, `InputBatch` is a positive concurrency ceiling, and `dispatch_inputs_fail_fast` provides rolling admission with result slots in configured input order. The dispatch methods still construct a second Rayon pool instead of using one run-level admission mechanism.
 - The current fail-fast dispatcher stops new admission but allows already-active inputs to settle. It has no cancellation token, no `continue` policy, and no structured dispatch report describing never-admitted work.
@@ -35,7 +37,7 @@ Rechecked on 2026-10-11.
 - `RunCancellation` and durable `cancelled`/`not_started` states are landed.
   TUI-launched runs use the cancellation handle, but the headless CLI still has
   no signal integration and fail-fast does not cancel active siblings.
-- Execution plans are at version 12 and journals/summaries are at version 11.
+- Execution plans are at version 14 and journals/summaries are at version 13.
   The landed schemas include selection, sandbox, artifact, memory, cancellation,
   and lifecycle evidence that the next runtime revision must preserve.
 - Sandboxed execution already creates per-input preparation/execution
@@ -55,20 +57,25 @@ Xylem adapts `Script` to the ACORN API and owns configuration, variable preceden
 
 # Project code boundaries
 
-- **Update:** `Cargo.toml`, `Cargo.lock`, `crates/xylem-lib/Cargo.toml`, configuration, plan, progress, outcome, execution, and script modules in `crates/xylem-lib/src/`; run orchestration and CLI arguments in `crates/xylem-cli/src/`; schemas, fixtures, tests, and user documentation.
-- **Create:** immutable `RunContext` and `WorkflowContext`; `FailurePolicy`, `CancellationReason`, `RunWorkspace`, and `DispatchReport<T>`; the next coordinated schema version; per-input workspace and fake-process fixtures.
-- **Delete:** production process-environment mutation APIs, the combined `Vec<String>` script result, whitespace-only shell-format parsing, leaked temporary roots, and any Xylem-local child-process lifecycle implementation superseded by `acorn-cmd`.
+- **Update:** configuration, execution, script, plan, journal, run store,
+  reporter, TUI, and CLI run modules; the dependency lockfile, current schemas,
+  focused tests, and user documentation.
+- **Create:** immutable `RunContext` and `WorkflowContext`, `FailurePolicy`,
+  `DispatchReport<T>`, focused process fixtures, and the next coordinated plan
+  and summary schemas.
+- **Delete:** production parent-environment mutation APIs, the combined
+  `Vec<String>` script result, and whitespace-only shell-format parsing.
 
 # Dependencies and landing order
 
-1. Preserve the landed ACORN v0.3.4 managed-process contract so ACORN consumers can migrate separately.
+1. Preserve the pinned ACORN 0.4.0 managed-process contract while adapting the remaining host result path.
 2. Keep Xylem's ACORN versions and Git revisions together. Published Xylem crates must resolve the same process contract from crates.io; a Git-only prerequisite is insufficient.
-3. Land the Xylem context, workspace, scheduler, journal, and CLI changes as
+3. Land the Xylem context, scheduler, journal, and CLI changes as
    coordinated phases. `crates/xylem-lib/src/script/mod.rs`, run-state files,
    manifests, and `crates/xylem-cli/src/commands/run/` remain single-writer
    integration surfaces.
-4. Allocate the next execution-plan and journal/run-summary versions from v12
-   and v11. Preserve selection, sandbox, artifact, memory, lifecycle,
+4. Allocate the next execution-plan and journal/run-summary versions from v14
+   and v13. Preserve selection, sandbox, artifact, memory, lifecycle,
    cancellation, and run-store compatibility; coordinate version allocation
    with Kubernetes.
 
@@ -82,7 +89,8 @@ run-store projections.
 - Add `options.failure_policy` with `fail_fast` and `continue` values. Omission means `fail_fast` for backward compatibility.
 - Add `--failure-policy <fail-fast|continue>` as a CLI override. CLI spelling uses kebab case; serialized configuration uses snake case.
 - Add positive `timeout_seconds` to each executable module. Omission means no timeout. Expose a lower-level library execution option so callers that do not deserialize a module can still supply a timeout.
-- Add CLI-only `--retain-workspace`. Do not add retention to reusable workflow configuration because it is an operator diagnostic choice, not workflow behavior.
+- Preserve the landed CLI-only `--retain-workspace` behavior while constructing
+  immutable contexts; do not add retention to reusable workflow configuration.
 - Keep `--report-output` as an additional report-export directory; canonical journals and summaries remain in the run store, separate from the workspace tree.
 - Reject zero timeouts, unknown policies, and attempts to configure retained workspaces in workflow files.
 
@@ -114,32 +122,15 @@ Resolve configuration-owned input, output, module, template, and environment pat
 
 Zero-input workflows receive workflow values, the output default, module overrides, `MODULE_LIST`, `RUN_ID`, and `WORK_DIRECTORY`, but no `INPUT` or `PARENT_DIRECTORY`.
 
-# Workspace and preparation
+# Remaining workspace and preparation work
 
-Use an RAII-owned layout:
-
-```text
-${TMPDIR}/xylem/workspaces/<run-id>/
-  configuration/
-  inputs/
-    <ordered-input-index>/
-      modules/
-      environments/
-      scratch/
-```
-
-Resolve remote configuration sources once under `configuration/`. The secure
-acquisition layer may reuse immutable, verified cache entries, but every input
-receives a separately materialized module tree under its `modules/` directory.
-Never share a mutable checkout, copied tree, environment prefix, scratch path,
-or completion state between inputs, even when the source identity or input
-value repeats.
-
-For local modules, copy the tree into the input workspace. Canonicalize the source root and every symlink target, reject dangling or escaping links and special files, avoid cycles, and preserve regular-file executable permissions. Materialize accepted internal links as workspace-owned content so later command execution cannot escape through them.
-
-Place Conda and Mamba prefixes under the input's `environments/` directory. Run Pixi against the copied input-local project and keep its environment state inside the same input boundary. Other supported managers must either demonstrate an input-local path or fail validation; they may not fall back to a shared named environment.
-
-Remove the workspace after every terminal path, including success, failure, cancellation, and panic unwind. `--retain-workspace` transfers cleanup responsibility to the operator and prints the retained path. The journal is never removed with the workspace.
+The RAII run workspace, per-input module copy, remote configuration directory,
+and CLI retention option have landed. Keep their contracts while replacing
+shared or process-global environment state. Conda/Mamba prefixes and Pixi
+projects must remain input-local, including repeated input values; a manager
+that cannot demonstrate an input-local path fails validation. A mutable
+preparation step must run inside the same bounded admission slot as its input's
+modules. Existing workspace cleanup and journal lifetime stay regression gates.
 
 # Scheduling, failure, and cancellation
 
@@ -171,7 +162,7 @@ The caller applies workflow failure policy. `Script` never logs an error and ret
 # Journal and schema revision
 
 Use the landed `cancelled` and `not_started` durable vocabulary. Advance the
-execution plan from v12 and journal/recovered summary from v11 only when the
+execution plan from v14 and journal/recovered summary from v13 only when the
 new context, failure-policy, timeout, and workspace evidence is stable. Keep
 the current exact-version runtime policy: retain historical schema documents,
 but reject non-current runtime artifacts without normalization or migration.
@@ -188,21 +179,9 @@ Dry-run validates and renders the effective policy, timeout, reserved variables,
 
 # Recommendation
 
-Keep the six phases independently reviewable, but reserve the process adapter,
-configuration, scheduler, run-state, CLI, and documentation locks for each
-integration in order. Start with the host process/result adapter and pure
-context construction; do not combine this refactor with acquisition,
-Kubernetes behavior.
-
-# Implementation phases
-
-1. Upgrade the published `acorn-cmd` contract, add Xylem result adaptation, and remove lossy parsing and output conversion.
-2. Add configuration and CLI policy, pure variable resolution, owned path resolution, and immutable contexts.
-3. **Implemented 2026-10-11:** add the RAII workspace and per-input acquisition/preparation layout, with durable journals outside the disposable tree.
-4. Replace the current optional-slot fail-fast result with `DispatchReport`, move mutable preparation behind the single bounded scheduler, and implement fail-fast sibling cancellation, continue, and external cancellation.
-5. Advance plan, journal, recovery, summary, schemas, reporters, TUI, and
-   dry-run together from the current v12/v11 baseline.
-6. Remove global environment mutation and obsolete helpers, then update documentation and examples.
+Keep each remaining runtime contract independently reviewable. The accepted
+workspace and acquisition path is a baseline, not a new phase. Do not combine
+this refactor with Kubernetes behavior.
 
 # Validation
 
@@ -211,8 +190,9 @@ Kubernetes behavior.
 - Preserve the existing rolling-admission and ordered-slot tests, then measure peak work across input-local acquisition, preparation, and execution; it must never exceed `min(--threads, options.batch)`.
 - Test deterministic ordering, sequential modules, fail-fast admission, continue behavior, external cancellation, exit 130, module timeout, and process-tree cleanup.
 - Prove fail-fast cancels already-active siblings rather than merely waiting for them, and distinguish the triggering failure, cancelled active work, and never-admitted work.
-- Test input-local local trees, Git modules, Conda/Mamba prefixes, Pixi projects, symlink containment, executable-bit preservation, duplicate inputs, and cleanup after success, failure, cancellation, and panic unwind.
-- Verify `--retain-workspace` reports a usable path while normal runs remove the workspace and retain the journal.
+- Keep the landed workspace-copy, containment, permission, retention, and
+  cleanup tests as regression gates while checking input-local environment
+  prefixes and Pixi projects.
 - Round-trip the newly allocated plan, journal, and summary versions; reject
   non-current fixtures; assert explicit `cancelled`, `failed`, and
   `not_started` states.
@@ -225,10 +205,10 @@ Kubernetes behavior.
 - Every input, including a repeated or zero-input case, has a complete immutable context and isolated owned paths.
 - Configuration and CLI precedence, reserved variables, failure policy, timeout, and path ownership are explicit and tested.
 - One ceiling and one worker/admission mechanism bound the complete input lifecycle, modules remain sequential, and reports are ordered deterministically.
-- Immutable verified acquisition cache entries may be shared, but mutable module trees, environment prefixes, scratch paths, and completion state are isolated per input.
+- Mutable environment prefixes and preparation state remain isolated per input
+  under the accepted workspace boundary.
 - Fail-fast, continue, timeout, and external cancellation have distinct durable outcomes; external cancellation exits 130.
 - Xylem delegates process supervision to the published ACORN contract and preserves separate bounded stdout/stderr evidence.
-- Workspaces clean up on every terminal path unless the CLI explicitly retains them; journals have an independent lifetime.
 - The new schemas represent policy, timeout, context, and workspace evidence;
   preserve all current provenance and lifecycle evidence; and reject every
   non-current runtime artifact without normalization or migration.
@@ -238,3 +218,104 @@ Kubernetes behavior.
 
 - [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md)
 - [Memory-aware scheduling](../features/memory-aware-scheduling.md)
+
+# Execution phases
+
+## ENV-01 — Preserve lossless process results
+
+- Status: ready
+- Budget: 5 active hours maximum
+- Prerequisites: pinned ACORN 0.4.0 process API
+- Exact write set: `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/script/tests/mod.rs`
+- Primary integration lock: process adapter
+- Outcome: Script execution preserves separate bounded byte streams, termination metadata, timeout, and shell-word argument boundaries.
+- Focused validation: `cargo test -p xylem-lib script --locked` with non-UTF-8, empty argument, timeout, and cancellation cases.
+- Handoff: Record accepted result semantics and remove ENV-01 when the focused tests pass.
+
+## ENV-02 — Add validated policy and timeout inputs
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: ENV-01
+- Exact write set: `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/validation.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-cli/src/cli.rs`
+- Primary integration lock: configuration
+- Outcome: `options.failure_policy`, module `timeout_seconds`, and the CLI policy override validate and resolve with the documented defaults.
+- Focused validation: focused configuration and CLI parsing tests for omitted, invalid, and overridden values.
+- Handoff: Record the accepted precedence and remove ENV-02 when validation passes.
+
+## ENV-03 — Build immutable run and input contexts
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: ENV-02 and release of the acquisition configuration lock
+- Exact write set: `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-cli/src/commands/run/preparation.rs`, `crates/xylem-lib/src/run/mod.rs`
+- Primary integration lock: run context
+- Outcome: Pure ordered variable and path resolution constructs complete run and input contexts without parent-environment mutation.
+- Focused validation: precedence, reserved names, zero and repeated inputs, configuration-relative paths, and non-Unicode path tests.
+- Handoff: Record context fields and validation results; remove ENV-03 when accepted.
+
+## ENV-04 — Keep preparation inside the owned input boundary
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: ENV-03
+- Exact write set: `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-cli/src/commands/run/execution.rs`
+- Primary integration lock: input preparation
+- Outcome: Conda/Mamba, Pixi, and supported managers prepare in the input workspace under one admission slot.
+- Focused validation: repeated-input workspace and environment-prefix tests with peak concurrent work bounded by the effective ceiling.
+- Handoff: Record manager coverage and remove ENV-04 when accepted.
+
+## ENV-05 — Return ordered dispatch outcomes and apply failure policy
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: ENV-04
+- Exact write set: `crates/xylem-lib/src/execution.rs`, `crates/xylem-cli/src/commands/run/dispatch.rs`
+- Primary integration lock: scheduler
+- Outcome: One ordered dispatch report distinguishes failed, cancelled, and never-admitted inputs; fail-fast cancels siblings and continue admits all eligible inputs.
+- Focused validation: focused scheduler tests for admission ceiling, order, sibling cancellation, and continue policy.
+- Handoff: Record report and cancellation semantics; remove ENV-05 when accepted.
+
+## ENV-06 — Connect headless signals and CLI exit mapping
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: ENV-05
+- Exact write set: `crates/xylem-cli/Cargo.toml`, `Cargo.lock`, `crates/xylem-cli/src/main.rs`, `crates/xylem-cli/src/commands/run/mod.rs`, `crates/xylem-cli/src/commands/run/failure.rs`
+- Primary integration lock: CLI
+- Outcome: First termination signal cancels and flushes the run; external cancellation maps to exit 130.
+- Focused validation: CLI signal tests for active and never-admitted inputs, journal flush, and workspace cleanup.
+- Handoff: Record signal behavior and remove ENV-06 when accepted.
+
+## ENV-07 — Version plan and dry-run policy evidence
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: ENV-05 and ENV-06; reserve execution-plan v15 after v14
+- Exact write set: `crates/xylem-lib/src/plan.rs`, `crates/xylem-lib/src/tests/plan.rs`, `docs/schema/execution-plan-v15.schema.json`
+- Primary integration lock: run state
+- Outcome: The current deterministic plan records effective policy, timeout, context identity, and ordered admission intent without disposable paths.
+- Focused validation: plan/schema round trips, old-version rejection, and write-free dry-run tests.
+- Handoff: Record v15 schema and consumer evidence; remove ENV-07 when accepted.
+
+## ENV-08 — Version journal and summary outcomes
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: ENV-07; reserve journal/run-summary v14 after v13
+- Exact write set: `crates/xylem-lib/src/journal/mod.rs`, `crates/xylem-lib/src/run/store.rs`, `crates/xylem-lib/src/journal/tests/mod.rs`, `crates/xylem-lib/src/run/tests.rs`, `crates/xylem-tui/src/lib.rs`, `crates/xylem-cli/src/commands/run/reporting.rs`, `docs/schema/run-summary-v14.schema.json`
+- Primary integration lock: run state
+- Outcome: Writers, recovery, reporters, and TUI retain ordered disposition, cancellation reason, timeout, and context evidence.
+- Focused validation: summary round trips, recovery, reporter/TUI projections, and historical-version rejection.
+- Handoff: Record v14 durable readers and remove ENV-08 when accepted.
+
+## ENV-09 — Remove parent-environment mutation and document the contract
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: ENV-08
+- Exact write set: `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/script/tests/mod.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `docs/src/configuration.md`, `docs/src/cli-reference.md`
+- Primary integration lock: process adapter
+- Outcome: Production workflow execution never changes the parent environment, and user docs match the accepted CLI and result behavior.
+- Focused validation: concurrent conflicting-variable tests, dry-run purity, and workspace lint and test gates.
+- Handoff: Record platform results and durable API documentation, then retire this plan and its index, network, and lane entries.

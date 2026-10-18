@@ -4,67 +4,73 @@ okf_version: "0.1"
 
 # Parallel execution guide
 
-This guide overlays write ownership on the [plan dependency
-network](plan-network.md). Work is parallel only when exact write sets are
-disjoint and neither slice holds the same integration lock.
+This guide overlays phase write ownership on the [plan dependency
+network](plan-network.md). Start one named phase only after its prerequisites,
+exact write set, primary lock, baseline, and focused validation are confirmed.
+Disjoint locks are necessary for parallel work; shared files still serialize.
 
 ## Integration locks
 
-| Lock | Files | Owner rule |
+| Lock | Primary owners | Rule |
 |---|---|---|
-| Manifest | `Cargo.toml`, `Cargo.lock`, crate manifests, `deny.toml` | Acquisition and Kubernetes serialize dependency changes. |
-| Configuration | `crates/xylem-lib/src/config/` | Environment, acquisition, and Kubernetes preserve current validation, batching, memory, resume, and sandbox contracts. |
-| Process adapter | `crates/xylem-lib/src/script/` and process fixtures | Environment/concurrency owns host-adapter changes. Other plans consume the accepted boundary. |
-| Scheduler | `crates/xylem-lib/src/execution.rs`, `commands/run/dispatch.rs` | Preserve ordered fixed and memory-aware admission. One owner changes dispatch at a time. |
-| Sandbox baseline | `crates/xylem-lib/src/sandbox/`, policy/schema/provider fixtures | No active owner. A change requires a focused plan and conformance rerun. |
-| Run state | plan, journal, run-store, projection, telemetry, reporter, schema, and TUI files | One schema owner at a time; all durable readers and views move together. |
-| CLI | CLI roots, `commands/run/`, generated help | One integration owner for argument registration, orchestration, cancellation, and exit mapping. |
-| Delivery | `Makefile`, `.gitlab-ci.yml`, images, release exporters | Serialize release and image wiring; external runner administration does not claim repository files. |
-| Documentation | top-level and `docs/` Markdown, `examples/` | Integrate after behavior and names stabilize. |
+| Acquisition policy and executor | SEC-01/02/03, OCI-01/02 | Finish or hand off the current acquisition change before another phase writes its files. |
+| Configuration | ENV-02/03/04, OCI-01, K8S-04 | Preserve typed validation, batching, memory fallback, resume, and source nesting. |
+| Process adapter | ENV-01/08 | Other phases consume the accepted ACORN process boundary. |
+| Scheduler | ENV-05 | Preserve ordered fixed and memory-aware admission. |
+| Run state | ENV-07/08, K8S-08 | Allocate versions serially; update plans, writers, recovery, reporters, schemas, and TUI together. |
+| CLI | ENV-06, K8S-03/09/10/11/14 | One owner changes command registration, run orchestration, cancellation, or exit mapping at a time. |
+| Sandbox preparation | OCI-03 | Preserve provider conformance and lifecycle evidence. |
+| Manifest | SEC-01/07, ENV-06, K8S-02 | Inspect the feature tree and audit the resulting lockfile. |
+| Delivery | SEC-04/05, BRW-02, K8S-15/16/17/18 | Serialize CI, image, and release wiring. |
+| Documentation | BRW-03, OCI-04, ENV-09, K8S-19 | Land final names and verified behavior before user-facing updates. |
 
 ## Work lanes
 
 ### Lane A: secure module acquisition
 
-1. [Secure module acquisition](refactors/secure-module-acquisition.md): finish
-   concurrent cache-publication, Git transport, and cross-platform
-   qualification, then clear the upstream dependency audit blocker.
-2. [Local OCI bundle module URIs](features/local-oci-bundle-uris.md): claim the
-   configuration/acquisition and sandbox-preparation locks after Lane A
-   releases them. Preserve registry OCI behavior and schema compatibility.
+- [SEC-01 through SEC-07](refactors/secure-module-acquisition.md): review the
+  current uncommitted registry work, then qualify ORAS, Git, and platforms.
+- [OCI-01 through OCI-04](features/local-oci-bundle-uris.md): archive and
+  sandbox work starts when its shared lock is released; it need not await
+  unrelated Git or platform results.
 
 ### Lane B: execution runtime
 
-1. [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md),
-   preserving landed sandbox providers, memory admission, run-store evidence,
-   and split run orchestration.
-2. [Kubernetes workflow execution](features/kubernetes-workflow-backend.md),
-   only after the immutable context/workspace and cancellation prerequisites
-   plus the operator-demand, PVC, image, and cluster gates are accepted.
+- [ENV-01 through ENV-09](refactors/workflow-environment-and-concurrency.md):
+  process results, immutable contexts, scheduling, cancellation, durable state,
+  and parent-environment cleanup.
+- [K8S-01 through K8S-19](features/kubernetes-workflow-backend.md): operator
+  gates first; reusable runtime, protocol, controller, worker, image, and
+  cluster phases follow accepted ENV prerequisites.
 
 ### Lane C: operational validation
 
-1. [Homebrew release activation](features/homebrew-export.md): assign the macOS
-   runner, rerun validation, require both jobs, merge, and verify installs.
-2. [A/P/O memory validation](features/memory-aware-scheduling.md): run only
-   after rollout selection, corpus access, and credentials are available.
+- [BRW-01 through BRW-03](features/homebrew-export.md): complete macOS
+  validation on the assigned runner, require both jobs and merge, then verify
+  clean install and upgrade documentation.
+- [APO-01 through APO-02](features/memory-aware-scheduling.md): pinned
+  individual and concurrent holdout after rollout and credential gates.
 
-These operational slices can run beside repository implementation while they
-do not edit shared CI, documentation, or evidence files.
+External runner and measurement work can run beside repository phases while
+its write set remains disjoint from CI and documentation integration.
 
 ## Safe initial batch
 
-| Slice | Primary ownership | Restriction |
+| Phase | Primary lock | Start condition |
 |---|---|---|
-| Homebrew macOS runner assignment | tap project settings and runner host | Do not merge or weaken required validation. |
-| Secure acquisition qualification | acquisition tests and platform evidence | Do not expand into environment/concurrency integration or Kubernetes target work. |
+| SEC-01 | Acquisition policy | Reconcile current uncommitted acquisition files with committed baseline `97d5203`. |
+| ENV-01 | Process adapter | Pinned ACORN 0.4.0 process contract is available. |
+| BRW-01 | Tap validation | Assigned `RE Runner (macbook)` remains online. |
+| APO-01 | A/P/O measurement evidence | Rollout, corpus, and credentials are supplied. |
+| K8S-01 | Kubernetes deployment assumptions | Operator demand, cluster, storage, and image owner are supplied. |
 
 ## Agent start checklist
 
-- Name the plan and atomic slice.
-- List exact files to update, create, and delete.
-- Claim required locks.
-- List public contracts changed.
-- Record baseline and prerequisite commits.
-- Name the focused validation command.
-- Stop and reschedule if the slice expands into another lane's lock.
+- Name one plan and phase, exact files or external systems, and its primary
+  integration lock.
+- Confirm baseline commit, prerequisite evidence, public contracts, and focused
+  validation before writing.
+- Stop and schedule a new bounded repair phase if a defect crosses the current
+  outcome or lock.
+- At handoff, record the accepted evidence, release the lock, and remove a
+  completed phase from the active plan.

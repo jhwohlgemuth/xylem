@@ -1,12 +1,14 @@
 ---
 type: Plan
 title: "Activate the Homebrew release export"
-description: "Finish and verify the implemented Homebrew publication path with protected credentials, required runners, and the v1.0.3 release."
+description: "Finish macOS validation, require both tap jobs, and verify installation from the v1.0.3 release."
 difficulty: low
 impact: high
 package: [workspace, xylem-cli]
 tags: [homebrew, release, distribution, macos, linux, packaging]
 status: waiting-on-validation
+execution: phased
+phase_budget_hours: 5
 ---
 
 # Goal
@@ -16,22 +18,26 @@ Linux users can install and upgrade Xylem through the official tap.
 
 # Current evidence
 
-Rechecked on 2026-10-11.
+Local release configuration and tap project rechecked on 2026-10-18.
 
 - Formula generation, tag-only tap merge-request creation, tap CI, offline formula testing, and upgrade coverage are implemented.
 - The immutable v1.0.0 archive cannot compile with Homebrew Rust 1.98 because it locks `ethnum` 1.5.2. The published v1.0.3 archive locks the compatible `ethnum` 1.5.3 release.
 - The v1.0.3 release pipeline published both crates and opened tap merge request `!2`. Its Linux validation job passes.
 - The v1.0.3 formula passes `brew style`, `brew audit --strict`, a macOS source install with Homebrew Rust 1.98.1, and `brew test`.
-- Tap merge request `!2` remains open and mergeable. Pipeline `1017726` is
-  successful because Linux passed and macOS is allowed to fail; the macOS job
-  is canceled and no compatible `macos` runner is currently assigned.
-  Activation still requires a successful macOS job, both platform jobs to
-  become required, and merge request `!2` to merge.
+- Tap [merge request !2](https://code.ornl.gov/research-enablement/homebrew-xylem/-/merge_requests/2)
+  is open and mergeable at commit
+  `94ac912432d61472276792f27e38967389fc2451`.
+  [Pipeline 1017726](https://code.ornl.gov/research-enablement/homebrew-xylem/-/pipelines/1017726)
+  reports success because Linux passed and macOS is allowed to fail. The
+  `RE Runner (macbook)` group runner is online, tagged `macos`, and assigned to
+  the tap; its most recent [macOS job 4396906](https://code.ornl.gov/research-enablement/homebrew-xylem/-/jobs/4396906)
+  was canceled. A successful
+  macOS validation job and required two-platform checks remain.
 
 # Project code boundaries
 
 - **Update:** `README.md`, `CONTRIBUTING.md`, and release documentation after the first successful publication.
-- **Create:** a compatible macOS runner assignment and required merge checks in the tap project settings.
+- **Create:** required merge checks in the tap project settings; no new runner is needed.
 - **Delete:** None.
 
 # Dependencies and ordering
@@ -40,201 +46,16 @@ The immutable v1.0.3 tag and artifacts were produced from the release workflow. 
 
 # Recommendation
 
-1. Assign a compatible macOS runner to the tap project and require both validation jobs before merge.
-2. Retry the macOS job for the v1.0.3 tap merge request after assigning the runner.
-3. Review and merge the generated formula after both platform jobs pass.
-4. Verify fresh installation and upgrade on clean Linux and macOS Homebrew environments.
-5. Publish the tested tap command and operational recovery steps.
-
-# macOS runner setup
-
-Choose the shell executor for the simplest setup on a dedicated Mac. Use the
-Parallels executor when the host is also used for other work and each CI job
-needs an isolated macOS VM. Parallels Desktop requires a separate license, and
-GitLab classifies the Parallels executor as maintenance mode. See GitLab's
-[executor comparison](https://docs.gitlab.com/runner/executors/).
-
-## Shell executor
-
-Use a dedicated Mac or a dedicated macOS account without personal files,
-credentials, or SSH keys. The shell executor runs CI commands directly as that
-user. The supported macOS service is a per-user `LaunchAgent`, so the runner
-account must remain logged in. Keep the Mac connected to power and prevent it
-from sleeping while jobs may run. See GitLab's [macOS installation
-notes](https://docs.gitlab.com/runner/install/osx.html).
-
-### Create the project runner
-
-In `research-enablement/homebrew-xylem`, open **Settings > CI/CD > Runners** and
-select **Create project runner**. Configure the runner as follows:
-
-- Select macOS and add the `macos` tag.
-- Disable untagged jobs.
-- Use a description that identifies the host, such as `Homebrew MacBook`.
-- Leave **Protected** disabled for the current merge-request pipeline. A
-  protected runner requires both merge-request branches and protected-resource
-  access to be configured separately.
-- Set the maximum timeout to at least 60 minutes.
-
-Create the runner and copy its short-lived `glrt-...` authentication token. Do
-not save the token in the repository or CI configuration. GitLab documents this
-flow under [create a project
-runner](https://docs.gitlab.com/ci/runners/runners_scope/#create-a-project-runner-with-a-runner-authentication-token).
-
-### Prepare the Mac
-
-Log in as the runner account. Install Homebrew first if it is not already
-available to that account, then run:
-
-```shell
-xcode-select --install
-brew install gitlab-runner
-chsh -s /bin/bash
-```
-
-Log out and back in after changing the shell.
-
-### Register and start the runner
-
-Use the command shown by GitLab after creating the runner:
-
-```shell
-gitlab-runner register \
-  --url "https://code.ornl.gov" \
-  --token "glrt-REDACTED"
-```
-
-Choose `shell` when prompted for the executor. In the new `[[runners]]` entry in
-`~/.gitlab-runner/config.toml`, set the service path for the Mac's architecture.
-
-Apple Silicon:
-
-```toml
-environment = ["PATH=/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"]
-```
-
-Intel:
-
-```toml
-environment = ["PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin"]
-```
-
-Start the service and confirm that the registration is valid:
-
-```shell
-brew services start gitlab-runner
-gitlab-runner verify
-brew services list
-```
-
-The runner must appear online in the tap project's Runners page with the
-`macos` tag.
-
-## Parallels executor
-
-The Parallels executor keeps the runner manager on the MacBook but executes
-each job in a clean clone of a macOS base VM. It connects to the guest over SSH.
-Local runner caches are not supported, so do not depend on a persistent
-Homebrew cache between jobs. See GitLab's [Parallels executor
-documentation](https://docs.gitlab.com/runner/executors/parallels/).
-
-### Prepare the host and base VM
-
-Install and activate Parallels Desktop on the host. Install GitLab Runner in
-the dedicated host account that will manage the VMs:
-
-```shell
-brew install gitlab-runner
-ssh-keygen -t ecdsa -b 521 -f ~/.ssh/gitlab-runner-parallels -N ""
-```
-
-The host account must remain logged in because the Homebrew service runs as a
-per-user `LaunchAgent`. Keep the host connected to power and prevent sleep.
-
-Create a macOS VM named `homebrew-xylem-base` with the same CPU architecture as
-the host. Allocate enough storage for Xcode Command Line Tools, Homebrew, Rust,
-and temporary build files. In the guest:
-
-1. Create a standard account named `ci-runner` without personal credentials.
-2. Enable **System Settings > General > Sharing > Remote Login** for that
-   account.
-3. Install Xcode Command Line Tools and Homebrew.
-4. Confirm that `bash`, `brew`, `git`, and `ssh` are available.
-5. Add a dedicated host-side SSH public key to
-   `/Users/ci-runner/.ssh/authorized_keys`.
-
-From the host account, verify that the private key can connect to the running
-guest without a password. The private key must not have a passphrase because
-GitLab Runner cannot prompt for one:
-
-```shell
-ssh -i ~/.ssh/gitlab-runner-parallels ci-runner@VM_IP_ADDRESS true
-```
-
-Shut down the base VM after verification. Do not use the base VM interactively
-while the runner is active; update its tools only while no CI job is running,
-then shut it down again.
-
-### Register and configure the Parallels runner
-
-Create a project runner using the settings under **Create the project runner**
-above. Use a distinct description such as `Homebrew MacBook Parallels`, retain
-the `macos` tag, and copy the new `glrt-...` token. Register it from the host:
-
-```shell
-gitlab-runner register \
-  --url "https://code.ornl.gov" \
-  --token "glrt-REDACTED"
-```
-
-Choose `parallels` as the executor, enter `homebrew-xylem-base` as the base VM,
-and supply `ci-runner` and the host path to the dedicated SSH private key when
-prompted. Leave the SSH password empty.
-
-Review the new `[[runners]]` entry in `~/.gitlab-runner/config.toml`. Preserve
-the generated URL and token and make its executor-specific settings match this
-example:
-
-```toml
-limit = 1
-executor = "parallels"
-environment = ["PATH=/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"]
-
-[runners.parallels]
-  base_name = "homebrew-xylem-base"
-  disable_snapshots = false
-
-[runners.ssh]
-  user = "ci-runner"
-  port = "22"
-  identity_file = "/Users/HOST_RUNNER_ACCOUNT/.ssh/gitlab-runner-parallels"
-```
-
-For an Intel guest, put `/usr/local/bin` and `/usr/local/sbin` first in the
-configured `PATH`. Do not add `allowed_images`; omitting it prevents a CI job
-from selecting an arbitrary local VM. The `[runners.parallels]` and
-`[runners.ssh]` fields are documented in GitLab's [advanced runner
-configuration](https://docs.gitlab.com/runner/configuration/advanced-configuration/#the-runnersparallels-section).
-
-Start the host service and verify the registration:
-
-```shell
-brew services start gitlab-runner
-gitlab-runner verify
-brew services list
-```
-
-The runner must appear online with the `macos` tag. Run the first CI job while
-watching Parallels Desktop and confirm that the runner creates a clone, runs the
-job inside it, and leaves the base VM unchanged. If the job cannot upload
-artifacts, install the same GitLab Runner version inside the base VM; GitLab
-requires the guest binary for artifact transfer with VM executors.
+1. Diagnose the canceled macOS job and rerun validation on the assigned Mac runner.
+2. Require both platform jobs and review and merge the generated formula after they pass.
+3. Verify fresh installation and upgrade on clean Linux and macOS Homebrew environments.
+4. Publish the tested tap command and operational recovery steps.
 
 ## Retry and require macOS validation
 
-Retry the current v1.0.3 macOS job from GitLab after a compatible runner is
-online. Do not retain a numeric job ID in this plan because each retry creates
-a new job.
+Diagnose the canceled macOS job and retry validation on the already-online
+`RE Runner (macbook)`. Do not use a prior job ID as the retry target because
+each retry creates a new job.
 
 After the runner has completed a job successfully, remove `when: manual` and
 `allow_failure: true` from `homebrew-macos` in
@@ -254,3 +75,38 @@ After the runner has completed a job successfully, remove `when: manual` and
 - Audit, style, install, and formula tests are required before the tap change can merge.
 - The v1.0.3 tap update passes both platform jobs and merges through review.
 - The publication credential is protected and scoped only to the tap update operation.
+
+# Execution phases
+
+## BRW-01 — Complete macOS tap validation
+
+- Status: ready
+- Budget: 5 active hours maximum
+- Prerequisites: the assigned `RE Runner (macbook)` remains online and merge request !2 still targets the intended immutable release
+- Exact write set: tap merge request !2 validation job, `RE Runner (macbook)` host
+- Primary integration lock: tap validation
+- Outcome: Diagnose the canceled jobs and obtain a successful macOS formula validation on the assigned runner.
+- Focused validation: tap `homebrew-macos` job passes style, audit, source install, upgrade, and `brew test` on the pinned formula.
+- Handoff: Record the new job URL and runner result; remove BRW-01 when macOS validation passes.
+
+## BRW-02 — Require both tap jobs and merge the verified formula
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: BRW-01 and a fresh check that tap merge request !2 still targets the intended immutable release
+- Exact write set: `scripts/homebrew/tap.gitlab-ci.yml`, tap-project `.gitlab-ci.yml`, tap merge request !2
+- Primary integration lock: Homebrew tap delivery
+- Outcome: Linux and macOS validation are required, pass on the same formula, and the reviewed tap change merges.
+- Focused validation: GitLab CI lint and the tap merge-request pipeline with both platform jobs passing.
+- Handoff: Record the merged commit and pipeline; remove BRW-02 after merge.
+
+## BRW-03 — Verify installation and publish the command
+
+- Status: planned
+- Budget: 5 active hours maximum
+- Prerequisites: BRW-02 and clean Linux and macOS Homebrew environments
+- Exact write set: `README.md`, `CONTRIBUTING.md`, `scripts/homebrew/README.md`
+- Primary integration lock: release documentation
+- Outcome: Fresh install and upgrade use the merged tap formula, and the verified command and recovery steps are documented.
+- Focused validation: `brew install`, `brew test`, and `brew upgrade` on each declared platform.
+- Handoff: Record tested platforms and commands in release documentation, then retire this plan and its index, network, and lane entries.
