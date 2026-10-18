@@ -13,35 +13,41 @@ pub(super) fn pull_tree(
     timeout: Seconds,
     allow_insecure_http: bool,
 ) -> Result<(), AcquisitionError> {
-    let registry_reference = reference.strip_prefix("oci://").unwrap_or(reference);
+    let layout = reference.starts_with("oci-layout:");
+    let oras_reference = reference
+        .strip_prefix("oci://")
+        .or_else(|| reference.strip_prefix("oci-layout:"))
+        .unwrap_or(reference);
     remaining_timeout(started, timeout).and_then(|manifest_timeout| {
-        let plain_http = match allow_insecure_http {
-            | true => args!["--plain-http"],
-            | false => Vec::new(),
+        let transport_flags = match (layout, allow_insecure_http) {
+            | (true, _) => args!["--oci-layout"],
+            | (false, true) => args!["--plain-http"],
+            | (false, false) => Vec::new(),
         };
         run_oras(
             "inspect OCI manifest",
-            registry_reference,
-            args!["manifest", "fetch", "--pretty", ..plain_http, registry_reference],
+            oras_reference,
+            args!["manifest", "fetch", "--pretty", ..transport_flags, oras_reference],
             output,
             manifest_timeout,
         )
         .and_then(|manifest| validate_manifest_size(&manifest, maximum, maximum_entries))
         .and_then(|()| remaining_timeout(started, timeout))
         .and_then(|pull_timeout| {
-            let plain_http = match allow_insecure_http {
-                | true => args!["--plain-http"],
-                | false => Vec::new(),
+            let transport_flags = match (layout, allow_insecure_http) {
+                | (true, _) => args!["--oci-layout"],
+                | (false, true) => args!["--plain-http"],
+                | (false, false) => Vec::new(),
             };
             run_oras(
                 "pull OCI artifact tree",
-                registry_reference,
+                oras_reference,
                 args![
                     "pull",
                     "--no-tty",
-                    ..plain_http,
+                    ..transport_flags,
                     ("--output", destination.as_os_str()),
-                    registry_reference
+                    oras_reference
                 ],
                 output,
                 pull_timeout,

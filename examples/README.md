@@ -20,7 +20,8 @@ Examples are grouped by the dependencies they require:
   [`python-with-conda`](./python-with-conda/) demonstrate managed Python
   environments.
 - [`multi-module`](./multi-module/) and [`kitchensink`](./kitchensink/) exercise
-  composed workflows and optional environment/container integrations.
+  composed workflows, including a local OCI layout in `kitchensink`, and
+  optional environment/container integrations.
 - The [`atmospheric_correction-pansharpening`](./atmospheric_correction-pansharpening/)
   deployment template includes the measured two-input A/P memory profile. The
   other geospatial directories remain deployment templates. Their `/data/...`

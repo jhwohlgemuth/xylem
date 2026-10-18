@@ -301,8 +301,10 @@ impl Validate for Module {
                 }
             }
             | ModuleType::Configuration { checksum, uri } => {
-                if let Err(error) = rules::url(uri.into()) {
-                    report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, or SSH"));
+                if !matches!(ModuleUri::from(uri), ModuleUri::Oci(ref value) if value.starts_with("oci-layout:")) {
+                    if let Err(error) = rules::url(uri.into()) {
+                        report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, SSH, OCI, or OCI layout"));
+                    }
                 }
                 let remote_document = matches!(ModuleUri::from(uri), ModuleUri::Url(ref value) if matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS) && Config::is_remote_document(&value.to_string()));
                 match (ModuleUri::from(uri), checksum) {
@@ -343,8 +345,10 @@ impl Validate for Module {
                 }
             }
             | ModuleType::Script { programming_language, uri } => {
-                if let Err(error) = rules::url(uri.into()) {
-                    report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, or SSH"));
+                if !matches!(ModuleUri::from(uri), ModuleUri::Oci(ref value) if value.starts_with("oci-layout:")) {
+                    if let Err(error) = rules::url(uri.into()) {
+                        report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, SSH, OCI, or OCI layout"));
+                    }
                 }
                 if programming_language.as_ref().is_some_and(|language| !language.is_supported()) {
                     report.add("programmingLanguage", validation_error("supported", "script language is not supported"));

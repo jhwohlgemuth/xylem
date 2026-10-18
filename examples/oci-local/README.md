@@ -1,9 +1,9 @@
 # Local OCI bundle example
 
 This example uses the checked-in OCI image layout in `module/bundle` directly.
-It does not contact a registry. The Xylem script module runs ORAS against the
-layout directory, pins the artifact by its manifest digest, and executes the
-`run.sh` file from the artifact.
+The script module points at its digest-pinned `oci-layout:` URI. Xylem uses
+ORAS to extract the artifact and executes its `run.sh` file. No registry is
+needed.
 
 Requirements: Xylem, ORAS, and a POSIX shell.
 

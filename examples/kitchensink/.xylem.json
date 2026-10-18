@@ -1,8 +1,8 @@
 {
     "version": "1.0.0",
     "id": "kitchensink",
-    "description": "Exercise Mamba, Pixi, Docker, generic script, binary, inputs, variables, completion, and resume",
-    "requirements": ["mamba", "pixi", "podman"],
+    "description": "Exercise Mamba, Pixi, Docker, local OCI, generic script, binary, inputs, variables, completion, and resume",
+    "requirements": ["mamba", "oras", "pixi", "podman"],
     "input": ["alpha", "bravo"],
     "output": "./output",
     "variables": {
@@ -102,6 +102,25 @@
             }
         },
         {
+            "name": "Local OCI Module",
+            "type": "script",
+            "programmingLanguage": "generic",
+            "uri": "oci-layout:./oci/bundle@sha256:93c3f2305c82c787479bdaa89b2ed06781e27393981067e7d39fdd14a69cf33d",
+            "template": {
+                "command": "sh",
+                "arguments": [
+                    "run.sh",
+                    "../output/{{ PARENT_DIRECTORY }}/final.txt",
+                    "../output/{{ PARENT_DIRECTORY }}/oci.txt"
+                ]
+            },
+            "completion": {
+                "outputs": [
+                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/oci.txt"
+                ]
+            }
+        },
+        {
             "name": "Podman Module",
             "type": "script",
             "programmingLanguage": "generic",
@@ -125,7 +144,7 @@
                 "command": "sh",
                 "arguments": [
                     "/workspace/xylem/examples/kitchensink/docker/run.sh",
-                    "/workspace/xylem/examples/kitchensink/output/{{ PARENT_DIRECTORY }}/final.txt",
+                    "/workspace/xylem/examples/kitchensink/output/{{ PARENT_DIRECTORY }}/oci.txt",
                     "/workspace/xylem/examples/kitchensink/output/{{ PARENT_DIRECTORY }}/podman.txt"
                 ]
             },

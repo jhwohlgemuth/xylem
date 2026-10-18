@@ -975,7 +975,13 @@ impl Config {
             {
                 Some(uri)
             }
-            | ModuleUri::Oci(_) => Some(format!("oci:{uri}")),
+            | ModuleUri::Oci(reference) => {
+                let reference = source
+                    .path()
+                    .and_then(|path| ModuleUri::Oci(reference.clone()).absolutize(path))
+                    .map_or(reference, |location| <&str>::from(&location).to_string());
+                Some(format!("oci:{reference}"))
+            }
             | ModuleUri::Url(_) => Some(format!("git:{uri}#{}", Self::revision(location).map_or("unpinned", String::as_str))),
             | ModuleUri::Unknown(_) => None,
         }
@@ -1086,37 +1092,59 @@ impl Config {
                 }
             }
             | ModuleUri::Oci(reference) => match (policy, cache) {
-                | (Some(policy), Some(cache)) => AcquisitionSource::oci(reference)
-                    .and_then(|source| {
-                        let effective_policy = policy.restrict_offline(dry_run);
-                        AcquisitionPlan::build(module.split("::").map(str::to_string).collect(), source, &effective_policy)
-                            .and_then(|plan| AcquisitionExecutor::new(effective_policy, cache.clone()).execute(&plan))
-                    })
-                    .map_err(|source| ConfigurationModuleError::Remote {
-                        module: module.to_string(),
-                        reason: source.to_string(),
-                    })
-                    .and_then(|result| {
-                        let entrypoint = result.path.join("config.json");
-                        Config::read(entrypoint.clone())
-                            .map(|config| {
-                                (
-                                    config,
-                                    ConfigurationSource::Oci {
-                                        identity: format!("oci:{uri}"),
-                                        path: entrypoint,
-                                    },
-                                )
+                | (Some(policy), Some(cache)) => {
+                    let reference = source
+                        .path()
+                        .and_then(|path| ModuleUri::Oci(reference.clone()).absolutize(path))
+                        .map_or(reference, |location| <&str>::from(&location).to_string());
+                    let local_layout = reference.starts_with("oci-layout:");
+                    AcquisitionSource::oci(reference)
+                        .and_then(|source| {
+                            let effective_policy = policy.restrict_offline(dry_run);
+                            AcquisitionPlan::build(module.split("::").map(str::to_string).collect(), source, &effective_policy).and_then(|plan| {
+                                let executor = AcquisitionExecutor::new(effective_policy, cache.clone());
+                                match (dry_run, local_layout) {
+                                    | (true, true) => executor.cached(&plan).and_then(|cached| {
+                                        cached.ok_or_else(|| AcquisitionError::Offline {
+                                            remote: plan.source.to_string(),
+                                        })
+                                    }),
+                                    | _ => executor.execute(&plan),
+                                }
                             })
-                            .map_err(|source| ConfigurationModuleError::Read {
+                        })
+                        .map_err(|source| match (dry_run, source) {
+                            | (true, AcquisitionError::Offline { .. }) => ConfigurationModuleError::RemoteDryRun {
                                 module: module.to_string(),
-                                source,
-                            })
-                            .map(|(mut config, source)| {
-                                config.acquisitions.push(result.evidence);
-                                (config, source)
-                            })
-                    }),
+                                uri: uri.clone(),
+                            },
+                            | (_, source) => ConfigurationModuleError::Remote {
+                                module: module.to_string(),
+                                reason: source.to_string(),
+                            },
+                        })
+                        .and_then(|result| {
+                            let entrypoint = result.path.join("config.json");
+                            Config::read(entrypoint.clone())
+                                .map(|config| {
+                                    (
+                                        config,
+                                        ConfigurationSource::Oci {
+                                            identity: format!("oci:{uri}"),
+                                            path: entrypoint,
+                                        },
+                                    )
+                                })
+                                .map_err(|source| ConfigurationModuleError::Read {
+                                    module: module.to_string(),
+                                    source,
+                                })
+                                .map(|(mut config, source)| {
+                                    config.acquisitions.push(result.evidence);
+                                    (config, source)
+                                })
+                        })
+                }
                 | _ => Err(ConfigurationModuleError::Source {
                     module: module.to_string(),
                     uri,

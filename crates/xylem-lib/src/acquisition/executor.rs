@@ -11,8 +11,17 @@ impl AcquisitionExecutor {
     pub fn new(policy: AcquisitionPolicy, cache: AcquisitionCache) -> Self {
         Self { cache, policy }
     }
+    /// Inspect a verified immutable cache entry without materializing a source.
+    pub fn cached(&self, plan: &AcquisitionPlan) -> Result<Option<AcquisitionResult>, AcquisitionError> {
+        self.policy.validate_plan(plan).and_then(|()| {
+            self.cache
+                .lookup(plan)
+                .map(|entry| entry.map(|entry| entry.result(plan, &self.policy, AcquisitionCacheStatus::Hit)))
+        })
+    }
     /// Materialize one remote plan or return a verified immutable cache hit.
     pub fn execute(&self, plan: &AcquisitionPlan) -> Result<AcquisitionResult, AcquisitionError> {
+        let local_oci_layout = matches!(&plan.source, AcquisitionSource::Oci { reference, .. } if reference.starts_with("oci-layout:"));
         self.policy.validate_plan(plan).and_then(|()| match plan.action {
             | AcquisitionAction::UseLocal => Err(AcquisitionError::Identity {
                 value: plan.source.to_string(),
@@ -27,7 +36,7 @@ impl AcquisitionExecutor {
             | AcquisitionAction::Download | AcquisitionAction::FetchGit | AcquisitionAction::FetchOci => {
                 self.cache.lookup(plan).and_then(|entry| match entry {
                     | Some(entry) => Ok(entry.result(plan, &self.policy, AcquisitionCacheStatus::Hit)),
-                    | None if self.policy.offline => Err(AcquisitionError::Offline {
+                    | None if self.policy.offline && !local_oci_layout => Err(AcquisitionError::Offline {
                         remote: plan.source.to_string(),
                     }),
                     | None => match plan.action {

@@ -259,14 +259,16 @@ impl AcquisitionPolicy {
                 })
                 .and_then(|()| validate_oci_reference(reference, digest))
                 .and_then(|registry| {
-                    let scheme = match self.allow_insecure_http {
-                        | true => "http",
-                        | false => "https",
-                    };
-                    self.remote
-                        .ensure_allowed(&format!("{scheme}://{registry}/"))
-                        .map(|_| ())
-                        .map_err(|error| policy_error(reference, &error.to_string()))
+                    registry.map_or(Ok(()), |registry| {
+                        let scheme = match self.allow_insecure_http {
+                            | true => "http",
+                            | false => "https",
+                        };
+                        self.remote
+                            .ensure_allowed(&format!("{scheme}://{registry}/"))
+                            .map(|_| ())
+                            .map_err(|error| policy_error(reference, &error.to_string()))
+                    })
                 }),
             | AcquisitionSource::HttpBinary { sha256, url } | AcquisitionSource::HttpDocument { sha256, url } => digest(sha256)
                 .map_err(|_| AcquisitionError::Identity {
@@ -304,6 +306,7 @@ impl AcquisitionSource {
     pub(super) fn namespace(&self) -> &'static str {
         match self {
             | Self::Git { .. } => "git",
+            | Self::Oci { reference, .. } if reference.starts_with("oci-layout:") => "oci-layout",
             | Self::Oci { .. } => "oci",
             | Self::HttpBinary { .. } => "binary",
             | Self::HttpBinaryUnverified { .. } => "binary",
@@ -359,7 +362,20 @@ fn parse_url(value: &str) -> Result<Url, AcquisitionError> {
         reason: source.to_string(),
     })
 }
-fn validate_oci_reference(reference: &str, expected_digest: &str) -> Result<String, AcquisitionError> {
+fn validate_oci_reference(reference: &str, expected_digest: &str) -> Result<Option<String>, AcquisitionError> {
+    match reference.strip_prefix("oci-layout:") {
+        | Some(layout) => layout
+            .rsplit_once('@')
+            .filter(|(path, digest)| !path.is_empty() && *digest == expected_digest && !path.contains(['?', '#']))
+            .map(|_| None)
+            .ok_or_else(|| AcquisitionError::Identity {
+                value: reference.to_string(),
+                reason: "OCI layout references must use oci-layout:<path>@sha256:<64 lowercase hex>",
+            }),
+        | None => validate_oci_registry_reference(reference, expected_digest).map(Some),
+    }
+}
+fn validate_oci_registry_reference(reference: &str, expected_digest: &str) -> Result<String, AcquisitionError> {
     let registry_reference = reference.strip_prefix("oci://").unwrap_or(reference);
     let location = Location::from(registry_reference);
     let invalid = || AcquisitionError::Identity {

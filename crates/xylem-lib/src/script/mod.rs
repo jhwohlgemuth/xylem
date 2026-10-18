@@ -641,6 +641,21 @@ impl ModuleLanguage {
 impl ModuleUri<'_> {
     pub fn absolutize(self, source: &Path) -> Option<Location> {
         match self {
+            | Self::Oci(value) if value.starts_with("oci-layout:") => value
+                .strip_prefix("oci-layout:")
+                .and_then(|reference| reference.rsplit_once('@'))
+                .and_then(|(path, digest)| {
+                    let path = PathBuf::from(path);
+                    (!path.is_absolute())
+                        .then(|| {
+                            source
+                                .parent()
+                                .map_or(path.clone(), |parent| parent.join(path))
+                                .components()
+                                .collect::<PathBuf>()
+                        })
+                        .map(|path| Location::from(format!("oci-layout:{}@{digest}", path.display()).as_str()))
+                }),
             | Self::File(path) if !path.is_absolute() => source
                 .parent()
                 .map(|parent| parent.join(path).components().collect::<PathBuf>())
@@ -650,14 +665,17 @@ impl ModuleUri<'_> {
     }
     pub fn from(value: &Location) -> ModuleUri<'_> {
         let value = <&str>::from(value);
-        match URI::try_from(value) {
-            | Ok(uri) => match (Scheme::from(uri.scheme().as_str()), uri.scheme().as_str().eq_ignore_ascii_case("ssh")) {
-                | (Scheme::HTTP | Scheme::HTTPS | Scheme::SSH, _) | (Scheme::Unsupported, true) => ModuleUri::Url(Box::new(uri)),
-                | (Scheme::OCI, _) => ModuleUri::Oci(value.to_string()),
-                | (Scheme::File, _) => ModuleUri::File(PathBuf::from(uri.path().to_string())),
-                | (Scheme::Unsupported, false) => ModuleUri::Unknown(value.to_string()),
+        match value.starts_with("oci-layout:") {
+            | true => ModuleUri::Oci(value.to_string()),
+            | false => match URI::try_from(value) {
+                | Ok(uri) => match (Scheme::from(uri.scheme().as_str()), uri.scheme().as_str().eq_ignore_ascii_case("ssh")) {
+                    | (Scheme::HTTP | Scheme::HTTPS | Scheme::SSH, _) | (Scheme::Unsupported, true) => ModuleUri::Url(Box::new(uri)),
+                    | (Scheme::OCI, _) => ModuleUri::Oci(value.to_string()),
+                    | (Scheme::File, _) => ModuleUri::File(PathBuf::from(uri.path().to_string())),
+                    | (Scheme::Unsupported, false) => ModuleUri::Unknown(value.to_string()),
+                },
+                | Err(_) => ModuleUri::Unknown(value.to_string()),
             },
-            | Err(_) => ModuleUri::Unknown(value.to_string()),
         }
     }
     pub fn resolve_configuration(value: &Location, source: &Path) -> Option<PathBuf> {

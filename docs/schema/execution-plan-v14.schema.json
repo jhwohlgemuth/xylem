@@ -81,7 +81,7 @@
           "required": ["digest", "reference", "type"],
           "properties": {
             "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-            "reference": { "type": "string", "pattern": "^oci://.+@sha256:[0-9a-f]{64}$" },
+            "reference": { "type": "string", "pattern": "^(oci://|oci-layout:).+@sha256:[0-9a-f]{64}$" },
             "type": { "const": "oci" }
           }
         },

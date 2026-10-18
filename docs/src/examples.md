@@ -86,9 +86,9 @@ xylem -vvvv run
 ## Kitchensink
 
 The kitchensink example processes two inputs through Mamba-managed Conda, Pixi,
-generic script, local binary, and Docker modules. It also demonstrates
-module-scoped variables, template-file loading, completion output verification,
-and resume. Its Docker module uses an existing container and repository bind
+generic script, local binary, local OCI layout, and Docker modules. It also
+demonstrates module-scoped variables, template-file loading, completion output
+verification, and resume. Its Docker module uses an existing container and repository bind
 mount; see the [kitchensink README](https://code.ornl.gov/research-enablement/xylem/-/blob/main/examples/kitchensink/README.md)
 for setup.
 

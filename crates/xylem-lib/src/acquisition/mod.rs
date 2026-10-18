@@ -195,11 +195,11 @@ pub enum AcquisitionSource {
         /// Repository URL.
         url: String,
     },
-    /// Digest-pinned OCI artifact whose files form a module tree.
+    /// Digest-pinned OCI artifact or local layout whose files form a module tree.
     Oci {
         /// Expected OCI manifest digest.
         digest: String,
-        /// `oci://` registry reference, pinned by digest.
+        /// `oci://` registry or `oci-layout:` local reference, pinned by digest.
         reference: String,
     },
     /// Digest-pinned HTTP(S) executable bytes.

@@ -487,11 +487,16 @@ populate the cache. A cached remote configuration wrapper can therefore be
 flattened during dry-run; a cache miss is reported without a request.
 
 OCI module references use `oci://registry/repository@sha256:<64 lowercase hex>`.
+Local OCI layouts use `oci-layout:<path>@sha256:<64 lowercase hex>`. Relative
+paths follow `file:` module rules: top-level executable modules use the working
+directory; configuration wrappers and nested modules use their source file.
+Both forms are supported for script and configuration modules. Local layouts
+need no allowed host and can be acquired while offline.
 The digest pins the image manifest; its config and file-layer sizes are checked
 against `git_staging`, and the extracted tree is checked against `git_tree` and
 `git_entries` before it enters the verified cache. Script modules execute from
 the artifact root. Configuration modules read `config.json` from that root.
-Xylem invokes the ORAS CLI (`oras`) for registry transfers, so it must be
+Xylem invokes the ORAS CLI (`oras`) for both sources, so it must be
 installed on the host. OCI registry hosts use the same exact-host allowlist as
 other remote sources, and offline mode requires a verified cache hit.
 
