@@ -496,9 +496,13 @@ The digest pins the image manifest; its config and file-layer sizes are checked
 against `git_staging`, and the extracted tree is checked against `git_tree` and
 `git_entries` before it enters the verified cache. Script modules execute from
 the artifact root. Configuration modules read `config.json` from that root.
-Xylem invokes the ORAS CLI (`oras`) for both sources, so it must be
-installed on the host. OCI registry hosts use the same exact-host allowlist as
-other remote sources, and offline mode requires a verified cache hit.
+Xylem checks the exact-host allowlist for every registry, bearer-token, and
+redirect request. Cross-host token and blob endpoints must each be listed;
+HTTPS requests cannot redirect to HTTP. Registry credentials follow the local
+Docker configuration and credential-helper settings. Xylem verifies the pinned
+manifest and blobs before ORAS extracts a local OCI layout, so `oras` must be
+installed on the host. Offline registry use requires a verified cache hit.
+OCI modules accept version 2 image manifests with titled file layers.
 
 See the repository's
 [module specification](https://code.ornl.gov/research-enablement/xylem/-/blob/main/MODULE_SPEC.md)

@@ -25,8 +25,8 @@ CI worktree changes are uncommitted and require their own validation and review.
 - Runtime integration landed on 2026-10-12: remote documents, binaries, and Git modules use immutable acquisition plans, bounded executors, verified cache entries, and durable provenance.
 - Existing tests cover policy and identity validation, bounded HTTP responses, offline cache behavior, cache corruption, SSH environment isolation, and escaping Git symlinks.
 - Concurrent acquisition of the same immutable identity now has a focused HTTP/cache publication test, and Git origin normalization has direct coverage.
-- The broader OCI registry, Git transport, resource-bound, cancellation, and
-  cross-platform qualification matrix is not yet recorded.
+- Local OCI and Git acquisition qualification now passes on macOS arm64 and
+  Linux x86_64; Linux arm64 CI is configured but has not run.
 - Xylem now pins all ACORN crates to accepted revision `0c256bae0ff42da1c96de50fd525146a95965c66`; the lockfile resolves `quick-xml` 0.41.0 and the advisory scan passes.
 - OCI module acquisition now accepts digest-pinned ORAS artifacts as file trees, applies the exact-host policy and existing staging/tree ceilings, and records the OCI manifest digest and extracted tree evidence. ORAS is a host runtime prerequisite.
 
@@ -76,6 +76,29 @@ cancellation, Git transport and cleanup, and platform matrix. Existing HTTP,
 offline, cache-integrity, and dry-run tests remain regression gates. A failure
 that cannot fit its phase becomes a separate bounded repair phase.
 
+## Worktree evidence, 2026-10-19
+
+- OCI registry requests verify the pinned manifest and each blob before local
+  ORAS extraction. Bearer realms and redirects are checked against the exact
+  host allowlist; cross-origin redirects do not receive registry authorization.
+  Tests cover permitted and denied destinations, malformed file layers, size
+  limits, offline reuse, ORAS timeout, and concurrent cache publication.
+- Git smart HTTP and SSH fixtures cover pinned commits, origin checks,
+  isolation from inherited Git and SSH settings, tree limits, escaping
+  symlinks, executable permissions, redirect denial, timeouts, cleanup, and
+  concurrent cache publication. A local HTTPS fixture remains to be qualified
+  for SEC-03.
+- macOS arm64: `cargo test -p xylem-lib --lib --offline --quiet` passed with
+  290 passed and 2 ignored; the focused acquisition suite passed with 32 tests.
+- Linux x86_64: the focused acquisition suite passed with 32 tests in a Rust
+  1.99 container using ORAS 1.3.4 and OpenSSH. The first Rust 1.96 attempt
+  exposed that pinned ACORN crates require Rust 1.98, so the workspace minimum
+  was corrected to 1.98.
+- GitLab acquisition jobs are configured for Linux x86_64 and native arm64;
+  neither job has a pipeline result yet. The available x86_64 Docker host cannot
+  execute arm64 containers (`exec format error`), so native arm64 CI remains
+  the qualification gate. Windows remains SEC-07.
+
 # Acceptance criteria
 
 - OCI registry authorization and any token-service or redirect host respect the
@@ -91,7 +114,7 @@ that cannot fit its phase becomes a separate bounded repair phase.
 
 ## SEC-01 — Qualify OCI registry identity and authorization
 
-- Status: in-progress
+- Status: implemented and locally validated; pending accepted commit
 - Budget: 5 active hours maximum
 - Prerequisites: committed baseline `97d5203`; reconcile the current uncommitted acquisition changes and claim the manifest lock for the dependency diff
 - Exact write set: `Cargo.toml`, `Cargo.lock`, `crates/xylem-lib/Cargo.toml`, `crates/xylem-lib/src/acquisition/mod.rs`, `crates/xylem-lib/src/acquisition/oci_registry.rs`, `crates/xylem-lib/src/acquisition/policy.rs`, `crates/xylem-lib/src/acquisition/tests.rs`
@@ -102,7 +125,7 @@ that cannot fit its phase becomes a separate bounded repair phase.
 
 ## SEC-02 — Bound ORAS and interrupted cache publication
 
-- Status: planned
+- Status: implemented and locally validated; pending accepted commit
 - Budget: 5 active hours maximum
 - Prerequisites: SEC-01
 - Exact write set: `crates/xylem-lib/src/acquisition/oci.rs`, `crates/xylem-lib/src/acquisition/executor.rs`, `crates/xylem-lib/src/acquisition/tests.rs`
@@ -113,7 +136,7 @@ that cannot fit its phase becomes a separate bounded repair phase.
 
 ## SEC-03 — Qualify Git transport and cleanup
 
-- Status: planned
+- Status: in-progress; local HTTPS fixture remains
 - Budget: 5 active hours maximum
 - Prerequisites: acquisition executor lock released after SEC-02
 - Exact write set: `crates/xylem-lib/src/acquisition/git.rs`, `crates/xylem-lib/src/acquisition/tests.rs`
@@ -124,7 +147,7 @@ that cannot fit its phase becomes a separate bounded repair phase.
 
 ## SEC-04 — Qualify Linux x86_64 acquisition
 
-- Status: planned
+- Status: local container passed; CI job pending
 - Budget: 5 active hours maximum
 - Prerequisites: SEC-02 and SEC-03, schedulable Linux x86_64 runner
 - Exact write set: `.gitlab-ci.yml`, `scripts/install-oras-ci.sh`, Linux x86_64 runner
@@ -135,7 +158,7 @@ that cannot fit its phase becomes a separate bounded repair phase.
 
 ## SEC-05 — Qualify Linux arm64 acquisition
 
-- Status: planned
+- Status: CI job configured; native run pending
 - Budget: 5 active hours maximum
 - Prerequisites: SEC-04 and schedulable Linux arm64 runner
 - Exact write set: `.gitlab-ci.yml`, `scripts/install-oras-ci.sh`, Linux arm64 runner
@@ -146,7 +169,7 @@ that cannot fit its phase becomes a separate bounded repair phase.
 
 ## SEC-06 — Qualify macOS acquisition
 
-- Status: planned
+- Status: local run passed; pending accepted commit
 - Budget: 5 active hours maximum
 - Prerequisites: SEC-03 and a macOS host with ORAS
 - Exact write set: macOS host, `crates/xylem-lib/src/acquisition/tests.rs`

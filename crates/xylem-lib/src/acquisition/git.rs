@@ -45,7 +45,7 @@ fn add_tree_entry(
         |(limit, observed, maximum)| Err(AcquisitionError::Limit { limit, maximum, observed }),
     )
 }
-fn directory_size(path: &Path) -> Result<Memory, AcquisitionError> {
+pub(super) fn directory_size(path: &Path) -> Result<Memory, AcquisitionError> {
     directory_size_value(path).map(|bytes| Memory::kb(bytes as f64 / 1024_f64))
 }
 fn directory_size_value(path: &Path) -> Result<u64, AcquisitionError> {
@@ -88,22 +88,46 @@ pub(super) fn git_environment(policy: &AcquisitionPolicy, repository: &Path) -> 
                 .map_err(|source| io_error("create isolated Git environment", &home, source))
                 .and_then(|()| {
                     let global = home.join("global.gitconfig");
-                    File::create(&global)
-                        .map_err(|source| io_error("create isolated Git configuration", &global, source))
+                    let templates = home.join("templates");
+                    create_dir(&templates)
+                        .map_err(|source| io_error("create isolated Git templates", &templates, source))
+                        .and_then(|()| File::create(&global).map_err(|source| io_error("create isolated Git configuration", &global, source)))
                         .map(|_| {
                             let mut environment = BTreeMap::from([
+                                ("ALL_PROXY".to_string(), String::new()),
                                 ("GCM_INTERACTIVE".to_string(), "Never".to_string()),
                                 ("GIT_ASKPASS".to_string(), String::new()),
-                                ("GIT_CONFIG_COUNT".to_string(), "0".to_string()),
+                                (
+                                    "GIT_ALLOW_PROTOCOL".to_string(),
+                                    match policy.allow_insecure_http {
+                                        | true => "https:http:ssh",
+                                        | false => "https:ssh",
+                                    }
+                                    .to_string(),
+                                ),
+                                ("GIT_ALTERNATE_OBJECT_DIRECTORIES".to_string(), String::new()),
+                                ("GIT_CONFIG_COUNT".to_string(), "2".to_string()),
                                 ("GIT_CONFIG_GLOBAL".to_string(), global.display().to_string()),
+                                ("GIT_CONFIG_KEY_0".to_string(), "http.followRedirects".to_string()),
+                                ("GIT_CONFIG_KEY_1".to_string(), "http.proxy".to_string()),
                                 ("GIT_CONFIG_NOSYSTEM".to_string(), "1".to_string()),
+                                ("GIT_CONFIG_PARAMETERS".to_string(), String::new()),
+                                ("GIT_CONFIG_VALUE_0".to_string(), "false".to_string()),
+                                ("GIT_CONFIG_VALUE_1".to_string(), String::new()),
                                 ("GIT_LFS_SKIP_SMUDGE".to_string(), "1".to_string()),
+                                ("GIT_PROTOCOL_FROM_USER".to_string(), "0".to_string()),
+                                ("GIT_TEMPLATE_DIR".to_string(), templates.display().to_string()),
                                 ("GIT_TERMINAL_PROMPT".to_string(), "0".to_string()),
                                 ("HOME".to_string(), home.display().to_string()),
+                                ("HTTP_PROXY".to_string(), String::new()),
+                                ("HTTPS_PROXY".to_string(), String::new()),
                                 ("SSH_AGENT_PID".to_string(), String::new()),
                                 ("SSH_AUTH_SOCK".to_string(), String::new()),
                                 ("USERPROFILE".to_string(), home.display().to_string()),
                                 ("XDG_CONFIG_HOME".to_string(), home.display().to_string()),
+                                ("all_proxy".to_string(), String::new()),
+                                ("http_proxy".to_string(), String::new()),
+                                ("https_proxy".to_string(), String::new()),
                             ]);
                             if let Some(ssh) = policy.git_ssh.as_ref() {
                                 let arguments = args![
@@ -257,6 +281,7 @@ pub(super) fn verify_git(
     repository: &Path,
     url: &str,
     commit: &str,
+    environment: &BTreeMap<String, String>,
     output: &Memory,
     started: Instant,
     timeout: Seconds,
@@ -273,7 +298,7 @@ pub(super) fn verify_git(
                 let options = ExecutionOptions::new()
                     .with_capture_limits(CaptureLimits::new(Some(maximum), None))
                     .with_timeout(timeout);
-                cmd!(exec checked "git", arguments; opt: &options, dir: repository)
+                cmd!(exec checked "git", arguments; opt: &options, dir: repository, env: environment.clone())
                     .map_err(|source| AcquisitionError::Process {
                         action,
                         remote: redact_url(url),

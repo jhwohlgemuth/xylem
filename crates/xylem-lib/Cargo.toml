@@ -12,6 +12,7 @@ edition = "2021"
 rust-version.workspace = true
 
 [dependencies]
+base64 = { workspace = true }
 acorn-cmd = { workspace = true }
 acorn-core = { workspace = true }
 acorn-host = { workspace = true }

@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.package]
 version = "1.0.3"
-rust-version = "1.96.0"
+rust-version = "1.98.0"
 license = "MIT"
 authors = ["Jason Wohlgemuth <wohlgemuthjh@ornl.gov>"]
 description = "Digital xylem that transports data through workflows with structure and support"
@@ -29,6 +29,7 @@ std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
 
 [workspace.dependencies]
+base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
 acorn-cmd = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "0c256bae0ff42da1c96de50fd525146a95965c66", version = "0.4.0", default-features = false }
 acorn-core = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "0c256bae0ff42da1c96de50fd525146a95965c66", version = "0.4.0", features = ["alloc"], default-features = false }
 acorn-host = { git = "https://code.ornl.gov/research-enablement/acorn.git", rev = "0c256bae0ff42da1c96de50fd525146a95965c66", version = "0.4.0", features = ["config", "fs", "terminal"], default-features = false }

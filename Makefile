@@ -39,11 +39,11 @@ lint:
 	@cargo fmt --verbose
 	@cargo clippy --no-deps --all-targets --fix --allow-dirty
 	@hadolint sandbox/runner/Containerfile sandbox/runner/geospatial/Containerfile
-	@shellcheck scripts/install-appimage-tools.sh scripts/install-zigbuild.sh scripts/package-linux.sh scripts/upload-binaries.sh
+	@shellcheck scripts/install-appimage-tools.sh scripts/prepare-acquisition-ci.sh scripts/install-zigbuild.sh scripts/package-linux.sh scripts/upload-binaries.sh
 	@sh -n scripts/check-process-spawns.sh
 	@sh scripts/check-process-spawns.sh
 	@sh -n scripts/check-rootless-sandbox.sh
-	@sh -n scripts/install-appimage-tools.sh scripts/install-zigbuild.sh scripts/package-linux.sh scripts/upload-binaries.sh
+	@sh -n scripts/install-appimage-tools.sh scripts/prepare-acquisition-ci.sh scripts/install-zigbuild.sh scripts/package-linux.sh scripts/upload-binaries.sh
 
 linux-packages:
 	@$(MUSL_BUILD) --release --package xylem-cli --target $(DEFAULT_TARGET)

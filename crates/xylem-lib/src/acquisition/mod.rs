@@ -35,6 +35,7 @@ mod executor;
 mod git;
 mod http;
 mod oci;
+mod oci_registry;
 mod policy;
 mod util;
 /// Current immutable acquisition-cache format.
@@ -227,18 +228,6 @@ pub enum AcquisitionSource {
         path: PathBuf,
     },
 }
-impl AcquisitionSource {
-    /// Construct an OCI source from its digest-pinned registry reference.
-    pub fn oci(reference: String) -> Result<Self, AcquisitionError> {
-        match reference.rsplit_once('@').map(|(_, digest)| digest.to_string()) {
-            | Some(digest) => Ok(Self::Oci { digest, reference }),
-            | None => Err(AcquisitionError::Identity {
-                value: reference,
-                reason: "OCI module references must be pinned by a sha256 manifest digest",
-            }),
-        }
-    }
-}
 /// Immutable, content-addressed acquisition cache.
 #[derive(Clone, Debug)]
 pub struct AcquisitionCache {
@@ -352,6 +341,18 @@ pub struct GitSshPolicy {
     pub identity: PathBuf,
     /// Dedicated known-hosts file used with strict host-key checking.
     pub known_hosts: PathBuf,
+}
+impl AcquisitionSource {
+    /// Construct an OCI source from its digest-pinned registry reference.
+    pub fn oci(reference: String) -> Result<Self, AcquisitionError> {
+        match reference.rsplit_once('@').map(|(_, digest)| digest.to_string()) {
+            | Some(digest) => Ok(Self::Oci { digest, reference }),
+            | None => Err(AcquisitionError::Identity {
+                value: reference,
+                reason: "OCI module references must be pinned by a sha256 manifest digest",
+            }),
+        }
+    }
 }
 
 #[cfg(test)]

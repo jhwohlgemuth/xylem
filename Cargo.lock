@@ -4296,6 +4296,7 @@ dependencies = [
  "acorn-host",
  "acorn-macros",
  "acorn-schema",
+ "base64",
  "bon",
  "cel",
  "clap",

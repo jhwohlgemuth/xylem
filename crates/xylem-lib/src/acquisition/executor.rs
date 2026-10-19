@@ -2,6 +2,7 @@ use super::cache::CacheManifest;
 use super::git::{git_environment, inspect_tree, remaining_timeout, run_git_command, verify_git, GitCommandContext};
 use super::http::{request_error, stream_response};
 use super::oci::pull_tree;
+use super::oci_registry::Layout;
 use super::policy::normalize_origin;
 use super::util::{io_error, now_seconds};
 use super::*;
@@ -174,19 +175,22 @@ impl AcquisitionExecutor {
                 let started = Instant::now();
                 self.cache.staging(plan).and_then(|staging| {
                     let repository = staging.path.join("repository");
+                    let layout = staging.path.join("layout");
                     create_dir(&repository)
                         .map_err(|source| io_error("create OCI staging tree", repository.clone(), source))
                         .and_then(|()| {
-                            pull_tree(
-                                reference,
-                                &repository,
-                                &plan.limits.git_staging,
-                                plan.limits.git_entries,
-                                &plan.limits.process_output,
-                                started,
-                                plan.limits.git_timeout,
-                                self.policy.allow_insecure_http,
-                            )
+                            match reference.starts_with("oci-layout:") {
+                                | true => Ok(reference.clone()),
+                                | false => Layout::new(&layout)
+                                    .fetch(reference, digest, &self.policy, started)
+                                    .map(|()| format!("oci-layout:{}@{digest}", layout.display())),
+                            }
+                            .and_then(|local_reference| pull_tree(&local_reference, &repository, &plan.limits, started))
+                        })
+                        .and_then(|()| match layout.try_exists() {
+                            | Ok(true) => remove_dir_all(&layout).map_err(|source| io_error("remove OCI transfer layout", layout, source)),
+                            | Ok(false) => Ok(()),
+                            | Err(source) => Err(io_error("inspect OCI transfer layout", layout, source)),
                         })
                         .and_then(|()| inspect_tree(&repository, &plan.limits))
                         .and_then(|(bytes, entries, tree_digest)| {
@@ -248,7 +252,17 @@ impl AcquisitionExecutor {
                 .try_for_each(|(action, arguments)| {
                     remaining_timeout(started, plan.limits.git_timeout).and_then(|timeout| run_git_command(&context, action, arguments, timeout))
                 })
-                .and_then(|()| verify_git(repository, url, commit, &plan.limits.process_output, started, plan.limits.git_timeout))
+                .and_then(|()| {
+                    verify_git(
+                        repository,
+                        url,
+                        commit,
+                        &environment,
+                        &plan.limits.process_output,
+                        started,
+                        plan.limits.git_timeout,
+                    )
+                })
         })
     }
 }

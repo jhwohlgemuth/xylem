@@ -105,6 +105,17 @@ impl AcquisitionPlan {
     }
 }
 impl AcquisitionPolicy {
+    pub(super) fn validate_oci_request(&self, url: &Url, previous: Option<&Url>) -> Result<(), AcquisitionError> {
+        let insecure = url.scheme() == "http" && self.allow_insecure_http;
+        let downgrade = previous.is_some_and(|previous| previous.scheme() == "https" && url.scheme() == "http");
+        if !matches!(url.scheme(), "https" | "http") || (url.scheme() == "http" && !insecure) || downgrade {
+            Err(policy_error(url.as_str(), "OCI request requires HTTPS without a downgrade"))
+        } else if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
+            Err(policy_error(url.as_str(), "OCI request URL contains credentials or a fragment"))
+        } else {
+            self.ensure_allowed(url.as_str())
+        }
+    }
     /// Resolve a fail-closed policy from exact hosts and operator-only capabilities.
     pub fn from_hosts(
         hosts: Option<&[String]>,
@@ -362,6 +373,24 @@ fn parse_url(value: &str) -> Result<Url, AcquisitionError> {
         reason: source.to_string(),
     })
 }
+fn policy_error(source: &str, reason: &str) -> AcquisitionError {
+    AcquisitionError::Policy {
+        remote: redact_url(source),
+        reason: reason.to_string(),
+    }
+}
+fn validate_http_url(remote: &RemotePolicy, url: &Url, allow_insecure_http: bool) -> Result<(), RemoteError> {
+    let scheme_allowed = url.scheme() == "https" || (url.scheme() == "http" && allow_insecure_http);
+    match scheme_allowed {
+        | false => Err(RemoteError::UnsupportedScheme {
+            operation: "HTTP acquisition",
+            url: redact_url(url.as_str()),
+        }),
+        | true => validate_url_shape(url, true)
+            .map_err(|error| RemoteError::Denied { url: error.to_string() })
+            .and_then(|()| remote.ensure_allowed(url.as_str()).map(|_| ())),
+    }
+}
 fn validate_oci_reference(reference: &str, expected_digest: &str) -> Result<Option<String>, AcquisitionError> {
     match reference.strip_prefix("oci-layout:") {
         | Some(layout) => layout
@@ -397,24 +426,6 @@ fn validate_oci_registry_reference(reference: &str, expected_digest: &str) -> Re
             })
         })
         .ok_or_else(invalid)
-}
-fn policy_error(source: &str, reason: &str) -> AcquisitionError {
-    AcquisitionError::Policy {
-        remote: redact_url(source),
-        reason: reason.to_string(),
-    }
-}
-fn validate_http_url(remote: &RemotePolicy, url: &Url, allow_insecure_http: bool) -> Result<(), RemoteError> {
-    let scheme_allowed = url.scheme() == "https" || (url.scheme() == "http" && allow_insecure_http);
-    match scheme_allowed {
-        | false => Err(RemoteError::UnsupportedScheme {
-            operation: "HTTP acquisition",
-            url: redact_url(url.as_str()),
-        }),
-        | true => validate_url_shape(url, true)
-            .map_err(|error| RemoteError::Denied { url: error.to_string() })
-            .and_then(|()| remote.ensure_allowed(url.as_str()).map(|_| ())),
-    }
 }
 fn validate_url_shape(url: &Url, reject_username: bool) -> Result<(), AcquisitionError> {
     let username_invalid = reject_username && !url.username().is_empty();
