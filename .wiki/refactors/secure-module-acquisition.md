@@ -134,14 +134,24 @@ becomes a separate bounded repair phase.
 
 ## SEC-06 — Qualify macOS acquisition
 
-- Status: ready; macOS arm64 host has Rust 1.99.0 and ORAS 1.3.4+Homebrew
+- Status: ready; macOS arm64 prerequisites checked on 2026-10-20
 - Budget: 5 active hours maximum
 - Prerequisites: SEC-03 and a macOS host with ORAS
-- Exact write set: macOS host, `crates/xylem-lib/src/acquisition/tests.rs`
+- Exact write set: `security/acquisition-platform-evidence.md` for results and
+  this plan for phase closure; `crates/xylem-lib/src/acquisition/tests.rs` only
+  if the focused run exposes a fixture defect
 - Primary integration lock: acquisition platform matrix
 - Outcome: Git, OCI, cache concurrency, containment, and permissions pass on macOS.
-- Focused validation: `cargo test -p xylem-lib acquisition::tests --locked` on macOS.
-- Handoff: Record host and revision; remove SEC-06 when accepted.
+- Preflight: current host is Darwin arm64 with Rust 1.99.0, ORAS
+  1.3.4+Homebrew, Apple Git 2.54.0, OpenSSH 10.3p1, and available `sshd` and
+  `ssh-keygen`. Acquisition source and `Cargo.lock` are unchanged since the
+  Linux passing revision `b1e9297`.
+- Focused validation: run
+  `cargo test -p xylem-lib acquisition::tests --locked --offline` on the macOS
+  host. Confirm the Git HTTPS and SSH, OCI, cache concurrency, containment,
+  permissions, and timeout cases pass without skips.
+- Handoff: Record the host, tested revision, tool versions, command, and
+  result in the durable platform evidence; remove SEC-06 when accepted.
 
 ## SEC-07 — Qualify Windows and close the dependency gate
 
