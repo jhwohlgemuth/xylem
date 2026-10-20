@@ -17,9 +17,9 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Portfolio review
 
-Rechecked on 2026-10-18 against committed source `97d5203`, current schemas,
-and the uncommitted acquisition worktree. All six active plans are executable
-and use five-hour phases. External tap, runner, cluster, and credential claims
+Rechecked on 2026-10-19 against committed source `de0bd89` and current schemas.
+All six active plans are executable and use five-hour phases. External tap,
+runner, cluster, and credential claims
 remain prerequisites until their owners provide current evidence. Quality
 reflects evidence, bounded phases, dependencies, and acceptance criteria;
 difficulty describes remaining work.
@@ -27,7 +27,7 @@ difficulty describes remaining work.
 | Plan | Quality | Impact | Remaining difficulty | Readiness | Assessment |
 |---|---:|---:|---:|---|---|
 | [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md) | 4/5 | Critical | High | Ready | The workspace and split run path are landed. Process results, immutable contexts, policy, cancellation, and schema integration remain. |
-| [Secure module acquisition](refactors/secure-module-acquisition.md) | 4/5 | Critical | Medium | In progress | Core acquisition and v14/v13 evidence are landed. Uncommitted registry work needs review; OCI, Git, platform, and audit qualification remain. The prior `quick-xml` blocker is cleared. |
+| [Secure module acquisition](refactors/secure-module-acquisition.md) | 4/5 | Critical | Medium | In progress | Registry authorization and bounded OCI acquisition passed at `de0bd89`; Git HTTPS qualification passed at `1f5ed65`. Platform and audit qualification remain. The prior `quick-xml` blocker is cleared. |
 | [Local OCI archive qualification](features/local-oci-bundle-uris.md) | 4/5 | High | Medium | Blocked on acquisition lock | Native directory URIs and the example are landed; archive and sandbox qualification remain. |
 | [Homebrew release activation](features/homebrew-export.md) | 4/5 | High | Low | Ready | The assigned Mac runner is online, but its tap jobs were canceled. A passing macOS job, required two-platform pipeline, merge, and install/upgrade evidence remain. |
 | [A/P/O memory validation](features/memory-aware-scheduling.md) | 5/5 | High | Low | Blocked on rollout decision | The scheduler and A/P evidence are landed. Run the pinned credentialed A/P/O holdout only when selected for rollout. |
@@ -39,8 +39,8 @@ and durable run storage. New runtime work must preserve those contracts.
 
 ## Recommended execution order
 
-1. Run ENV-01 and SEC-01 on disjoint process and acquisition locks; review the
-   uncommitted acquisition work before accepting SEC evidence.
+1. Run ENV-01 and SEC-04 on disjoint process and acquisition delivery locks;
+   record the Linux x86_64 acquisition CI result.
 2. Start OCI-01 when SEC releases the configuration/acquisition lock; continue
    the environment phases in order as their locks become available.
 3. Start BRW-01 on the assigned online Mac runner. Run APO-01 only

@@ -4,7 +4,7 @@ okf_version: "0.1"
 
 # Plan dependency network
 
-Rechecked on 2026-10-18 against committed source `97d5203`. Arrows denote a
+Rechecked on 2026-10-19 against committed source `de0bd89`. Arrows denote a
 required contract or gate, not a whole-plan serialization. Current landed
 baselines are execution-plan v14, run-summary v13, verified acquisition,
 owned workspaces, sandbox providers, memory admission, and run storage.
@@ -19,7 +19,8 @@ assigned Mac runner -> successful macOS job BRW-01 -> BRW-02 -> BRW-03
 A/P/O rollout + corpus + credentials -> APO-01 -> APO-02
 ```
 
-SEC-01 through SEC-07 qualify the landed acquisition path. OCI-01 needs the
+SEC-01 through SEC-03 are accepted; SEC-04 through SEC-07 qualify the
+remaining platform paths. OCI-01 needs the
 shared configuration/acquisition lock released, not completion of unrelated
 Git and platform qualification. K8S worker and schema phases require the
 immutable environment, cancellation, and durable-state contracts from ENV.
@@ -30,8 +31,8 @@ immutable environment, cancellation, and durable-state contracts from ENV.
   preserves the landed sandbox, memory, reporter, resume, and run-store
   contracts while completing process results and immutable contexts.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) owns
-  remaining OCI/Git transport and platform qualification. Uncommitted work is
-  not an accepted prerequisite until reviewed and validated.
+  remaining platform qualification. Registry authorization and bounded OCI
+  acquisition are accepted at `de0bd89`; Git transport at `1f5ed65`.
 - [Local OCI archive qualification](features/local-oci-bundle-uris.md) extends
   landed directory support after the acquisition/configuration lock is free.
 - [Kubernetes workflow execution](features/kubernetes-workflow-backend.md)
@@ -47,11 +48,11 @@ immutable environment, cancellation, and durable-state contracts from ENV.
 
 | Boundary | Phase owners | Coordination rule |
 |---|---|---|
-| Manifests and `Cargo.lock` | SEC-01/07, ENV-06, K8S-02 | One dependency owner at a time; inspect feature tree and audit the accepted lockfile. |
-| `crates/xylem-lib/src/config/` | ENV-02/03/04, SEC-01, OCI-01, K8S-04 | Serialize writes while preserving batching, memory, resume, source nesting, and sandbox opt-in. |
+| Manifests and `Cargo.lock` | SEC-07, ENV-06, K8S-02 | One dependency owner at a time; inspect feature tree and audit the accepted lockfile. |
+| `crates/xylem-lib/src/config/` | ENV-02/03/04, OCI-01, K8S-04 | Serialize writes while preserving batching, memory, resume, source nesting, and sandbox opt-in. |
 | `crates/xylem-lib/src/script/` | ENV-01/09, OCI-01 | Environment phases own the host process adapter; local URI edits use the separate parser lock. |
 | `crates/xylem-lib/src/execution.rs` and `commands/run/dispatch.rs` | ENV-05, K8S-03 | Preserve ordered fixed and memory-aware admission. |
-| Acquisition executor and cache | SEC-01/02/03, OCI-02 | One publication and transport owner at a time. |
+| Acquisition executor and cache | OCI-02 | One publication and transport owner at a time. |
 | Plan, journal, run store, projection, telemetry, reporter, and TUI | ENV-07/08, K8S-08 | Allocate schema revisions serially and update durable readers and views together. |
 | CLI roots and `commands/run/` | ENV-06, K8S-03/09/10/11/14 | One CLI integration owner at a time; preserve exit mapping and dry-run purity. |
 | Sandbox providers | OCI-03 | Keep the landed provider boundary; run focused conformance for any preparation change. |

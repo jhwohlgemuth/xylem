@@ -19,8 +19,9 @@ the existing fail-closed policy before retiring the plan.
 
 # Current evidence
 
-Committed baseline rechecked on 2026-10-18 at `97d5203`. The acquisition and
-CI worktree changes are uncommitted and require their own validation and review.
+The acquisition and CI changes were committed at `de0bd89` on 2026-10-19.
+SEC-01 and SEC-02 were rechecked against that revision on 2026-10-19. SEC-03
+HTTPS qualification was committed at `1f5ed65` on 2026-10-19.
 
 - Runtime integration landed on 2026-10-12: remote documents, binaries, and Git modules use immutable acquisition plans, bounded executors, verified cache entries, and durable provenance.
 - Existing tests cover policy and identity validation, bounded HTTP responses, offline cache behavior, cache corruption, SSH environment isolation, and escaping Git symlinks.
@@ -34,8 +35,7 @@ CI worktree changes are uncommitted and require their own validation and review.
 
 - **Update:** acquisition implementation and qualification tests only where a
   demonstrated gap requires repair; CI platform jobs and audit evidence.
-- **Create:** the uncommitted `oci_registry.rs` helper if qualification accepts
-  it; keep focused registry and Git fixtures inline in the named test file.
+- **Create:** None; the Git fixtures are committed at `1f5ed65`.
 - **Delete:** None; the earlier advisory exceptions are already removed.
 
 # Dependencies and ordering
@@ -49,32 +49,30 @@ capability boundary for network, Git, credentials, and subprocess execution.
 
 The committed implementation already plans and materializes remote documents,
 binaries, Git trees, and OCI trees with typed policy, verified cache identities,
-and durable evidence. Do not reimplement these contracts. The current worktree
-contains uncommitted OCI registry and qualification changes; review them against
-`97d5203` and retain only verified outcomes. The accepted ACORN revision and
-`quick-xml` 0.41.0 have cleared the prior advisory blocker.
+and durable evidence. The accepted ACORN revision and `quick-xml` 0.41.0 have
+cleared the prior advisory blocker. The local Git HTTPS fixture is validated;
+the platform matrix remains to be accepted.
 
 # Handoff
 
-- Verified baseline: committed `97d5203` with acquisition plans and v14/v13 evidence.
-- Changed files: the current uncommitted acquisition, manifest, CI, Makefile,
-  `oci_registry.rs`, and `scripts/install-oras-ci.sh` changes span SEC-01,
-  SEC-02, SEC-04, and SEC-05; partition and review them before accepting a
-  phase result.
-- Validation run: this wiki review validated planning structure and local
-  baseline claims; the uncommitted product changes have no accepted test result
-  recorded here.
-- Remaining defect: OCI registry authorization, ORAS bounds, and the platform
-  matrix have not yet been accepted.
-- Next action: compare the current acquisition diff with `97d5203`, run the
-  focused SEC-01 registry cases, and record the accepted result.
+- Accepted SEC-01/02 revision: `de0bd89`; registry policy, OCI extraction, cache
+  publication, manifests, and focused tests are committed there.
+- Validation run: `cargo test -p xylem-lib acquisition::tests --locked --offline`
+  passed on macOS arm64 on 2026-10-19 (32 passed, 0 failed). Registry challenge,
+  token realm, redirect, size, offline reuse, timeout, and concurrent OCI cache
+  cases passed.
+- Accepted SEC-03 revision: `1f5ed65`; `git.rs` now forces certificate
+  verification, and the local HTTPS fixture uses a test CA and dev-only
+  `rustls`. `cargo test -p xylem-lib acquisition::tests --locked --offline`
+  passed on macOS arm64 (33 passed, 0 failed).
+- Remaining work: run the platform gates for SEC-04 through SEC-07.
+- Next action: run the Linux x86_64 acquisition CI job and record its result.
 
 # Validation
 
-Qualify the remaining registry authorization/redirect policy, ORAS bounds and
-cancellation, Git transport and cleanup, and platform matrix. Existing HTTP,
-offline, cache-integrity, and dry-run tests remain regression gates. A failure
-that cannot fit its phase becomes a separate bounded repair phase.
+Qualify the platform matrix. Existing Git, OCI, HTTP, offline, cache-integrity,
+and dry-run tests remain regression gates. A failure that cannot fit its phase
+becomes a separate bounded repair phase.
 
 ## Worktree evidence, 2026-10-19
 
@@ -86,8 +84,9 @@ that cannot fit its phase becomes a separate bounded repair phase.
 - Git smart HTTP and SSH fixtures cover pinned commits, origin checks,
   isolation from inherited Git and SSH settings, tree limits, escaping
   symlinks, executable permissions, redirect denial, timeouts, cleanup, and
-  concurrent cache publication. A local HTTPS fixture remains to be qualified
-  for SEC-03.
+  concurrent cache publication. A local HTTPS fixture now exercises a pinned
+  commit through verified TLS with an isolated test CA; the focused acquisition
+  suite passes with 33 tests on macOS arm64. SEC-03 is accepted at `1f5ed65`.
 - macOS arm64: `cargo test -p xylem-lib --lib --offline --quiet` passed with
   290 passed and 2 ignored; the focused acquisition suite passed with 32 tests.
 - Linux x86_64: the focused acquisition suite passed with 32 tests in a Rust
@@ -112,45 +111,12 @@ that cannot fit its phase becomes a separate bounded repair phase.
 
 # Execution phases
 
-## SEC-01 — Qualify OCI registry identity and authorization
-
-- Status: implemented and locally validated; pending accepted commit
-- Budget: 5 active hours maximum
-- Prerequisites: committed baseline `97d5203`; reconcile the current uncommitted acquisition changes and claim the manifest lock for the dependency diff
-- Exact write set: `Cargo.toml`, `Cargo.lock`, `crates/xylem-lib/Cargo.toml`, `crates/xylem-lib/src/acquisition/mod.rs`, `crates/xylem-lib/src/acquisition/oci_registry.rs`, `crates/xylem-lib/src/acquisition/policy.rs`, `crates/xylem-lib/src/acquisition/tests.rs`
-- Primary integration lock: acquisition policy
-- Outcome: Registry manifest identity, authorization, token-service hosts, and redirects obey the declared host policy.
-- Focused validation: `cargo test -p xylem-lib acquisition::tests --locked` with local registry and denied-host cases.
-- Handoff: Record accepted commit, touched files, test results, and remaining defects; remove SEC-01 only after the registry cases pass.
-
-## SEC-02 — Bound ORAS and interrupted cache publication
-
-- Status: implemented and locally validated; pending accepted commit
-- Budget: 5 active hours maximum
-- Prerequisites: SEC-01
-- Exact write set: `crates/xylem-lib/src/acquisition/oci.rs`, `crates/xylem-lib/src/acquisition/executor.rs`, `crates/xylem-lib/src/acquisition/tests.rs`
-- Primary integration lock: acquisition executor
-- Outcome: OCI staging, output, time, cancellation, cleanup, and same-identity publication are bounded under failure.
-- Focused validation: focused OCI acquisition tests with limits, cancellation, offline cache reuse, and concurrent requests.
-- Handoff: Record the bounded cases and cache evidence; remove SEC-02 when accepted.
-
-## SEC-03 — Qualify Git transport and cleanup
-
-- Status: in-progress; local HTTPS fixture remains
-- Budget: 5 active hours maximum
-- Prerequisites: acquisition executor lock released after SEC-02
-- Exact write set: `crates/xylem-lib/src/acquisition/git.rs`, `crates/xylem-lib/src/acquisition/tests.rs`
-- Primary integration lock: acquisition executor
-- Outcome: HTTPS and permitted SSH preserve pinned identity, origin, limits, implicit-fetch denial, cancellation, and atomic cleanup.
-- Focused validation: focused Git acquisition tests using local HTTPS/SSH fixtures and interrupted clone cases.
-- Handoff: Record transport coverage and observed gaps; remove SEC-03 when accepted.
-
 ## SEC-04 — Qualify Linux x86_64 acquisition
 
 - Status: local container passed; CI job pending
 - Budget: 5 active hours maximum
 - Prerequisites: SEC-02 and SEC-03, schedulable Linux x86_64 runner
-- Exact write set: `.gitlab-ci.yml`, `scripts/install-oras-ci.sh`, Linux x86_64 runner
+- Exact write set: `.gitlab-ci.yml`, `scripts/prepare-acquisition-ci.sh`, Linux x86_64 runner
 - Primary integration lock: acquisition platform matrix
 - Outcome: OCI/Git containment, permissions, cache concurrency, and interruption pass on Linux x86_64.
 - Focused validation: x86_64 acquisition CI job and `cargo test -p xylem-lib acquisition::tests --locked`.
@@ -161,7 +127,7 @@ that cannot fit its phase becomes a separate bounded repair phase.
 - Status: CI job configured; native run pending
 - Budget: 5 active hours maximum
 - Prerequisites: SEC-04 and schedulable Linux arm64 runner
-- Exact write set: `.gitlab-ci.yml`, `scripts/install-oras-ci.sh`, Linux arm64 runner
+- Exact write set: `.gitlab-ci.yml`, `scripts/prepare-acquisition-ci.sh`, Linux arm64 runner
 - Primary integration lock: acquisition platform matrix
 - Outcome: The same acquisition matrix passes natively on Linux arm64.
 - Focused validation: arm64 acquisition CI job and `cargo test -p xylem-lib acquisition::tests --locked`.

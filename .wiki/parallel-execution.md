@@ -13,14 +13,14 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 
 | Lock | Primary owners | Rule |
 |---|---|---|
-| Acquisition policy and executor | SEC-01/02/03, OCI-01/02 | Finish or hand off the current acquisition change before another phase writes its files. |
+| Acquisition policy and executor | OCI-01/02 | Finish or hand off the current acquisition change before another phase writes its files. |
 | Configuration | ENV-02/03/04, OCI-01, K8S-04 | Preserve typed validation, batching, memory fallback, resume, and source nesting. |
 | Process adapter | ENV-01/08 | Other phases consume the accepted ACORN process boundary. |
 | Scheduler | ENV-05 | Preserve ordered fixed and memory-aware admission. |
 | Run state | ENV-07/08, K8S-08 | Allocate versions serially; update plans, writers, recovery, reporters, schemas, and TUI together. |
 | CLI | ENV-06, K8S-03/09/10/11/14 | One owner changes command registration, run orchestration, cancellation, or exit mapping at a time. |
 | Sandbox preparation | OCI-03 | Preserve provider conformance and lifecycle evidence. |
-| Manifest | SEC-01/07, ENV-06, K8S-02 | Inspect the feature tree and audit the resulting lockfile. |
+| Manifest | SEC-07, ENV-06, K8S-02 | Inspect the feature tree and audit the resulting lockfile. |
 | Delivery | SEC-04/05, BRW-02, K8S-15/16/17/18 | Serialize CI, image, and release wiring. |
 | Documentation | BRW-03, OCI-04, ENV-09, K8S-19 | Land final names and verified behavior before user-facing updates. |
 
@@ -28,8 +28,8 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 
 ### Lane A: secure module acquisition
 
-- [SEC-01 through SEC-07](refactors/secure-module-acquisition.md): review the
-  current uncommitted registry work, then qualify ORAS, Git, and platforms.
+- [SEC-04 through SEC-07](refactors/secure-module-acquisition.md): qualify the
+  remaining platform matrix.
 - [OCI-01 through OCI-04](features/local-oci-bundle-uris.md): archive and
   sandbox work starts when its shared lock is released; it need not await
   unrelated Git or platform results.
@@ -58,7 +58,7 @@ its write set remains disjoint from CI and documentation integration.
 
 | Phase | Primary lock | Start condition |
 |---|---|---|
-| SEC-01 | Acquisition policy | Reconcile current uncommitted acquisition files with committed baseline `97d5203`. |
+| SEC-04 | Acquisition platform matrix | Run the Linux x86_64 acquisition CI job against accepted Git revision `1f5ed65`. |
 | ENV-01 | Process adapter | Pinned ACORN 0.4.0 process contract is available. |
 | BRW-01 | Tap validation | Assigned `RE Runner (macbook)` remains online. |
 | APO-01 | A/P/O measurement evidence | Rollout, corpus, and credentials are supplied. |
