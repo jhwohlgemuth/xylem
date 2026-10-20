@@ -47,6 +47,7 @@ url = { workspace = true }
 which = { version = "8.0.0", features = ["real-sys"], default-features = false }
 
 [dev-dependencies]
+rustls = { version = "0.23.46", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 tracing-subscriber = { workspace = true }
 
 [lints]

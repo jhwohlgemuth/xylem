@@ -4310,6 +4310,7 @@ dependencies = [
  "pyproject-toml",
  "rayon",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "serde_norway",

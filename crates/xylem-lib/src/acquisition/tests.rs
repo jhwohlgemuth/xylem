@@ -1,4 +1,4 @@
-use super::git::{git_environment, inspect_tree, remaining_timeout, verify_git};
+use super::git::{git_environment, inspect_tree, remaining_timeout, run_git_command, verify_git, GitCommandContext};
 use super::oci::run_oras;
 use super::oci_registry::validate_manifest_bytes;
 use super::policy::normalize_origin;
@@ -7,6 +7,10 @@ use super::*;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
+#[cfg(unix)]
+use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
+#[cfg(unix)]
+use rustls::{ServerConfig, ServerConnection, StreamOwned};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Command, Stdio};
@@ -108,72 +112,40 @@ fn serve(body: Vec<u8>) -> Option<(String, JoinHandle<()>)> {
 }
 #[cfg(unix)]
 fn serve_git_http(root: PathBuf) -> (String, Arc<AtomicBool>, JoinHandle<usize>) {
+    serve_git(root, None)
+}
+#[cfg(unix)]
+fn serve_git_https(root: PathBuf) -> (String, Arc<AtomicBool>, JoinHandle<usize>) {
+    let certificate = CertificateDer::from_pem_slice(include_bytes!("fixtures/git-https-cert.pem")).expect("parse Git HTTPS certificate");
+    let key = PrivateKeyDer::from_pem_slice(include_bytes!("fixtures/git-https-key.pem")).expect("parse Git HTTPS key");
+    let config = ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(vec![certificate], key)
+        .expect("configure Git HTTPS server");
+    serve_git(root, Some(Arc::new(config)))
+}
+#[cfg(unix)]
+fn serve_git(root: PathBuf, tls: Option<Arc<ServerConfig>>) -> (String, Arc<AtomicBool>, JoinHandle<usize>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind Git fixture HTTP server");
     let address = listener.local_addr().expect("Git fixture server address");
     let finished = Arc::new(AtomicBool::new(false));
     let server_finished = Arc::clone(&finished);
+    let scheme = if tls.is_some() { "https" } else { "http" };
     let server = thread::spawn(move || {
         listener.set_nonblocking(true).expect("set Git server nonblocking");
         let mut requests = 0;
         let started = Instant::now();
         while !server_finished.load(Ordering::Acquire) && started.elapsed() < Duration::from_secs(20) {
             match listener.accept() {
-                | Ok((mut stream, _)) => {
+                | Ok((stream, _)) => {
                     stream.set_nonblocking(false).expect("set Git HTTP request blocking");
-                    let mut header = Vec::new();
-                    while !header.ends_with(b"\r\n\r\n") && header.len() < 16 * 1024 {
-                        let mut byte = [0_u8; 1];
-                        stream.read_exact(&mut byte).expect("read Git HTTP header");
-                        header.push(byte[0]);
+                    match &tls {
+                        | Some(config) => {
+                            let connection = ServerConnection::new(Arc::clone(config)).expect("accept Git HTTPS connection");
+                            serve_git_request(StreamOwned::new(connection, stream), &root);
+                        }
+                        | None => serve_git_request(stream, &root),
                     }
-                    let header = String::from_utf8(header).expect("Git HTTP header UTF-8");
-                    let first = header.lines().next().expect("Git HTTP request line");
-                    let mut fields = first.split_whitespace();
-                    let method = fields.next().expect("Git HTTP method");
-                    let uri = fields.next().expect("Git HTTP URI");
-                    let (path, query) = uri.split_once('?').unwrap_or((uri, ""));
-                    let length = header
-                        .lines()
-                        .filter_map(|line| line.split_once(':'))
-                        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
-                        .and_then(|(_, value)| value.trim().parse::<usize>().ok())
-                        .unwrap_or(0);
-                    let content_type = header
-                        .lines()
-                        .filter_map(|line| line.split_once(':'))
-                        .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
-                        .map(|(_, value)| value.trim().to_string())
-                        .unwrap_or_default();
-                    let mut body = vec![0_u8; length];
-                    stream.read_exact(&mut body).expect("read Git HTTP body");
-                    let mut child = Command::new("git")
-                        .arg("http-backend")
-                        .env("GIT_PROJECT_ROOT", &root)
-                        .env("GIT_HTTP_EXPORT_ALL", "1")
-                        .env("REQUEST_METHOD", method)
-                        .env("PATH_INFO", path)
-                        .env("QUERY_STRING", query)
-                        .env("CONTENT_TYPE", content_type)
-                        .env("CONTENT_LENGTH", length.to_string())
-                        .stdin(Stdio::piped())
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .spawn()
-                        .expect("start git http-backend");
-                    child
-                        .stdin
-                        .take()
-                        .expect("Git backend stdin")
-                        .write_all(&body)
-                        .expect("write Git backend request");
-                    let output = child.wait_with_output().expect("wait for Git backend");
-                    assert!(
-                        output.status.success(),
-                        "git http-backend failed: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
-                    stream.write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n").expect("write Git status");
-                    stream.write_all(&output.stdout).expect("write Git backend response");
                     requests += 1;
                 }
                 | Err(error) if error.kind() == io::ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(10)),
@@ -182,7 +154,64 @@ fn serve_git_http(root: PathBuf) -> (String, Arc<AtomicBool>, JoinHandle<usize>)
         }
         requests
     });
-    (format!("http://{address}/repo.git"), finished, server)
+    (format!("{scheme}://{address}/repo.git"), finished, server)
+}
+#[cfg(unix)]
+fn serve_git_request(mut stream: impl Read + Write, root: &Path) {
+    let mut header = Vec::new();
+    while !header.ends_with(b"\r\n\r\n") && header.len() < 16 * 1024 {
+        let mut byte = [0_u8; 1];
+        stream.read_exact(&mut byte).expect("read Git HTTP header");
+        header.push(byte[0]);
+    }
+    let header = String::from_utf8(header).expect("Git HTTP header UTF-8");
+    let first = header.lines().next().expect("Git HTTP request line");
+    let mut fields = first.split_whitespace();
+    let method = fields.next().expect("Git HTTP method");
+    let uri = fields.next().expect("Git HTTP URI");
+    let (path, query) = uri.split_once('?').unwrap_or((uri, ""));
+    let length = header
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .and_then(|(_, value)| value.trim().parse::<usize>().ok())
+        .unwrap_or(0);
+    let content_type = header
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+        .map(|(_, value)| value.trim().to_string())
+        .unwrap_or_default();
+    let mut body = vec![0_u8; length];
+    stream.read_exact(&mut body).expect("read Git HTTP body");
+    let mut child = Command::new("git")
+        .arg("http-backend")
+        .env("GIT_PROJECT_ROOT", root)
+        .env("GIT_HTTP_EXPORT_ALL", "1")
+        .env("REQUEST_METHOD", method)
+        .env("PATH_INFO", path)
+        .env("QUERY_STRING", query)
+        .env("CONTENT_TYPE", content_type)
+        .env("CONTENT_LENGTH", length.to_string())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start git http-backend");
+    child
+        .stdin
+        .take()
+        .expect("Git backend stdin")
+        .write_all(&body)
+        .expect("write Git backend request");
+    let output = child.wait_with_output().expect("wait for Git backend");
+    assert!(
+        output.status.success(),
+        "git http-backend failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    stream.write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n").expect("write Git status");
+    stream.write_all(&output.stdout).expect("write Git backend response");
 }
 fn serve_many(body: Vec<u8>, requests: usize) -> Option<(String, JoinHandle<()>)> {
     let listener = match TcpListener::bind("127.0.0.1:0") {
@@ -808,6 +837,86 @@ fn test_pinned_git_http_acquisition_is_verified_and_reused_offline() {
         .execute(&plan)
         .expect("reuse Git offline");
     assert_eq!(second.evidence.cache, AcquisitionCacheStatus::Hit);
+}
+#[cfg(unix)]
+#[test]
+fn test_pinned_git_https_fetch_uses_verified_tls_and_commit() {
+    let root = TestDirectory::create("git-https-fixture");
+    let commit = git_fixture(&root.0);
+    let (url, finished, server) = serve_git_https(root.0.clone());
+    let parsed = Url::parse(&url).expect("Git HTTPS URL");
+    let hosts = vec![format!(
+        "{}:{}",
+        parsed.host_str().expect("Git HTTPS host"),
+        parsed.port().expect("Git HTTPS port")
+    )];
+    let policy = policy(&hosts, false, false);
+    AcquisitionPlan::build(
+        vec!["git".to_string()],
+        AcquisitionSource::Git {
+            commit: commit.clone(),
+            url: url.clone(),
+        },
+        &policy,
+    )
+    .expect("plan pinned HTTPS Git source");
+    let repository = root.0.join("https-checkout");
+    create_dir(&repository).expect("create HTTPS checkout");
+    let started = Instant::now();
+    let result = git_environment(&policy, &repository).and_then(|mut environment| {
+        assert_eq!(environment.get("GIT_SSL_NO_VERIFY").map(String::as_str), Some("false"));
+        environment.insert(
+            "GIT_SSL_CAINFO".to_string(),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/src/acquisition/fixtures/git-https-cert.pem").to_string(),
+        );
+        let context = GitCommandContext {
+            environment: &environment,
+            maximum_staging: policy.limits().git_staging.clone(),
+            output: policy.limits().process_output.clone(),
+            repository: &repository,
+            url: &url,
+        };
+        [
+            ("initialize HTTPS Git repository", args!["init", "--quiet"]),
+            ("add HTTPS Git origin", args!["remote", "add", "origin", &url]),
+            (
+                "fetch pinned HTTPS Git commit",
+                args![
+                    ("-c", "credential.helper="),
+                    ("-c", "core.hooksPath=/dev/null"),
+                    ("-c", "fetch.recurseSubmodules=false"),
+                    ("-c", "http.followRedirects=false"),
+                    ("-c", "protocol.ext.allow=never"),
+                    ("-c", "protocol.file.allow=never"),
+                    "fetch",
+                    "--depth=1",
+                    "--no-tags",
+                    "origin",
+                    &commit,
+                ],
+            ),
+            ("checkout HTTPS Git commit", args!["checkout", "--detach", "--quiet", "FETCH_HEAD"]),
+        ]
+        .into_iter()
+        .try_for_each(|(action, arguments)| {
+            remaining_timeout(started, policy.limits().git_timeout).and_then(|timeout| run_git_command(&context, action, arguments, timeout))
+        })
+        .and_then(|()| {
+            verify_git(
+                &repository,
+                &url,
+                &commit,
+                &environment,
+                &policy.limits().process_output,
+                started,
+                policy.limits().git_timeout,
+            )
+        })
+    });
+    finished.store(true, Ordering::Release);
+    assert!(server.join().expect("join Git HTTPS server") >= 2);
+    result.expect("fetch pinned Git commit over verified HTTPS");
+    assert!(repository.join("run.sh").is_file());
 }
 #[cfg(unix)]
 #[test]

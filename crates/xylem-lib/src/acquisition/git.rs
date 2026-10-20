@@ -116,6 +116,7 @@ pub(super) fn git_environment(policy: &AcquisitionPolicy, repository: &Path) -> 
                                 ("GIT_CONFIG_VALUE_1".to_string(), String::new()),
                                 ("GIT_LFS_SKIP_SMUDGE".to_string(), "1".to_string()),
                                 ("GIT_PROTOCOL_FROM_USER".to_string(), "0".to_string()),
+                                ("GIT_SSL_NO_VERIFY".to_string(), "false".to_string()),
                                 ("GIT_TEMPLATE_DIR".to_string(), templates.display().to_string()),
                                 ("GIT_TERMINAL_PROMPT".to_string(), "0".to_string()),
                                 ("HOME".to_string(), home.display().to_string()),
