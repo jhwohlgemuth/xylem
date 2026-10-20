@@ -66,7 +66,8 @@ the platform matrix remains to be accepted.
   `rustls`. `cargo test -p xylem-lib acquisition::tests --locked --offline`
   passed on macOS arm64 (33 passed, 0 failed).
 - Remaining work: run the platform gates for SEC-04 through SEC-07.
-- Next action: run the Linux x86_64 acquisition CI job and record its result.
+- Next action: give the acquisition CI job Rust 1.98 or newer, rerun the Linux
+  x86_64 suite, and record its result.
 
 # Validation
 
@@ -94,9 +95,15 @@ becomes a separate bounded repair phase.
   exposed that pinned ACORN crates require Rust 1.98, so the workspace minimum
   was corrected to 1.98.
 - GitLab acquisition jobs are configured for Linux x86_64 and native arm64;
-  neither job has a pipeline result yet. The available x86_64 Docker host cannot
-  execute arm64 containers (`exec format error`), so native arm64 CI remains
-  the qualification gate. Windows remains SEC-07.
+  both ran in main pipeline
+  [1034428](https://code.ornl.gov/research-enablement/xylem/-/pipelines/1034428)
+  at `87bea9e` but stopped before tests: the shared CI image has Rust 1.96,
+  while Xylem and pinned ACORN crates require 1.98. The amd64 job
+  [4448171](https://code.ornl.gov/research-enablement/xylem/-/jobs/4448171)
+  ran on RE Runner (oklahoma) and verified ORAS 1.3.4; the arm64 job
+  [4448172](https://code.ornl.gov/research-enablement/xylem/-/jobs/4448172)
+  hit the same compiler gate. Native arm64 CI remains the SEC-05 qualification
+  gate after the toolchain fix. Windows remains SEC-07.
 
 # Acceptance criteria
 
@@ -113,14 +120,14 @@ becomes a separate bounded repair phase.
 
 ## SEC-04 — Qualify Linux x86_64 acquisition
 
-- Status: local container passed; CI job pending
+- Status: in-progress; CI job stopped at the Rust version gate before tests
 - Budget: 5 active hours maximum
 - Prerequisites: SEC-02 and SEC-03, schedulable Linux x86_64 runner
 - Exact write set: `.gitlab-ci.yml`, `scripts/prepare-acquisition-ci.sh`, Linux x86_64 runner
 - Primary integration lock: acquisition platform matrix
 - Outcome: OCI/Git containment, permissions, cache concurrency, and interruption pass on Linux x86_64.
-- Focused validation: x86_64 acquisition CI job and `cargo test -p xylem-lib acquisition::tests --locked`.
-- Handoff: Record host, revision, ORAS version, and job link; remove SEC-04 when accepted.
+- Focused validation: configure the acquisition CI job to use Rust 1.98 or newer, then rerun `cargo test -p xylem-lib acquisition::tests --locked` on the amd64 runner.
+- Handoff: Record the new job's runner, revision, Rust and ORAS versions, and result; remove SEC-04 only after the focused suite passes.
 
 ## SEC-05 — Qualify Linux arm64 acquisition
 
