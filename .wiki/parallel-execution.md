@@ -58,7 +58,7 @@ its write set remains disjoint from CI and documentation integration.
 
 | Phase | Primary lock | Start condition |
 |---|---|---|
-| SEC-04 | Acquisition platform matrix | Run the Linux x86_64 acquisition CI job against accepted Git revision `1f5ed65`. |
+| SEC-04 | Acquisition platform matrix | Reconcile the passing amd64 and arm64 acquisition jobs at `b1e9297`, including the exact CI Rust version, before SEC-06. |
 | ENV-01 | Process adapter | Pinned ACORN 0.4.0 process contract is available. |
 | BRW-01 | Tap validation | Assigned `RE Runner (macbook)` remains online. |
 | APO-01 | A/P/O measurement evidence | Rollout, corpus, and credentials are supplied. |

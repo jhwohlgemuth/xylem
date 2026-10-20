@@ -27,7 +27,7 @@ difficulty describes remaining work.
 | Plan | Quality | Impact | Remaining difficulty | Readiness | Assessment |
 |---|---:|---:|---:|---|---|
 | [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md) | 4/5 | Critical | High | Ready | The workspace and split run path are landed. Process results, immutable contexts, policy, cancellation, and schema integration remain. |
-| [Secure module acquisition](refactors/secure-module-acquisition.md) | 4/5 | Critical | Medium | In progress | Registry authorization and bounded OCI acquisition passed at `de0bd89`; Git HTTPS qualification passed at `1f5ed65`. Platform and audit qualification remain. The prior `quick-xml` blocker is cleared. |
+| [Secure module acquisition](refactors/secure-module-acquisition.md) | 4/5 | Critical | Medium | In progress | Linux amd64 and arm64 acquisition CI passed at `b1e9297`; record the exact CI Rust version for the SEC-04/05 handoff. macOS and Windows qualification and the dependency audit remain. |
 | [Local OCI archive qualification](features/local-oci-bundle-uris.md) | 4/5 | High | Medium | Blocked on acquisition lock | Native directory URIs and the example are landed; archive and sandbox qualification remain. |
 | [Homebrew release activation](features/homebrew-export.md) | 4/5 | High | Low | Ready | The assigned Mac runner is online, but its tap jobs were canceled. A passing macOS job, required two-platform pipeline, merge, and install/upgrade evidence remain. |
 | [A/P/O memory validation](features/memory-aware-scheduling.md) | 5/5 | High | Low | Blocked on rollout decision | The scheduler and A/P evidence are landed. Run the pinned credentialed A/P/O holdout only when selected for rollout. |
