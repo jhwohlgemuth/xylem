@@ -142,7 +142,10 @@ fn serve_git(root: PathBuf, tls: Option<Arc<ServerConfig>>) -> (String, Arc<Atom
                     match &tls {
                         | Some(config) => {
                             let connection = ServerConnection::new(Arc::clone(config)).expect("accept Git HTTPS connection");
-                            serve_git_request(StreamOwned::new(connection, stream), &root);
+                            let mut stream = StreamOwned::new(connection, stream);
+                            serve_git_request(&mut stream, &root);
+                            stream.conn.send_close_notify();
+                            stream.flush().expect("close Git HTTPS connection");
                         }
                         | None => serve_git_request(stream, &root),
                     }
@@ -914,8 +917,9 @@ fn test_pinned_git_https_fetch_uses_verified_tls_and_commit() {
         })
     });
     finished.store(true, Ordering::Release);
-    assert!(server.join().expect("join Git HTTPS server") >= 2);
+    let requests = server.join().expect("join Git HTTPS server");
     result.expect("fetch pinned Git commit over verified HTTPS");
+    assert!(requests >= 2, "Git HTTPS fixture received {requests} requests");
     assert!(repository.join("run.sh").is_file());
 }
 #[cfg(unix)]
