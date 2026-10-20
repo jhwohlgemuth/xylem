@@ -21,15 +21,15 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 | CLI | ENV-06, K8S-03/09/10/11/14 | One owner changes command registration, run orchestration, cancellation, or exit mapping at a time. |
 | Sandbox preparation | OCI-03 | Preserve provider conformance and lifecycle evidence. |
 | Manifest | SEC-07, ENV-06, K8S-02 | Inspect the feature tree and audit the resulting lockfile. |
-| Delivery | SEC-04/05, BRW-02, K8S-15/16/17/18 | Serialize CI, image, and release wiring. |
+| Delivery | BRW-02, K8S-15/16/17/18 | Serialize CI, image, and release wiring. |
 | Documentation | BRW-03, OCI-04, ENV-09, K8S-19 | Land final names and verified behavior before user-facing updates. |
 
 ## Work lanes
 
 ### Lane A: secure module acquisition
 
-- [SEC-04 through SEC-07](refactors/secure-module-acquisition.md): qualify the
-  remaining platform matrix.
+- [SEC-06 through SEC-07](refactors/secure-module-acquisition.md): qualify the
+  remaining macOS and Windows platform paths.
 - [OCI-01 through OCI-04](features/local-oci-bundle-uris.md): archive and
   sandbox work starts when its shared lock is released; it need not await
   unrelated Git or platform results.
@@ -58,7 +58,7 @@ its write set remains disjoint from CI and documentation integration.
 
 | Phase | Primary lock | Start condition |
 |---|---|---|
-| SEC-04 | Acquisition platform matrix | Reconcile the passing amd64 and arm64 acquisition jobs at `b1e9297`, including the exact CI Rust version, before SEC-06. |
+| SEC-06 | Acquisition platform matrix | Run the focused acquisition suite on macOS arm64 with Rust 1.99.0 and ORAS 1.3.4+Homebrew. |
 | ENV-01 | Process adapter | Pinned ACORN 0.4.0 process contract is available. |
 | BRW-01 | Tap validation | Assigned `RE Runner (macbook)` remains online. |
 | APO-01 | A/P/O measurement evidence | Rollout, corpus, and credentials are supplied. |

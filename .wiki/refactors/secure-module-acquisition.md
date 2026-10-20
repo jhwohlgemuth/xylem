@@ -21,7 +21,9 @@ the existing fail-closed policy before retiring the plan.
 
 The acquisition and CI changes were committed at `de0bd89` on 2026-10-19.
 SEC-01 and SEC-02 were rechecked against that revision on 2026-10-19. SEC-03
-HTTPS qualification was committed at `1f5ed65` on 2026-10-19.
+HTTPS qualification was committed at `1f5ed65` on 2026-10-19. SEC-04 and
+SEC-05 Linux qualification is recorded in
+[`security/acquisition-platform-evidence.md`](../../security/acquisition-platform-evidence.md).
 
 - Runtime integration landed on 2026-10-12: remote documents, binaries, and Git modules use immutable acquisition plans, bounded executors, verified cache entries, and durable provenance.
 - Existing tests cover policy and identity validation, bounded HTTP responses, offline cache behavior, cache corruption, SSH environment isolation, and escaping Git symlinks.
@@ -35,7 +37,8 @@ HTTPS qualification was committed at `1f5ed65` on 2026-10-19.
 
 - **Update:** acquisition implementation and qualification tests only where a
   demonstrated gap requires repair; CI platform jobs and audit evidence.
-- **Create:** None; the Git fixtures are committed at `1f5ed65`.
+- **Create:** None for the remaining phases; Linux qualification evidence is
+  preserved in `security/acquisition-platform-evidence.md`.
 - **Delete:** None; the earlier advisory exceptions are already removed.
 
 # Dependencies and ordering
@@ -50,8 +53,8 @@ capability boundary for network, Git, credentials, and subprocess execution.
 The committed implementation already plans and materializes remote documents,
 binaries, Git trees, and OCI trees with typed policy, verified cache identities,
 and durable evidence. The accepted ACORN revision and `quick-xml` 0.41.0 have
-cleared the prior advisory blocker. The local Git HTTPS fixture is validated;
-the platform matrix remains to be accepted.
+cleared the prior advisory blocker. The local Git HTTPS fixture and both Linux
+architectures are validated; macOS and Windows qualification remain.
 
 # Handoff
 
@@ -65,19 +68,13 @@ the platform matrix remains to be accepted.
   verification, and the local HTTPS fixture uses a test CA and dev-only
   `rustls`. `cargo test -p xylem-lib acquisition::tests --locked --offline`
   passed on macOS arm64 (33 passed, 0 failed).
-- Linux qualification evidence: pipeline
-  [1034462](https://code.ornl.gov/research-enablement/xylem/-/pipelines/1034462)
-  at `b1e9297` passed the amd64 acquisition job
-  [4448364](https://code.ornl.gov/research-enablement/xylem/-/jobs/4448364)
-  and native arm64 acquisition job
-  [4448365](https://code.ornl.gov/research-enablement/xylem/-/jobs/4448365)
-  on 2026-10-20. Both ran ORAS 1.3.4 and passed 33 tests. The CI traces do
-  not print the exact Rust version; they identify the `rust:latest` image
-  digest. Record the toolchain version before the SEC-04/05 handoff.
-- Remaining work: complete the SEC-04/05 evidence handoff, then qualify macOS
-  under SEC-06 and Windows plus the dependency audit under SEC-07.
-- Next action: capture the exact Rust version used by the successful Linux
-  image, record SEC-04/05 acceptance, then run SEC-06 on macOS arm64.
+- SEC-04/05 were accepted on 2026-10-20 at `b1e9297`: the amd64 and native
+  arm64 acquisition jobs each passed 33 tests with Rust 1.98.0 and ORAS 1.3.4.
+  Runner names, image digests, version provenance, and job links are preserved
+  in the [durable platform evidence](../../security/acquisition-platform-evidence.md).
+- Remaining work: qualify macOS under SEC-06 and Windows plus the dependency
+  audit under SEC-07.
+- Next action: run SEC-06 on macOS arm64.
 
 # Validation
 
@@ -116,8 +113,9 @@ becomes a separate bounded repair phase.
   that revision; Windows remains SEC-07.
 - The subsequent pipeline
   [1034462](https://code.ornl.gov/research-enablement/xylem/-/pipelines/1034462)
-  passed both acquisition jobs at `b1e9297` with ORAS 1.3.4 and 33 passing
-  tests per architecture. Its CI traces do not show `rustc --version`.
+  passed both acquisition jobs at `b1e9297` with Rust 1.98.0, ORAS 1.3.4,
+  and 33 passing tests per architecture. SEC-04 and SEC-05 are accepted; the
+  image digest and Rust version evidence is recorded outside this plan.
 - The available macOS host is Darwin arm64 with Rust 1.99.0 and ORAS
   1.3.4+Homebrew, ready for the SEC-06 focused validation.
 
@@ -133,28 +131,6 @@ becomes a separate bounded repair phase.
   and advisory audit recorded.
 
 # Execution phases
-
-## SEC-04 — Qualify Linux x86_64 acquisition
-
-- Status: in-progress; focused CI job passed, toolchain evidence and handoff pending
-- Budget: 5 active hours maximum
-- Prerequisites: SEC-02 and SEC-03, schedulable Linux x86_64 runner
-- Exact write set: `.gitlab-ci.yml` if toolchain logging needs a new run; `security/acquisition-platform-evidence.md` for the durable handoff; `.wiki/refactors/secure-module-acquisition.md` for phase closure
-- Primary integration lock: acquisition platform matrix
-- Outcome: OCI/Git containment, permissions, cache concurrency, and interruption pass on Linux x86_64.
-- Focused validation: amd64 job 4448364 passed `cargo test -p xylem-lib acquisition::tests --locked` (33 tests) at `b1e9297` on RE Runner (kronk) with ORAS 1.3.4.
-- Handoff: Record the exact Rust version of the successful image and the job result outside `.wiki`, then remove SEC-04.
-
-## SEC-05 — Qualify Linux arm64 acquisition
-
-- Status: ready for handoff after SEC-04; native focused CI job passed
-- Budget: 5 active hours maximum
-- Prerequisites: SEC-04 and schedulable Linux arm64 runner
-- Exact write set: `security/acquisition-platform-evidence.md` for the durable handoff; `.wiki/refactors/secure-module-acquisition.md` for phase closure
-- Primary integration lock: acquisition platform matrix
-- Outcome: The same acquisition matrix passes natively on Linux arm64.
-- Focused validation: native arm64 job 4448365 passed `cargo test -p xylem-lib acquisition::tests --locked` (33 tests) at `b1e9297` on RE Runner (dante) with ORAS 1.3.4.
-- Handoff: Record the exact Rust version of the successful image and the job result outside `.wiki`, then remove SEC-05 when SEC-04 is accepted.
 
 ## SEC-06 — Qualify macOS acquisition
 

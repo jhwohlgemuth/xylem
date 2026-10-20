@@ -19,7 +19,7 @@ assigned Mac runner -> successful macOS job BRW-01 -> BRW-02 -> BRW-03
 A/P/O rollout + corpus + credentials -> APO-01 -> APO-02
 ```
 
-SEC-01 through SEC-03 are accepted; SEC-04 through SEC-07 qualify the
+SEC-01 through SEC-05 are accepted; SEC-06 and SEC-07 qualify the
 remaining platform paths. OCI-01 needs the
 shared configuration/acquisition lock released, not completion of unrelated
 Git and platform qualification. K8S worker and schema phases require the
@@ -56,7 +56,7 @@ immutable environment, cancellation, and durable-state contracts from ENV.
 | Plan, journal, run store, projection, telemetry, reporter, and TUI | ENV-07/08, K8S-08 | Allocate schema revisions serially and update durable readers and views together. |
 | CLI roots and `commands/run/` | ENV-06, K8S-03/09/10/11/14 | One CLI integration owner at a time; preserve exit mapping and dry-run purity. |
 | Sandbox providers | OCI-03 | Keep the landed provider boundary; run focused conformance for any preparation change. |
-| Delivery files and release images | SEC-04/05, BRW-02, K8S-15/16/17/18 | Serialize CI/release wiring; runner administration owns no repository files. |
+| Delivery files and release images | BRW-02, K8S-15/16/17/18 | Serialize CI/release wiring; runner administration owns no repository files. |
 | User documentation and examples | BRW-03, OCI-04, ENV-09, K8S-19 | Document only accepted behavior and tested commands. |
 
 ## Handoff checklist
