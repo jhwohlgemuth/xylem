@@ -22,14 +22,15 @@ the existing fail-closed policy before retiring the plan.
 The acquisition and CI changes were committed at `de0bd89` on 2026-10-19.
 SEC-01 and SEC-02 were rechecked against that revision on 2026-10-19. SEC-03
 HTTPS qualification was committed at `1f5ed65` on 2026-10-19. SEC-04 and
-SEC-05 Linux qualification is recorded in
+SEC-05 Linux qualification and SEC-06 macOS qualification are recorded in
 [`security/acquisition-platform-evidence.md`](../../security/acquisition-platform-evidence.md).
 
 - Runtime integration landed on 2026-10-12: remote documents, binaries, and Git modules use immutable acquisition plans, bounded executors, verified cache entries, and durable provenance.
 - Existing tests cover policy and identity validation, bounded HTTP responses, offline cache behavior, cache corruption, SSH environment isolation, and escaping Git symlinks.
 - Concurrent acquisition of the same immutable identity now has a focused HTTP/cache publication test, and Git origin normalization has direct coverage.
-- Local OCI and Git acquisition qualification passes on macOS arm64. Linux
-  amd64 and native arm64 acquisition CI each passed 33 tests at `b1e9297`.
+- Local OCI and Git acquisition qualification passes on macOS arm64 at
+  `938d8f1`. Linux amd64 and native arm64 acquisition CI each passed 33 tests
+  at `b1e9297`.
 - Xylem now pins all ACORN crates to accepted revision `0c256bae0ff42da1c96de50fd525146a95965c66`; the lockfile resolves `quick-xml` 0.41.0 and the advisory scan passes.
 - OCI module acquisition now accepts digest-pinned ORAS artifacts as file trees, applies the exact-host policy and existing staging/tree ceilings, and records the OCI manifest digest and extracted tree evidence. ORAS is a host runtime prerequisite.
 
@@ -53,8 +54,8 @@ capability boundary for network, Git, credentials, and subprocess execution.
 The committed implementation already plans and materializes remote documents,
 binaries, Git trees, and OCI trees with typed policy, verified cache identities,
 and durable evidence. The accepted ACORN revision and `quick-xml` 0.41.0 have
-cleared the prior advisory blocker. The local Git HTTPS fixture and both Linux
-architectures are validated; macOS and Windows qualification remain.
+cleared the prior advisory blocker. The local Git HTTPS fixture, both Linux
+architectures, and macOS arm64 are validated; Windows qualification remains.
 
 # Handoff
 
@@ -72,9 +73,12 @@ architectures are validated; macOS and Windows qualification remain.
   arm64 acquisition jobs each passed 33 tests with Rust 1.98.0 and ORAS 1.3.4.
   Runner names, image digests, version provenance, and job links are preserved
   in the [durable platform evidence](../../security/acquisition-platform-evidence.md).
-- Remaining work: qualify macOS under SEC-06 and Windows plus the dependency
-  audit under SEC-07.
-- Next action: run SEC-06 on macOS arm64.
+- SEC-06 was accepted on 2026-10-20 at `938d8f1`: the macOS arm64 acquisition
+  suite passed 33 tests with no skips. The host, tool versions, command, and
+  result are in the [durable platform evidence](../../security/acquisition-platform-evidence.md).
+- Remaining work: qualify Windows and complete the dependency audit under
+  SEC-07.
+- Next action: secure a Windows runner and execute SEC-07.
 
 # Validation
 
@@ -116,8 +120,8 @@ becomes a separate bounded repair phase.
   passed both acquisition jobs at `b1e9297` with Rust 1.98.0, ORAS 1.3.4,
   and 33 passing tests per architecture. SEC-04 and SEC-05 are accepted; the
   image digest and Rust version evidence is recorded outside this plan.
-- The available macOS host is Darwin arm64 with Rust 1.99.0 and ORAS
-  1.3.4+Homebrew, ready for the SEC-06 focused validation.
+- The macOS 26.7.1 arm64 host passed all 33 acquisition tests at `938d8f1`
+  using Rust 1.99.0 and ORAS 1.3.4+Homebrew. SEC-06 is accepted.
 
 # Acceptance criteria
 
@@ -131,27 +135,6 @@ becomes a separate bounded repair phase.
   and advisory audit recorded.
 
 # Execution phases
-
-## SEC-06 — Qualify macOS acquisition
-
-- Status: ready; macOS arm64 prerequisites checked on 2026-10-20
-- Budget: 5 active hours maximum
-- Prerequisites: SEC-03 and a macOS host with ORAS
-- Exact write set: `security/acquisition-platform-evidence.md` for results and
-  this plan for phase closure; `crates/xylem-lib/src/acquisition/tests.rs` only
-  if the focused run exposes a fixture defect
-- Primary integration lock: acquisition platform matrix
-- Outcome: Git, OCI, cache concurrency, containment, and permissions pass on macOS.
-- Preflight: current host is Darwin arm64 with Rust 1.99.0, ORAS
-  1.3.4+Homebrew, Apple Git 2.54.0, OpenSSH 10.3p1, and available `sshd` and
-  `ssh-keygen`. Acquisition source and `Cargo.lock` are unchanged since the
-  Linux passing revision `b1e9297`.
-- Focused validation: run
-  `cargo test -p xylem-lib acquisition::tests --locked --offline` on the macOS
-  host. Confirm the Git HTTPS and SSH, OCI, cache concurrency, containment,
-  permissions, and timeout cases pass without skips.
-- Handoff: Record the host, tested revision, tool versions, command, and
-  result in the durable platform evidence; remove SEC-06 when accepted.
 
 ## SEC-07 — Qualify Windows and close the dependency gate
 

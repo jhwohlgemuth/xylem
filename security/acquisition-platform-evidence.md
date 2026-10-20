@@ -16,4 +16,18 @@ that immutable image with `rustc --version` returned the same Rust version.
 Both traces report the ORAS version and the focused test result. The HTTPS Git
 fixture test passed on both architectures.
 
-SEC-06 (macOS) and SEC-07 (Windows and dependency audit) remain open.
+## SEC-06 macOS arm64
+
+SEC-06 was accepted on 2026-10-20 against commit
+`938d8f195a3667fc35158ced0f1a7e33a6a90314` on a local macOS 26.7.1
+arm64 host. The host used Rust 1.99.0 (`b940084d7`, 2026-09-28),
+ORAS 1.3.4+Homebrew, Apple Git 2.54.0, and OpenSSH 10.3p1.
+
+`cargo test -p xylem-lib acquisition::tests --locked --offline` passed with
+33 tests, 0 failed, and 0 ignored. The passing cases include pinned Git over
+verified HTTPS and explicit SSH, OCI registry and local layout acquisition,
+cache concurrency, symlink containment, executable permissions, and bounded
+timeouts. The suite used local loopback fixtures and did not require an
+external acquisition service.
+
+SEC-07 (Windows and dependency audit) remains open.

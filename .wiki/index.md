@@ -27,7 +27,7 @@ difficulty describes remaining work.
 | Plan | Quality | Impact | Remaining difficulty | Readiness | Assessment |
 |---|---:|---:|---:|---|---|
 | [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md) | 4/5 | Critical | High | Ready | The workspace and split run path are landed. Process results, immutable contexts, policy, cancellation, and schema integration remain. |
-| [Secure module acquisition](refactors/secure-module-acquisition.md) | 4/5 | Critical | Medium | In progress | SEC-04/05 Linux amd64 and arm64 qualification is accepted at `b1e9297`. SEC-06 macOS is next; Windows qualification and the dependency audit remain. |
+| [Secure module acquisition](refactors/secure-module-acquisition.md) | 4/5 | Critical | Medium | In progress | SEC-04/05 Linux and SEC-06 macOS qualification are accepted. SEC-07 Windows qualification and the dependency audit remain. |
 | [Local OCI archive qualification](features/local-oci-bundle-uris.md) | 4/5 | High | Medium | Blocked on acquisition lock | Native directory URIs and the example are landed; archive and sandbox qualification remain. |
 | [Homebrew release activation](features/homebrew-export.md) | 4/5 | High | Low | Ready | The assigned Mac runner is online, but its tap jobs were canceled. A passing macOS job, required two-platform pipeline, merge, and install/upgrade evidence remain. |
 | [A/P/O memory validation](features/memory-aware-scheduling.md) | 5/5 | High | Low | Blocked on rollout decision | The scheduler and A/P evidence are landed. Run the pinned credentialed A/P/O holdout only when selected for rollout. |
@@ -39,8 +39,8 @@ and durable run storage. New runtime work must preserve those contracts.
 
 ## Recommended execution order
 
-1. Run ENV-01 and SEC-06 on disjoint process and acquisition platform locks;
-   record the macOS acquisition result.
+1. Run ENV-01 on the process adapter lock; prepare a Windows runner for
+   SEC-07 acquisition qualification.
 2. Start OCI-01 when SEC releases the configuration/acquisition lock; continue
    the environment phases in order as their locks become available.
 3. Start BRW-01 on the assigned online Mac runner. Run APO-01 only

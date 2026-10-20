@@ -19,8 +19,8 @@ assigned Mac runner -> successful macOS job BRW-01 -> BRW-02 -> BRW-03
 A/P/O rollout + corpus + credentials -> APO-01 -> APO-02
 ```
 
-SEC-01 through SEC-05 are accepted; SEC-06 and SEC-07 qualify the
-remaining platform paths. OCI-01 needs the
+SEC-01 through SEC-06 are accepted; SEC-07 qualifies Windows and closes the
+dependency gate. OCI-01 needs the
 shared configuration/acquisition lock released, not completion of unrelated
 Git and platform qualification. K8S worker and schema phases require the
 immutable environment, cancellation, and durable-state contracts from ENV.
