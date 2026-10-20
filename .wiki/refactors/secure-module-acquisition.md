@@ -6,7 +6,7 @@ difficulty: high
 impact: critical
 package: [xylem-lib, xylem-cli]
 tags: [security, downloads, git, oci, checksum, offline, supply-chain]
-status: in-progress
+status: waiting-on-validation
 execution: phased
 phase_budget_hours: 5
 ---
@@ -78,7 +78,9 @@ architectures, and macOS arm64 are validated; Windows qualification remains.
   result are in the [durable platform evidence](../../security/acquisition-platform-evidence.md).
 - Remaining work: qualify Windows and complete the dependency audit under
   SEC-07.
-- Next action: secure a Windows runner and execute SEC-07.
+- Next action: wait for a published ACORN release newer than 0.4.0 that can
+  create a native Windows Docker runner, then register the Xylem project runner
+  and execute SEC-07.
 
 # Validation
 
@@ -138,11 +140,19 @@ becomes a separate bounded repair phase.
 
 ## SEC-07 — Qualify Windows and close the dependency gate
 
-- Status: planned
+- Status: blocked on a published ACORN release newer than 0.4.0 with native
+  Windows Docker runner support
 - Budget: 5 active hours maximum
-- Prerequisites: SEC-05, SEC-06, and a schedulable Windows runner
+- Prerequisites: SEC-05, SEC-06, the ACORN release gate above, and a local
+  Windows machine with Docker configured for Windows containers
 - Exact write set: Windows runner, `Cargo.toml`, `Cargo.lock`, `deny.toml`
 - Primary integration lock: acquisition platform matrix
 - Outcome: Windows acquisition tests pass and the accepted ACORN feature tree and advisory audit are recorded.
+- Runner command, to run on the Windows machine after the release gate clears:
+
+  ```powershell
+  acorn create runner --no-config --project 15383 --repo code.ornl.gov --description "Xylem Windows Docker" --name xylem-windows-docker --tags windows --runtime docker
+  ```
+
 - Focused validation: Windows acquisition job, `cargo tree -e features`, and `cargo audit` against the accepted lockfile.
 - Handoff: Preserve platform and audit results outside `.wiki`, then retire this plan and its index, network, and lane entries.

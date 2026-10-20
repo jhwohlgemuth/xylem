@@ -20,7 +20,8 @@ A/P/O rollout + corpus + credentials -> APO-01 -> APO-02
 ```
 
 SEC-01 through SEC-06 are accepted; SEC-07 qualifies Windows and closes the
-dependency gate. OCI-01 needs the
+dependency gate after an ACORN release newer than 0.4.0 supports native
+Windows Docker runners. OCI-01 needs the
 shared configuration/acquisition lock released, not completion of unrelated
 Git and platform qualification. K8S worker and schema phases require the
 immutable environment, cancellation, and durable-state contracts from ENV.

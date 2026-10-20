@@ -29,7 +29,8 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 ### Lane A: secure module acquisition
 
 - [SEC-07](refactors/secure-module-acquisition.md): qualify Windows and close
-  the dependency gate.
+  the dependency gate after a published ACORN release newer than 0.4.0 adds
+  native Windows Docker runner support.
 - [OCI-01 through OCI-04](features/local-oci-bundle-uris.md): archive and
   sandbox work starts when its shared lock is released; it need not await
   unrelated Git or platform results.
@@ -58,7 +59,6 @@ its write set remains disjoint from CI and documentation integration.
 
 | Phase | Primary lock | Start condition |
 |---|---|---|
-| SEC-07 | Acquisition platform matrix | Start when a schedulable Windows runner is available; Linux and macOS acquisition qualification is accepted. |
 | ENV-01 | Process adapter | Pinned ACORN 0.4.0 process contract is available. |
 | BRW-01 | Tap validation | Assigned `RE Runner (macbook)` remains online. |
 | APO-01 | A/P/O measurement evidence | Rollout, corpus, and credentials are supplied. |
