@@ -1,3 +1,11 @@
+use clap_verbosity_flag::Verbosity;
+pub use failure::RunFailure;
+use std::path::PathBuf;
+use xylem_lib::execution::ExecutionLimits;
+use xylem_lib::run::RunCancellation;
+use xylem_lib::script::ContainerCleanup;
+use xylem_lib::ReporterType;
+
 mod dispatch;
 mod execution;
 mod executor;
@@ -5,15 +13,6 @@ mod failure;
 mod preparation;
 mod progress;
 mod reporting;
-
-use clap_verbosity_flag::Verbosity;
-use std::path::PathBuf;
-use xylem_lib::execution::ExecutionLimits;
-use xylem_lib::run::RunCancellation;
-use xylem_lib::script::ContainerCleanup;
-use xylem_lib::ReporterType;
-
-pub use failure::RunFailure;
 
 struct RunRequest<'a> {
     artifact_output: &'a Option<PathBuf>,
@@ -31,6 +30,7 @@ struct RunRequest<'a> {
     cli_skip_verify_requirements: bool,
     config: &'a Option<PathBuf>,
     limits: ExecutionLimits,
+    module_index: Option<usize>,
     no_progress: bool,
     report_output: &'a Option<PathBuf>,
     reporter: &'a [ReporterType],
@@ -61,6 +61,7 @@ pub fn run(
     no_progress: bool,
     cancellation: Option<RunCancellation>,
     retain_workspace: bool,
+    module_index: Option<usize>,
 ) -> Result<(), RunFailure> {
     let request = RunRequest {
         artifact_output,
@@ -78,6 +79,7 @@ pub fn run(
         cli_skip_verify_requirements,
         config,
         limits,
+        module_index,
         no_progress,
         report_output,
         reporter,

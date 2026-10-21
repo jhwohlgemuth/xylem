@@ -1,10 +1,11 @@
 # Command-line reference
 
-The `xylem` executable exposes headless `run` and interactive `tui` commands:
+The `xylem` executable exposes headless `run` and `export` commands and an interactive `tui` command:
 
 ```text
 xylem [OPTIONS] [COMMAND]
 xylem [OPTIONS] run [CONFIG] [RUN OPTIONS]
+xylem [OPTIONS] export --gitlab [CONFIG] [EXPORT OPTIONS]
 xylem [OPTIONS] tui [CONFIG]
 ```
 
@@ -30,6 +31,7 @@ The `run` command accepts:
 
 - an optional positional `CONFIG` path using JSON, strict JSONC, YAML, or YML;
 - `--input <LIST>` for comma-delimited workflow inputs;
+- `--module-index <N>` to run one zero-based module from the resolved workflow;
 - `--artifact-output <PATH>` to override the workflow artifact root and default
   `OUTPUT_DIRECTORY`;
 - `--dry-run` to describe work without executing module commands;
@@ -107,17 +109,38 @@ report, marker, or artifact. Consequently, `--report-output` is rejected with
 in-memory plan. `--gpu-monitor` is likewise represented in the plan without
 probing the host.
 
-When `CONFIG` is omitted, Xylem checks `.xylem.json`, `.xylem.jsonc`,
-`.xylem.yaml`, and `.xylem.yml` in that order. `run` reports a usage error when
-none exists; `tui` still opens retained history. Run the generated help for
+`xylem export --gitlab [CONFIG]` writes `.gitlab-ci.yml` for a local workflow.
+The generated pipeline runs from GitLab's **Run pipeline** action and assigns
+each resolved executable module to its own ordered stage. Jobs pass the
+configured output directory forward as an artifact and run that module through
+`xylem run --module-index`. The first job checks that the committed GitLab file
+still matches the source configuration. Use `--output <PATH>` to choose another
+GitLab file, `--image <IMAGE>` to choose the job image, `--force` to replace an
+existing file, or `--check` to compare the existing file without changing it.
+The image must provide Cargo, curl, and SHA-256 tooling on Linux x86_64;
+generated jobs install the corresponding published Xylem release and any
+declared Conda or Pixi tools. Modules that share files must use the configured
+output directory for those files.
+
+GitLab export accepts local binary and script modules, including leaves in
+local nested configurations, and explicit input lists. All source modules and
+the output directory must be inside the repository. Remote modules, sandboxed
+workflows, and dynamic input selection are not supported by this exporter.
+Commit the generated file along with the workflow configuration and modules.
+
+When `CONFIG` is omitted, `run` and `export` check `.xylem.json`,
+`.xylem.jsonc`, `.xylem.yaml`, and `.xylem.yml` in that order. They report an
+error when none exists; `tui` still opens retained history. Run the generated help for
 version-specific spelling and defaults:
 
 ```shell
 xylem --help
+xylem export --help
 xylem run --help
 xylem tui --help
 ```
 
-The checked-in [`xylem --help`](./generated/xylem-help.txt) and
+The checked-in [`xylem --help`](./generated/xylem-help.txt),
+[`xylem export --help`](./generated/xylem-export-help.txt), and
 [`xylem run --help`](./generated/xylem-run-help.txt) snapshots are regenerated
 with `make help` and compared with the compiled CLI in tests.

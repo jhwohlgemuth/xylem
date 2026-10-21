@@ -34,7 +34,7 @@ fn main() -> Void {
     #[cfg(feature = "tui")]
     let dashboard_log = match &args.command {
         | Some(Commands::Tui { .. }) => Some(xylem_tui::DiagnosticLog::default()),
-        | Some(Commands::Run { .. }) | None => None,
+        | Some(Commands::Export { .. }) | Some(Commands::Run { .. }) | None => None,
     };
     #[cfg(feature = "tui")]
     match dashboard_log.clone() {
@@ -52,10 +52,19 @@ fn main() -> Void {
     #[cfg(not(feature = "tui"))]
     init_tracing(args.env.as_ref(), &args.verbose, None, true)?;
     match &args.command {
+        | Some(Commands::Export {
+            check,
+            config,
+            force,
+            gitlab: _,
+            image,
+            output,
+        }) => commands::export::gitlab(config.as_ref(), output, image.as_deref(), *force, *check).map_err(|why| color_eyre::eyre::eyre!(why)),
         | Some(Commands::Run {
             artifact_output,
             container_cleanup,
             config,
+            module_index,
             reporter,
             report_output,
             retain_workspace,
@@ -93,6 +102,7 @@ fn main() -> Void {
             args.no_progress,
             None,
             *retain_workspace,
+            *module_index,
         ) {
             | Ok(()) => Ok(()),
             | Err(failure) => {
@@ -137,6 +147,7 @@ fn main() -> Void {
                         true,
                         Some(child_cancellation),
                         false,
+                        None,
                     )
                     .map_err(|why| why.to_string());
                     let _ = sender.send(result);

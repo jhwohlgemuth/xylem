@@ -28,6 +28,17 @@ cd examples/multi-module
 xylem -vvvv run
 ```
 
+To run the same modules as separate GitLab jobs, generate a CI file from this
+directory and commit it with the workflow:
+
+```shell
+xylem export --gitlab
+```
+
+Each job passes `output/` to the next job as an artifact. The configured
+module commands use `OUTPUT_DIRECTORY` so those paths remain valid when Xylem
+copies modules into its run workspace.
+
 On success, `output/final.txt` contains:
 
 ```text

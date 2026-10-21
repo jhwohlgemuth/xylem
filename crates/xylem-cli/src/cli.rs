@@ -11,6 +11,27 @@ pub const DEFAULT_CONFIG_NAMES: [&str; 4] = [".xylem.json", ".xylem.jsonc", ".xy
 #[command(long_about = None)]
 /// Top-level Xylem commands.
 pub enum Commands {
+    /// Export a workflow to another runner's configuration.
+    Export {
+        /// Path to configuration file; discovers .xylem.* in the current directory when omitted
+        #[arg(value_name = "CONFIG", value_hint = clap::ValueHint::FilePath)]
+        config: Option<PathBuf>,
+        /// Write a GitLab CI configuration
+        #[arg(long, required = true)]
+        gitlab: bool,
+        /// Output path for the generated configuration
+        #[arg(long, default_value = ".gitlab-ci.yml", value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
+        output: PathBuf,
+        /// GitLab job image
+        #[arg(long, value_name = "IMAGE")]
+        image: Option<String>,
+        /// Replace an existing generated configuration
+        #[arg(long, conflicts_with = "check")]
+        force: bool,
+        /// Fail when the existing output differs from the generated configuration
+        #[arg(long)]
+        check: bool,
+    },
     /// Run workflow using configuration file
     ///
     /// ```text
@@ -26,6 +47,9 @@ pub enum Commands {
         /// Path to configuration file
         #[arg(value_name = "CONFIG", value_hint = clap::ValueHint::FilePath)]
         config: Option<PathBuf>,
+        /// Run only this zero-based resolved module position
+        #[arg(long, value_name = "N")]
+        module_index: Option<usize>,
         /// Reporter(s) used for the final durable summary
         #[arg(short, long, value_enum, value_delimiter = ',', num_args = 1.., default_value = "console")]
         reporter: Vec<ReporterType>,

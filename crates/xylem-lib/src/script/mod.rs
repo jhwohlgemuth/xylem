@@ -42,7 +42,6 @@ pub enum ContainerCleanup {
     #[display("never")]
     Never,
 }
-
 #[derive(Clone, Copy, Debug, Display, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainerRuntime {
@@ -58,7 +57,6 @@ pub enum ContainerRuntime {
     #[display("unknown")]
     Unknown,
 }
-
 /// Startup strategy for a container created by Xylem.
 #[derive(Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -73,7 +71,6 @@ pub enum ContainerStartup {
     #[display("keep_alive")]
     KeepAlive,
 }
-
 /// Values that from Serde that can be set as environment variables
 #[derive(Clone, Debug, Display)]
 pub enum EnvironmentValue {
@@ -82,7 +79,6 @@ pub enum EnvironmentValue {
     Bool(bool),
     Unknown,
 }
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Instruction {
@@ -104,7 +100,6 @@ pub enum Instruction {
     /// ```
     ExecFormat(Vec<String>),
 }
-
 #[derive(Clone, Debug, Serialize, Deserialize, Display, EnumIs)]
 #[serde(rename_all = "lowercase")]
 pub enum ModuleLanguage {
@@ -116,7 +111,6 @@ pub enum ModuleLanguage {
     Python,
     Rust,
 }
-
 /// Designates module type which specifies necessary attributes
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -134,12 +128,10 @@ pub enum ModuleType {
         uri: Location,
     },
 }
-
 #[derive(Clone, Debug, EnumIs, PartialEq, Eq)]
 pub enum ModuleUri<'a> {
-    /// File URIs can be absolute or relative.
-    ///
-    /// Examples:
+    /// File URIs can be absolute or relative
+    /// ### Examples
     ///
     /// Absolute file path
     /// ```json
@@ -155,9 +147,8 @@ pub enum ModuleUri<'a> {
     /// }
     /// ```
     File(PathBuf),
-    /// URLs can use HTTP, HTTPS, or SSH schemes.
-    ///
-    /// Examples:
+    /// URLs can use HTTP, HTTPS, or SSH schemes
+    /// ### Examples
     ///
     /// URL (HTTPS)
     /// ```json
@@ -178,7 +169,6 @@ pub enum ModuleUri<'a> {
     Oci(String),
     Unknown(String),
 }
-
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum RawModuleType {
@@ -188,14 +178,12 @@ enum RawModuleType {
     Configuration,
     Script,
 }
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum TemplateAttribute {
     Path(String),
     Template(Box<ScriptTemplate>),
 }
-
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub enum TemplateType {
     /// Example: `"some <%= value %>"`
@@ -212,7 +200,6 @@ pub enum TemplateType {
     Mustache,
     Unknown,
 }
-
 #[derive(Clone, Debug, Deserialize, Display, EnumIs, FromStr, PartialEq, Serialize)]
 pub enum VirtualEnvironmentManager {
     /// [Conda package manager](https://github.com/conda/conda)
@@ -254,10 +241,8 @@ pub struct Command {
     /// Container struct that contains details about the associated containerized environment
     pub container: Option<ContainerEnvironment>,
 }
-
 /// Struct for using and sharing containerized environments
-///
-/// Examples:
+/// ### Examples
 /// ```ignore
 /// use xylem_lib::script::ContainerEnvironment;
 ///
@@ -298,7 +283,6 @@ pub struct ContainerEnvironment {
     /// Maximum number of seconds to wait for readiness.
     pub startup_timeout_seconds: Option<u64>,
 }
-
 /// Explicit bind mount for a managed container.
 #[derive(Builder, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[builder(start_fn(name = init))]
@@ -313,7 +297,6 @@ pub struct ContainerMount {
     #[serde(default = "default_true")]
     pub read_only: bool,
 }
-
 #[derive(Clone, Debug, Display, Serialize)]
 #[display("{name}")]
 pub struct Module {
@@ -336,7 +319,6 @@ pub struct Module {
     pub template: Option<TemplateAttribute>,
     pub completion: Option<Completion>,
 }
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawModule {
@@ -354,19 +336,14 @@ struct RawModule {
     uri: Location,
     variables: Option<Map<String, Value>>,
 }
-
 /// Script struct
-///
-/// Uses [bon](https://elastio.github.io/bon/) crate to implement builder pattern.
-///
-/// bon provides intuitive default values and allows for streamlined API.
-///
-/// Example:
+/// ### Example
 /// ```
+/// use acorn_cmd::args;
 /// use xylem_lib::script::*;
 ///
 /// let command = Command::init().name("echo".to_string()).build();
-/// let arguments = vec!["hello".to_string()];
+/// let arguments = args!["hello"];
 /// let script = Script::init().command(command).arguments(arguments).build();
 /// ```
 #[derive(Builder, Clone, Debug, Display)]
@@ -390,7 +367,6 @@ pub struct Script {
     #[builder(default = true)]
     pub forward_container_env: bool,
 }
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScriptTemplate {
@@ -400,14 +376,12 @@ pub struct ScriptTemplate {
     pub virtual_environment: Option<VirtualEnvironment>,
     pub arguments: Instruction,
 }
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StringTemplate {
     pub value: String,
     pub template_type: TemplateType,
 }
-
 #[derive(Builder, Clone, Debug, Deserialize, Display, PartialEq, Serialize)]
 #[display("{name}")]
 #[builder(start_fn(name = init))]
@@ -418,13 +392,9 @@ pub struct VirtualEnvironment {
     #[builder(default=VirtualEnvironmentManager::Conda)]
     pub manager: VirtualEnvironmentManager,
 }
-
 impl Command {
     /// Check if a command exists in current command line context
-    ///
-    /// Can also be used to check if a command exists within a [conda](https://conda.io/projects/conda/en/latest/user-guide/getting-started.html) virtual environment
-    ///
-    /// # Examples
+    /// ### Example
     /// ```ignore
     /// use xylem_lib::Command;
     ///
@@ -453,7 +423,6 @@ impl Command {
         }
     }
 }
-
 impl ContainerEnvironment {
     pub(crate) fn resolved_startup(&self) -> (ContainerStartup, Vec<OsString>) {
         match (self.keep_alive, &self.command) {
@@ -463,7 +432,6 @@ impl ContainerEnvironment {
         }
     }
 }
-
 impl EnvironmentValue {
     pub const PREFIX: &'static str = "xylem";
     /// Resolve `{{ VARIABLE }}` references in namespaced environment values.
@@ -569,7 +537,6 @@ impl EnvironmentValue {
         values.into_iter().for_each(|(key, value)| set_var(key, value));
     }
 }
-
 impl Module {
     /// Resolve the module's explicitly configured or auto-detected virtual environment.
     pub fn resolve_virtual_environment(&self, working_dir: &str) -> Result<Option<VirtualEnvironment>, TemplateError> {
@@ -585,8 +552,17 @@ impl Module {
             | None => ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(working_dir)),
         }
     }
+    /// Whether the inline script template uses the requested virtual environment manager.
+    pub fn uses_manager(&self, manager: VirtualEnvironmentManager) -> bool {
+        match &self.template {
+            | Some(TemplateAttribute::Template(template)) => template
+                .virtual_environment
+                .as_ref()
+                .is_some_and(|environment| environment.manager == manager),
+            | _ => false,
+        }
+    }
 }
-
 impl<'de> Deserialize<'de> for Module {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -631,13 +607,11 @@ impl<'de> Deserialize<'de> for Module {
         )
     }
 }
-
 impl ModuleLanguage {
     pub const fn is_supported(&self) -> bool {
         self.is_generic() || self.is_python()
     }
 }
-
 impl ModuleUri<'_> {
     pub fn absolutize(self, source: &Path) -> Option<Location> {
         match self {
@@ -686,7 +660,6 @@ impl ModuleUri<'_> {
         }
     }
 }
-
 impl Script {
     pub fn ensure_relative(mut self) -> Script {
         let path = PathBuf::from(self.command.name);
@@ -694,17 +667,15 @@ impl Script {
         self
     }
     /// Expand environment variables in the script arguments from environment
-    ///
-    /// This method does not set environment variables, but only interpolates the values within the script arguments
-    ///
     /// ### Example
     /// ```
+    /// use acorn_cmd::args;
     /// use xylem_lib::script::*;
     ///
     /// // Environment: ANSWER=42
     /// std::env::set_var("_XYLEM_ANSWER", "42");
     /// let command = Command::init().name("echo".to_string()).build();
-    /// let arguments = vec!["{{ ANSWER }}".to_string()];
+    /// let arguments = args!["{{ ANSWER }}"];
     /// let script = Script::init().command(command).arguments(arguments).build().expand_arguments();
     /// assert_eq!(script.to_string(), "echo 42");
     /// ```
@@ -726,17 +697,15 @@ impl Script {
         self
     }
     /// Expand environment variables in the script arguments from a HashMap parameter
-    ///
-    /// This method does not set environment variables, but only interpolates the values within the script arguments
-    ///
-    /// Example:
+    /// ### Example
     /// ```
+    /// use acorn_cmd::args;
     /// use xylem_lib::script::*;
     /// use std::collections::HashMap;
     ///
     /// let envs = HashMap::from([("ANSWER".to_string(), "42".to_string())]);
     /// let command = Command::init().name("echo".to_string()).build();
-    /// let arguments = vec!["hello".to_string()];
+    /// let arguments = args!["hello"];
     /// let script: Script = Script::init()
     ///     .command(command)
     ///     .arguments(arguments)
@@ -768,7 +737,6 @@ impl Script {
     /// Create a script from a Module.
     ///
     /// Tries to create script from template interface. Resolves template interface from following:
-    ///
     /// - IF `template` attribute exists in workflow configuration file
     ///   - path -> Script::from_path
     ///   - object -> Script::from_template
@@ -864,6 +832,7 @@ impl Script {
     /// You can easily import the script with
     /// ```
     /// use xylem_lib::script::*;
+    ///
     /// let template = ScriptTemplate {
     ///     command: "echo".to_string(),
     ///     container: None,
@@ -919,7 +888,7 @@ impl Script {
                     | VirtualEnvironmentManager::Poetry => args!["run", self.command.name.clone()],
                     | _ => {
                         error!(name = manager.to_string(), "=> {} Virtual environment manager", Label::not_found());
-                        vec![]
+                        args![]
                     }
                 }
                 .into_iter()
@@ -996,25 +965,17 @@ impl Script {
     pub fn maybe_git_clone(url: String, current_dir: String) -> Option<Script> {
         let location = Location::from(&url);
         let command = Command::init().name("git".to_string()).build();
-        let arguments = vec![
-            "-c".to_string(),
-            "http.followRedirects=false".to_string(),
-            "clone".to_string(),
-            url,
-            location.hash(),
-        ];
+        let arguments = args!["-c", "http.followRedirects=false", "clone", url, location.hash()];
         let script = Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir);
         Some(script)
     }
     pub fn python_default() -> Script {
         let command = Command::init().name("python".to_string()).build();
-        let arguments = vec![
-            "-m".to_string(),
-            "lib".to_string(),
-            "--input_directory".to_string(),
-            "{{ INPUT_DIRECTORY }}".to_string(),
-            "--output_directory".to_string(),
-            "{{ OUTPUT_DIRECTORY }}".to_string(),
+        let arguments = args![
+            "-m",
+            "lib",
+            ("--input_directory", "{{ INPUT_DIRECTORY }}"),
+            ("--output_directory", "{{ OUTPUT_DIRECTORY }}"),
         ];
         Script::init().command(command).arguments(arguments).build()
     }
@@ -1143,33 +1104,35 @@ impl Script {
     /// Set virtual environment for the script
     ///
     /// Provides builder interface and returns reference to self
-    ///
     /// ### Examples
     /// For a given script,
     /// ```
+    /// use acorn_cmd::args;
     /// use xylem_lib::script::*;
     ///
     /// let command = Command::init().name("python".to_string()).build();
-    /// let arguments = vec!["-m".to_string(), "lib".to_string()];
+    /// let arguments = args!["-m", "lib"];
     /// let script = Script::init().command(command).arguments(arguments).build();
     /// ```
     ///
     /// Run with no virtual environment
     /// ```no_run
+    /// use acorn_cmd::args;
     /// use xylem_lib::script::*;
     ///
     /// let command = Command::init().name("python".to_string()).build();
-    /// let arguments = vec!["-m".to_string(), "lib".to_string()];
+    /// let arguments = args!["-m", "lib"];
     /// let script = Script::init().command(command).arguments(arguments).build();
     /// let output = script.with_virtual_environment(None).run();
     /// ```
     ///
     /// Run using "module-a" Conda virtual environment (basically executes script with `conda run -n <name>`)
     /// ```no_run
+    /// use acorn_cmd::args;
     /// use xylem_lib::script::*;
     ///
     /// let command = Command::init().name("python".to_string()).build();
-    /// let arguments = vec!["-m".to_string(), "lib".to_string()];
+    /// let arguments = args!["-m", "lib"];
     /// let script = Script::init().command(command).arguments(arguments).build();
     /// let virtual_environment = VirtualEnvironment::init()
     ///     .name("module-a".to_string())
@@ -1182,7 +1145,6 @@ impl Script {
         self
     }
 }
-
 impl ScriptTemplate {
     pub fn from_path(path: PathBuf) -> Result<ScriptTemplate, TemplateError> {
         read_to_string(&path)
@@ -1233,7 +1195,6 @@ impl ScriptTemplate {
         })
     }
 }
-
 impl StringTemplate {
     pub fn new(value: &str) -> StringTemplate {
         Self {
@@ -1262,7 +1223,6 @@ impl StringTemplate {
     /// Check if a string is a handlebars template
     ///
     /// Template looks like `"{{ VARIABLE_NAME }}"`
-    ///
     /// - Template must start with "{{" and end with "}}"
     /// - Template variable name must be in upper snake case format
     /// - Template variable name must not contain any spaces
@@ -1353,7 +1313,6 @@ impl From<&str> for VirtualEnvironmentManager {
         }
     }
 }
-
 /// Add forward slash to end of folder path
 fn add_dot_slash(path: PathBuf) -> PathBuf {
     if path.starts_with("./") {
@@ -1362,7 +1321,6 @@ fn add_dot_slash(path: PathBuf) -> PathBuf {
         PathBuf::from(format!("./{}", path.display()))
     }
 }
-
 fn create_environment_script(
     current_dir: String,
     manager: &str,
@@ -1403,16 +1361,12 @@ fn create_environment_script(
         }
     }
 }
-
 fn create_pixi_environment_script(current_dir: String, environment: VirtualEnvironment) -> Option<Script> {
     match find_pixi_manifest(PathBuf::from(&current_dir)) {
         | Some(manifest_path) => {
             info!(path = %manifest_path.display(), "=> {} Pixi manifest file", Label::found());
             let command = Command::init().name("pixi".to_string()).build();
-            let arguments = vec!["install", "--environment", &environment.name]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<_>>();
+            let arguments = args!["install", "--environment", &environment.name];
             Some(Script::init().command(command).arguments(arguments).build().with_current_dir(current_dir))
         }
         | None => {
@@ -1421,15 +1375,12 @@ fn create_pixi_environment_script(current_dir: String, environment: VirtualEnvir
         }
     }
 }
-
 fn default_container_runtime() -> ContainerRuntime {
     ContainerRuntime::Docker
 }
-
 fn default_true() -> bool {
     true
 }
-
 fn find_pixi_manifest(path: PathBuf) -> Option<PathBuf> {
     let pixi_toml = path.join("pixi.toml");
     match pixi_toml.is_file() {
@@ -1449,18 +1400,14 @@ fn find_pixi_manifest(path: PathBuf) -> Option<PathBuf> {
         }
     }
 }
-
 /// Get list of Conda virtual environments through Conda.
 pub fn get_conda_environment_list() -> Vec<String> {
     get_environment_list("conda")
 }
-
 /// Get name of Conda virtual environment from manifest file
 ///
 /// Not super sophisticated. "name" needs to be first line in environment.yml
-///
-/// Example:
-///
+/// ### Example
 /// `environment.yml`
 /// ```yaml
 /// name: module-a
@@ -1488,10 +1435,9 @@ pub fn get_conda_environment_name(path: PathBuf) -> Option<String> {
         | _ => None,
     }
 }
-
 fn get_environment_list(manager: &str) -> Vec<String> {
     let command = Command::init().name(manager.to_string()).build();
-    let arguments = vec!["env".to_string(), "list".to_string()];
+    let arguments = args!["env", "list"];
     let script = Script::init().command(command.clone()).arguments(arguments).build();
     if command.test() {
         script
@@ -1513,17 +1459,14 @@ fn get_environment_list(manager: &str) -> Vec<String> {
         vec![]
     }
 }
-
 /// Get list of Conda-format virtual environments through Mamba.
 pub fn get_mamba_environment_list() -> Vec<String> {
     get_environment_list("mamba")
 }
-
 /// Return the deterministic runtime name for a managed container.
 pub fn managed_container_name(logical_name: &str, run_id: &str) -> String {
     format!("xylem-{logical_name}-{run_id}")
 }
-
 pub(crate) fn module_working_directory(uri: &str, root: Option<&PathBuf>) -> Option<String> {
     let location = Location::from(uri);
     match ModuleUri::from(&location) {

@@ -3,7 +3,7 @@ use crate::cli::DEFAULT_CONFIG_NAMES;
 use acorn_host::config::resolve_config_path;
 use acorn_schema::validation::Validate;
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::{absolute, Path, PathBuf};
 use xylem_lib::acquisition::{AcquisitionCache, AcquisitionLimits, AcquisitionPolicy};
 use xylem_lib::config::{Config, ConfigOptions, ConfigReadError};
 use xylem_lib::plan::ExecutionPlan;
@@ -149,9 +149,17 @@ fn prepare_config(request: &RunRequest<'_>, config_path: PathBuf) -> Result<Prep
             match (request.artifact_output.is_some(), preview.output.as_ref()) {
                 | (false, Some(output)) if Path::new(output).is_relative() => config_path
                     .parent()
-                    .map(|parent| parent.join(output).components().collect::<PathBuf>())
-                    .and_then(|output| output.to_str().map(str::to_string))
-                    .ok_or_else(|| RunFailure::new(exitcode::DATAERR, "workflow output path must be valid UTF-8"))
+                    .ok_or_else(|| RunFailure::new(exitcode::DATAERR, "workflow configuration has no parent directory"))
+                    .and_then(|parent| {
+                        absolute(parent.join(output))
+                            .map_err(|why| RunFailure::new(exitcode::DATAERR, format!("resolve workflow output path — {why}")))
+                    })
+                    .and_then(|output| {
+                        output
+                            .to_str()
+                            .map(str::to_string)
+                            .ok_or_else(|| RunFailure::new(exitcode::DATAERR, "workflow output path must be valid UTF-8"))
+                    })
                     .map(|output| preview.output = Some(output)),
                 | _ => Ok(()),
             }
@@ -225,6 +233,22 @@ fn prepare_config(request: &RunRequest<'_>, config_path: PathBuf) -> Result<Prep
                 .validate()
                 .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
                 .map(|()| resolved)
+        })
+        .and_then(|mut resolved| match request.module_index {
+            | Some(index) => match resolved.config.modules.get(index).cloned() {
+                | Some(module) => {
+                    resolved.config.modules = vec![module];
+                    Ok(resolved)
+                }
+                | None => Err(RunFailure::new(
+                    exitcode::USAGE,
+                    format!(
+                        "module index {index} is out of range for {} resolved modules",
+                        resolved.config.modules.len()
+                    ),
+                )),
+            },
+            | None => Ok(resolved),
         })
         .and_then(|resolved| {
             resolved

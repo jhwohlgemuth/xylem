@@ -24,7 +24,7 @@
                     "--message",
                     "{{ MESSAGE }}",
                     "--output",
-                    "../output/conda.txt"
+                    "{{ OUTPUT_DIRECTORY }}/conda.txt"
                 ]
             },
             "completion": {
@@ -48,9 +48,9 @@
                     "-m",
                     "lib.run",
                     "--input",
-                    "../output/conda.txt",
+                    "{{ OUTPUT_DIRECTORY }}/conda.txt",
                     "--output",
-                    "../output/pixi.txt"
+                    "{{ OUTPUT_DIRECTORY }}/pixi.txt"
                 ]
             },
             "completion": {
@@ -68,8 +68,8 @@
                 "command": "sh",
                 "arguments": [
                     "lib/run.sh",
-                    "../output/pixi.txt",
-                    "../output/script.txt"
+                    "{{ OUTPUT_DIRECTORY }}/pixi.txt",
+                    "{{ OUTPUT_DIRECTORY }}/script.txt"
                 ]
             },
             "completion": {
@@ -83,10 +83,10 @@
             "type": "binary",
             "uri": "file:./binary/finalize",
             "template": {
-                "command": "finalize",
+                "command": "module",
                 "arguments": [
-                    "../output/script.txt",
-                    "../output/final.txt"
+                    "{{ OUTPUT_DIRECTORY }}/script.txt",
+                    "{{ OUTPUT_DIRECTORY }}/final.txt"
                 ]
             },
             "completion": {

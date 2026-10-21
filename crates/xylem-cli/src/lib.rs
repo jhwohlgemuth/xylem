@@ -146,6 +146,7 @@ pub fn run_example(config: &str) -> Void {
         true,
         None,
         false,
+        None,
     ) {
         | Ok(()) => Ok(()),
         | Err(failure) => {

@@ -15,6 +15,9 @@ Arguments:
           Path to configuration file
 
 Options:
+      --module-index <N>
+          Run only this zero-based resolved module position
+
   -r, --reporter <REPORTER>...
           Reporter(s) used for the final durable summary
 
@@ -27,6 +30,11 @@ Options:
       --artifact-output <PATH>
           Workflow artifact root; overrides configuration output
 
+  -t, --threads <N>
+          Maximum number of Rayon workers used by Xylem (does not limit child tools)
+
+          [default: 10]
+
       --container-cleanup <CONTAINER_CLEANUP>
           Override cleanup policy for containers created by Xylem
 
@@ -35,30 +43,25 @@ Options:
           - on-success: Remove the container only after a successful run
           - never:      Retain the container after the run
 
-  -t, --threads <N>
-          Maximum number of Rayon workers used by Xylem (does not limit child tools)
-
-          [default: 10]
-
       --env <PATH>
           Load environment variables from a specific dotenv file
+
+      --no-progress
+          Disable interactive workflow progress indicators
 
   -o, --report-output <PATH>
           Directory for the durable journal and file-based reports
 
           [aliases: --output]
 
-      --no-progress
-          Disable interactive workflow progress indicators
-
       --retain-workspace
           Keep the disposable run workspace for diagnostics
 
-  -i, --input <LIST>
-          Value(s) to use as INPUT variable in workflow
-
       --sandbox-policy <PATH>
           Trusted operator policy used only by workflows with `sandbox: true`
+
+  -i, --input <LIST>
+          Value(s) to use as INPUT variable in workflow
 
   -d, --dry-run
           Execute workflow dry run (do not actually make changes to environment)
