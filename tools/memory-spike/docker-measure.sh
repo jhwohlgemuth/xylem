@@ -8,7 +8,7 @@ manifest=${MEASUREMENT_MANIFEST:-manifest.json}
 memory_limit=${MEMORY_LIMIT:-64g}
 repository=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 results_directory=${RESULTS_DIRECTORY:-results}
-workload_root=${WORKLOAD_ROOT:-/home/o9w/xylem-memory}
+workload_root=${WORKLOAD_ROOT:?Set WORKLOAD_ROOT to the absolute path on the Docker host}
 results_root=${workload_root}/${results_directory}
 
 case "${manifest}" in

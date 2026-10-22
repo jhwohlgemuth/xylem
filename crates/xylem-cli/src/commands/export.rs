@@ -3,15 +3,16 @@ extern crate alloc;
 
 use crate::cli::DEFAULT_CONFIG_NAMES;
 use acorn_cmd::args;
+use acorn_core::util::StringConversion;
 use acorn_host::config::resolve_config_path;
 use acorn_schema::validation::Validate;
 use alloc::collections::{BTreeMap, BTreeSet};
+use core::iter::once;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::env;
 use std::ffi::OsString;
 use std::fs::{canonicalize, create_dir_all, read, read_to_string, rename, write};
-use core::iter::once;
 use std::path::{Component, Path, PathBuf};
 use xylem_lib::config::{Config, InputAttribute};
 use xylem_lib::script::{Module, ModuleType, ModuleUri, VirtualEnvironmentManager};
@@ -252,7 +253,10 @@ fn render_yaml(config: &Config, config_path: &Path, output_path: &Path, image: &
         .modules
         .iter()
         .enumerate()
-        .map(|(index, module)| format!("xylem-{index:03}-{}", slug(&module.name)))
+        .map(|(index, module)| {
+            let slug = module.name.sluggify();
+            format!("xylem-{index:03}-{}", if slug.is_empty() { "module" } else { &slug })
+        })
         .collect::<Vec<_>>();
     let stages = names.iter().enumerate().map(|(index, _)| format!("xylem-{index:03}")).collect::<Vec<_>>();
     let export_check = shell_command(
@@ -347,20 +351,6 @@ fn shell_quote(value: &str) -> String {
     match unquoted {
         | true => value.to_string(),
         | false => format!("'{}'", value.replace('\'', "'\\''")),
-    }
-}
-fn slug(value: &str) -> String {
-    let slug = value
-        .chars()
-        .map(|character| match character.is_ascii_alphanumeric() {
-            | true => character.to_ascii_lowercase(),
-            | false => '-',
-        })
-        .collect::<String>();
-    let slug = slug.trim_matches('-').to_string();
-    match slug.is_empty() {
-        | true => "module".to_string(),
-        | false => slug,
     }
 }
 fn source_digest(sources: &BTreeSet<PathBuf>, root: &Path) -> Result<String, String> {

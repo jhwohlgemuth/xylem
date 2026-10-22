@@ -36,7 +36,7 @@ expires. These are Xylem-owned exceptions; the ledger links the RustSec
 advisories but, by project decision, does not create ACORN issues.
 
 Current exceptions are limited to dependencies required by the retained ACORN
-integration and runtime stack. They are owned by `@o9w` and must be reviewed by
+integration and runtime stack. They are owned by `@research-enablement` and must be reviewed by
 2026-10-28.
 
 ## Updating the baseline

@@ -14,9 +14,8 @@ use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
 use crate::sandbox::EffectiveSandboxPolicy;
 use crate::script::*;
 pub use crate::selection::{InputSelection, SelectionEngine, SelectionOptions, SelectionRequest};
-use crate::util::absolute_path;
 use crate::workspace::{materialize, InputWorkspace};
-use acorn_core::util::{MimeType, ParseOptionsExt, SemanticVersion};
+use acorn_core::util::{MimeType, ParseOptionsExt, SemanticVersion, StringConversion};
 use acorn_core::{Location, Scheme};
 use acorn_host::config::{read_jsonc, ConfigError as AcornConfigError};
 use acorn_host::fs::{make_executable, SafePath};
@@ -723,11 +722,11 @@ impl Config {
                                         .clone()
                                         .ok_or_else(|| "root directory is not configured".to_string())
                                         .and_then(|root| {
-                                            let root = absolute_path(root);
+                                            let root = root.to_absolute_path();
                                             let working_dir = match ModuleUri::from(uri) {
                                                 | ModuleUri::File(path) => path
                                                     .parent()
-                                                    .map(absolute_path)
+                                                    .map(|path| path.to_absolute_path())
                                                     .ok_or_else(|| format!("binary module URI has no parent directory: {uri}")),
                                                 | ModuleUri::Url(_) | ModuleUri::Oci(_) => Ok(root.clone()),
                                                 | ModuleUri::Unknown(_) => Err(format!("module URI is invalid: {uri}")),

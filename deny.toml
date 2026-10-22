@@ -14,7 +14,7 @@ yanked = "deny"
 unmaintained = "all"
 unsound = "all"
 ignore = [
-    { id = "RUSTSEC-2026-0097", reason = "Review by 2026-10-28; rand is transitive through retained runtime dependencies" },
+    { id = "RUSTSEC-2026-0097", reason = "@research-enablement review by 2026-10-28; rand is transitive through retained runtime dependencies" },
 ]
 unused-ignored-advisory = "deny"
 

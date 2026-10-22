@@ -24,6 +24,7 @@ doctest = false
 
 [dependencies]
 acorn-cmd = { workspace = true }
+acorn-core = { workspace = true }
 acorn-host = { workspace = true }
 acorn-schema = { workspace = true }
 clap = { workspace = true, features = ["color", "derive", "error-context", "help", "std", "suggestions", "unstable-doc", "usage"] }

@@ -2,16 +2,16 @@
   "artifacts": {
     "bytes": 0,
     "bytes_per_input": 42949672960,
-    "destination": "/home/o9w/xylem-memory/geospatial-sandbox-gate/docker-artifacts",
+    "destination": "/home/xylem/xylem-memory/geospatial-sandbox-gate/docker-artifacts",
     "entries": 0,
     "entries_per_input": 10000,
-    "error": "invalid sandbox policy: completion output pattern /home/o9w/xylem-memory/geospatial-sandbox-gate/.xylem-exCLF1uRav-artifacts/merged/test-case-WV02-medium-mid-high/**/*_MODA.TIF matched no files",
+    "error": "invalid sandbox policy: completion output pattern /home/xylem/xylem-memory/geospatial-sandbox-gate/.xylem-exCLF1uRav-artifacts/merged/test-case-WV02-medium-mid-high/**/*_MODA.TIF matched no files",
     "status": "failed"
   },
   "schema_version": 10,
   "run_id": "exCLF1uRav",
   "configuration": {
-    "path": "/home/o9w/xylem-memory/geospatial-sandbox-gate/config/config.json",
+    "path": "/home/xylem/xylem-memory/geospatial-sandbox-gate/config/config.json",
     "id": "module-a-p-v2-geospatial-sandbox-gate",
     "version": "1.0.3"
   },
@@ -49,14 +49,14 @@
   "finished_at": 1791585693566,
   "duration": 3794,
   "status": "failed",
-  "error": "finish sandbox provider session — invalid sandbox policy: completion output pattern /home/o9w/xylem-memory/geospatial-sandbox-gate/.xylem-exCLF1uRav-artifacts/merged/test-case-WV02-medium-mid-high/**/*_MODA.TIF matched no files",
+  "error": "finish sandbox provider session — invalid sandbox policy: completion output pattern /home/xylem/xylem-memory/geospatial-sandbox-gate/.xylem-exCLF1uRav-artifacts/merged/test-case-WV02-medium-mid-high/**/*_MODA.TIF matched no files",
   "gpu_monitoring": null,
   "containers": [],
   "inputs": [
     {
       "index": 0,
       "input_id": "input-000000",
-      "value": "/home/o9w/xylem-memory/corpus/test-case-WV02-medium-mid-high",
+      "value": "/home/xylem/xylem-memory/corpus/test-case-WV02-medium-mid-high",
       "state": "succeeded",
       "error": null,
       "started_at": 1791585690073,

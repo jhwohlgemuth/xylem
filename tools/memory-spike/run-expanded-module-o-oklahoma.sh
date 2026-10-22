@@ -12,7 +12,7 @@ context=${DOCKER_CONTEXT:-default}
 memory_limit=${MEMORY_LIMIT:-96g}
 minimum_available_bytes=${MINIMUM_AVAILABLE_BYTES:-85899345920}
 results_directory=${RESULTS_DIRECTORY:-results-module-o-v2-$(date -u +%Y%m%dT%H%M%SZ)}
-workload_root=${WORKLOAD_ROOT:-/home/o9w/xylem-memory}
+workload_root=${WORKLOAD_ROOT:-${HOME}/xylem-memory}
 
 [ "$(uname -s)" = Linux ] || fail 'run this script on Oklahoma, not through a remote Docker context'
 [ "$(uname -m)" = x86_64 ] || fail 'native x86_64 is required'

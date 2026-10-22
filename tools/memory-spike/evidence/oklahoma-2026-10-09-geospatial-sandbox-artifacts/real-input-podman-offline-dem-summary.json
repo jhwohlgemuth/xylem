@@ -2,7 +2,7 @@
   "artifacts": {
     "bytes": "29017626.673828125KB",
     "bytes_per_input": "41943040KB",
-    "destination": "/home/o9w/xylem-memory/geospatial-sandbox-gate/artifacts-dem-cache-podman-v4",
+    "destination": "/home/xylem/xylem-memory/geospatial-sandbox-gate/artifacts-dem-cache-podman-v4",
     "entries": 42,
     "entries_per_input": 10000,
     "error": null,
@@ -56,7 +56,7 @@
     {
       "index": 0,
       "input_id": "input-000000",
-      "value": "/home/o9w/xylem-memory/corpus/test-case-WV02-medium-mid-high",
+      "value": "/home/xylem/xylem-memory/corpus/test-case-WV02-medium-mid-high",
       "state": "succeeded",
       "error": null,
       "started_at": 1791667149204,
@@ -89,7 +89,7 @@
     {
       "index": 1,
       "input_id": "input-000001",
-      "value": "/home/o9w/xylem-memory/corpus/test-case-wv03-large-mid-low",
+      "value": "/home/xylem/xylem-memory/corpus/test-case-wv03-large-mid-low",
       "state": "succeeded",
       "error": null,
       "started_at": 1791667149205,

@@ -93,18 +93,18 @@ harness only; it does not support a production estimator decision.
 `GSED/common/imagery-processing/test-cases` group and pins the Module A and
 Module P revisions used by the workflow. The corpus must be materialized
 without Git metadata or `expected_a.tiff` under
-`/home/o9w/xylem-memory/corpus`, and the pinned module checkouts must be under
-`/home/o9w/xylem-memory/modules`. An empty `modules/data` directory is the
+`$WORKLOAD_ROOT/corpus`, and the pinned module checkouts must be under
+`$WORKLOAD_ROOT/modules`. An empty `modules/data` directory is the
 mountpoint for the shared DEM and atmospheric-data cache.
 
 ```shell
-tools/memory-spike/docker-measure.sh
+WORKLOAD_ROOT=/absolute/path/on/docker-host/xylem-memory tools/memory-spike/docker-measure.sh
 ```
 
 The script builds the amd64/arm64 measurement image on the selected Ubuntu
 Docker context, uses `oklahoma` by default, and retains outputs and evidence in
-`/home/o9w/xylem-memory/results` on the host. Override `DOCKER_CONTEXT`,
-`WORKLOAD_ROOT`, `CACHE_VOLUME`, or `MEMORY_LIMIT` when needed. It refuses to
+`$WORKLOAD_ROOT/results` on the host. Set `WORKLOAD_ROOT` to the host's absolute
+workload path; override `DOCKER_CONTEXT`, `CACHE_VOLUME`, or `MEMORY_LIMIT` when needed. It refuses to
 overwrite a results directory containing `observations.jsonl`. A host bind is
 used so automated Docker image and volume cleanup cannot discard the evidence.
 
@@ -119,6 +119,8 @@ The accepted 2026-10-03 Oklahoma run, sanitized observations, generated
 analysis, and operator scope are retained in
 `evidence/oklahoma-2026-10-03/`. The GO decision applies only to the pinned
 Module A plus Module P sequence and measured input-byte range.
+Home directories in committed evidence are anonymized as `/home/xylem`;
+set `WORKLOAD_ROOT` to the actual directory on the measurement host.
 
 ### Stage the offline ASTER DEM cache
 
@@ -135,7 +137,7 @@ Set `STAGE_HOST` to stage through SSH, for example:
 
 ```shell
 STAGE_HOST=oklahoma tools/memory-spike/stage-aster-gdem.sh \
-  /home/o9w/xylem-memory/geospatial-sandbox-gate/modules/module-a/data/DEM
+  /absolute/path/on/oklahoma/geospatial-sandbox-gate/modules/module-a/data/DEM
 ```
 
 Apply `module-a-offline-dem.patch` to the pinned Module A source used by the
@@ -149,12 +151,12 @@ MODIS and VIIRS listings instead of passing a missing response to the parsers.
 Store `EARTHDATA_API_TOKEN` in the ignored repository-root `.env`, then run:
 
 ```shell
-tools/memory-spike/docker-measure-module-o.sh
+WORKLOAD_ROOT=/absolute/path/on/docker-host/xylem-memory tools/memory-spike/docker-measure-module-o.sh
 ```
 
 The wrapper forwards only `EARTHDATA_API_TOKEN` to the measurement container,
 uses `real/manifest-module-o.json`, and writes evidence under
-`/home/o9w/xylem-memory/results-module-o`. Module O runs through a measurement
+`$WORKLOAD_ROOT/results-module-o`. Module O runs through a measurement
 wrapper that fails unless every non-empty Module P image produces a non-empty
 orthorectified image. This closes the pinned Module O revision's worker-failure
 reporting gap for the spike without changing that external repository.
@@ -178,16 +180,16 @@ limit, selects `manifest-module-o.json`, and creates a timestamped results
 directory without overwriting prior evidence:
 
 ```shell
-cd /home/o9w/dev/re/xylem
+cd /path/to/xylem
 nohup tools/memory-spike/run-expanded-module-o-oklahoma.sh \
-  > /home/o9w/xylem-memory/expanded-module-o.log 2>&1 < /dev/null &
+  > "$HOME/xylem-memory/expanded-module-o.log" 2>&1 < /dev/null &
 printf 'measurement pid: %s\n' "$!"
 ```
 
 Follow progress from another SSH session:
 
 ```shell
-tail -f /home/o9w/xylem-memory/expanded-module-o.log
+tail -f "$HOME/xylem-memory/expanded-module-o.log"
 docker --context default ps --filter name=xylem-memory-measure
 ```
 
@@ -197,7 +199,7 @@ decision without exposing the token:
 
 ```shell
 jq '{decision, estimators: [.estimators[] | {decision, key, selected_model}]}' \
-  /home/o9w/xylem-memory/results-module-o-v2-*/analysis.json
+  "$HOME"/xylem-memory/results-module-o-v2-*/analysis.json
 ```
 
 Do not enable A/P/O input concurrency unless the fresh individual and

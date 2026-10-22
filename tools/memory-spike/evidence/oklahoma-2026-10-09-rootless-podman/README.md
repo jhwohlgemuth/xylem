@@ -2,7 +2,7 @@
 
 This directory retains the successful synthetic collector-conformance run on
 Oklahoma from 2026-10-09. The host was native x86_64 Linux and Podman 3.4.4 ran
-locally as the unprivileged `o9w` user with cgroup v2 CPU, memory, and PID
+locally as an unprivileged user with cgroup v2 CPU, memory, and PID
 controllers delegated.
 
 The run used the locally built baseline workload

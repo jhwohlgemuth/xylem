@@ -1,9 +1,9 @@
 use crate::acquisition::{AcquisitionEvidence, AcquisitionPolicy};
 use crate::completion::Completion;
 use crate::error::{ModuleLoadError, ProcessError, TemplateError};
-use crate::util::absolute_path;
 use crate::util::constants::{RE_HANDLEBARS, RE_TEMPLATE_SPACES};
 use acorn_cmd::{args, CommandError, CommandSpec, ExecutionOptions, ExecutionResult, OutputStream};
+use acorn_core::util::StringConversion;
 use acorn_core::{Location, Scheme};
 use acorn_host::fs::read_text;
 use acorn_host::terminal::Label;
@@ -936,7 +936,7 @@ impl Script {
     }
     /// Create a virtual environment from an associated Conda or Pixi manifest.
     pub fn maybe_create_virtual_environment(parent: String, environment: Option<VirtualEnvironment>) -> Result<Option<Script>, TemplateError> {
-        let current_dir = absolute_path(PathBuf::from(parent));
+        let current_dir = PathBuf::from(parent).to_absolute_path();
         environment
             .map_or_else(
                 || ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(&current_dir)),
@@ -1470,9 +1470,9 @@ pub fn managed_container_name(logical_name: &str, run_id: &str) -> String {
 pub(crate) fn module_working_directory(uri: &str, root: Option<&PathBuf>) -> Option<String> {
     let location = Location::from(uri);
     match ModuleUri::from(&location) {
-        | ModuleUri::Url(_) => Some(root.map_or_else(|| location.hash(), |path| absolute_path(path.join(location.hash())))),
-        | ModuleUri::Oci(_) => root.map(|path| absolute_path(path.clone())),
-        | ModuleUri::File(path) => Some(absolute_path(path)),
+        | ModuleUri::Url(_) => Some(root.map_or_else(|| location.hash(), |path| path.join(location.hash()).to_absolute_path())),
+        | ModuleUri::Oci(_) => root.map(|path| path.to_absolute_path()),
+        | ModuleUri::File(path) => Some(path.to_absolute_path()),
         | ModuleUri::Unknown(_) => None,
     }
 }
