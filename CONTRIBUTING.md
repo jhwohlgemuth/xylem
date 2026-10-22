@@ -82,11 +82,49 @@ do not broaden those exceptions when adding public API.
   requires their Rust targets plus PowerShell.
 - `make changelog` refreshes `CHANGELOG.md` using `git-cliff` and a GitLab token.
 
-Version-tag pipelines publish both crates and submit a formula update to the
-organization Homebrew tap. Configure `CARGO_REGISTRY_TOKEN` as a masked,
-protected crates.io token and `HOMEBREW_TAP_ACCESS_TOKEN` as a masked,
-protected token with `write_repository` access. Optional tap overrides are
-`HOMEBREW_TAP_BRANCH` and `HOMEBREW_TAP_FORMULA_PATH`.
+### Preparing and publishing a release
+
+Releases use semantic versioning and are published by GitLab CI. A workspace
+version change in `Cargo.toml` on the default branch builds and uploads the
+release binaries, then creates the `vX.Y.Z` tag. The tag pipeline publishes
+`xylem-lib`, `xylem-tui`, and `xylem-cli` in dependency order and submits a
+Homebrew formula merge request.
+
+1. Set the workspace version, internal dependency pins, citation, and lockfile:
+
+   ```shell
+   make release-version VERSION=1.0.4
+   ```
+
+2. Generate and review the release changelog entry:
+
+   ```shell
+   make changelog-release
+   ```
+
+   This requires `GITLAB_TOKEN` in `.env` and `git-cliff`. Include the reviewed
+   `CHANGELOG.md` in the release commit.
+
+3. Run the project checks and verify release metadata:
+
+   ```shell
+   make lint test
+   make check-release-crates check-version
+   ```
+
+4. Commit the version and changelog changes and merge them into `main`. Watch
+   the default-branch pipeline build and validate the artifacts, upload them,
+   and create the tag. Then watch the tag pipeline publish the crates and open
+   the Homebrew tap merge request. Merge the formula only after its tap checks
+   pass.
+
+Do not create the tag manually; the default-branch release pipeline creates it
+after the binary uploads succeed.
+
+Configure `CARGO_REGISTRY_TOKEN` as a masked, protected crates.io token and
+`HOMEBREW_TAP_ACCESS_TOKEN` as a masked, protected token with
+`write_repository` access. Optional tap overrides are `HOMEBREW_TAP_BRANCH`
+and `HOMEBREW_TAP_FORMULA_PATH`.
 
 See [`scripts/homebrew/README.md`](./scripts/homebrew/README.md) for the formula
 contract, runner requirements, and local validation commands.

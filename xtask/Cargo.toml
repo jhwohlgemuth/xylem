@@ -8,3 +8,7 @@ license.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+serde_json = { workspace = true, features = ["std"] }
+toml_edit = "0.25.4"

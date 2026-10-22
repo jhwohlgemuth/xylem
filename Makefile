@@ -30,6 +30,16 @@ changelog:
 	@git pull origin main --tags
 	@git-cliff --output CHANGELOG.md --gitlab-token ${GITLAB_TOKEN}
 
+changelog-release:
+	@git pull origin main --tags
+	@git-cliff --output CHANGELOG.md --gitlab-token ${GITLAB_TOKEN} --latest
+
+check-release-crates:
+	@cargo xtask check-release-crates
+
+check-version:
+	@cargo xtask check-version
+
 cover:
 	@cargo tarpaulin --out lcov --line --skip-clean --no-dead-code --engine llvm --profile coverage --locked
 
@@ -89,6 +99,10 @@ publish-book: book
 publish-crates:
 	@cargo xtask publish-crates
 
+release-version:
+	@cargo xtask release-version $(VERSION)
+	@$(MAKE) check-release-crates check-version
+
 release-checksums:
 	@$(call WRITE_SHA256,./bin/xylem-v$(VERSION))
 	@$(call WRITE_SHA256,./bin/xylem-v$(VERSION).exe)
@@ -128,6 +142,9 @@ TASKS = \
 	book-write \
 	build \
 	changelog \
+	changelog-release \
+	check-release-crates \
+	check-version \
 	clean \
 	cover \
 	coverage \
@@ -141,6 +158,7 @@ TASKS = \
 	publish-book \
 	publish-crates \
 	release-checksums \
+	release-version \
 	setup \
 	test \
 	test-ci \

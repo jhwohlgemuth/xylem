@@ -26,9 +26,10 @@ checksums, and formula drift.
 ## CI publication
 
 Release binaries are uploaded before GitLab creates the version tag. The tag
-pipeline publishes `xylem-lib` and `xylem-cli` to crates.io in dependency order,
-verifies both binary artifacts, renders the formula from the published CLI crate,
-and runs the publication commands only for `vMAJOR.MINOR.PATCH` tags. Those commands
+pipeline publishes `xylem-lib`, `xylem-tui`, and `xylem-cli` to crates.io in
+dependency order, verifies both binary artifacts, renders the formula from the
+published CLI crate, and runs the publication commands only for
+`vMAJOR.MINOR.PATCH` tags. Those commands
 initialize a newly created empty tap when needed and push
 `release/xylem-vMAJOR.MINOR.PATCH` with GitLab push options that open a merge
 request against the configured tap branch. Formula updates are never pushed

@@ -3989,6 +3989,7 @@ dependencies = [
  "indexmap",
  "toml_datetime 1.1.1+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 
@@ -4852,10 +4853,14 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 [[package]]
 name = "xtask"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "toml_edit",
+]
 
 [[package]]
 name = "xylem-cli"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "acorn-cmd",
  "acorn-core",
@@ -4883,7 +4888,7 @@ dependencies = [
 
 [[package]]
 name = "xylem-lib"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "acorn-cmd",
  "acorn-core",
@@ -4924,7 +4929,7 @@ dependencies = [
 
 [[package]]
 name = "xylem-memory-spike"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "exitcode",
  "serde",
@@ -4933,7 +4938,7 @@ dependencies = [
 
 [[package]]
 name = "xylem-tui"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "crossterm",
  "ratatui",
