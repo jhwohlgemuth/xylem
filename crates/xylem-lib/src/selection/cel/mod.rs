@@ -439,13 +439,15 @@ impl Function {
                 length: 0,
                 records: 1,
             }),
-            | Self::Double | Self::Int | Self::Size | Self::UInt => Ok(Estimate {
-                bytes: 16,
-                cost,
-                kind: ValueKind::Number,
-                length: 0,
-                records: 1,
-            }),
+            | Self::Double | Self::Int | Self::Size | Self::UInt | Self::Divide | Self::Modulo | Self::Multiply | Self::Negate | Self::Subtract => {
+                Ok(Estimate {
+                    bytes: 16,
+                    cost,
+                    kind: ValueKind::Number,
+                    length: 0,
+                    records: 1,
+                })
+            }
             | Self::String => Ok(Estimate {
                 bytes: values.first().map_or(64, |value| value.bytes.max(64)),
                 cost,
@@ -482,13 +484,6 @@ impl Function {
                 },
             )),
             | Self::Add => Estimate::add(values, cost),
-            | Self::Divide | Self::Modulo | Self::Multiply | Self::Negate | Self::Subtract => Ok(Estimate {
-                bytes: 16,
-                cost,
-                kind: ValueKind::Number,
-                length: 0,
-                records: 1,
-            }),
             | Self::Unsupported(name) => Err(SelectionError::Check(format!("cannot estimate function {name}"))),
         }
     }
@@ -1123,7 +1118,9 @@ fn resolve_root(
                                     .and_then(|root_string| {
                                         let first_candidate = state.items.len();
                                         state.visit_directory(index, &root, "", 0, recursive, limits).map(|mut state| {
-                                            state.items[first_candidate..].sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+                                            if let Some(items) = state.items.get_mut(first_candidate..) {
+                                                items.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+                                            }
                                             (state, root_string)
                                         })
                                     })

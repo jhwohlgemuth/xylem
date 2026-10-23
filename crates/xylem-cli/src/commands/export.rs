@@ -272,8 +272,9 @@ fn render_yaml(config: &Config, config_path: &Path, output_path: &Path, image: &
     );
     let jobs = names
         .iter()
+        .zip(stages.iter())
         .enumerate()
-        .map(|(index, name)| {
+        .map(|(index, (name, stage))| {
             let script = (index == 0)
                 .then(|| export_check.clone())
                 .into_iter()
@@ -293,10 +294,10 @@ fn render_yaml(config: &Config, config_path: &Path, output_path: &Path, image: &
             (
                 name.clone(),
                 GitLabJob {
-                    stage: stages[index].clone(),
-                    needs: index.checked_sub(1).map(|previous| {
+                    stage: stage.clone(),
+                    needs: index.checked_sub(1).and_then(|previous| names.get(previous)).map(|previous| {
                         vec![GitLabNeed {
-                            job: names[previous].clone(),
+                            job: previous.clone(),
                             artifacts: true,
                         }]
                     }),

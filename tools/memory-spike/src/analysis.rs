@@ -441,21 +441,29 @@ fn median(mut values: Vec<f64>) -> f64 {
     values.sort_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
     match values.len() {
         | 0 => 0.0,
-        | length if length % 2 == 0 => (values[length.div_ceil(2).saturating_sub(1)] + values[length / 2]) / 2.0,
-        | length => values[length / 2],
+        | length if length % 2 == 0 => {
+            let middle = length / 2;
+            let lower = values.get(middle.saturating_sub(1)).copied().unwrap_or_default();
+            let upper = values.get(middle).copied().unwrap_or_default();
+            (lower + upper) / 2.0
+        }
+        | length => values.get(length / 2).copied().unwrap_or_default(),
     }
 }
 fn percentile(mut values: Vec<u64>, percentile: usize) -> u64 {
     values.sort_unstable();
     match values.len() {
         | 0 => 0,
-        | length => {
-            values[length
-                .saturating_mul(percentile)
-                .div_ceil(100)
-                .saturating_sub(1)
-                .min(length.saturating_sub(1))]
-        }
+        | length => values
+            .get(
+                length
+                    .saturating_mul(percentile)
+                    .div_ceil(100)
+                    .saturating_sub(1)
+                    .min(length.saturating_sub(1)),
+            )
+            .copied()
+            .unwrap_or_default(),
     }
 }
 fn ceil_to_u64(value: f64) -> u64 {
@@ -560,6 +568,7 @@ fn validate_observation_set(subject_id: &str, observations: &[&Observation], rep
 
 #[cfg(test)]
 mod tests {
+    #![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
     use super::*;
     use crate::model::{Case, Estimator, HostIdentity, InputFeatures, Manifest, Mix, ModuleIdentity, Observation, RasterFeature, SubjectType};
     use std::path::PathBuf;

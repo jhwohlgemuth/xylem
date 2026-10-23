@@ -319,8 +319,7 @@ impl AcquisitionSource {
             | Self::Git { .. } => "git",
             | Self::Oci { reference, .. } if reference.starts_with("oci-layout:") => "oci-layout",
             | Self::Oci { .. } => "oci",
-            | Self::HttpBinary { .. } => "binary",
-            | Self::HttpBinaryUnverified { .. } => "binary",
+            | Self::HttpBinary { .. } | Self::HttpBinaryUnverified { .. } => "binary",
             | Self::HttpDocument { .. } => "document",
             | Self::Local { .. } => "local",
         }

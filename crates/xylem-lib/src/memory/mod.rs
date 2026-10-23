@@ -206,20 +206,22 @@ impl MemoryAdmissionQueue {
             | Some(capacity) => {
                 let values = reservations
                     .iter()
-                    .position(|reservation| reservation.checked_bytes().filter(|value| *value > 0).is_none());
+                    .enumerate()
+                    .find(|(_, reservation)| reservation.checked_bytes().filter(|value| *value > 0).is_none());
                 match values {
-                    | Some(index) => Err(MemoryAdmissionError::InvalidReservation {
+                    | Some((index, reservation)) => Err(MemoryAdmissionError::InvalidReservation {
                         index,
-                        reservation: reservations[index].clone(),
+                        reservation: reservation.clone(),
                     }),
                     | None => match reservations
                         .iter()
-                        .position(|reservation| reservation.checked_bytes().is_some_and(|required| required > capacity))
+                        .enumerate()
+                        .find(|(_, reservation)| reservation.checked_bytes().is_some_and(|required| required > capacity))
                     {
-                        | Some(index) => Err(MemoryAdmissionError::Oversized {
+                        | Some((index, reservation)) => Err(MemoryAdmissionError::Oversized {
                             budget,
                             index,
-                            reservation: reservations[index].clone(),
+                            reservation: reservation.clone(),
                         }),
                         | None => Ok(Self {
                             active: BTreeMap::new(),

@@ -24,23 +24,30 @@ pub(crate) fn canonical_version(version: &str) -> Result<String, String> {
 
 pub(crate) fn check_release_crates() -> Result<(), String> {
     metadata().and_then(|metadata| {
-        let members = metadata["workspace_members"]
-            .as_array()
+        let members = metadata
+            .get("workspace_members")
+            .and_then(serde_json::Value::as_array)
             .ok_or_else(|| "cargo metadata omitted workspace members".to_string())?
             .iter()
             .filter_map(serde_json::Value::as_str)
             .collect::<BTreeSet<_>>();
-        let expected = metadata["packages"]
-            .as_array()
+        let expected = metadata
+            .get("packages")
+            .and_then(serde_json::Value::as_array)
             .ok_or_else(|| "cargo metadata omitted packages".to_string())?
             .iter()
-            .filter(|package| package["id"].as_str().is_some_and(|id| members.contains(id)))
-            .filter(|package| match &package["publish"] {
-                | serde_json::Value::Null => true,
-                | serde_json::Value::Array(registries) => registries.iter().any(|registry| registry == "crates-io"),
+            .filter(|package| {
+                package
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|id| members.contains(id))
+            })
+            .filter(|package| match package.get("publish") {
+                | None | Some(serde_json::Value::Null) => true,
+                | Some(serde_json::Value::Array(registries)) => registries.iter().any(|registry| registry == "crates-io"),
                 | _ => false,
             })
-            .filter_map(|package| package["name"].as_str().map(str::to_string))
+            .filter_map(|package| package.get("name").and_then(serde_json::Value::as_str).map(str::to_string))
             .collect::<BTreeSet<_>>();
         let configured = CRATES.iter().map(|name| name.to_string()).collect::<BTreeSet<_>>();
         let missing = expected.difference(&configured).cloned().collect::<Vec<_>>();
@@ -119,12 +126,21 @@ pub(crate) fn release_version(version: &str) -> Result<(), String> {
         | true => {}
         | false => return Err("CITATION.cff has no version field".to_string()),
     }
-    root["workspace"]["package"]["version"] = value(&version);
-    members.iter_mut().for_each(|(_, manifest)| {
-        internal_dependency_names(manifest, &packages)
-            .into_iter()
-            .for_each(|name| manifest["dependencies"][&name]["version"] = value(&version));
-    });
+    root.get_mut("workspace")
+        .and_then(|workspace| workspace.get_mut("package"))
+        .and_then(|package| package.get_mut("version"))
+        .ok_or_else(|| "workspace package version is missing".to_string())
+        .map(|item| *item = value(&version))?;
+    members.iter_mut().try_for_each(|(_, manifest)| {
+        internal_dependency_names(manifest, &packages).into_iter().try_for_each(|name| {
+            manifest
+                .get_mut("dependencies")
+                .and_then(|dependencies| dependencies.get_mut(&name))
+                .and_then(|dependency| dependency.get_mut("version"))
+                .ok_or_else(|| format!("dependency {name} version is missing"))
+                .map(|item| *item = value(&version))
+        })
+    })?;
     let updated_citation = citation
         .lines()
         .map(|line| match line.starts_with("version: ") {

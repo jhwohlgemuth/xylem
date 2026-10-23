@@ -1,3 +1,4 @@
+#![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
 use super::artifact::{ArtifactInput, ArtifactManager};
 use super::lifecycle::{archive_export_arguments, archive_mount, OciResourceSpec};
 use super::reconcile::is_eligible;

@@ -486,11 +486,10 @@ impl core::error::Error for PlanError {
         match self {
             | Self::Acquisition(error) => Some(error),
             | Self::Completion(error) => Some(error),
-            | Self::Input(_) => None,
+            | Self::Input(_) | Self::Sandbox(_) => None,
             | Self::MemoryAdmission(error) => Some(error),
             | Self::MemoryCalculation(error) => Some(error),
             | Self::MemoryEstimator(error) => Some(error),
-            | Self::Sandbox(_) => None,
             | Self::Selection(error) => Some(error),
             | Self::Validation(error) => Some(error),
         }
@@ -501,11 +500,10 @@ impl fmt::Display for PlanError {
         match self {
             | Self::Acquisition(error) => error.fmt(formatter),
             | Self::Completion(error) => error.fmt(formatter),
-            | Self::Input(error) => formatter.write_str(error),
+            | Self::Input(error) | Self::Sandbox(error) => formatter.write_str(error),
             | Self::MemoryAdmission(error) => error.fmt(formatter),
             | Self::MemoryCalculation(error) => error.fmt(formatter),
             | Self::MemoryEstimator(error) => error.fmt(formatter),
-            | Self::Sandbox(error) => formatter.write_str(error),
             | Self::Selection(error) => error.fmt(formatter),
             | Self::Validation(error) => error.fmt(formatter),
         }

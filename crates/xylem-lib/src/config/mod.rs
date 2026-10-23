@@ -471,7 +471,9 @@ impl Config {
                         .map(|prepared| {
                             let mut workspace_modules = BTreeMap::new();
                             prepared.into_iter().for_each(|(index, module, path)| {
-                                self.modules[index].acquisition = module.acquisition;
+                                if let Some(target) = self.modules.get_mut(index) {
+                                    target.acquisition = module.acquisition;
+                                }
                                 workspace_modules.insert(index, path);
                             });
                             self.options = Some(options.with_workspace_modules(workspace_modules));
@@ -550,7 +552,9 @@ impl Config {
             .map(|prepared| {
                 let mut workspace_modules = BTreeMap::new();
                 prepared.into_iter().for_each(|(index, module, path)| {
-                    self.modules[index].acquisition = module.acquisition;
+                    if let Some(target) = self.modules.get_mut(index) {
+                        target.acquisition = module.acquisition;
+                    }
                     workspace_modules.insert(index, path);
                 });
                 self.options = Some(options.with_workspace_modules(workspace_modules));
@@ -1336,13 +1340,13 @@ impl Config {
         match (path.is_empty(), source, ModuleUri::from(location), policy) {
             | (true, _, _, _)
             | (_, ConfigurationSource::File(_) | ConfigurationSource::Git { .. } | ConfigurationSource::Oci { .. }, ModuleUri::File(_), _) => Ok(()),
-            | (false, ConfigurationSource::Http { .. }, ModuleUri::File(_), _) | (false, _, ModuleUri::Unknown(_), _) => {
-                Err(ConfigurationModuleError::Source {
-                    module: module_path,
-                    uri: <&str>::from(location).to_string(),
-                })
-            }
-            | (false, _, ModuleUri::Url(_), Some(policy)) => {
+            | (false, ConfigurationSource::Http { .. }, ModuleUri::File(_), _)
+            | (false, _, ModuleUri::Unknown(_), _)
+            | (false, _, ModuleUri::Url(_) | ModuleUri::Oci(_), None) => Err(ConfigurationModuleError::Source {
+                module: module_path,
+                uri: <&str>::from(location).to_string(),
+            }),
+            | (false, _, ModuleUri::Url(_) | ModuleUri::Oci(_), Some(policy)) => {
                 module
                     .acquisition_plan(policy)
                     .map(|_| ())
@@ -1351,23 +1355,6 @@ impl Config {
                         reason: source.to_string(),
                     })
             }
-            | (false, _, ModuleUri::Url(_), None) => Err(ConfigurationModuleError::Source {
-                module: module_path,
-                uri: <&str>::from(location).to_string(),
-            }),
-            | (false, _, ModuleUri::Oci(_), Some(policy)) => {
-                module
-                    .acquisition_plan(policy)
-                    .map(|_| ())
-                    .map_err(|source| ConfigurationModuleError::Remote {
-                        module: module_path,
-                        reason: source.to_string(),
-                    })
-            }
-            | (false, _, ModuleUri::Oci(_), None) => Err(ConfigurationModuleError::Source {
-                module: module_path,
-                uri: <&str>::from(location).to_string(),
-            }),
         }
     }
 }
@@ -1433,8 +1420,7 @@ impl ConfigurationSource {
     fn identity(&self) -> String {
         match self {
             | Self::File(path) => canonicalize(path).unwrap_or_else(|_| path.clone()).display().to_string(),
-            | Self::Git { identity, .. } | Self::Oci { identity, .. } => identity.clone(),
-            | Self::Http { identity } => identity.clone(),
+            | Self::Git { identity, .. } | Self::Http { identity } | Self::Oci { identity, .. } => identity.clone(),
         }
     }
     fn path(&self) -> Option<&Path> {

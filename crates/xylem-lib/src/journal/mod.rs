@@ -1079,6 +1079,10 @@ impl RunJournal {
             })
     }
     /// Durably transition one run-scoped container.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "container indices are validated against parallel journal state vectors"
+    )]
     pub fn transition_container(&self, index: usize, state: ContainerState, error: Option<&str>) -> Result<(), JournalError> {
         self.containers
             .get(index)
@@ -1187,6 +1191,7 @@ impl RunJournal {
         &self.path
     }
     /// Durably record one positive platform observation of an input's peak memory.
+    #[expect(clippy::indexing_slicing, reason = "input indices are validated against parallel journal state vectors")]
     pub fn record_memory_peak(&self, input_index: usize, observed_peak: Memory) -> Result<(), JournalError> {
         self.memory
             .as_ref()
@@ -1224,6 +1229,7 @@ impl RunJournal {
             })
     }
     /// Durably transition one input.
+    #[expect(clippy::indexing_slicing, reason = "input indices are validated against parallel journal state vectors")]
     pub fn transition_input(&self, input_index: usize, state: ExecutionState, error: Option<&str>) -> Result<(), JournalError> {
         self.inputs
             .get(input_index)
@@ -1261,6 +1267,10 @@ impl RunJournal {
             })
     }
     /// Durably record one verified remote module acquisition.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "input and module indices are validated against parallel journal state vectors"
+    )]
     pub fn record_module_acquisition(&self, input_index: usize, module_index: usize, acquisition: AcquisitionEvidence) -> Result<(), JournalError> {
         self.inputs
             .get(input_index)
@@ -1304,6 +1314,10 @@ impl RunJournal {
             })
     }
     /// Durably transition one module for one input.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "input and module indices are validated against parallel journal state vectors"
+    )]
     pub fn transition_module(&self, input_index: usize, module_index: usize, state: ExecutionState, error: Option<&str>) -> Result<(), JournalError> {
         self.inputs
             .get(input_index)
@@ -2578,7 +2592,7 @@ fn validate_resource_evidence(resources: &[SandboxResourceEvidence], reconciled:
         .iter()
         .try_for_each(|resource| {
             let status_valid = match (reconciled, resource.status) {
-                | (true, SandboxResourceDisposition::Failed | SandboxResourceDisposition::Reconciled) => true,
+                | (true, SandboxResourceDisposition::Failed | SandboxResourceDisposition::Reconciled)
                 | (false, SandboxResourceDisposition::Failed | SandboxResourceDisposition::Removed | SandboxResourceDisposition::Retained) => true,
                 | _ => false,
             };
@@ -2604,9 +2618,10 @@ fn validate_resource_evidence(resources: &[SandboxResourceEvidence], reconciled:
         })
         .and_then(|()| {
             resources.windows(2).try_for_each(|pair| {
-                let left = (&pair[0].input_index, &pair[0].phase, &pair[0].identifier);
-                let right = (&pair[1].input_index, &pair[1].phase, &pair[1].identifier);
-                match left < right {
+                let ordered = pair.first().zip(pair.get(1)).is_some_and(|(left, right)| {
+                    (&left.input_index, &left.phase, &left.identifier) < (&right.input_index, &right.phase, &right.identifier)
+                });
+                match ordered {
                     | true => Ok(()),
                     | false => Err(JournalError::Invalid(
                         "sandbox resource evidence must be strictly ordered and unique".to_string(),

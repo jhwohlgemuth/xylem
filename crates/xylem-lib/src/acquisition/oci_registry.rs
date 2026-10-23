@@ -339,14 +339,14 @@ impl RegistryClient<'_> {
                                             })
                                         })
                                         .and_then(|next| {
-                                            file.write_all(&chunk[..count])
+                                            file.write_all(chunk.get(..count).unwrap_or_default())
                                                 .map_err(|source| io_error("write OCI blob", &path, source))
                                                 .map(|()| next)
                                         });
                                     match written {
                                         | Ok(next) => {
                                             observed = next;
-                                            hasher.update(&chunk[..count]);
+                                            hasher.update(chunk.get(..count).unwrap_or_default());
                                         }
                                         | Err(error) => break Err(error),
                                     }
@@ -389,7 +389,7 @@ impl RegistryClient<'_> {
                                 observed,
                             });
                         }
-                        bytes.extend_from_slice(&chunk[..count]);
+                        bytes.extend_from_slice(chunk.get(..count).unwrap_or_default());
                     }
                     | Err(_) => break Err(request_error("read OCI response", &url, "response read failed")),
                 }

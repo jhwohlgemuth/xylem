@@ -275,7 +275,10 @@ impl Write for DiagnosticLog {
                 });
                 let overflow = state.bytes.len().saturating_sub(DIAGNOSTIC_LOG_LIMIT);
                 if overflow > 0 {
-                    let boundary = state.bytes[overflow..]
+                    let boundary = state
+                        .bytes
+                        .get(overflow..)
+                        .unwrap_or_default()
                         .iter()
                         .position(|byte| *byte == b'\n')
                         .map_or(overflow, |index| overflow.saturating_add(index).saturating_add(1));
@@ -545,6 +548,9 @@ fn projection_text(dashboard: &Dashboard) -> String {
         },
     )
 }
+fn layout_area(areas: &[Rect], index: usize) -> Rect {
+    areas.get(index).copied().unwrap_or_default()
+}
 fn render(frame: &mut Frame<'_>, dashboard: &Dashboard) {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
@@ -574,9 +580,9 @@ fn render(frame: &mut Frame<'_>, dashboard: &Dashboard) {
                     .bg(theme_color(Color::DarkGray))
                     .add_modifier(Modifier::BOLD),
             ),
-        vertical[0],
+        layout_area(&vertical, 0),
     );
-    let content = vertical[1];
+    let content = layout_area(&vertical, 1);
     match dashboard.tab {
         | Tab::Overview => render_overview(frame, content, dashboard),
         | Tab::Workflow => render_workflow(frame, content, dashboard.runs.get(dashboard.selected), dashboard.scroll),
@@ -609,7 +615,7 @@ fn render(frame: &mut Frame<'_>, dashboard: &Dashboard) {
             ),
         ]),
     };
-    frame.render_widget(Paragraph::new(status), vertical[2]);
+    frame.render_widget(Paragraph::new(status), layout_area(&vertical, 2));
 }
 fn render_lines(frame: &mut Frame<'_>, area: Rect, title: &str, lines: Vec<Line<'static>>, scroll: u16) {
     frame.render_widget(
@@ -656,7 +662,7 @@ fn render_overview(frame: &mut Frame<'_>, area: Rect, dashboard: &Dashboard) {
     let top = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(27), Constraint::Percentage(38), Constraint::Percentage(35)])
-        .split(rows[0]);
+        .split(layout_area(&rows, 0));
     let status = run.map_or_else(
         || {
             vec![
@@ -680,7 +686,10 @@ fn render_overview(frame: &mut Frame<'_>, area: Rect, dashboard: &Dashboard) {
             ]
         },
     );
-    frame.render_widget(Paragraph::new(status).alignment(Alignment::Center).block(panel("Run")), top[0]);
+    frame.render_widget(
+        Paragraph::new(status).alignment(Alignment::Center).block(panel("Run")),
+        layout_area(&top, 0),
+    );
     let (succeeded, failed, unfinished, skipped) = summary.as_ref().map_or((0u64, 0u64, 0u64, 0u64), |summary| {
         summary.inputs.iter().fold((0u64, 0u64, 0u64, 0u64), |counts, input| match input.state {
             | ExecutionState::Succeeded => (counts.0.saturating_add(1), counts.1, counts.2, counts.3),
@@ -719,7 +728,7 @@ fn render_overview(frame: &mut Frame<'_>, area: Rect, dashboard: &Dashboard) {
             ]),
         ])
         .block(panel("Inputs")),
-        top[1],
+        layout_area(&top, 1),
     );
     frame.render_widget(
         Paragraph::new(vec![
@@ -743,7 +752,7 @@ fn render_overview(frame: &mut Frame<'_>, area: Rect, dashboard: &Dashboard) {
             ]),
         ])
         .block(panel("Session")),
-        top[2],
+        layout_area(&top, 2),
     );
     frame.render_widget(
         Gauge::default()
@@ -755,7 +764,7 @@ fn render_overview(frame: &mut Frame<'_>, area: Rect, dashboard: &Dashboard) {
             ))
             .gauge_style(Style::default().fg(theme_color(Color::Cyan)).add_modifier(Modifier::BOLD))
             .use_unicode(true),
-        rows[1],
+        layout_area(&rows, 1),
     );
     let mut activity = run
         .map(|run| {
@@ -795,7 +804,7 @@ fn render_overview(frame: &mut Frame<'_>, area: Rect, dashboard: &Dashboard) {
             .block(panel("Activity"))
             .scroll((dashboard.scroll, 0))
             .wrap(Wrap { trim: false }),
-        rows[2],
+        layout_area(&rows, 2),
     );
 }
 fn render_runs(frame: &mut Frame<'_>, area: Rect, dashboard: &Dashboard) {
@@ -904,11 +913,11 @@ fn render_system(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>) {
             let top = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(rows[1]);
+                .split(layout_area(&rows, 1));
             let bottom = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(rows[2]);
+                .split(layout_area(&rows, 2));
             let host_memory = latest
                 .host_memory_used
                 .as_ref()
@@ -941,11 +950,11 @@ fn render_system(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>) {
                     ),
                 ]))
                 .block(panel("Latest sample")),
-                rows[0],
+                layout_area(&rows, 0),
             );
             render_metric_chart(
                 frame,
-                top[0],
+                layout_area(&top, 0),
                 format!("Host CPU · {:.1}%", latest.host_cpu_percent.unwrap_or_default()),
                 &host_cpu,
                 100,
@@ -953,7 +962,7 @@ fn render_system(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>) {
             );
             render_metric_chart(
                 frame,
-                top[1],
+                layout_area(&top, 1),
                 format!("Xylem RSS · {} MiB", process_memory.last().copied().unwrap_or_default()),
                 &process_memory,
                 1,
@@ -961,7 +970,7 @@ fn render_system(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>) {
             );
             render_metric_chart(
                 frame,
-                bottom[0],
+                layout_area(&bottom, 0),
                 format!("Network I/O · {} KiB/s", network.last().copied().unwrap_or_default()),
                 &network,
                 1,
@@ -969,7 +978,7 @@ fn render_system(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>) {
             );
             render_metric_chart(
                 frame,
-                bottom[1],
+                layout_area(&bottom, 1),
                 format!("Disk I/O · {} KiB/s", disk.last().copied().unwrap_or_default()),
                 &disk,
                 1,
@@ -1019,7 +1028,7 @@ fn render_workflow(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>, s
                     ))
                     .gauge_style(Style::default().fg(theme_color(Color::Cyan)).add_modifier(Modifier::BOLD))
                     .use_unicode(true),
-                areas[0],
+                layout_area(&areas, 0),
             );
             let bars = vec![
                 Bar::with_label("done", counts.succeeded)
@@ -1048,7 +1057,7 @@ fn render_workflow(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>, s
                     .bar_gap(2)
                     .max(counts.maximum())
                     .label_style(Style::default().add_modifier(Modifier::ITALIC)),
-                areas[1],
+                layout_area(&areas, 1),
             );
             let rows = summary
                 .inputs
@@ -1112,7 +1121,7 @@ fn render_workflow(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>, s
                 .header(header)
                 .block(panel("Execution table"))
                 .column_spacing(2),
-                areas[2],
+                layout_area(&areas, 2),
                 &mut state,
             );
         }

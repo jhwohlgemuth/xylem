@@ -1,3 +1,4 @@
+#![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
 //! GitLab export and one-module execution contracts.
 use std::fs::{create_dir_all, read_to_string, write};
 #[cfg(unix)]

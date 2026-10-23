@@ -193,7 +193,12 @@ impl Manifest {
                     self.case(case_id).is_none_or(|case| {
                         case.estimator_key != mix.estimator_key
                             || case.partition == Partition::Baseline
-                            || case.config != self.case(&mix.case_ids[0]).map_or_else(PathBuf::new, |first| first.config.clone())
+                            || case.config
+                                != mix
+                                    .case_ids
+                                    .first()
+                                    .and_then(|id| self.case(id))
+                                    .map_or_else(PathBuf::new, |first| first.config.clone())
                     })
                 })
         });
@@ -316,6 +321,7 @@ fn valid_identifier(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
     use super::*;
 
     #[test]

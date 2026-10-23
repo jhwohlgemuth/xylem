@@ -103,8 +103,7 @@ impl core::error::Error for ProcessError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             | Self::Managed { source, .. } => Some(source),
-            | Self::Output { source, .. } => Some(source),
-            | Self::Spawn { source, .. } => Some(source),
+            | Self::Output { source, .. } | Self::Spawn { source, .. } => Some(source),
             | Self::Unsuccessful { .. } => None,
         }
     }

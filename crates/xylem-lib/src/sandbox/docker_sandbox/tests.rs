@@ -1,3 +1,4 @@
+#![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
 use super::*;
 
 fn resources() -> SandboxResources {

@@ -388,7 +388,7 @@ fn encode_base36(mut value: u64) -> String {
         | _ => {
             let mut encoded = Vec::new();
             while value > 0 {
-                encoded.push(DIGITS[(value % 36) as usize]);
+                encoded.push(DIGITS.get((value % 36) as usize).copied().unwrap_or_default());
                 value /= 36;
             }
             encoded.reverse();

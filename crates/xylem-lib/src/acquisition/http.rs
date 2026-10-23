@@ -64,8 +64,9 @@ pub(super) fn stream_response(
                                     observed: total,
                                 });
                             }
-                            hasher.update(&buffer[..count]);
-                            if let Err(source) = writer.write_all(&buffer[..count]) {
+                            let bytes = buffer.get(..count).unwrap_or_default();
+                            hasher.update(bytes);
+                            if let Err(source) = writer.write_all(bytes) {
                                 break Err(io_error("write acquisition payload", destination, source));
                             }
                         }

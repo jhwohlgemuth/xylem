@@ -183,30 +183,32 @@ fn parse_query(output: &[u8]) -> Result<GpuQuery, String> {
                 .map_err(|error| format!("parse {NVIDIA_SMI} CSV: {error}"))
                 .and_then(|record| match record.len() {
                     | 6 => {
-                        let uuid = record[1].trim().to_string();
-                        let name = record[2].trim().to_string();
-                        parse_optional::<u32>(&record[0], "GPU index")
+                        let uuid = record.get(1).unwrap_or_default().trim().to_string();
+                        let name = record.get(2).unwrap_or_default().trim().to_string();
+                        parse_optional::<u32>(record.get(0).unwrap_or_default(), "GPU index")
                             .and_then(|index| index.ok_or_else(|| "GPU index is unavailable".to_string()))
                             .and_then(|index| {
-                                parse_optional::<u64>(&record[3], "total GPU memory").and_then(|memory_total_mib| {
-                                    parse_optional::<u8>(&record[4], "GPU utilization").and_then(|utilization_percent| {
+                                parse_optional::<u64>(record.get(3).unwrap_or_default(), "total GPU memory").and_then(|memory_total_mib| {
+                                    parse_optional::<u8>(record.get(4).unwrap_or_default(), "GPU utilization").and_then(|utilization_percent| {
                                         match utilization_percent.is_some_and(|value| value > 100) {
                                             | true => Err("GPU utilization exceeds 100 percent".to_string()),
-                                            | false => parse_optional::<u64>(&record[5], "used GPU memory").map(|memory_used_mib| {
-                                                (
-                                                    GpuDevice {
-                                                        index,
-                                                        name,
-                                                        memory_total_mib,
-                                                        uuid: uuid.clone(),
-                                                    },
-                                                    GpuReading {
-                                                        memory_used_mib,
-                                                        utilization_percent,
-                                                        uuid,
-                                                    },
-                                                )
-                                            }),
+                                            | false => {
+                                                parse_optional::<u64>(record.get(5).unwrap_or_default(), "used GPU memory").map(|memory_used_mib| {
+                                                    (
+                                                        GpuDevice {
+                                                            index,
+                                                            name,
+                                                            memory_total_mib,
+                                                            uuid: uuid.clone(),
+                                                        },
+                                                        GpuReading {
+                                                            memory_used_mib,
+                                                            utilization_percent,
+                                                            uuid,
+                                                        },
+                                                    )
+                                                })
+                                            }
                                         }
                                     })
                                 })

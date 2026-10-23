@@ -10,7 +10,11 @@ const MIB: usize = 1024 * 1024;
 fn main() {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
     let result = match arguments.first().map(String::as_str) {
-        | Some("--child") => parse_values(&arguments[1..]).and_then(|(memory, _, hold)| allocate(memory, hold)),
+        | Some("--child") => arguments
+            .get(1..)
+            .ok_or_else(|| "missing child arguments".to_string())
+            .and_then(parse_values)
+            .and_then(|(memory, _, hold)| allocate(memory, hold)),
         | _ => parse_values(&arguments).and_then(|(parent, child, hold)| run_parent(parent, child, hold)),
     };
     if let Err(error) = result {

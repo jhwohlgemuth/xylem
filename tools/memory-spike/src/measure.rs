@@ -505,8 +505,7 @@ fn run_subject(
             let cleanup = remove_dir_all(&run_root).map_err(|error| format!("remove measurement run directory {}: {error}", run_root.display()));
             match (result, cleanup) {
                 | (Ok(measurement), Ok(())) => Ok(measurement),
-                | (Err(error), Ok(())) => Err(error),
-                | (Ok(_), Err(error)) => Err(error),
+                | (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
                 | (Err(error), Err(cleanup)) => Err(format!("{error}; {cleanup}")),
             }
         })
@@ -624,6 +623,7 @@ fn validate_environment(options: &MeasureOptions<'_>) -> Result<HostIdentity, St
 
 #[cfg(test)]
 mod tests {
+    #![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
     use super::*;
     use crate::model::InputFeatures;
 

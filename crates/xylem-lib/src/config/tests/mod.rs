@@ -1,3 +1,4 @@
+#![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
 use crate::acquisition::{AcquisitionCache, AcquisitionCacheStatus, AcquisitionLimits, AcquisitionPolicy};
 use crate::config::*;
 use crate::execution::{ExecutionContext, ExecutionLimits, InputBatch};

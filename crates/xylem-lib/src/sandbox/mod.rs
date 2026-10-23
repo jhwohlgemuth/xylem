@@ -1365,7 +1365,9 @@ impl SandboxInput<Requested> {
         input: Option<String>,
     ) -> Result<Self, SandboxError> {
         let module_indices = module_indices.into_iter().collect::<Vec<_>>();
-        let ordered = module_indices.windows(2).all(|pair| pair[0] < pair[1]);
+        let ordered = module_indices
+            .windows(2)
+            .all(|pair| pair.first().zip(pair.get(1)).is_some_and(|(left, right)| left < right));
         let indices = module_indices.iter().all(|index| *index < config.modules.len());
         let root = staging_root.as_os_str().is_empty();
         match (ordered, indices, root, input_count > input_index) {

@@ -1,3 +1,4 @@
+#![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
 use super::git::{git_environment, inspect_tree, remaining_timeout, run_git_command, verify_git, GitCommandContext};
 use super::oci::run_oras;
 use super::oci_registry::validate_manifest_bytes;

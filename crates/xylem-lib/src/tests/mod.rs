@@ -1,3 +1,4 @@
+#![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
 extern crate alloc;
 
 use crate::remote::{redact_url, RemotePolicy};

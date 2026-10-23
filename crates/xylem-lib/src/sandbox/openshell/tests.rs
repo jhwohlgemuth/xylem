@@ -1,3 +1,4 @@
+#![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
 use super::*;
 use crate::sandbox::{EffectiveSandboxPolicy, OciRuntime, SandboxProviderKind};
 use crate::util::timestamp;

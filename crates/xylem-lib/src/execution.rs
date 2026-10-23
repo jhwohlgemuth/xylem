@@ -144,9 +144,12 @@ impl ExecutionContext {
                                 admission.next = admission.next.saturating_add(1);
                                 index
                             };
-                            let output = operation(index, &inputs[index]);
+                            let Some((input, output_slot)) = inputs.get(index).zip(outputs.get(index)) else {
+                                break;
+                            };
+                            let output = operation(index, input);
                             let should_stop = failed(&output);
-                            *outputs[index].lock().unwrap_or_else(PoisonError::into_inner) = Some(output);
+                            *output_slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(output);
                             if should_stop {
                                 admission.lock().unwrap_or_else(PoisonError::into_inner).stopped = true;
                             }
@@ -228,9 +231,12 @@ impl ExecutionContext {
                                             match index {
                                                 | None => break,
                                                 | Some(index) => {
-                                                    let output = operation(index, &inputs[index]);
+                                                    let Some((input, output_slot)) = inputs.get(index).zip(outputs.get(index)) else {
+                                                        break;
+                                                    };
+                                                    let output = operation(index, input);
                                                     let should_stop = failed(&output);
-                                                    *outputs[index].lock().unwrap_or_else(PoisonError::into_inner) = Some(output);
+                                                    *output_slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(output);
                                                     let mut state = admission.lock().unwrap_or_else(PoisonError::into_inner);
                                                     let released = match should_stop || state.stopped {
                                                         | true => state.queue.release_only(index).map(|()| Vec::new()),
@@ -351,6 +357,7 @@ impl fmt::Display for InvalidThreadCount {
 
 #[cfg(test)]
 mod tests {
+    #![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
     use super::*;
     use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use core::time::Duration;
