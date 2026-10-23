@@ -205,7 +205,8 @@ fn validate_dependencies(baseline: &Baseline, lock: &str, manifest: &str) -> Res
         .filter_map(|line| line.trim().strip_prefix("name = \"").and_then(|name| name.strip_suffix('"')))
         .collect::<Vec<_>>();
     let counts = names.iter().fold(BTreeMap::new(), |mut counts, name| {
-        *counts.entry(*name).or_insert(0_usize) += 1;
+        let count = counts.entry(*name).or_insert(0_usize);
+        *count = count.saturating_add(1);
         counts
     });
     let duplicate_names = counts.values().filter(|count| **count > 1).count();

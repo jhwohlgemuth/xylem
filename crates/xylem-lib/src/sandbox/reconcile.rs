@@ -198,9 +198,9 @@ fn bounded_error(value: &str) -> String {
         | true => value.to_string(),
         | false => {
             const SUFFIX: &str = "...";
-            let mut end = MAX_RECONCILIATION_ERROR_BYTES - SUFFIX.len();
+            let mut end = MAX_RECONCILIATION_ERROR_BYTES.saturating_sub(SUFFIX.len());
             while !value.is_char_boundary(end) {
-                end -= 1;
+                end = end.saturating_sub(1);
             }
             format!("{}{SUFFIX}", &value[..end])
         }

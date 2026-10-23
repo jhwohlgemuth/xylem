@@ -117,7 +117,7 @@ impl CandidateModel {
                 safety_multiplier,
             } if feature >= *minimum_feature && feature <= *maximum_feature => buckets
                 .get(&feature_bucket(feature))
-                .map(|value| round_up_mib((*value as f64 * safety_multiplier).ceil() as u64)),
+                .map(|value| round_up_mib(ceil_to_u64(*value as f64 * safety_multiplier))),
             | Self::Linear {
                 intercept,
                 maximum_feature,
@@ -126,7 +126,7 @@ impl CandidateModel {
                 slope,
             } if feature >= *minimum_feature && feature <= *maximum_feature => {
                 let predicted = (intercept + slope * feature as f64).max(1.0);
-                Some(round_up_mib((predicted * safety_multiplier).ceil() as u64))
+                Some(round_up_mib(ceil_to_u64(predicted * safety_multiplier)))
             }
             | _ => None,
         }
@@ -441,7 +441,7 @@ fn median(mut values: Vec<f64>) -> f64 {
     values.sort_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
     match values.len() {
         | 0 => 0.0,
-        | length if length % 2 == 0 => (values[length / 2 - 1] + values[length / 2]) / 2.0,
+        | length if length % 2 == 0 => (values[length.div_ceil(2).saturating_sub(1)] + values[length / 2]) / 2.0,
         | length => values[length / 2],
     }
 }
@@ -449,11 +449,20 @@ fn percentile(mut values: Vec<u64>, percentile: usize) -> u64 {
     values.sort_unstable();
     match values.len() {
         | 0 => 0,
-        | length => values[(length * percentile).div_ceil(100).saturating_sub(1).min(length - 1)],
+        | length => {
+            values[length
+                .saturating_mul(percentile)
+                .div_ceil(100)
+                .saturating_sub(1)
+                .min(length.saturating_sub(1))]
+        }
     }
 }
+fn ceil_to_u64(value: f64) -> u64 {
+    u64::try_from(value.ceil().max(0.0) as i128).unwrap_or(u64::MAX)
+}
 fn round_up_mib(value: u64) -> u64 {
-    value.saturating_add(MIB - 1) / MIB * MIB
+    value.div_ceil(MIB).saturating_mul(MIB)
 }
 fn subject_peak(observations: &[Observation], subject_type: SubjectType, subject_id: &str) -> Option<u64> {
     observations

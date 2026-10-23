@@ -77,10 +77,10 @@ impl DurationHistory {
                     || {
                         let elapsed = now_ms.saturating_sub(summary.started_at.get());
                         (completed_steps > 0).then(|| {
-                            let per_step = elapsed / completed_steps as u64;
+                            let per_step = elapsed.checked_div(completed_steps as u64).unwrap_or_default();
                             let total = per_step.saturating_mul(remaining.len() as u64);
                             let divisor = concurrency.max(1) as u64;
-                            let eta = total / divisor + u64::from(!total.is_multiple_of(divisor));
+                            let eta = total.div_ceil(divisor);
                             ProgressProjection {
                                 completed_steps,
                                 confidence: ProjectionConfidence::Low,
@@ -103,7 +103,7 @@ impl DurationHistory {
                                 })
                                 .fold(0_u64, u64::saturating_add);
                             let divisor = concurrency.max(1) as u64;
-                            total / divisor + u64::from(!total.is_multiple_of(divisor))
+                            total.div_ceil(divisor)
                         };
                         Some(ProgressProjection {
                             completed_steps,

@@ -141,7 +141,7 @@ impl ExecutionContext {
                                     break;
                                 }
                                 let index = admission.next;
-                                admission.next += 1;
+                                admission.next = admission.next.saturating_add(1);
                                 index
                             };
                             let output = operation(index, &inputs[index]);
@@ -364,12 +364,12 @@ mod tests {
         let completed = AtomicUsize::new(0);
         let entered = AtomicUsize::new(0);
         let peak = AtomicUsize::new(0);
-        let gate = Barrier::new(threads + 1);
+        let gate = Barrier::new(threads.saturating_add(1));
         thread::scope(|scope| {
             let worker = scope.spawn(|| {
                 context.install(|| {
                     (0..work_items).into_par_iter().for_each(|_| {
-                        let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        let current = active.fetch_add(1, Ordering::SeqCst).saturating_add(1);
                         peak.fetch_max(current, Ordering::SeqCst);
                         let position = entered.fetch_add(1, Ordering::SeqCst);
                         if position < threads {

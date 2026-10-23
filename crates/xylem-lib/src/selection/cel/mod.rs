@@ -546,7 +546,7 @@ impl ExpressionExt for IdedExpr {
                             let iter = Estimate {
                                 bytes: match range.length {
                                     | 0 => 0,
-                                    | value => range.bytes / value,
+                                    | value => range.bytes.checked_div(value).unwrap_or_default(),
                                 },
                                 cost: 0,
                                 kind: element.as_ref().clone(),
@@ -833,7 +833,7 @@ impl Inventory {
             records: self.items.len() as u64,
         };
         let options = Estimate {
-            bytes: self.options.roots.iter().map(String::len).sum::<usize>() as u64 + 1,
+            bytes: (self.options.roots.iter().map(String::len).sum::<usize>() as u64).saturating_add(1),
             cost: 1,
             kind: ValueKind::Options,
             length: 0,

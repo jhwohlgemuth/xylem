@@ -133,7 +133,7 @@ fn serve_git(root: PathBuf, tls: Option<Arc<ServerConfig>>) -> (String, Arc<Atom
     let scheme = if tls.is_some() { "https" } else { "http" };
     let server = thread::spawn(move || {
         listener.set_nonblocking(true).expect("set Git server nonblocking");
-        let mut requests = 0;
+        let mut requests = 0usize;
         let started = Instant::now();
         while !server_finished.load(Ordering::Acquire) && started.elapsed() < Duration::from_secs(20) {
             match listener.accept() {
@@ -149,7 +149,7 @@ fn serve_git(root: PathBuf, tls: Option<Arc<ServerConfig>>) -> (String, Arc<Atom
                         }
                         | None => serve_git_request(stream, &root),
                     }
-                    requests += 1;
+                    requests = requests.saturating_add(1);
                 }
                 | Err(error) if error.kind() == io::ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(10)),
                 | Err(error) => panic!("accept Git HTTP request: {error}"),

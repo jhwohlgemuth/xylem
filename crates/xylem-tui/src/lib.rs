@@ -845,7 +845,7 @@ fn render_system(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>) {
         | Some(latest) => {
             let host_cpu = samples
                 .iter()
-                .map(|sample| sample.host_cpu_percent.unwrap_or_default().max(0.0).round() as u64)
+                .map(|sample| u64::try_from(sample.host_cpu_percent.unwrap_or_default().max(0.0).round() as i128).unwrap_or(u64::MAX))
                 .collect::<Vec<_>>();
             let process_memory = samples
                 .iter()

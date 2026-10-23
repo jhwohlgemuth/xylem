@@ -111,7 +111,8 @@ fn read_observations(path: &Path) -> Result<Vec<Observation>, String> {
                 .enumerate()
                 .filter(|(_, line)| !line.trim().is_empty())
                 .map(|(index, line)| {
-                    serde_json::from_str(line).map_err(|error| format!("parse observation {} line {}: {error}", path.display(), index + 1))
+                    serde_json::from_str(line)
+                        .map_err(|error| format!("parse observation {} line {}: {error}", path.display(), index.saturating_add(1)))
                 })
                 .collect()
         })
@@ -120,7 +121,7 @@ fn required_value(arguments: &[String], name: &str) -> Result<PathBuf, String> {
     arguments
         .iter()
         .position(|argument| argument == name)
-        .and_then(|index| arguments.get(index + 1))
+        .and_then(|index| arguments.get(index.saturating_add(1)))
         .map(PathBuf::from)
         .ok_or_else(|| format!("missing required {name}\n{}", usage()))
 }

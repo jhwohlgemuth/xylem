@@ -369,15 +369,15 @@ impl MemoryEstimator {
             })
             .and_then(|scaled| {
                 scaled
-                    .checked_add(u128::from(FIXED_POINT_SCALE) - 1)
-                    .map(|adjusted| adjusted / u128::from(FIXED_POINT_SCALE))
+                    .checked_add(u128::from(FIXED_POINT_SCALE).saturating_sub(1))
+                    .and_then(|adjusted| adjusted.checked_div(u128::from(FIXED_POINT_SCALE)))
             })
             .and_then(|estimated| {
                 estimated
                     .checked_mul(u128::from(self.safety_millionths))
                     .and_then(|safe| {
-                        safe.checked_add(u128::from(FIXED_POINT_SCALE) - 1)
-                            .map(|adjusted| adjusted / u128::from(FIXED_POINT_SCALE))
+                        safe.checked_add(u128::from(FIXED_POINT_SCALE).saturating_sub(1))
+                            .and_then(|adjusted| adjusted.checked_div(u128::from(FIXED_POINT_SCALE)))
                     })
                     .map(|reservation| (estimated, reservation))
             })

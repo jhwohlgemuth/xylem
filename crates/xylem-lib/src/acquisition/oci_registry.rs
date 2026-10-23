@@ -381,7 +381,7 @@ impl RegistryClient<'_> {
                 match response.read(&mut chunk) {
                     | Ok(0) => break Ok(bytes),
                     | Ok(count) => {
-                        let observed = bytes.len() as u64 + count as u64;
+                        let observed = (bytes.len() as u64).saturating_add(count as u64);
                         if observed > maximum {
                             break Err(AcquisitionError::Limit {
                                 limit: "OCI response bytes",
@@ -525,7 +525,7 @@ impl RegistryClient<'_> {
                         | Ok(next) => {
                             previous = Some(current);
                             current = next;
-                            redirects += 1;
+                            redirects = redirects.saturating_add(1);
                         }
                         | Err(error) => break Err(error),
                     }

@@ -264,7 +264,8 @@ impl Manifest {
                             | Partition::Synthetic => "synthetic",
                             | Partition::Training => "training",
                         };
-                        *counts.entry(key).or_default() += 1;
+                        let count = counts.entry(key).or_default();
+                        *count = count.saturating_add(1);
                         counts
                     });
             let training = counts.get("training").copied().unwrap_or_default();

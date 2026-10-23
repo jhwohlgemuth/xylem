@@ -837,9 +837,10 @@ impl JournalModule {
 impl JournalSink {
     /// Append one event with the next sequence number and durable flush.
     fn append_locked(&mut self, run_id: &str, event: JournalEvent) -> Result<(), JournalError> {
-        match self.finalized {
-            | true => Err(JournalError::Invalid("cannot append after run finalization".to_string())),
-            | false => {
+        match (self.finalized, self.next_sequence.checked_add(1)) {
+            | (true, _) => Err(JournalError::Invalid("cannot append after run finalization".to_string())),
+            | (false, None) => Err(JournalError::Invalid("journal sequence exhausted".to_string())),
+            | (false, Some(next_sequence)) => {
                 let record = JournalRecord {
                     schema_version: JOURNAL_SCHEMA_VERSION,
                     sequence: self.next_sequence,
@@ -852,7 +853,7 @@ impl JournalSink {
                     .and_then(|()| self.writer.write_all(b"\n").map_err(JournalError::from))
                     .and_then(|()| self.writer.flush().map_err(JournalError::from))
                     .and_then(|()| self.writer.get_ref().sync_data().map_err(JournalError::from))
-                    .map(|()| self.next_sequence += 1)
+                    .map(|()| self.next_sequence = next_sequence)
             }
         }
     }
@@ -959,7 +960,13 @@ impl Validate for MemoryInputEvidence {
 impl MetricAggregate {
     fn summary(self) -> Option<GpuMetricSummary> {
         (self.samples > 0).then(|| GpuMetricSummary {
-            average: u64::try_from((self.sum + u128::from(self.samples / 2)) / u128::from(self.samples)).unwrap_or(u64::MAX),
+            average: u64::try_from(
+                self.sum
+                    .saturating_add(u128::from(self.samples / 2))
+                    .checked_div(u128::from(self.samples))
+                    .unwrap_or(u128::MAX),
+            )
+            .unwrap_or(u64::MAX),
             maximum: self.maximum,
             samples: self.samples,
         })
@@ -1814,12 +1821,12 @@ impl RunSummary {
         let mut unfinished = 0usize;
         for input in &self.inputs {
             match input.state {
-                | ExecutionState::Succeeded => succeeded += 1,
-                | ExecutionState::Cancelled => cancelled += 1,
-                | ExecutionState::Failed => failed += 1,
-                | ExecutionState::Skipped => skipped += 1,
-                | ExecutionState::SkippedExisting => skipped_existing += 1,
-                | ExecutionState::NotStarted | ExecutionState::Pending | ExecutionState::Running => unfinished += 1,
+                | ExecutionState::Succeeded => succeeded = succeeded.saturating_add(1),
+                | ExecutionState::Cancelled => cancelled = cancelled.saturating_add(1),
+                | ExecutionState::Failed => failed = failed.saturating_add(1),
+                | ExecutionState::Skipped => skipped = skipped.saturating_add(1),
+                | ExecutionState::SkippedExisting => skipped_existing = skipped_existing.saturating_add(1),
+                | ExecutionState::NotStarted | ExecutionState::Pending | ExecutionState::Running => unfinished = unfinished.saturating_add(1),
             }
         }
         let run_id = console_text(&self.run_id, Style::new().cyan().bold(), color);
@@ -1954,7 +1961,7 @@ impl TryFrom<&Path> for RunSummary {
                 match reader.read_until(b'\n', &mut bytes) {
                     | Ok(0) => reading = false,
                     | Ok(_) => {
-                        line_number += 1;
+                        line_number = line_number.saturating_add(1);
                         let complete = bytes.last() == Some(&b'\n');
                         if complete {
                             bytes.pop();
@@ -2396,9 +2403,9 @@ fn bounded_error(value: &str) -> String {
         value.to_string()
     } else {
         const SUFFIX: &str = "...";
-        let mut end = MAX_ERROR_BYTES - SUFFIX.len();
+        let mut end = MAX_ERROR_BYTES.saturating_sub(SUFFIX.len());
         while !value.is_char_boundary(end) {
-            end -= 1;
+            end = end.saturating_sub(1);
         }
         format!("{}{}", &value[..end], SUFFIX)
     }
