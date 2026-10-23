@@ -1,3 +1,4 @@
+#![expect(clippy::panic, reason = "tests intentionally panic on unexpected outcomes")]
 #![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
 use crate::acquisition::AcquisitionAction;
 use crate::config::{Config, InputAttribute};

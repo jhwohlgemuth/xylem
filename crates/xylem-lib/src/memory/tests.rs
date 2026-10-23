@@ -1,3 +1,4 @@
+#![expect(clippy::panic, reason = "tests intentionally panic on unexpected outcomes")]
 #![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
 use super::*;
 use std::fs::{create_dir_all, remove_dir_all, write};

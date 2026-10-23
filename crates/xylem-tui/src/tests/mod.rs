@@ -1,3 +1,4 @@
+#![expect(clippy::panic, reason = "tests intentionally panic on unexpected outcomes")]
 use super::*;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use ratatui::backend::TestBackend;

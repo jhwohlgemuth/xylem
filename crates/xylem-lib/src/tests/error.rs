@@ -1,3 +1,4 @@
+#![expect(clippy::panic, reason = "tests intentionally panic on unexpected outcomes")]
 use crate::error::{AcquisitionError, ProcessError, PyProjectError, RequirementError, TemplateError};
 use crate::remote::{RemoteError, RemotePolicy};
 use crate::script::{Command, Script, ScriptTemplate};
