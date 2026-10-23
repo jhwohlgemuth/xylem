@@ -353,11 +353,12 @@ fn test_json_report_is_atomic_and_refuses_overwrite() {
     };
     let path = summary.write_json_atomic(&directory).expect("write JSON report");
     let bytes = read(&path).expect("read report");
-    assert_eq!(serde_json::from_slice::<RunSummary>(&bytes).unwrap(), summary);
-    let serialized = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
-    assert!(serialized["memory"].is_null());
-    assert!(serialized.get("started_at").is_some());
-    assert!(serialized.get("started_at_ms").is_none());
+    assert!(serde_json::from_slice::<RunSummary>(&bytes).is_ok_and(|parsed| parsed == summary));
+    let serialized = serde_json::from_slice::<serde_json::Value>(&bytes);
+    assert!(serialized.is_ok(), "{serialized:?}");
+    assert!(serialized.as_ref().is_ok_and(|value| value["memory"].is_null()));
+    assert!(serialized.as_ref().is_ok_and(|value| value.get("started_at").is_some()));
+    assert!(serialized.as_ref().is_ok_and(|value| value.get("started_at_ms").is_none()));
     assert!(summary.write_json_atomic(&directory).is_err());
     remove_file(path).expect("remove report");
     remove_dir(directory).expect("remove reporter test directory");

@@ -427,14 +427,12 @@ fn test_conflicting_input_files_leave_destination_absent() {
     create_dir_all(&root).expect("create artifact root");
     let destination = root.join("published");
     let manager = artifact_manager(&root, "conflict");
-    let first = manager
-        .prepare(&artifact_config(&destination), None, 0, 2)
-        .expect("prepare first input")
-        .unwrap();
-    let second = manager
-        .prepare(&artifact_config(&destination), None, 1, 2)
-        .expect("prepare second input")
-        .unwrap();
+    let Ok(Some(first)) = manager.prepare(&artifact_config(&destination), None, 0, 2) else {
+        panic!("failed to prepare first artifact input");
+    };
+    let Ok(Some(second)) = manager.prepare(&artifact_config(&destination), None, 1, 2) else {
+        panic!("failed to prepare second artifact input");
+    };
     stage_artifact(&manager, &first, "same.txt", b"first");
     stage_artifact(&manager, &second, "same.txt", b"second");
     assert!(manager.finish(true).is_err());
@@ -666,7 +664,9 @@ fn test_missing_declared_output_leaves_destination_absent() {
     )
     .expect("parse artifact config");
     config.output = Some(destination.display().to_string());
-    let input = manager.prepare(&config, None, 0, 1).expect("prepare artifact input").unwrap();
+    let Ok(Some(input)) = manager.prepare(&config, None, 0, 1) else {
+        panic!("failed to prepare artifact input");
+    };
     stage_artifact(&manager, &input, "unrelated.txt", b"present");
     assert!(manager.finish(true).is_err());
     assert!(!destination.exists());
@@ -928,14 +928,12 @@ fn test_successful_inputs_merge_and_publish_atomically() {
     create_dir_all(&root).expect("create artifact root");
     let destination = root.join("published");
     let manager = artifact_manager(&root, "publish");
-    let first = manager
-        .prepare(&artifact_config(&destination), None, 0, 2)
-        .expect("prepare first input")
-        .unwrap();
-    let second = manager
-        .prepare(&artifact_config(&destination), None, 1, 2)
-        .expect("prepare second input")
-        .unwrap();
+    let Ok(Some(first)) = manager.prepare(&artifact_config(&destination), None, 0, 2) else {
+        panic!("failed to prepare first artifact input");
+    };
+    let Ok(Some(second)) = manager.prepare(&artifact_config(&destination), None, 1, 2) else {
+        panic!("failed to prepare second artifact input");
+    };
     stage_artifact(&manager, &first, "first.txt", b"first");
     stage_artifact(&manager, &second, "second.txt", b"second");
     let outcome = manager.finish(true).expect("publish artifacts").expect("artifact outcome");

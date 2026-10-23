@@ -109,9 +109,7 @@ fn test_get_conda_environment_list() {
 fn test_get_conda_environment_name() {
     let path = format!("{FIXTURES}/environment.yml");
     let manifest_path = PathBuf::from(path);
-    assert!(get_conda_environment_name(manifest_path)
-        .unwrap()
-        .starts_with("some-really-interesting-name"));
+    assert!(get_conda_environment_name(manifest_path).is_some_and(|name| name.starts_with("some-really-interesting-name")));
     let manifest_path = PathBuf::from("/non/existing/manifest.yml");
     assert_eq!(get_conda_environment_name(manifest_path), None);
 }

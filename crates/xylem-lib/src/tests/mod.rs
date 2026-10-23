@@ -121,7 +121,10 @@ fn test_config_get_inputs() {
                 .expect("resolve directory inputs")
                 .expect("configured inputs")
                 .iter()
-                .map(|x| PathBuf::from(x).file_stem().unwrap().to_str().unwrap().to_string())
+                .filter_map(|x| {
+                    let path = PathBuf::from(x);
+                    path.file_stem().and_then(|stem| stem.to_str()).map(str::to_string)
+                })
                 .collect::<Vec<String>>();
             assert_eq!(inputs, to_string(vec!["one", "three", "two"]));
         }
@@ -144,11 +147,17 @@ fn test_config_read() {
     let path = format!("{FIXTURES}/config.json");
     // Load variables into configuration (JSON or YAML)
     let config = Config::read(PathBuf::from(path)).expect("read JSON configuration");
-    assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
+    assert_eq!(
+        config.variables.as_ref().and_then(|variables| variables.get("ANSWER")),
+        Some(&serde_json::Value::from(42))
+    );
     assert_eq!(config.modules.len(), 3);
     let path = format!("{FIXTURES}/config.yaml");
     let config = Config::read(PathBuf::from(path)).expect("read YAML configuration");
-    assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
+    assert_eq!(
+        config.variables.as_ref().and_then(|variables| variables.get("ANSWER")),
+        Some(&serde_json::Value::from(42))
+    );
     assert_eq!(config.modules.len(), 3);
 }
 #[test]
@@ -156,7 +165,10 @@ fn test_config_read_json() {
     // Load variables into configuration from JSON file
     let path = format!("{FIXTURES}/config.json");
     let config = Config::read_json(PathBuf::from(path)).expect("=> [ERROR] Cannot import config in tests");
-    assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
+    assert_eq!(
+        config.variables.as_ref().and_then(|variables| variables.get("ANSWER")),
+        Some(&serde_json::Value::from(42))
+    );
     assert_eq!(config.modules.len(), 3);
 }
 #[test]
@@ -164,7 +176,10 @@ fn test_config_read_yaml() {
     // Load variables into configuration from YAML file
     let path = format!("{FIXTURES}/config.yaml");
     let config = Config::read_yaml(PathBuf::from(path)).expect("=> [ERROR] Cannot import config in tests");
-    assert_eq!(config.variables.clone().unwrap().get("ANSWER").unwrap(), 42);
+    assert_eq!(
+        config.variables.as_ref().and_then(|variables| variables.get("ANSWER")),
+        Some(&serde_json::Value::from(42))
+    );
     assert_eq!(config.modules.len(), 3);
 }
 #[test]
