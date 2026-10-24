@@ -1,5 +1,10 @@
-#![expect(clippy::panic, reason = "tests intentionally panic on unexpected outcomes")]
-#![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects
+)]
 use super::artifact::{ArtifactInput, ArtifactManager};
 use super::lifecycle::{archive_export_arguments, archive_mount, OciResourceSpec};
 use super::reconcile::is_eligible;

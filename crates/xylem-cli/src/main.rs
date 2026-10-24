@@ -184,6 +184,13 @@ fn tui_configuration_context(config: Option<&PathBuf>, directory: &Path) -> io::
 
 #[cfg(all(test, feature = "tui"))]
 mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic,
+        clippy::unwrap_used,
+        clippy::arithmetic_side_effects
+    )]
     use super::tui_configuration_context;
     use std::fs::{canonicalize, create_dir_all, remove_dir_all, write};
     use std::path::Path;

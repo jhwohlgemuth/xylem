@@ -1,5 +1,10 @@
-#![expect(clippy::panic, reason = "tests intentionally panic on unexpected outcomes")]
-#![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects
+)]
 extern crate alloc;
 
 use crate::remote::{redact_url, RemotePolicy};
@@ -19,6 +24,7 @@ use std::thread;
 
 mod completion;
 mod error;
+mod execution;
 mod plan;
 
 const FIXTURES: &str = "../../tests/fixtures";

@@ -1,5 +1,10 @@
-#![expect(clippy::panic, reason = "tests intentionally panic on unexpected outcomes")]
-#![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects
+)]
 use crate::acquisition::{AcquisitionCache, AcquisitionCacheStatus, AcquisitionLimits, AcquisitionPolicy};
 use crate::config::*;
 use crate::execution::{ExecutionContext, ExecutionLimits, InputBatch};

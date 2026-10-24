@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects
+)]
 use super::store::{BundleStatus, Manifest, Store, TaskLogSink};
 use super::RunCancellation;
 use crate::journal::JOURNAL_SCHEMA_VERSION;

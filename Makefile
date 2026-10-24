@@ -47,7 +47,7 @@ coverage: cover
 
 lint:
 	@cargo fmt --verbose
-	@cargo clippy --no-deps --all-targets --fix --allow-dirty
+	@cargo clippy --workspace --exclude xylem-memory-spike --exclude xtask --no-deps --all-targets --fix --allow-dirty
 	@hadolint sandbox/runner/Containerfile sandbox/runner/geospatial/Containerfile
 	@shellcheck scripts/install-appimage-tools.sh scripts/prepare-acquisition-ci.sh scripts/install-zigbuild.sh scripts/package-linux.sh scripts/upload-binaries.sh
 	@sh -n scripts/check-process-spawns.sh

@@ -1,5 +1,10 @@
-#![expect(clippy::panic, reason = "tests intentionally panic on unexpected outcomes")]
-#![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects
+)]
 use super::git::{git_environment, inspect_tree, remaining_timeout, run_git_command, verify_git, GitCommandContext};
 use super::oci::run_oras;
 use super::oci_registry::validate_manifest_bytes;

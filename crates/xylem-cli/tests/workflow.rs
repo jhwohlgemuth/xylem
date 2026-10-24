@@ -1,4 +1,10 @@
-#![expect(clippy::indexing_slicing, reason = "test indexing deliberately fails on malformed fixtures")]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects
+)]
 //! End-to-end command-line workflow tests.
 use acorn_schema::hardware::Memory;
 use std::fs::copy;

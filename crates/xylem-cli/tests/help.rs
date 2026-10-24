@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects
+)]
 //! Generated CLI help contract tests.
 fn help(arguments: &[&str]) -> String {
     let mut command = assert_cmd::cargo::cargo_bin_cmd!("xylem");

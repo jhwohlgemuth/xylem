@@ -77,6 +77,13 @@ fn read_peak(path: &Path) -> Result<Option<Memory>, String> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic,
+        clippy::unwrap_used,
+        clippy::arithmetic_side_effects
+    )]
     use super::observed_peak_at;
     use core::sync::atomic::{AtomicU64, Ordering};
     use std::fs::{create_dir_all, remove_dir_all, write};

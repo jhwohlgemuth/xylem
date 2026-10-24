@@ -132,6 +132,13 @@ fn should_write_journal_location(reporters: &[ReporterType]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic,
+        clippy::unwrap_used,
+        clippy::arithmetic_side_effects
+    )]
     use super::*;
 
     #[test]

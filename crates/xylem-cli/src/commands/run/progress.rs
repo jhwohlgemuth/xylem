@@ -75,6 +75,13 @@ impl WorkflowProgress {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic,
+        clippy::unwrap_used,
+        clippy::arithmetic_side_effects
+    )]
     use super::*;
 
     #[test]

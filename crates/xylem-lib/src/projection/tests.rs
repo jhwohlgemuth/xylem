@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects
+)]
 use super::*;
 use crate::journal::{ConfigurationIdentity, InputSummary, ModuleSummary, SandboxEvidence, JOURNAL_SCHEMA_VERSION};
 use acorn_core::time::UnitOfTime;

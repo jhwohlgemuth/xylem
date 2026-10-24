@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects
+)]
 use crate::script::{
     add_dot_slash, get_conda_environment_list, get_conda_environment_name, get_mamba_environment_list, Command, ContainerEnvironment,
     ContainerStartup, Script, ScriptTemplate, VirtualEnvironment, VirtualEnvironmentManager,

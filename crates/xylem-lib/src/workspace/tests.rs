@@ -1,4 +1,10 @@
-#![expect(clippy::panic, reason = "tests intentionally panic on unexpected outcomes")]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects
+)]
 use super::*;
 use core::panic::AssertUnwindSafe;
 use core::sync::atomic::{AtomicU64, Ordering};
