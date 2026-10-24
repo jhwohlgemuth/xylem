@@ -1,5 +1,8 @@
 use super::util::{io_error, sha256};
-use super::*;
+use super::{
+    alloc, create_dir_all, env, read, redact_url, thread, AcquisitionError, AcquisitionLimits, AcquisitionPolicy, BTreeMap, Client, Digest, Duration,
+    File, Instant, Path, PathBuf, Policy, Read, Seconds, Sha256, UnitOfTime, Url, Write, MONITOR_INTERVAL,
+};
 use acorn_core::validation::digest as validate_sha256_digest;
 use alloc::collections::BTreeSet;
 use base64::{engine::general_purpose::STANDARD, Engine};

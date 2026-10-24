@@ -1,4 +1,4 @@
-use super::*;
+use super::{io, AcquisitionError, Digest, Path, Sha256, SystemTime, UNIX_EPOCH};
 
 pub(super) fn io_error(action: &'static str, path: impl AsRef<Path>, source: io::Error) -> AcquisitionError {
     AcquisitionError::Io {

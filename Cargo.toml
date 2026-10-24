@@ -46,9 +46,9 @@ transmute_undefined_repr = "deny"
 uninit_vec = "warn"
 unchecked_time_subtraction = "deny"
 unwrap_used = "warn"
-# wildcard_enum_match_arm = "warn"
-# wildcard_imports = "warn"
-# wildcard_in_or_patterns = "warn"
+wildcard_enum_match_arm = "warn"
+wildcard_imports = "warn"
+wildcard_in_or_patterns = "warn"
 
 [workspace.dependencies]
 base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }

@@ -1,6 +1,10 @@
 use super::policy::normalize_origin;
 use super::util::io_error;
-use super::*;
+use super::{
+    args, canonicalize, cmd, command_string, create_dir, read, read_dir, read_link, redact_url, symlink_metadata, thread, AcquisitionError,
+    AcquisitionLimits, AcquisitionPolicy, Arc, AtomicBool, AtomicU64, BTreeMap, CancellationToken, CaptureLimits, Digest, Duration, ExecutionOptions,
+    File, Instant, Memory, Ordering, Path, Seconds, Sha256, UnitOfTime, MONITOR_INTERVAL,
+};
 use std::ffi::OsString;
 
 pub(super) struct GitCommandContext<'a> {

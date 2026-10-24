@@ -12,7 +12,10 @@ use crate::outcome::{ModuleOutcome, WorkflowOutcome};
 use crate::plan::PlanError;
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
 use crate::sandbox::EffectiveSandboxPolicy;
-use crate::script::*;
+use crate::script::{
+    module_working_directory, Command, ContainerCleanup, ContainerEnvironment, ContainerRuntime, EnvironmentValue, Module, ModuleLanguage,
+    ModuleType, ModuleUri, Script, TemplateAttribute, VirtualEnvironment, VirtualEnvironmentManager,
+};
 pub use crate::selection::{InputSelection, SelectionEngine, SelectionOptions, SelectionRequest};
 use crate::workspace::{materialize, InputWorkspace};
 use acorn_core::util::{MimeType, ParseOptionsExt, SemanticVersion, StringConversion};

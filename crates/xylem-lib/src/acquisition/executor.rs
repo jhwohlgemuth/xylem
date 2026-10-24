@@ -5,7 +5,11 @@ use super::oci::pull_tree;
 use super::oci_registry::Layout;
 use super::policy::normalize_origin;
 use super::util::{io_error, now_seconds};
-use super::*;
+use super::{
+    args, create_dir, redact_url, remove_dir_all, AcquisitionAction, AcquisitionCache, AcquisitionCacheStatus, AcquisitionError, AcquisitionExecutor,
+    AcquisitionIdentity, AcquisitionPlan, AcquisitionPolicy, AcquisitionResult, AcquisitionSource, Instant, Path, ACCEPT_ENCODING,
+    ACQUISITION_CACHE_VERSION,
+};
 
 impl AcquisitionExecutor {
     /// Construct an executor from a resolved policy and immutable cache.

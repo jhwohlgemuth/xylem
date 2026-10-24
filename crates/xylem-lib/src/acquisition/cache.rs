@@ -1,6 +1,12 @@
 use super::git::inspect_tree;
 use super::util::{io_error, now_seconds, sha256};
-use super::*;
+use super::{
+    canonicalize, create_dir, create_dir_all, env, io, process, project_cache_directory, read, remove_dir_all, remove_file, rename, symlink_metadata,
+    thread, AcquisitionCache, AcquisitionCacheStatus, AcquisitionError, AcquisitionEvidence, AcquisitionIdentity, AcquisitionPlan, AcquisitionPolicy,
+    AcquisitionPolicyEvidence, AcquisitionResult, AcquisitionSource, BufWriter, Deserialize, Duration, File, Instant, Memory, OpenOptions, Ordering,
+    Path, PathBuf, Pid, SafePath, Seconds, Serialize, System, SystemTime, UnitOfTime, Write, ACQUISITION_CACHE_ENV, ACQUISITION_CACHE_VERSION,
+    APPLICATION, LOCK_STALE_AFTER, MONITOR_INTERVAL, ORGANIZATION, QUALIFIER, STAGING_SEQUENCE, UNIX_EPOCH,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct CacheEntry {

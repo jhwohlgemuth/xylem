@@ -2,7 +2,10 @@
 use super::git::directory_size;
 use super::oci_registry::validate_manifest_bytes;
 use super::util::sha256;
-use super::*;
+use super::{
+    args, cmd, thread, AcquisitionError, AcquisitionLimits, Arc, AtomicBool, AtomicU64, CancellationToken, CaptureLimits, Duration, ExecutionOptions,
+    Instant, Ordering, Path, Seconds, UnitOfTime, MONITOR_INTERVAL,
+};
 use std::ffi::OsString;
 
 pub(super) fn pull_tree(reference: &str, destination: &Path, limits: &AcquisitionLimits, started: Instant) -> Result<(), AcquisitionError> {

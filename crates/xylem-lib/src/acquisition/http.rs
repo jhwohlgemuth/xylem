@@ -1,5 +1,7 @@
 use super::util::io_error;
-use super::*;
+use super::{
+    redact_url, AcquisitionError, BufReader, BufWriter, Digest, File, Path, Read, Response, Sha256, Write, CONTENT_ENCODING, CONTENT_LENGTH,
+};
 
 pub(super) fn request_error(action: &'static str, url: &str, source: reqwest::Error) -> AcquisitionError {
     AcquisitionError::Request {

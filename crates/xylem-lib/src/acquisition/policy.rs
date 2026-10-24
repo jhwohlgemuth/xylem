@@ -1,5 +1,8 @@
 use super::util::sha256;
-use super::*;
+use super::{
+    fmt, redact_url, AcquisitionAction, AcquisitionError, AcquisitionIdentity, AcquisitionLimits, AcquisitionPlan, AcquisitionPolicy,
+    AcquisitionSource, Client, Duration, GitSshPolicy, Memory, Policy, RemoteError, RemotePolicy, Seconds, UnitOfTime, Url,
+};
 use acorn_core::{
     validation::{digest, ValidationError},
     Location,
