@@ -43,7 +43,13 @@ The fields have these meanings:
 | `variables` | No | Module-scoped scalar variables. These override workflow variables. |
 | `template` | No | An inline template or a path relative to the module directory. |
 | `completion` | No | Explicit marker and output declarations used by resumable execution. |
+| `timeout_seconds` | No | Positive execution timeout for `script` and `binary` modules. Omission applies no module timeout. |
 | `checksum` | Remote binary and direct HTTP configuration modules | Lowercase SHA-256 digest prefixed with `sha256:`. |
+
+`configuration` modules do not execute and MUST NOT declare `timeout_seconds`.
+Xylem currently validates and preserves executable-module timeouts; the
+remaining environment execution work will apply them to module processes.
+They do not include acquisition or environment preparation.
 
 ## 2. Module URI and directory
 

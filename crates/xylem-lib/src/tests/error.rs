@@ -30,7 +30,7 @@ fn test_process_spawn_error_preserves_working_directory_and_source() {
             assert!(script.contains("xylem-command-that-cannot-exist"));
             assert_eq!(working_directory, &std::path::PathBuf::from("missing-working-directory"));
         }
-        | ProcessError::Managed { .. } | ProcessError::Output { .. } | ProcessError::Unsuccessful { .. } => {
+        | ProcessError::Managed { .. } | ProcessError::Output { .. } => {
             panic!("expected spawn failure")
         }
     }
@@ -71,6 +71,10 @@ fn test_template_errors_preserve_path_and_source() {
     write(&path, "{").expect("write malformed template");
     let error = ScriptTemplate::from_path(path.clone()).expect_err("malformed template should fail");
     assert!(matches!(&error, TemplateError::Parse { path: error_path, .. } if error_path == &path));
+    assert!(error.source().is_some());
+    write(&path, r#"{"command":"echo","arguments":"'unterminated"}"#).expect("write malformed shell template");
+    let error = Script::from_path(path.clone()).expect_err("malformed shell arguments should fail");
+    assert!(matches!(&error, TemplateError::Arguments { .. }));
     assert!(error.source().is_some());
     remove_dir_all(root).expect("remove template error root");
 }

@@ -205,6 +205,7 @@ fn test_module() {
         before_script: None,
         after_script: None,
         template: None,
+        timeout: None,
     };
     assert_eq!(module.to_string(), "module-a");
 }

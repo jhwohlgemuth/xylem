@@ -1,6 +1,7 @@
 use clap_verbosity_flag::Verbosity;
 pub use failure::RunFailure;
 use std::path::PathBuf;
+use xylem_lib::config::FailurePolicy;
 use xylem_lib::execution::ExecutionLimits;
 use xylem_lib::run::RunCancellation;
 use xylem_lib::script::ContainerCleanup;
@@ -13,6 +14,8 @@ mod failure;
 mod preparation;
 mod progress;
 mod reporting;
+#[cfg(test)]
+mod tests;
 
 struct RunRequest<'a> {
     artifact_output: &'a Option<PathBuf>,
@@ -21,6 +24,7 @@ struct RunRequest<'a> {
     cli_allowed: &'a Option<Vec<String>>,
     cli_container_cleanup: Option<ContainerCleanup>,
     cli_dry_run: bool,
+    cli_failure_policy: Option<FailurePolicy>,
     cli_gpu_monitor: bool,
     cli_input: &'a Option<Vec<String>>,
     cli_no_container_env: bool,
@@ -47,6 +51,7 @@ pub fn run(
     artifact_output: &Option<PathBuf>,
     cli_input: &Option<Vec<String>>,
     cli_dry_run: bool,
+    cli_failure_policy: Option<FailurePolicy>,
     cli_gpu_monitor: bool,
     cli_offline: bool,
     cli_resume: bool,
@@ -70,6 +75,7 @@ pub fn run(
         cli_allowed,
         cli_container_cleanup,
         cli_dry_run,
+        cli_failure_policy,
         cli_gpu_monitor,
         cli_input,
         cli_no_container_env,

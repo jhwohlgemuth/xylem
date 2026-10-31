@@ -5,14 +5,30 @@
     clippy::unwrap_used,
     clippy::arithmetic_side_effects
 )]
+#[cfg(unix)]
+use crate::error::ProcessError;
 use crate::script::{
     add_dot_slash, get_conda_environment_list, get_conda_environment_name, get_mamba_environment_list, Command, ContainerEnvironment,
-    ContainerStartup, Script, ScriptTemplate, VirtualEnvironment, VirtualEnvironmentManager,
+    ContainerStartup, Instruction, Script, ScriptTemplate, VirtualEnvironment, VirtualEnvironmentManager,
 };
+#[cfg(unix)]
+use acorn_cmd::{CancellationToken, CaptureLimits, CommandError, ExecutionOptions, OutputStream, ProcessTermination};
+#[cfg(unix)]
+use core::time::Duration;
 use std::ffi::OsString;
+#[cfg(unix)]
+use std::io;
 use std::path::{Path, PathBuf};
 
 const FIXTURES: &str = "../../tests/fixtures";
+
+#[cfg(unix)]
+fn shell_script(command: &str) -> Script {
+    Script::init()
+        .command(Command::init().name("sh".to_string()).build())
+        .arguments(["-c", command])
+        .build()
+}
 
 #[test]
 fn test_add_dot_slash() {
@@ -147,6 +163,133 @@ fn test_resolve_pixi_environment_from_pyproject() {
         .expect("Pixi should be detected from pyproject.toml");
     assert_eq!(environment.name, "default");
     assert_eq!(environment.manager, VirtualEnvironmentManager::Pixi);
+}
+#[cfg(unix)]
+#[test]
+fn test_script_execute_checked_preserves_cancelled_result() {
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let options = ExecutionOptions::new().with_cancellation(cancellation);
+    let error = shell_script("exit 0")
+        .execute_checked(&options)
+        .expect_err("pre-cancelled execution should fail");
+    let result = error.result().expect("cancelled execution result");
+    assert_eq!(result.termination(), ProcessTermination::Cancelled);
+    assert!(result.status().is_none());
+    assert!(matches!(
+        error,
+        ProcessError::Managed {
+            source: CommandError::Cancelled(_),
+            ..
+        }
+    ));
+}
+#[cfg(unix)]
+#[test]
+fn test_script_execute_checked_preserves_nonzero_result() {
+    let error = shell_script(r"printf 'out\377'; printf 'err\376' >&2; exit 7")
+        .execute_checked(&ExecutionOptions::new())
+        .expect_err("nonzero execution should fail");
+    let result = error.result().expect("nonzero execution result");
+    assert_eq!(result.stdout().bytes(), b"out\xff");
+    assert_eq!(result.stderr().bytes(), b"err\xfe");
+    assert_eq!(result.status().and_then(acorn_cmd::ProcessStatus::code), Some(7));
+    assert_eq!(result.termination(), ProcessTermination::Exited);
+    assert!(error.context().is_none());
+    assert!(error.to_string().contains("process exited with status 7"));
+    assert!(matches!(
+        error,
+        ProcessError::Managed {
+            source: CommandError::NonZeroExit(_),
+            ..
+        }
+    ));
+}
+#[cfg(unix)]
+#[test]
+fn test_script_execute_checked_preserves_sink_context() {
+    let options = ExecutionOptions::new().with_sink(|_: OutputStream, _: &[u8]| Err(io::Error::other("rejected output")));
+    let error = shell_script("printf output")
+        .execute_checked(&options)
+        .expect_err("sink rejection should fail");
+    let context = error.context().expect("sink failure context");
+    assert!(context.duration() < Duration::from_secs(5));
+    assert!(error.result().is_none());
+    assert!(
+        matches!(
+            &error,
+            ProcessError::Managed {
+                source: CommandError::Cleanup { .. } | CommandError::Sink { .. },
+                ..
+            }
+        ),
+        "unexpected sink failure: {error:?}"
+    );
+}
+#[cfg(unix)]
+#[test]
+fn test_script_execute_checked_preserves_timeout_result() {
+    let options = ExecutionOptions::new().with_timeout(Duration::from_millis(20));
+    let error = shell_script("sleep 2")
+        .execute_checked(&options)
+        .expect_err("timed execution should fail");
+    let result = error.result().expect("timeout execution result");
+    assert_eq!(result.termination(), ProcessTermination::TimedOut);
+    assert!(result.duration() >= Duration::from_millis(20));
+    assert!(matches!(
+        error,
+        ProcessError::Managed {
+            source: CommandError::TimedOut(_),
+            ..
+        }
+    ));
+}
+#[cfg(unix)]
+#[test]
+fn test_script_execute_preserves_separate_bounded_bytes() {
+    let options = ExecutionOptions::new().with_capture_limits(CaptureLimits::new(Some(4), Some(10)));
+    let result = shell_script(r"printf 'abcdef\377'; printf 'uvwxyz\376' >&2")
+        .execute(&options)
+        .expect("execute bounded output");
+    assert_eq!(result.stdout().bytes(), b"def\xff");
+    assert_eq!(result.stdout().truncated_bytes(), 3);
+    assert_eq!(result.stderr().bytes(), b"xyz\xfe");
+    assert_eq!(result.stderr().truncated_bytes(), 3);
+    assert_eq!(result.status().and_then(acorn_cmd::ProcessStatus::code), Some(0));
+    assert_eq!(result.termination(), ProcessTermination::Exited);
+    assert!(result.duration() < Duration::from_secs(5));
+}
+#[test]
+fn test_script_from_template_preserves_exec_arguments() {
+    let template = ScriptTemplate {
+        arguments: Instruction::ExecFormat(vec!["two words".to_string(), String::new(), "{{ INPUT }}".to_string()]),
+        command: "echo".to_string(),
+        container: None,
+        virtual_environment: None,
+    };
+    let script = Script::from_template(template).expect("parse exec-format template");
+    assert_eq!(script.arguments, ["two words", "", "{{INPUT}}"]);
+}
+#[test]
+fn test_script_from_template_preserves_shell_arguments() {
+    let template = ScriptTemplate {
+        arguments: Instruction::ShellFormat(r#"--label "two words" '' escaped\ value "{{ INPUT }}""#.to_string()),
+        command: "echo".to_string(),
+        container: None,
+        virtual_environment: None,
+    };
+    let script = Script::from_template(template).expect("parse shell-format template");
+    assert_eq!(script.arguments, ["--label", "two words", "", "escaped value", "{{INPUT}}"]);
+}
+#[test]
+fn test_script_from_template_rejects_malformed_shell_arguments() {
+    let template = ScriptTemplate {
+        arguments: Instruction::ShellFormat("'unterminated".to_string()),
+        command: "echo".to_string(),
+        container: None,
+        virtual_environment: None,
+    };
+    assert!(Script::from_template(template).is_err());
 }
 #[test]
 fn test_virtual_environment_manager_from_reference() {

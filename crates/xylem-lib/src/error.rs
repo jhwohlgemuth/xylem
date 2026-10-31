@@ -1,5 +1,5 @@
 //! Owned errors returned by reusable Xylem operations
-use acorn_cmd::CommandError;
+use acorn_cmd::{CommandError, ExecutionContext, ExecutionResult};
 use core::fmt;
 use std::io;
 use std::path::PathBuf;
@@ -18,7 +18,6 @@ pub enum ModuleLoadError {
     /// A template could not be loaded.
     Template { module: String, source: TemplateError },
 }
-
 /// Failure while executing a child process.
 #[derive(Debug)]
 pub enum ProcessError {
@@ -40,15 +39,7 @@ pub enum ProcessError {
         working_directory: PathBuf,
         source: io::Error,
     },
-    /// The child completed unsuccessfully.
-    Unsuccessful {
-        script: String,
-        working_directory: PathBuf,
-        status: String,
-        stderr: String,
-    },
 }
-
 /// Failure while loading a Python project manifest.
 #[derive(Debug)]
 pub enum PyProjectError {
@@ -59,23 +50,22 @@ pub enum PyProjectError {
     /// The manifest could not be read.
     Read { path: PathBuf, source: io::Error },
 }
-
 /// Failure while reading or parsing a module command template.
 #[derive(Debug)]
 pub enum TemplateError {
+    /// Shell-format arguments could not be parsed.
+    Arguments { source: io::Error },
     /// The template is not valid JSON.
     Parse { path: PathBuf, source: serde_json::Error },
     /// The template could not be read.
     Read { path: PathBuf, source: io::Error },
 }
-
 /// Failure while checking a declared host requirement.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RequirementError {
     /// Executable name that was not found.
     pub command: String,
 }
-
 impl core::error::Error for ModuleLoadError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
@@ -85,7 +75,6 @@ impl core::error::Error for ModuleLoadError {
         }
     }
 }
-
 impl fmt::Display for ModuleLoadError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -98,17 +87,30 @@ impl fmt::Display for ModuleLoadError {
         }
     }
 }
-
 impl core::error::Error for ProcessError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             | Self::Managed { source, .. } => Some(source),
             | Self::Output { source, .. } | Self::Spawn { source, .. } => Some(source),
-            | Self::Unsuccessful { .. } => None,
         }
     }
 }
-
+impl ProcessError {
+    /// Borrow partial execution state retained by an operational failure.
+    pub fn context(&self) -> Option<&ExecutionContext> {
+        match self {
+            | Self::Managed { source, .. } => source.context(),
+            | Self::Output { .. } | Self::Spawn { .. } => None,
+        }
+    }
+    /// Borrow the complete execution result retained by a checked outcome failure.
+    pub fn result(&self) -> Option<&ExecutionResult> {
+        match self {
+            | Self::Managed { source, .. } => source.result(),
+            | Self::Output { .. } | Self::Spawn { .. } => None,
+        }
+    }
+}
 impl fmt::Display for ProcessError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -116,7 +118,33 @@ impl fmt::Display for ProcessError {
                 script,
                 working_directory,
                 source,
-            } => write!(formatter, "run {script} in {}: {source}", working_directory.display()),
+            } => match source {
+                | CommandError::NonZeroExit(result) => {
+                    let status = result.status().map_or_else(
+                        || "unknown".to_string(),
+                        |status| {
+                            status.code().map_or_else(
+                                || status.signal().map_or_else(|| "unknown".to_string(), |signal| format!("signal {signal}")),
+                                |code| code.to_string(),
+                            )
+                        },
+                    );
+                    let stderr = String::from_utf8_lossy(result.stderr().bytes());
+                    match stderr.is_empty() {
+                        | true => write!(
+                            formatter,
+                            "run {script} in {}: process exited with status {status}",
+                            working_directory.display()
+                        ),
+                        | false => write!(
+                            formatter,
+                            "run {script} in {}: process exited with status {status}: {stderr}",
+                            working_directory.display()
+                        ),
+                    }
+                }
+                | _ => write!(formatter, "run {script} in {}: {source}", working_directory.display()),
+            },
             | Self::Output {
                 script,
                 working_directory,
@@ -127,27 +155,9 @@ impl fmt::Display for ProcessError {
                 working_directory,
                 source,
             } => write!(formatter, "run {script} in {}: {source}", working_directory.display()),
-            | Self::Unsuccessful {
-                script,
-                working_directory,
-                status,
-                stderr,
-            } => match stderr.is_empty() {
-                | true => write!(
-                    formatter,
-                    "run {script} in {}: process exited with status {status}",
-                    working_directory.display()
-                ),
-                | false => write!(
-                    formatter,
-                    "run {script} in {}: process exited with status {status}: {stderr}",
-                    working_directory.display()
-                ),
-            },
         }
     }
 }
-
 impl core::error::Error for PyProjectError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
@@ -157,7 +167,6 @@ impl core::error::Error for PyProjectError {
         }
     }
 }
-
 impl fmt::Display for PyProjectError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -167,27 +176,24 @@ impl fmt::Display for PyProjectError {
         }
     }
 }
-
 impl core::error::Error for RequirementError {}
-
 impl fmt::Display for RequirementError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "required command was not found: {}", self.command)
     }
 }
-
 impl core::error::Error for TemplateError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
+            | Self::Arguments { source } | Self::Read { source, .. } => Some(source),
             | Self::Parse { source, .. } => Some(source),
-            | Self::Read { source, .. } => Some(source),
         }
     }
 }
-
 impl fmt::Display for TemplateError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            | Self::Arguments { source } => write!(formatter, "parse shell-format module template arguments: {source}"),
             | Self::Parse { path, source } => write!(formatter, "parse module template {}: {source}", path.display()),
             | Self::Read { path, source } => write!(formatter, "read module template {}: {source}", path.display()),
         }

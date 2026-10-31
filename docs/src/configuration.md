@@ -412,11 +412,23 @@ example, `GREETING` is available as `_XYLEM_GREETING`.
 ## Options
 
 Configuration options include `acquisition_limits`, `allowed`, `batch`,
-`dry_run`, `gpu_monitor`, `offline`, `resume`, and
+`dry_run`, `failure_policy`, `gpu_monitor`, `offline`, `resume`, and
 `skip_verify_requirements`. Enabling a
 Boolean CLI flag overrides a false or absent configuration value. When
 supplied, `--allowed`, `--input`, and `--artifact-output` replace their
 configured values.
+
+`failure_policy` accepts `fail_fast` or `continue` and defaults to `fail_fast`.
+Fail-fast stops admitting new inputs after a failure while allowing work that is
+already active to settle. Continue policy is configuration intent until the
+corresponding scheduler phase lands; it does not make module order within one
+input concurrent.
+
+Executable `script` and `binary` modules may declare a positive
+`timeout_seconds`. Omission applies no module timeout. Configuration modules do
+not execute and reject this field. Xylem currently validates and preserves the
+value; the remaining environment execution work will apply it to module
+processes, excluding source acquisition and environment preparation.
 
 Checksum verification can only be disabled by the operator-only
 `--skip-verify-checksum` flag. This emergency path applies to remote binaries,

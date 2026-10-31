@@ -1,7 +1,7 @@
 use crate::acquisition::AcquisitionAction;
 use crate::config::{Config, InputAttribute};
 use crate::journal::{MemoryEvidenceMode, MemoryFallbackEvidence, RunMemoryEvidence};
-use crate::plan::{ExecutionPlan, MemoryPlanMode};
+use crate::plan::{ExecutionPlan, MemoryPlanMode, PlanError};
 use crate::script::ContainerStartup;
 use crate::selection::InputSource;
 use acorn_schema::hardware::Memory;
@@ -152,6 +152,38 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
         [output.join("input-a").join("*.txt").display().to_string()]
     );
     assert!(!output.exists());
+}
+#[test]
+fn test_execution_plan_preserves_shell_argument_boundaries() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{
+            "name": "probe",
+            "template": {"arguments": "--label \"two words\" '' escaped\\ value", "command": "probe"},
+            "type": "script",
+            "uri": "file:./probe"
+        }]
+    }))
+    .expect("shell plan configuration");
+    let first = ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect("build shell plan");
+    let second = ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect("rebuild shell plan");
+    assert_eq!(first, second);
+    assert_eq!(first.modules[0].command.arguments, ["--label", "two words", "", "escaped value"]);
+}
+#[test]
+fn test_execution_plan_rejects_malformed_shell_arguments() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{
+            "name": "probe",
+            "template": {"arguments": "'unterminated", "command": "probe"},
+            "type": "script",
+            "uri": "file:./probe"
+        }]
+    }))
+    .expect("malformed shell plan configuration");
+    let error = ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect_err("malformed shell arguments should fail planning");
+    assert!(matches!(error, PlanError::Template(_)));
 }
 #[test]
 fn test_execution_plan_falls_back_for_the_whole_run_when_one_input_is_out_of_range() {

@@ -2,7 +2,8 @@ use crate::acquisition::{AcquisitionEvidence, AcquisitionPolicy};
 use crate::completion::Completion;
 use crate::error::{ModuleLoadError, ProcessError, TemplateError};
 use crate::util::constants::{RE_HANDLEBARS, RE_TEMPLATE_SPACES};
-use acorn_cmd::{args, CommandError, CommandSpec, ExecutionOptions, ExecutionResult, OutputStream};
+use acorn_cmd::{args, parse_sh, CommandError, CommandSpec, ExecutionOptions, ExecutionResult, OutputStream};
+use acorn_core::time::Seconds;
 use acorn_core::util::StringConversion;
 use acorn_core::{Location, Scheme};
 use acorn_host::fs::read_text;
@@ -318,6 +319,9 @@ pub struct Module {
     pub after_script: Option<Instruction>,
     pub template: Option<TemplateAttribute>,
     pub completion: Option<Completion>,
+    /// Maximum execution time for an executable module.
+    #[serde(rename = "timeout_seconds")]
+    pub timeout: Option<Seconds>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -331,6 +335,8 @@ struct RawModule {
     #[serde(alias = "language", alias = "programmingLanguage")]
     programming_language: Option<ModuleLanguage>,
     template: Option<TemplateAttribute>,
+    #[serde(rename = "timeout_seconds")]
+    timeout: Option<Seconds>,
     #[serde(rename = "type")]
     module_type: RawModuleType,
     uri: Location,
@@ -578,6 +584,7 @@ impl<'de> Deserialize<'de> for Module {
                  name,
                  programming_language,
                  template,
+                 timeout,
                  module_type,
                  uri,
                  variables,
@@ -601,6 +608,7 @@ impl<'de> Deserialize<'de> for Module {
                     module_path: vec![name.clone()],
                     name,
                     template,
+                    timeout,
                     variables,
                 })
             },
@@ -787,7 +795,10 @@ impl Script {
                             },
                             | TemplateAttribute::Template(value) => {
                                 debug!(module = module.name, "=> {} Template attribute", Label::using());
-                                Ok(Script::from_template(value.as_ref().clone()))
+                                Script::from_template(value.as_ref().clone()).map_err(|source| ModuleLoadError::Template {
+                                    module: module.name.clone(),
+                                    source,
+                                })
                             }
                         },
                         | None => match default_template_path.try_exists() {
@@ -825,7 +836,7 @@ impl Script {
     /// assert_eq!(script.command.name, "python");
     /// ```
     pub fn from_path(path: PathBuf) -> Result<Script, TemplateError> {
-        ScriptTemplate::from_path(path).map(Script::from_template)
+        ScriptTemplate::from_path(path).and_then(Script::from_template)
     }
     /// Create a script from a ScriptTemplate struct.
     ///
@@ -839,28 +850,30 @@ impl Script {
     ///     virtual_environment: None,
     ///     arguments: Instruction::ExecFormat(vec!["hello".to_string()]),
     /// };
-    /// let script = Script::from_template(template);
+    /// let script = Script::from_template(template).expect("valid template");
     /// assert_eq!(script.to_string(), "echo hello");
     /// ```
-    pub fn from_template(template: ScriptTemplate) -> Script {
+    pub fn from_template(template: ScriptTemplate) -> Result<Script, TemplateError> {
         let arguments = match template.arguments {
-            | Instruction::ShellFormat(value) => StringTemplate::new(&value)
-                .remove_spaces()
-                .value
-                .split_whitespace()
-                .map(|s| s.to_owned())
-                .collect::<Vec<_>>(),
-            | Instruction::ExecFormat(values) => values
+            | Instruction::ShellFormat(value) => {
+                let value = StringTemplate::new(&value).remove_spaces().value;
+                parse_sh(&format!("xylem {value}"))
+                    .map(|(_, arguments)| arguments)
+                    .map_err(|source| TemplateError::Arguments { source })
+            }
+            | Instruction::ExecFormat(values) => Ok(values
                 .into_iter()
                 .map(|value| StringTemplate::new(&value).remove_spaces().value)
-                .collect(),
+                .collect()),
         };
-        let command = Command::init()
-            .name(template.command)
-            .maybe_container(template.container)
-            .maybe_virtual_environment(template.virtual_environment)
-            .build();
-        Script::init().command(command).arguments(arguments).build()
+        arguments.map(|arguments| {
+            let command = Command::init()
+                .name(template.command)
+                .maybe_container(template.container)
+                .maybe_virtual_environment(template.virtual_environment)
+                .build();
+            Script::init().command(command).arguments(arguments).build()
+        })
     }
     pub(crate) fn get_command(&self) -> String {
         let name = match &self.command.virtual_environment {
@@ -993,53 +1006,31 @@ impl Script {
     pub fn execute(&self, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError> {
         let working_directory = PathBuf::from(&self.current_dir);
         warn!(cwd = %working_directory.display(), script = self.to_string(), "=> {}", Label::run());
-        self.command_spec().execute(options).map_err(|source| match source {
-            | CommandError::Spawn { source } => ProcessError::Spawn {
-                script: self.to_string(),
-                working_directory,
-                source,
-            },
-            | source => ProcessError::Managed {
-                script: self.to_string(),
-                working_directory,
-                source,
-            },
-        })
+        self.command_spec()
+            .execute(options)
+            .map_err(|source| self.sandbox_process_error(&working_directory, source))
     }
     /// Execute this script and require a successful managed outcome.
     pub fn execute_checked(&self, options: &ExecutionOptions) -> Result<ExecutionResult, ProcessError> {
         let working_directory = PathBuf::from(&self.current_dir);
         warn!(cwd = %working_directory.display(), script = self.to_string(), "=> {}", Label::run());
-        self.command_spec().checked_execute(options).map_err(|source| match source {
-            | CommandError::NonZeroExit(result) => {
-                let details = String::from_utf8_lossy(result.stderr().bytes()).into_owned();
-                let status = result.status().map_or_else(
-                    || "unknown".to_string(),
-                    |status| {
-                        status.code().map_or_else(
-                            || status.signal().map_or_else(|| "unknown".to_string(), |signal| format!("signal {signal}")),
-                            |code| code.to_string(),
-                        )
-                    },
-                );
-                ProcessError::Unsuccessful {
-                    script: self.to_string(),
-                    working_directory,
-                    status,
-                    stderr: details,
-                }
-            }
+        self.command_spec()
+            .checked_execute(options)
+            .map_err(|source| self.sandbox_process_error(&working_directory, source))
+    }
+    pub(super) fn sandbox_process_error(&self, working_directory: &Path, source: CommandError) -> ProcessError {
+        match source {
             | CommandError::Spawn { source } => ProcessError::Spawn {
                 script: self.to_string(),
-                working_directory,
+                working_directory: working_directory.to_path_buf(),
                 source,
             },
             | source => ProcessError::Managed {
                 script: self.to_string(),
-                working_directory,
+                working_directory: working_directory.to_path_buf(),
                 source,
             },
-        })
+        }
     }
     /// Execute a script and return its combined standard output and standard error.
     ///

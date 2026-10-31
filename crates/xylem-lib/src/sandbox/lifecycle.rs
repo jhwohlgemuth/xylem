@@ -44,7 +44,7 @@ use crate::config::Config;
 use crate::error::ProcessError;
 use crate::script::{Module, ModuleLanguage, ModuleType, ModuleUri, Script, VirtualEnvironmentManager};
 use crate::util::timestamp;
-use acorn_cmd::{args, CommandError, ExecutionOptions, ExecutionResult};
+use acorn_cmd::{args, ExecutionOptions, ExecutionResult};
 use acorn_core::util::Checksum;
 use acorn_core::Location;
 use acorn_host::fs::file_checksum;
@@ -763,31 +763,6 @@ impl SandboxInput<Requested> {
                 }),
                 | _ => Ok(()),
             })
-    }
-}
-impl Script {
-    pub(super) fn sandbox_process_error(&self, working_directory: &Path, source: CommandError) -> ProcessError {
-        match source {
-            | CommandError::NonZeroExit(result) => ProcessError::Unsuccessful {
-                script: self.to_string(),
-                working_directory: working_directory.to_path_buf(),
-                status: result.status().map_or_else(
-                    || "unknown".to_string(),
-                    |status| status.code().map_or_else(|| "signal".to_string(), |code| code.to_string()),
-                ),
-                stderr: String::from_utf8_lossy(result.stderr().bytes()).into_owned(),
-            },
-            | CommandError::Spawn { source } => ProcessError::Spawn {
-                script: self.to_string(),
-                working_directory: working_directory.to_path_buf(),
-                source,
-            },
-            | source => ProcessError::Managed {
-                script: self.to_string(),
-                working_directory: working_directory.to_path_buf(),
-                source,
-            },
-        }
     }
 }
 pub(super) fn archive_export_arguments(container_name: &str, source: &str) -> Vec<OsString> {

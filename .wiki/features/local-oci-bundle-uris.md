@@ -19,8 +19,9 @@ usable without registry access while registry `oci://` behavior stays intact.
 
 # Current evidence
 
-Rechecked against committed tree `97d5203` on 2026-10-18. The current
-acquisition worktree contains uncommitted changes and is not accepted evidence.
+Rechecked on 2026-10-30 against clean committed tree `292aa49`, current
+acquisition/configuration tests, and the history since the directory-form
+implementation at `97d5203`.
 
 - Local OCI layout directories are native script and configuration module
   sources. Paths resolve relative to the declaring configuration, ORAS reads
@@ -31,6 +32,9 @@ acquisition worktree contains uncommitted changes and is not accepted evidence.
 - The checked-in acquisition tests cover a local layout directory and offline
   cache reuse. Archive input, malformed archive/index/blob cases, and the
   complete sandbox preparation matrix lack accepted qualification.
+- Secure acquisition implementation and Linux/macOS qualification are landed.
+  Its remaining SEC-07 work owns the Windows runner and manifests, not the
+  configuration/acquisition source files, so it no longer blocks OCI-01.
 
 # Project code boundaries
 
@@ -42,9 +46,9 @@ acquisition worktree contains uncommitted changes and is not accepted evidence.
 
 # Dependencies and ordering
 
-Claim the configuration/acquisition integration lock after secure acquisition
-releases it. The archive extension does not wait for unrelated Git transport or
-platform validation once that lock is free. Keep the v14/v13 durable vocabulary
+Claim the configuration/acquisition integration lock only when no ENV phase is
+writing `script/mod.rs` or configuration files. The archive extension does not
+wait for unrelated platform qualification. Keep the v14/v13 durable vocabulary
 unless an observed missing field requires a separately coordinated schema phase.
 
 # Recommendation
@@ -79,9 +83,9 @@ network access disabled.
 
 ## OCI-01 — Validate archive references and configuration ownership
 
-- Status: blocked
+- Status: ready
 - Budget: 5 active hours maximum
-- Prerequisites: secure acquisition releases the configuration/acquisition lock
+- Prerequisites: none; claim exclusive ownership of the shared script/configuration files before writing
 - Exact write set: `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/validation.rs`, `crates/xylem-lib/src/config/tests/mod.rs`
 - Primary integration lock: configuration/acquisition
 - Outcome: The existing local OCI URI resolves archive paths against the declaring configuration and rejects unsafe or unsupported sources.

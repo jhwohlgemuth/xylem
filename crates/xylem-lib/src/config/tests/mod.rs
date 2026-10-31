@@ -10,6 +10,7 @@ use crate::config::*;
 use crate::execution::{ExecutionContext, ExecutionLimits, InputBatch};
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState, ProgressUpdate};
 use crate::workspace::RunWorkspace;
+use acorn_core::time::{Seconds, UnitOfTime};
 use acorn_schema::validation::Validate;
 use alloc::collections::BTreeSet;
 use sha2::{Digest, Sha256};
@@ -141,6 +142,96 @@ fn test_allowed_round_trips_in_configuration_options() {
         serialized["options"]["allowed"],
         serde_json::json!(["example.com", "artifacts.example:8443"])
     );
+}
+#[test]
+fn test_failure_policy_and_module_timeout_round_trip_across_formats() {
+    let json = r#"{
+        "requirements": [],
+        "modules": [{"name": "probe", "type": "script", "uri": "file:.", "timeout_seconds": 30}],
+        "options": {"failure_policy": "continue"}
+    }"#;
+    let jsonc = r#"{
+        // Continue independent inputs after a failure.
+        "requirements": [],
+        "modules": [{"name": "probe", "type": "script", "uri": "file:.", "timeout_seconds": 30}],
+        "options": {"failure_policy": "continue"},
+    }"#;
+    let yaml = "requirements: []\nmodules:\n  - name: probe\n    type: script\n    uri: 'file:.'\n    timeout_seconds: 30\noptions:\n  failure_policy: continue\n";
+    let yml_path = std::env::temp_dir().join(format!("xylem-policy-timeout-{}.yml", std::process::id()));
+    write(&yml_path, yaml).expect("write YML policy");
+    let yml = Config::try_from(yml_path.clone()).expect("parse YML policy");
+    remove_file(yml_path).expect("remove YML policy");
+    let configurations = [
+        parse_json_configuration(json).expect("parse JSON policy"),
+        parse_jsonc_configuration(jsonc).expect("parse JSONC policy"),
+        parse_yaml_configuration(yaml).expect("parse YAML policy"),
+        yml,
+    ];
+    configurations.iter().for_each(|config| {
+        assert_eq!(
+            config.options.as_ref().map(|options| options.failure_policy),
+            Some(FailurePolicy::Continue)
+        );
+        assert_eq!(config.modules[0].timeout, Some(Seconds::new(30)));
+        config.validate().expect("validate policy and timeout");
+    });
+    let json = serde_json::to_string(&configurations[0]).expect("serialize JSON policy");
+    let json = parse_json_configuration(&json).expect("round trip JSON policy");
+    let yaml = serde_norway::to_string(&configurations[0]).expect("serialize YAML policy");
+    let yaml = parse_yaml_configuration(&yaml).expect("round trip YAML policy");
+    assert_eq!(json.options.map(|options| options.failure_policy), Some(FailurePolicy::Continue));
+    assert_eq!(yaml.modules[0].timeout, Some(Seconds::new(30)));
+}
+#[test]
+fn test_failure_policy_defaults_and_unknown_values() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{"name": "probe", "type": "binary", "uri": "file:./probe"}],
+        "options": {}
+    }))
+    .expect("default failure policy");
+    assert_eq!(config.options.map(|options| options.failure_policy), Some(FailurePolicy::FailFast));
+    assert_eq!(ConfigOptions::init().build().failure_policy, FailurePolicy::FailFast);
+    let explicit: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [],
+        "options": {"failure_policy": "fail_fast"}
+    }))
+    .expect("explicit fail-fast policy");
+    assert_eq!(
+        serde_json::to_value(explicit).expect("serialize fail-fast policy")["options"]["failure_policy"],
+        "fail_fast"
+    );
+    assert!(parse_json_configuration(r#"{"requirements":[],"modules":[],"options":{"failure_policy":"fail-fast"}}"#).is_err());
+    assert!(parse_json_configuration(r#"{"requirements":[],"modules":[],"options":{"failure_policy":"unknown"}}"#).is_err());
+    assert!(parse_jsonc_configuration(r#"{"requirements":[],"modules":[],"options":{"failure_policy":"unknown"}}"#).is_err());
+    assert!(parse_yaml_configuration("requirements: []\nmodules: []\noptions:\n  failure_policy: unknown\n").is_err());
+}
+#[test]
+fn test_module_timeout_validation_is_type_qualified() {
+    let zero: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{"name": "probe", "type": "script", "uri": "file:.", "timeout_seconds": 0}]
+    }))
+    .expect("zero timeout configuration");
+    let report = zero.validate().expect_err("zero timeout should fail");
+    assert!(report
+        .iter()
+        .any(|issue| issue.path == "modules[0].timeout_seconds" && issue.error.code == "positive"));
+    let wrapper: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{"name": "wrapper", "type": "configuration", "uri": "file:./child.json", "timeout_seconds": 30}]
+    }))
+    .expect("wrapper timeout configuration");
+    let report = wrapper.validate().expect_err("configuration timeout should fail");
+    assert!(report
+        .iter()
+        .any(|issue| issue.path == "modules[0].timeout_seconds" && issue.error.code == "unsupported"));
+    assert!(serde_json::from_value::<Config>(serde_json::json!({
+        "requirements": [],
+        "modules": [{"name": "probe", "type": "script", "uri": "file:.", "timeout_seconds": "later"}]
+    }))
+    .is_err());
 }
 #[test]
 fn test_acquisition_limits_must_be_positive() {

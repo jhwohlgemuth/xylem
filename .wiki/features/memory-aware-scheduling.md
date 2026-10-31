@@ -20,7 +20,8 @@ concurrent holdout measurements pass.
 
 # Current evidence
 
-Runtime schema and checked-in evidence rechecked on 2026-10-18.
+Runtime schema, retained evidence, measurement wrapper, and repository history
+rechecked on 2026-10-30 against committed tree `292aa49`.
 
 - The pure fixed-point estimator and FIFO admission queue are implemented.
 - `options.memory` validation, deterministic input sizing, fixed-batch fallback,
@@ -38,6 +39,9 @@ Runtime schema and checked-in evidence rechecked on 2026-10-18.
 - Prompt-policy rejection coverage proves one attempt, fail-fast admission,
   released reservations, discarded artifacts, bounded diagnostics, and no
   invalid observed-peak event.
+- No `apo-rollout` evidence or recorded rollout decision has landed; the
+  credentialed fifth-case gate remains external work rather than missing
+  runtime implementation.
 
 The implementation and retained measurement history live in
 [`tools/memory-spike/README.md`](../../tools/memory-spike/README.md). This page

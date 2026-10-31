@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
 use std::path::PathBuf;
+use xylem_lib::config::FailurePolicy;
 use xylem_lib::execution::ExecutionLimits;
 use xylem_lib::script::ContainerCleanup;
 use xylem_lib::ReporterType;
@@ -71,6 +72,9 @@ pub enum Commands {
         /// Execute workflow dry run (do not actually make changes to environment)
         #[arg(short, long = "dry-run", value_name = "BOOL")]
         dry_run: bool,
+        /// Override the configured input failure policy
+        #[arg(long, value_enum, value_name = "POLICY")]
+        failure_policy: Option<FailurePolicy>,
         /// Collect run-wide NVIDIA GPU telemetry with nvidia-smi
         #[arg(long = "gpu-monitor")]
         gpu_monitor: bool,

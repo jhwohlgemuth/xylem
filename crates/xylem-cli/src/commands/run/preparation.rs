@@ -59,7 +59,7 @@ fn apply_resolved_artifact_output(config: &mut Config, output: &Path) {
         });
     }
 }
-fn configure_preview(mut preview: Config, request: &RunRequest<'_>) -> Result<Config, RunFailure> {
+pub(super) fn configure_preview(mut preview: Config, request: &RunRequest<'_>) -> Result<Config, RunFailure> {
     let effective_sandbox = match (preview.sandbox, request.sandbox_policy.as_deref()) {
         | (false, None) => Ok(None),
         | (false, Some(_)) => Err(RunFailure::new(
@@ -90,6 +90,7 @@ fn configure_preview(mut preview: Config, request: &RunRequest<'_>) -> Result<Co
                 let options = preview.options.take().unwrap_or_else(|| ConfigOptions::init().build());
                 let allowed = request.cli_allowed.clone().or(options.allowed.clone());
                 let dry_run = request.cli_dry_run || options.dry_run.unwrap_or_default();
+                let failure_policy = request.cli_failure_policy.unwrap_or(options.failure_policy);
                 let gpu_monitor = request.cli_gpu_monitor || options.gpu_monitor.unwrap_or_default();
                 let offline = request.cli_offline || options.offline.unwrap_or_default();
                 let resume = request.cli_resume || options.resume.unwrap_or_default();
@@ -100,6 +101,7 @@ fn configure_preview(mut preview: Config, request: &RunRequest<'_>) -> Result<Co
                         .with_allowed(allowed)
                         .with_allow_insecure_http(request.cli_allow_insecure_http)
                         .with_dry_run(Some(dry_run))
+                        .with_failure_policy(failure_policy)
                         .with_gpu_monitor(Some(gpu_monitor))
                         .with_offline(Some(offline))
                         .with_resume(Some(resume))

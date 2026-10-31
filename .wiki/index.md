@@ -1,5 +1,6 @@
 ---
 okf_version: "0.1"
+execution: coordination
 ---
 
 # Xylem Planning Wiki
@@ -17,21 +18,25 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Portfolio review
 
-Rechecked on 2026-10-19 against committed source `de0bd89` and current schemas.
-All six active plans are executable and use five-hour phases. External tap,
-runner, cluster, and credential claims
-remain prerequisites until their owners provide current evidence. Quality
-reflects evidence, bounded phases, dependencies, and acceptance criteria;
-difficulty describes remaining work.
+Rechecked on 2026-10-30 against committed source `292aa49`, the current
+implementation diff, history since `de0bd89`, current schemas and generated
+help, focused ENV source and dependency evidence, retained measurement and
+platform evidence, and live Homebrew tap merge-request state. The portfolio
+contains 6 executable plans, all using five-hour phases. No whole-plan outcome
+completed during this review. External Windows-runner, tap, A/P/O rollout,
+cluster, storage, image, corpus, and credential claims remain explicit
+prerequisites until their owners provide current evidence. Full xylem-lib and
+xylem-cli tests, strict focused Clippy, and rustdoc generation passed for the
+landed process, configuration, and CLI boundary changes.
 
 | Plan | Quality | Impact | Remaining difficulty | Readiness | Assessment |
 |---|---:|---:|---:|---|---|
-| [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md) | 4/5 | Critical | High | Ready | The workspace and split run path are landed. Process results, immutable contexts, policy, cancellation, and schema integration remain. |
-| [Secure module acquisition](refactors/secure-module-acquisition.md) | 4/5 | Critical | Medium | Blocked on ACORN release | SEC-04/05 Linux and SEC-06 macOS qualification are accepted. SEC-07 waits for a published ACORN release newer than 0.4.0 with native Windows Docker runner support. |
-| [Local OCI archive qualification](features/local-oci-bundle-uris.md) | 4/5 | High | Medium | Blocked on acquisition lock | Native directory URIs and the example are landed; archive and sandbox qualification remain. |
-| [Homebrew release activation](features/homebrew-export.md) | 4/5 | High | Low | Ready | The assigned Mac runner is online, but its tap jobs were canceled. A passing macOS job, required two-platform pipeline, merge, and install/upgrade evidence remain. |
+| [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md) | 5/5 | Critical | High | Ready | Lossless process mapping, shell parsing, policy/timeout configuration, and the CLI policy override are implemented. ENV-03 is next. |
+| [Secure module acquisition](refactors/secure-module-acquisition.md) | 5/5 | Critical | Low | Blocked on Windows runner support | SEC-01 through SEC-06 are accepted. Published ACORN CLI 0.5.1 still assumes a POSIX Docker socket for a local container runner, so SEC-07 awaits a native Windows-capable release and host. |
+| [Local OCI archive qualification](features/local-oci-bundle-uris.md) | 5/5 | High | Medium | Ready after shared lock | Native directory URIs and the example are landed; the prior acquisition worktree blocker is gone. OCI-01 may start when no ENV phase owns its shared script/configuration files. |
+| [Homebrew release activation](features/homebrew-export.md) | 5/5 | High | Low | Ready | Tap merge request !2 remains open and mergeable at the intended commit. Its Linux job passes; three macOS retries remain canceled on the online assigned runner. |
 | [A/P/O memory validation](features/memory-aware-scheduling.md) | 5/5 | High | Low | Blocked on rollout decision | The scheduler and A/P evidence are landed. Run the pinned credentialed A/P/O holdout only when selected for rollout. |
-| [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) | 4/5 | Critical | Very high | Blocked on operator gates | Controller/worker work requires accepted demand, shared storage, authentication, image path, and the immutable environment boundary. |
+| [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) | 5/5 | Critical | Very high | Blocked on operator gates | No target, profile, protocol, client, or worker implementation has landed. Controller/worker work requires accepted demand, shared storage, authentication, image path, and the immutable environment boundary. |
 
 The current landed baselines include execution-plan v14, run-summary v13,
 verified acquisition, owned workspaces, sandbox providers, memory admission,
@@ -39,10 +44,12 @@ and durable run storage. New runtime work must preserve those contracts.
 
 ## Recommended execution order
 
-1. Run ENV-01 on the process adapter lock; start SEC-07 after the ACORN
-   Windows Docker runner release gate clears.
-2. Start OCI-01 when SEC releases the configuration/acquisition lock; continue
-   the environment phases in order as their locks become available.
+1. Run ENV-03 when its configuration lock is free. The remaining environment
+   phases serialize their shared process-adapter and configuration files.
+   Start SEC-07 after a published ACORN release and Windows host support native
+   Docker runner creation.
+2. Start OCI-01 when the shared script/configuration files are free; it no
+   longer waits for the completed secure-acquisition implementation phases.
 3. Start BRW-01 on the assigned online Mac runner. Run APO-01 only
    after the A/P/O rollout decision, corpus access, and credentials arrive.
 4. Start K8S-01 when the operator gates are available; runtime phases follow
@@ -57,8 +64,10 @@ provider, or other deferred scope.
 
 ## Adding a plan
 
-1. Create one semantically named Markdown file for one atomic topic.
-2. Add `type: Plan`, `title`, `description`, `difficulty`, `impact`, a non-empty `package` list, `tags`, `status`, `execution: phased`, and `phase_budget_hours: 5` to YAML frontmatter.
+1. Create one semantically named Markdown file for one atomic topic, or a
+   folder whose `index.md` is the plan entrypoint. Keep plan assets under that
+   folder's `_assets/` and wiki-wide assets under `.wiki/_assets/`.
+2. Add `type: Plan`, `title`, `description`, `difficulty`, `impact`, a non-empty `package` list, `tags`, `status`, `execution: phased`, and `phase_budget_hours: 5` to executable-plan YAML frontmatter. Use `execution: coordination`, omit the phase budget, and link executable child plans for an Epic.
 3. Use `low`, `medium`, `high`, `mixed`, or `not-assessed` for difficulty; use `low`, `medium`, `high`, `critical`, `mixed`, or `not-assessed` for impact.
 4. Use `planned`, `in-progress`, or `waiting-on-validation` for status. Add
    `priority: next` only for an immediate unblocked candidate.
@@ -69,7 +78,7 @@ provider, or other deferred scope.
 
 ## Maintaining plans
 
-1. Recheck evidence against the current source, lockfile, tests, and CI configuration before implementation.
+1. Recheck in-scope evidence at every planning session. While planning remains active, review the whole portfolio at least once per calendar month and record the date, evidence scope, and unresolved blockers in this section.
 2. Update frontmatter and body together when scope, priority, package ownership, or status changes.
 3. Remove completed phases and checked tasks. Preserve stable IDs for unfinished phases. Delete completed plans and remove their index, dependency-network, and lane entries after durable evidence is preserved outside `.wiki`.
 4. Consolidate overlapping proposals instead of creating competing owners for the same contract.

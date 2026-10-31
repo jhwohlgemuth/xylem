@@ -7,6 +7,7 @@ impact: critical
 package: [xylem-lib, xylem-cli]
 tags: [refactor, environment, concurrency, cancellation, workspace, determinism]
 status: planned
+priority: next
 execution: phased
 phase_budget_hours: 5
 ---
@@ -20,18 +21,31 @@ Xylem owns workflow policy. Generic child-process mechanics come from ACORN's
 
 # Current evidence
 
-Rechecked on 2026-10-18 against the committed tree and current schema set.
+Rechecked on 2026-10-30 against clean committed tree `292aa49`, ACORN 0.5.1 at
+`3e915697d214eda33e0d4c52f03fb09f27d9d3e4`, current schema/help artifacts,
+and focused process, configuration, CLI, sandbox, and plan call paths.
 
 - `ExecutionContext` already owns a run-local Rayon pool, `InputBatch` is a positive concurrency ceiling, and `dispatch_inputs_fail_fast` provides rolling admission with result slots in configured input order. The dispatch methods still construct a second Rayon pool instead of using one run-level admission mechanism.
 - The current fail-fast dispatcher stops new admission but allows already-active inputs to settle. It has no cancellation token, no `continue` policy, and no structured dispatch report describing never-admitted work.
 - Native module acquisition, local materialization, and environment preparation now run per input inside the existing bounded dispatcher. The remaining scheduler work is to replace optional result slots, cancel active siblings on fail-fast, and add the `continue` policy.
 - `Config::get_environment_variables` merges workflow and module values into a mutable `HashMap`, expands them, and emits `_XYLEM_*` names before an immutable run context exists.
 - `EnvironmentValue::{set_variable,set_variables,set_namespaced_variables}` can mutate the parent process environment. Tests also mutate `_XYLEM_*` variables and depend on process-wide cleanup.
-- `Script` carries per-command environment overrides and uses ACORN managed
-  execution, streaming sinks, and cancellation. Its legacy `run_checked`
-  compatibility method still converts and combines output into `Vec<String>`,
-  and module timeouts remain absent.
-- `Instruction::ShellFormat` still loses quoted and empty argument boundaries through whitespace splitting.
+- `Script::execute` and the CLI module executor already use ACORN's structured
+  result, separate bounded byte streams, streaming sink, timeout option, and
+  cancellation token. `ProcessError` now retains ACORN's complete checked result
+  or partial operational context through one host-and-sandbox adapter; focused
+  tests pin truncation, duration, termination, timeout, cancellation, sink or
+  cleanup context, and non-UTF-8 behavior. The legacy `run_checked`
+  compatibility method still combines lossy text into `Vec<String>`.
+- `Instruction::ShellFormat` now uses ACORN's shell-word parser, preserves
+  quoted, escaped, and empty arguments, and reports malformed templates through
+  deterministic execution planning.
+- Configuration now accepts `options.failure_policy` with a fail-fast default
+  and positive `timeout_seconds` on executable modules across JSON, JSONC,
+  YAML, and YML. Configuration wrappers reject timeouts.
+- `xylem run --failure-policy` accepts `fail-fast` and `continue`; an explicit
+  CLI value overrides configuration while omission preserves the configured or
+  default policy. Checked-in run help records the accepted spelling.
 - Remote configuration resolution now uses the run-owned `configuration/` directory. Each input receives separate `modules/`, `environments/`, and `scratch/` paths, including repeated input values.
 - The CLI now owns `${TMPDIR}/xylem/workspaces/<run-id>` through `RunWorkspace`. It removes the tree after success, failure, or unwind; `--retain-workspace` transfers ownership and reports the path. Durable evidence remains independently owned by the canonical run store.
 - `RunCancellation` and durable `cancelled`/`not_started` states are landed.
@@ -44,6 +58,9 @@ Rechecked on 2026-10-18 against the committed tree and current schema set.
   boundaries with clean environments and staged artifacts. Those contracts do
   not fix the shared mutable host path and must remain intact during this
   refactor.
+- Validation passed on 2026-10-30: all 303 xylem-lib tests (2 ignored), all
+  xylem-lib doctests (4 ignored), all xylem-cli tests (3 ignored), strict
+  all-target/all-feature Clippy for both packages, and rustdoc generation.
 
 # Ownership boundary
 
@@ -68,7 +85,10 @@ Xylem adapts `Script` to the ACORN API and owns configuration, variable preceden
 
 # Dependencies and landing order
 
-1. Preserve the pinned ACORN 0.4.0 managed-process contract while adapting the remaining host result path.
+1. Preserve the pinned ACORN 0.5.1 managed-process contract while adapting the
+   remaining checked-error and sandbox paths. The matching 0.5.1 crates are
+   published on crates.io; Xylem currently pins Git revision
+   `3e915697d214eda33e0d4c52f03fb09f27d9d3e4`.
 2. Keep Xylem's ACORN versions and Git revisions together. Published Xylem crates must resolve the same process contract from crates.io; a Git-only prerequisite is insufficient.
 3. Land the Xylem context, scheduler, journal, and CLI changes as
    coordinated phases. `crates/xylem-lib/src/script/mod.rs`, run-state files,
@@ -221,33 +241,11 @@ this refactor with Kubernetes behavior.
 
 # Execution phases
 
-## ENV-01 — Preserve lossless process results
+## ENV-03 — Build immutable run and input contexts
 
 - Status: ready
 - Budget: 5 active hours maximum
-- Prerequisites: pinned ACORN 0.4.0 process API
-- Exact write set: `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/script/tests/mod.rs`
-- Primary integration lock: process adapter
-- Outcome: Script execution preserves separate bounded byte streams, termination metadata, timeout, and shell-word argument boundaries.
-- Focused validation: `cargo test -p xylem-lib script --locked` with non-UTF-8, empty argument, timeout, and cancellation cases.
-- Handoff: Record accepted result semantics and remove ENV-01 when the focused tests pass.
-
-## ENV-02 — Add validated policy and timeout inputs
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: ENV-01
-- Exact write set: `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/validation.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-cli/src/cli.rs`
-- Primary integration lock: configuration
-- Outcome: `options.failure_policy`, module `timeout_seconds`, and the CLI policy override validate and resolve with the documented defaults.
-- Focused validation: focused configuration and CLI parsing tests for omitted, invalid, and overridden values.
-- Handoff: Record the accepted precedence and remove ENV-02 when validation passes.
-
-## ENV-03 — Build immutable run and input contexts
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: ENV-02 and release of the acquisition configuration lock
+- Prerequisites: exclusive ownership of the configuration lock
 - Exact write set: `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-cli/src/commands/run/preparation.rs`, `crates/xylem-lib/src/run/mod.rs`
 - Primary integration lock: run context
 - Outcome: Pure ordered variable and path resolution constructs complete run and input contexts without parent-environment mutation.
@@ -316,6 +314,9 @@ this refactor with Kubernetes behavior.
 - Prerequisites: ENV-08
 - Exact write set: `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/script/tests/mod.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `docs/src/configuration.md`, `docs/src/cli-reference.md`
 - Primary integration lock: process adapter
-- Outcome: Production workflow execution never changes the parent environment, and user docs match the accepted CLI and result behavior.
-- Focused validation: concurrent conflicting-variable tests, dry-run purity, and workspace lint and test gates.
+- Outcome: Production workflow execution never changes the parent environment,
+  configured module timeouts reach the ACORN execution options, and user docs
+  match the accepted CLI and result behavior.
+- Focused validation: concurrent conflicting-variable tests, module timeout
+  execution, dry-run purity, and workspace lint and test gates.
 - Handoff: Record platform results and durable API documentation, then retire this plan and its index, network, and lane entries.

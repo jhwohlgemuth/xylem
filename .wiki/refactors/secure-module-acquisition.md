@@ -19,7 +19,8 @@ the existing fail-closed policy before retiring the plan.
 
 # Current evidence
 
-The acquisition and CI changes were committed at `de0bd89` on 2026-10-19.
+The acquisition and CI changes were committed at `de0bd89` on 2026-10-19 and
+rechecked on 2026-10-30 against clean committed tree `292aa49`.
 SEC-01 and SEC-02 were rechecked against that revision on 2026-10-19. SEC-03
 HTTPS qualification was committed at `1f5ed65` on 2026-10-19. SEC-04 and
 SEC-05 Linux qualification and SEC-06 macOS qualification are recorded in
@@ -31,8 +32,13 @@ SEC-05 Linux qualification and SEC-06 macOS qualification are recorded in
 - Local OCI and Git acquisition qualification passes on macOS arm64 at
   `938d8f1`. Linux amd64 and native arm64 acquisition CI each passed 33 tests
   at `b1e9297`.
-- Xylem now pins all ACORN crates to accepted revision `0c256bae0ff42da1c96de50fd525146a95965c66`; the lockfile resolves `quick-xml` 0.41.0 and the advisory scan passes.
+- Xylem now pins published ACORN 0.5.1 at
+  `3e915697d214eda33e0d4c52f03fb09f27d9d3e4`; the lockfile resolves
+  `quick-xml` 0.41.0 and the advisory scan passes.
 - OCI module acquisition now accepts digest-pinned ORAS artifacts as file trees, applies the exact-host policy and existing staging/tree ceilings, and records the OCI manifest digest and extracted tree evidence. ORAS is a host runtime prerequisite.
+- ACORN CLI 0.5.1's local Docker runner path still assumes
+  `/var/run/docker.sock`. That release does not clear native Windows Docker
+  runner creation for SEC-07.
 
 # Project code boundaries
 
@@ -53,8 +59,8 @@ capability boundary for network, Git, credentials, and subprocess execution.
 
 The committed implementation already plans and materializes remote documents,
 binaries, Git trees, and OCI trees with typed policy, verified cache identities,
-and durable evidence. The accepted ACORN revision and `quick-xml` 0.41.0 have
-cleared the prior advisory blocker. The local Git HTTPS fixture, both Linux
+and durable evidence. The current ACORN 0.5.1 revision and `quick-xml` 0.41.0
+have cleared the prior advisory blocker. The local Git HTTPS fixture, both Linux
 architectures, and macOS arm64 are validated; Windows qualification remains.
 
 # Handoff
@@ -78,9 +84,9 @@ architectures, and macOS arm64 are validated; Windows qualification remains.
   result are in the [durable platform evidence](../../security/acquisition-platform-evidence.md).
 - Remaining work: qualify Windows and complete the dependency audit under
   SEC-07.
-- Next action: wait for a published ACORN release newer than 0.4.0 that can
-  create a native Windows Docker runner, then register the Xylem project runner
-  and execute SEC-07.
+- Next action: wait for a published ACORN release that can create a native
+  Windows Docker runner, then register the Xylem project runner and execute
+  SEC-07 on an available Windows host.
 
 # Validation
 
@@ -140,11 +146,9 @@ becomes a separate bounded repair phase.
 
 ## SEC-07 — Qualify Windows and close the dependency gate
 
-- Status: blocked on a published ACORN release newer than 0.4.0 with native
-  Windows Docker runner support
+- Status: blocked
 - Budget: 5 active hours maximum
-- Prerequisites: SEC-05, SEC-06, the ACORN release gate above, and a local
-  Windows machine with Docker configured for Windows containers
+- Prerequisites: a published ACORN release with native Windows Docker runner support, and a local Windows machine with Docker configured for Windows containers
 - Exact write set: Windows runner, `Cargo.toml`, `Cargo.lock`, `deny.toml`
 - Primary integration lock: acquisition platform matrix
 - Outcome: Windows acquisition tests pass and the accepted ACORN feature tree and advisory audit are recorded.

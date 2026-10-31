@@ -63,6 +63,16 @@ pub enum ConfigFormat {
     /// YAML Ain't Markup Language.
     Yaml,
 }
+/// Workflow behavior after an input fails.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum FailurePolicy {
+    /// Stop admitting inputs after the first failure.
+    #[default]
+    FailFast,
+    /// Continue admitting independent inputs after failures.
+    Continue,
+}
 /// Failure to select or deserialize a workflow configuration file.
 #[derive(Debug)]
 pub enum ConfigReadError {
@@ -224,6 +234,10 @@ pub struct ConfigOptions {
     /// Collect run-wide NVIDIA GPU telemetry with `nvidia-smi`.
     #[serde(alias = "gpu-monitor")]
     pub gpu_monitor: Option<bool>,
+    /// Workflow behavior after an input fails.
+    #[builder(default)]
+    #[serde(default)]
+    pub failure_policy: FailurePolicy,
     pub offline: Option<bool>,
     /// Skip modules whose declared outputs and marker are current.
     pub resume: Option<bool>,

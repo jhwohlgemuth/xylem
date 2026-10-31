@@ -18,7 +18,8 @@ Linux users can install and upgrade Xylem through the official tap.
 
 # Current evidence
 
-Local release configuration and tap project rechecked on 2026-10-18.
+Local release configuration and live tap project rechecked on 2026-10-30
+against Xylem `292aa49` and tap merge request !2.
 
 - Formula generation, tag-only tap merge-request creation, tap CI, offline formula testing, and upgrade coverage are implemented.
 - The immutable v1.0.0 archive cannot compile with Homebrew Rust 1.98 because it locks `ethnum` 1.5.2. The published v1.0.3 archive locks the compatible `ethnum` 1.5.3 release.
@@ -29,9 +30,10 @@ Local release configuration and tap project rechecked on 2026-10-18.
   `94ac912432d61472276792f27e38967389fc2451`.
   [Pipeline 1017726](https://code.ornl.gov/research-enablement/homebrew-xylem/-/pipelines/1017726)
   reports success because Linux passed and macOS is allowed to fail. The
-  `RE Runner (macbook)` group runner is online, tagged `macos`, and assigned to
-  the tap; its most recent [macOS job 4396906](https://code.ornl.gov/research-enablement/homebrew-xylem/-/jobs/4396906)
-  was canceled. A successful
+  `RE Runner (macbook)` group runner remains active and online; all three
+  assigned macOS retries, including the most recent
+  [job 4396906](https://code.ornl.gov/research-enablement/homebrew-xylem/-/jobs/4396906),
+  were canceled. A successful
   macOS validation job and required two-platform checks remain.
 
 # Project code boundaries

@@ -5,6 +5,7 @@ use super::{
 use crate::completion::{Completion, CompletionPlan};
 use crate::memory::{MemoryEstimator, MemoryEstimatorError};
 use crate::remote::RemotePolicy;
+use acorn_core::time::UnitOfTime;
 use acorn_core::validation::{digest, ValidationError};
 use acorn_schema::validation::{report_of, rules, Validate, ValidationReport};
 use core::mem;
@@ -288,6 +289,12 @@ impl Validate for Module {
         }
         match &self.module_type {
             | ModuleType::Binary { checksum, uri } => {
+                if self.timeout.is_some_and(UnitOfTime::is_zero) {
+                    report.add(
+                        "timeout_seconds",
+                        validation_error("positive", "module timeout must be greater than zero"),
+                    );
+                }
                 if let Err(error) = rules::url(uri.into()) {
                     report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, or SSH"));
                 }
@@ -304,6 +311,12 @@ impl Validate for Module {
                 }
             }
             | ModuleType::Configuration { checksum, uri } => {
+                if self.timeout.is_some() {
+                    report.add(
+                        "timeout_seconds",
+                        validation_error("unsupported", "configuration modules do not execute and cannot declare a timeout"),
+                    );
+                }
                 if !matches!(ModuleUri::from(uri), ModuleUri::Oci(ref value) if value.starts_with("oci-layout:")) {
                     if let Err(error) = rules::url(uri.into()) {
                         report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, SSH, OCI, or OCI layout"));
@@ -348,6 +361,12 @@ impl Validate for Module {
                 }
             }
             | ModuleType::Script { programming_language, uri } => {
+                if self.timeout.is_some_and(UnitOfTime::is_zero) {
+                    report.add(
+                        "timeout_seconds",
+                        validation_error("positive", "module timeout must be greater than zero"),
+                    );
+                }
                 if !matches!(ModuleUri::from(uri), ModuleUri::Oci(ref value) if value.starts_with("oci-layout:")) {
                     if let Err(error) = rules::url(uri.into()) {
                         report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, SSH, OCI, or OCI layout"));

@@ -57,9 +57,10 @@ The first release does not:
 
 # Current evidence
 
-Rechecked against the 2026-10-18 committed tree and schema set. Kubernetes
-operator demand, shared storage, cluster access, and image runners still need
-owner-provided evidence before implementation starts.
+Rechecked on 2026-10-30 against clean committed tree `292aa49`, current v14/v13
+schemas, CLI/help surfaces, dependency manifests, and ENV execution call paths.
+Kubernetes operator demand, shared storage, cluster access, and image runners
+still need owner-provided evidence before implementation starts.
 
 - Run orchestration is split across preparation, execution, dispatch, executor,
   progress, and reporting modules. This is a useful composition seam, but
@@ -105,6 +106,9 @@ owner-provided evidence before implementation starts.
 - OCI, OpenShell, and Docker Sandbox providers now distinguish the outer
   isolation session from application containers. Kubernetes target types must
   remain separate from `ContainerEnvironment` and sandbox provider policy.
+- No Kubernetes target/profile/protocol module, kube client dependency,
+  controller, worker, runner image, or Kind fixture has landed. The existing
+  phase sequence remains wholly active.
 
 # Core decisions
 

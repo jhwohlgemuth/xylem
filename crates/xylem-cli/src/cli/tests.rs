@@ -85,6 +85,24 @@ fn test_container_policy_flags_parse() {
     }
 }
 #[test]
+fn test_failure_policy_is_a_typed_override() {
+    match parse(&["xylem", "run", "--failure-policy", "continue"]).command {
+        | Some(Commands::Run { failure_policy, .. }) => assert_eq!(failure_policy, Some(FailurePolicy::Continue)),
+        | _ => panic!("run command should parse"),
+    }
+    match parse(&["xylem", "run"]).command {
+        | Some(Commands::Run { failure_policy, .. }) => assert_eq!(failure_policy, None),
+        | _ => panic!("run command should parse"),
+    }
+    assert!(Arguments::try_parse_from(["xylem", "run", "--failure-policy", "unknown"]).is_err());
+    let mut command = Arguments::command();
+    let help = command.find_subcommand_mut("run").expect("run subcommand").render_long_help().to_string();
+    assert!(help.contains("--failure-policy <POLICY>"));
+    assert!(help.contains("Possible values:"));
+    assert!(help.contains("fail-fast: Stop admitting inputs after the first failure"));
+    assert!(help.contains("continue:  Continue admitting independent inputs after failures"));
+}
+#[test]
 fn test_global_env_and_progress_flags_parse_before_or_after_run() {
     let before = parse(&["xylem", "--env", "custom.env", "--no-progress", "run"]);
     assert_eq!(before.env, Some(PathBuf::from("custom.env")));

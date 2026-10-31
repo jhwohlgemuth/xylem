@@ -4,6 +4,7 @@ extern crate alloc;
 use crate::acquisition::{AcquisitionError, AcquisitionPlan};
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
 use crate::config::{Config, ConfigOptions, InputAttribute, MemoryEstimatorOptions, MemoryOptions};
+use crate::error::TemplateError;
 use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
 use crate::memory::{MemoryAdmissionError, MemoryCalculationError, MemoryEstimator, MemoryEstimatorError, PlannedMemoryInput};
 use crate::sandbox::{IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard, SandboxLifecycle, SandboxProviderKind, SandboxResources};
@@ -51,6 +52,8 @@ pub enum PlanError {
     Sandbox(String),
     /// Scripted input selection failed.
     Selection(SelectionError),
+    /// An inline module command template could not be rendered.
+    Template(TemplateError),
     /// Semantic configuration validation failed.
     Validation(ValidationReport),
 }
@@ -385,7 +388,7 @@ impl From<InputAttribute> for InputSource {
     }
 }
 impl Module {
-    fn command(&self, variables: &BTreeMap<String, String>) -> PlannedCommand {
+    fn command(&self, variables: &BTreeMap<String, String>) -> Result<PlannedCommand, TemplateError> {
         let uri = match &self.module_type {
             | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri, .. } | ModuleType::Script { uri, .. } => uri,
         };
@@ -393,30 +396,31 @@ impl Module {
         match &self.template {
             | Some(TemplateAttribute::Template(template)) => {
                 let variables = variables.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
-                let script = Script::from_template(template.as_ref().clone()).expand_arguments_from(variables);
-                PlannedCommand {
-                    arguments: script.arguments,
-                    program: Some(script.command.name),
-                    template_source: None,
-                    working_directory,
-                }
+                Script::from_template(template.as_ref().clone())
+                    .map(|script| script.expand_arguments_from(variables))
+                    .map(|script| PlannedCommand {
+                        arguments: script.arguments,
+                        program: Some(script.command.name),
+                        template_source: None,
+                        working_directory,
+                    })
             }
-            | Some(TemplateAttribute::Path(path)) => PlannedCommand {
+            | Some(TemplateAttribute::Path(path)) => Ok(PlannedCommand {
                 arguments: Vec::new(),
                 program: None,
                 template_source: working_directory
                     .as_ref()
                     .map(|directory| PathBuf::from(directory).join(path).display().to_string()),
                 working_directory,
-            },
-            | None => PlannedCommand {
+            }),
+            | None => Ok(PlannedCommand {
                 arguments: Vec::new(),
                 program: None,
                 template_source: working_directory
                     .as_ref()
                     .map(|directory| PathBuf::from(directory).join("template.json").display().to_string()),
                 working_directory,
-            },
+            }),
         }
     }
     fn plan(
@@ -459,24 +463,26 @@ impl Module {
                         }),
                     | false => Ok("would_run"),
                 };
-                decision.map(|decision| {
-                    let completion = resolved.map(|resolved| PlannedCompletion {
-                        marker: resolved.marker.display().to_string(),
-                        outputs: resolved.outputs.iter().map(|output| output.display().to_string()).collect(),
-                    });
-                    PlannedModule::init()
-                        .acquisition(acquisition)
-                        .command(self.command(&variables))
-                        .maybe_completion(completion)
-                        .decision(decision)
-                        .input_index(input_index)
-                        .maybe_input(input.clone())
-                        .module_index(module_index)
-                        .module(self.name.as_str())
-                        .module_path(self.module_path.clone())
-                        .observed_completion(resume && self.completion.is_some())
-                        .variables(variables)
-                        .build()
+                decision.and_then(|decision| {
+                    self.command(&variables).map_err(PlanError::from).map(|command| {
+                        let completion = resolved.map(|resolved| PlannedCompletion {
+                            marker: resolved.marker.display().to_string(),
+                            outputs: resolved.outputs.iter().map(|output| output.display().to_string()).collect(),
+                        });
+                        PlannedModule::init()
+                            .acquisition(acquisition)
+                            .command(command)
+                            .maybe_completion(completion)
+                            .decision(decision)
+                            .input_index(input_index)
+                            .maybe_input(input.clone())
+                            .module_index(module_index)
+                            .module(self.name.as_str())
+                            .module_path(self.module_path.clone())
+                            .observed_completion(resume && self.completion.is_some())
+                            .variables(variables)
+                            .build()
+                    })
                 })
             })
     }
@@ -491,6 +497,7 @@ impl core::error::Error for PlanError {
             | Self::MemoryCalculation(error) => Some(error),
             | Self::MemoryEstimator(error) => Some(error),
             | Self::Selection(error) => Some(error),
+            | Self::Template(error) => Some(error),
             | Self::Validation(error) => Some(error),
         }
     }
@@ -505,6 +512,7 @@ impl fmt::Display for PlanError {
             | Self::MemoryCalculation(error) => error.fmt(formatter),
             | Self::MemoryEstimator(error) => error.fmt(formatter),
             | Self::Selection(error) => error.fmt(formatter),
+            | Self::Template(error) => error.fmt(formatter),
             | Self::Validation(error) => error.fmt(formatter),
         }
     }
@@ -537,6 +545,11 @@ impl From<MemoryEstimatorError> for PlanError {
 impl From<SelectionError> for PlanError {
     fn from(error: SelectionError) -> Self {
         Self::Selection(error)
+    }
+}
+impl From<TemplateError> for PlanError {
+    fn from(error: TemplateError) -> Self {
+        Self::Template(error)
     }
 }
 impl From<ValidationReport> for PlanError {

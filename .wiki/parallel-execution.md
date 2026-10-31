@@ -1,5 +1,6 @@
 ---
 okf_version: "0.1"
+execution: coordination
 ---
 
 # Parallel execution guide
@@ -14,8 +15,8 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 | Lock | Primary owners | Rule |
 |---|---|---|
 | Acquisition policy and executor | OCI-01/02 | Finish or hand off the current acquisition change before another phase writes its files. |
-| Configuration | ENV-02/03/04, OCI-01, K8S-04 | Preserve typed validation, batching, memory fallback, resume, and source nesting. |
-| Process adapter | ENV-01/08 | Other phases consume the accepted ACORN process boundary. |
+| Configuration | ENV-03/04, OCI-01, K8S-04 | Preserve typed validation, batching, memory fallback, resume, and source nesting. |
+| Process adapter | ENV-09 | Other phases consume the accepted ACORN process boundary. |
 | Scheduler | ENV-05 | Preserve ordered fixed and memory-aware admission. |
 | Run state | ENV-07/08, K8S-08 | Allocate versions serially; update plans, writers, recovery, reporters, schemas, and TUI together. |
 | CLI | ENV-06, K8S-03/09/10/11/14 | One owner changes command registration, run orchestration, cancellation, or exit mapping at a time. |
@@ -29,17 +30,17 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 ### Lane A: secure module acquisition
 
 - [SEC-07](refactors/secure-module-acquisition.md): qualify Windows and close
-  the dependency gate after a published ACORN release newer than 0.4.0 adds
-  native Windows Docker runner support.
+  the dependency gate after a published ACORN release and Windows host support
+  native Docker runner creation.
 - [OCI-01 through OCI-04](features/local-oci-bundle-uris.md): archive and
   sandbox work starts when its shared lock is released; it need not await
   unrelated Git or platform results.
 
 ### Lane B: execution runtime
 
-- [ENV-01 through ENV-09](refactors/workflow-environment-and-concurrency.md):
-  process results, immutable contexts, scheduling, cancellation, durable state,
-  and parent-environment cleanup.
+- [ENV-03 through ENV-09](refactors/workflow-environment-and-concurrency.md):
+  immutable contexts, scheduling, cancellation, durable state, timeout
+  forwarding, and parent-environment cleanup.
 - [K8S-01 through K8S-19](features/kubernetes-workflow-backend.md): operator
   gates first; reusable runtime, protocol, controller, worker, image, and
   cluster phases follow accepted ENV prerequisites.
@@ -59,10 +60,14 @@ its write set remains disjoint from CI and documentation integration.
 
 | Phase | Primary lock | Start condition |
 |---|---|---|
-| ENV-01 | Process adapter | Pinned ACORN 0.4.0 process contract is available. |
+| ENV-03 | Run context | The configuration lock is free. |
 | BRW-01 | Tap validation | Assigned `RE Runner (macbook)` remains online. |
 | APO-01 | A/P/O measurement evidence | Rollout, corpus, and credentials are supplied. |
 | K8S-01 | Kubernetes deployment assumptions | Operator demand, cluster, storage, and image owner are supplied. |
+
+The process adapter uses the published and pinned ACORN 0.5.1 contract at
+`3e915697d214eda33e0d4c52f03fb09f27d9d3e4`. OCI-01 is also ready, but it and
+ENV-03 share configuration files and must take that lock serially.
 
 ## Agent start checklist
 
