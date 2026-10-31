@@ -18,8 +18,8 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Portfolio review
 
-Rechecked on 2026-10-30 against committed source `292aa49`, the current
-implementation diff, history since `de0bd89`, current schemas and generated
+Rechecked on 2026-10-30 against committed source `d14016b`, the current
+ENV-03/04 implementation diff, history since `de0bd89`, current schemas and generated
 help, focused ENV source and dependency evidence, retained measurement and
 platform evidence, and live Homebrew tap merge-request state. The portfolio
 contains 6 executable plans, all using five-hour phases. No whole-plan outcome
@@ -31,7 +31,7 @@ landed process, configuration, and CLI boundary changes.
 
 | Plan | Quality | Impact | Remaining difficulty | Readiness | Assessment |
 |---|---:|---:|---:|---|---|
-| [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md) | 5/5 | Critical | High | Ready | Lossless process mapping, shell parsing, policy/timeout configuration, and the CLI policy override are implemented. ENV-03 is next. |
+| [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md) | 5/5 | Critical | High | Ready | Immutable run/input contexts and input-local preparation are implemented. ENV-05 is next. |
 | [Secure module acquisition](refactors/secure-module-acquisition.md) | 5/5 | Critical | Low | Blocked on Windows runner support | SEC-01 through SEC-06 are accepted. Published ACORN CLI 0.5.1 still assumes a POSIX Docker socket for a local container runner, so SEC-07 awaits a native Windows-capable release and host. |
 | [Local OCI archive qualification](features/local-oci-bundle-uris.md) | 5/5 | High | Medium | Ready after shared lock | Native directory URIs and the example are landed; the prior acquisition worktree blocker is gone. OCI-01 may start when no ENV phase owns its shared script/configuration files. |
 | [Homebrew release activation](features/homebrew-export.md) | 5/5 | High | Low | Ready | Tap merge request !2 remains open and mergeable at the intended commit. Its Linux job passes; three macOS retries remain canceled on the online assigned runner. |
@@ -44,12 +44,12 @@ and durable run storage. New runtime work must preserve those contracts.
 
 ## Recommended execution order
 
-1. Run ENV-03 when its configuration lock is free. The remaining environment
-   phases serialize their shared process-adapter and configuration files.
-   Start SEC-07 after a published ACORN release and Windows host support native
-   Docker runner creation.
-2. Start OCI-01 when the shared script/configuration files are free; it no
-   longer waits for the completed secure-acquisition implementation phases.
+1. Run ENV-05 on the scheduler lock, then ENV-06 on the CLI lock. Start SEC-07
+   after a published ACORN release and Windows host support native Docker
+   runner creation.
+2. OCI-01 may start on the now-free acquisition/configuration lock; it no
+   longer waits for the completed secure-acquisition or environment-context
+   implementation phases.
 3. Start BRW-01 on the assigned online Mac runner. Run APO-01 only
    after the A/P/O rollout decision, corpus access, and credentials arrive.
 4. Start K8S-01 when the operator gates are available; runtime phases follow

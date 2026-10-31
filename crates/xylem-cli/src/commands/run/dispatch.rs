@@ -4,7 +4,6 @@ use super::RunFailure;
 use acorn_host::terminal::Label;
 use alloc::collections::BTreeSet;
 use alloc::sync::Arc;
-use std::path::Path;
 use tracing::{debug, info, warn};
 use xylem_lib::config::{Config, ConfigOptions};
 use xylem_lib::container::ContainerLifecycle;
@@ -14,17 +13,14 @@ use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::{ExecutionPlan, MemoryPlanMode};
 use xylem_lib::progress::ProgressPhase;
 use xylem_lib::run::store::Bundle;
-use xylem_lib::run::RunCancellation;
+use xylem_lib::run::RunContext;
 use xylem_lib::sandbox::{Prepared, SandboxInput, SandboxSession};
-use xylem_lib::workspace::InputWorkspace;
 
 pub(super) struct DispatchContext<'a> {
     pub(super) bundle: &'a Bundle,
     pub(super) config: &'a Config,
     pub(super) execution: &'a ExecutionContext,
-    pub(super) id: &'a str,
     pub(super) input_kind: &'a str,
-    pub(super) input_workspaces: &'a [InputWorkspace],
     pub(super) inputs: &'a [Option<String>],
     pub(super) journal: &'a RunJournal,
     pub(super) journal_containers: &'a [JournalContainer],
@@ -32,20 +28,19 @@ pub(super) struct DispatchContext<'a> {
     pub(super) plan: &'a ExecutionPlan,
     pub(super) progress: &'a WorkflowProgress,
     pub(super) required_modules: &'a BTreeSet<usize>,
-    pub(super) root: &'a Path,
-    pub(super) run_cancellation: &'a RunCancellation,
+    pub(super) run_context: &'a RunContext,
     pub(super) sandbox: Option<&'a Arc<dyn SandboxSession>>,
 }
 pub(super) fn dispatch_inputs(context: DispatchContext<'_>) -> Result<Vec<Option<WorkflowOutcome>>, RunFailure> {
-    let concurrency = context.execution.input_concurrency(context.options.batch);
+    let concurrency = context.execution.input_concurrency(context.run_context.batch());
     debug!(target: "xylem_cli::commands::run", concurrency, "=> {} Active workflow input limit", Label::using());
     let lifecycle = match context.options.sandbox_policy.is_some() {
         | true => Ok(ContainerLifecycle::default()),
         | false => ContainerLifecycle::start(
             context.config,
             context.required_modules,
-            context.options.root.as_deref().unwrap_or(context.root),
-            context.id,
+            context.options.root.as_deref().unwrap_or_else(|| context.run_context.workspace().root()),
+            context.run_context.run_id(),
             context.options.offline.unwrap_or_default(),
             context.options.container_cleanup,
         ),
@@ -76,7 +71,7 @@ pub(super) fn dispatch_inputs(context: DispatchContext<'_>) -> Result<Vec<Option
                         .execution
                         .dispatch_inputs_fail_fast_memory(
                             context.inputs,
-                            context.options.batch,
+                            context.run_context.batch(),
                             memory.budget.clone(),
                             reservations,
                             operation,
@@ -87,7 +82,7 @@ pub(super) fn dispatch_inputs(context: DispatchContext<'_>) -> Result<Vec<Option
             ),
             | Some(_) | None => context
                 .execution
-                .dispatch_inputs_fail_fast(context.inputs, context.options.batch, operation, failed)
+                .dispatch_inputs_fail_fast(context.inputs, context.run_context.batch(), operation, failed)
                 .map_err(|why| RunFailure::new(exitcode::OSERR, format!("initialize Xylem input worker pool — {why}"))),
         };
         finish_lifecycle(context.journal, context.journal_containers, lifecycle, dispatched)
@@ -115,31 +110,25 @@ fn execute_active_input(context: &DispatchContext<'_>, index: usize, input: &Opt
             WorkflowOutcome::failed(input.clone(), message)
         }
         | Ok(()) => {
-            let prepared = context.sandbox.map_or_else(
-                || {
-                    context
-                        .input_workspaces
-                        .get(index)
-                        .ok_or_else(|| format!("input {index} workspace is missing"))
-                        .and_then(|workspace| {
+            let prepared = context
+                .run_context
+                .workflow_context(index, input.clone())
+                .map_err(|why| why.to_string())
+                .and_then(|workflow| {
+                    let preparation = context.sandbox.map_or_else(
+                        || {
                             context
                                 .config
                                 .clone()
-                                .prepare_modules_selected_in_workspace(context.required_modules, Some(context.progress), workspace)
+                                .prepare_modules_selected_in_workspace(context.required_modules, Some(context.progress), workflow.workspace())
                                 .map(|config| (config, None))
                                 .map_err(|why| why.to_string())
-                        })
-                },
-                |session| {
-                    context
-                        .input_workspaces
-                        .get(index)
-                        .ok_or_else(|| format!("input {index} workspace is missing"))
-                        .and_then(|workspace| {
+                        },
+                        |session| {
                             context
                                 .config
                                 .clone()
-                                .materialize_modules_selected_in_workspace(context.required_modules, None, workspace)
+                                .materialize_modules_selected_in_workspace(context.required_modules, None, workflow.workspace())
                                 .map_err(|why| why.to_string())
                                 .and_then(|materialized| {
                                     SandboxInput::new_with_input_count(
@@ -147,7 +136,7 @@ fn execute_active_input(context: &DispatchContext<'_>, index: usize, input: &Opt
                                         index,
                                         context.inputs.len(),
                                         context.required_modules.iter().copied(),
-                                        workspace.scratch().join("sandbox"),
+                                        workflow.workspace().scratch().join("sandbox"),
                                         input.clone(),
                                     )
                                     .and_then(|requested| {
@@ -166,12 +155,13 @@ fn execute_active_input(context: &DispatchContext<'_>, index: usize, input: &Opt
                                     .map(|sandbox_input| (materialized, Some(sandbox_input)))
                                     .map_err(|why| why.to_string())
                                 })
-                        })
-                },
-            );
+                        },
+                    );
+                    preparation.map(|(config, sandbox_input)| (config, sandbox_input, workflow))
+                });
             let mut outcome = match prepared {
                 | Err(why) => WorkflowOutcome::failed(input.clone(), why.to_string()),
-                | Ok((prepared_config, sandbox_input)) => {
+                | Ok((prepared_config, sandbox_input, workflow)) => {
                     let execution_config = sandbox_input
                         .as_ref()
                         .map_or(prepared_config, |value: &SandboxInput<Prepared>| value.prepared_config().clone());
@@ -180,14 +170,16 @@ fn execute_active_input(context: &DispatchContext<'_>, index: usize, input: &Opt
                         .as_ref()
                         .and_then(|value| value.prepared_input().map(str::to_string))
                         .or_else(|| input.clone());
-                    let module_executor = LoggedModuleExecutor::new(context.bundle.clone(), context.run_cancellation.clone(), sandbox_input.clone());
-                    let mut outcome = execution_config.run_workflow_recorded(
-                        execution_input,
+                    let workflow = workflow.with_input(execution_input);
+                    let bundle = context.bundle.clone();
+                    let cancellation = context.run_context.cancellation().clone();
+                    let module_executor = LoggedModuleExecutor::new(bundle, cancellation, sandbox_input.clone());
+                    let mut outcome = execution_config.run_workflow_in_context(
+                        &workflow,
                         &execution_options,
                         Some(context.progress),
                         Some(&module_executor),
                         Some(context.journal),
-                        index,
                     );
                     if let Some(sandbox_input) = sandbox_input {
                         let observed_peak = match (context.plan.memory.is_some(), outcome.is_success()) {
@@ -241,7 +233,7 @@ fn execute_active_input(context: &DispatchContext<'_>, index: usize, input: &Opt
     }
 }
 fn execute_input(context: &DispatchContext<'_>, index: usize, input: &Option<String>) -> WorkflowOutcome {
-    match context.run_cancellation.is_requested() {
+    match context.run_context.cancellation().is_requested() {
         | true => {
             let message = "workflow cancellation requested";
             let _ = context.journal.transition_input(index, ExecutionState::Cancelled, Some(message));

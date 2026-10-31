@@ -44,7 +44,7 @@ fn test_failure_policy_configuration_is_preserved_without_override() {
     let path = None;
     let values = None;
     let request = request(None, &path, &values);
-    let configured = configure_preview(config(FailurePolicy::Continue), &request).expect("configure preview");
+    let configured = configure_preview(config(FailurePolicy::Continue), &request, request.artifact_output.as_deref()).expect("configure preview");
     assert_eq!(configured.options.map(|options| options.failure_policy), Some(FailurePolicy::Continue));
 }
 #[test]
@@ -52,6 +52,6 @@ fn test_failure_policy_override_replaces_configuration() {
     let path = None;
     let values = None;
     let request = request(Some(FailurePolicy::FailFast), &path, &values);
-    let configured = configure_preview(config(FailurePolicy::Continue), &request).expect("configure preview");
+    let configured = configure_preview(config(FailurePolicy::Continue), &request, request.artifact_output.as_deref()).expect("configure preview");
     assert_eq!(configured.options.map(|options| options.failure_policy), Some(FailurePolicy::FailFast));
 }

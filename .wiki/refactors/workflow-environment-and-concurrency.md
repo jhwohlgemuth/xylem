@@ -21,14 +21,18 @@ Xylem owns workflow policy. Generic child-process mechanics come from ACORN's
 
 # Current evidence
 
-Rechecked on 2026-10-30 against clean committed tree `292aa49`, ACORN 0.5.1 at
+Rechecked on 2026-10-30 against committed tree `d14016b`, the current
+ENV-03/04 implementation diff, ACORN 0.5.1 at
 `3e915697d214eda33e0d4c52f03fb09f27d9d3e4`, current schema/help artifacts,
 and focused process, configuration, CLI, sandbox, and plan call paths.
 
 - `ExecutionContext` already owns a run-local Rayon pool, `InputBatch` is a positive concurrency ceiling, and `dispatch_inputs_fail_fast` provides rolling admission with result slots in configured input order. The dispatch methods still construct a second Rayon pool instead of using one run-level admission mechanism.
 - The current fail-fast dispatcher stops new admission but allows already-active inputs to settle. It has no cancellation token, no `continue` policy, and no structured dispatch report describing never-admitted work.
 - Native module acquisition, local materialization, and environment preparation now run per input inside the existing bounded dispatcher. The remaining scheduler work is to replace optional result slots, cancel active siblings on fail-fast, and add the `continue` policy.
-- `Config::get_environment_variables` merges workflow and module values into a mutable `HashMap`, expands them, and emits `_XYLEM_*` names before an immutable run context exists.
+- Runtime command construction uses the immutable context resolver. The legacy
+  `Config::get_environment_variables` compatibility path still returns a
+  mutable prefixed `HashMap` to planning and library callers and remains for
+  ENV-09 cleanup.
 - `EnvironmentValue::{set_variable,set_variables,set_namespaced_variables}` can mutate the parent process environment. Tests also mutate `_XYLEM_*` variables and depend on process-wide cleanup.
 - `Script::execute` and the CLI module executor already use ACORN's structured
   result, separate bounded byte streams, streaming sink, timeout option, and
@@ -51,6 +55,19 @@ and focused process, configuration, CLI, sandbox, and plan call paths.
 - `RunCancellation` and durable `cancelled`/`not_started` states are landed.
   TUI-launched runs use the cancellation handle, but the headless CLI still has
   no signal integration and fail-fast does not cancel active siblings.
+- `RunContext` now owns the run workspace, invocation and configuration
+  directories, effective thread and batch limits, failure policy, cancellation,
+  artifact override, and retention choice. Each admitted input constructs a
+  `WorkflowContext` with distinct owned module, environment, and scratch paths.
+- Context variable resolution is a pure ordered map. Workflow defaults, module
+  overrides, the CLI artifact override, and derived runtime values have tested
+  precedence; reserved names and non-Unicode runtime paths fail before command
+  construction. Zero-input and repeated-input contexts are covered.
+- Input workspaces are created only after scheduler admission. Native module
+  materialization and Conda, Mamba, and Pixi preparation remain inside that
+  slot, with distinct module and environment roots for repeated inputs.
+- Volatile `RUN_ID` and `WORK_DIRECTORY` values reach child commands but are
+  excluded from completion fingerprints, preserving resume compatibility.
 - Execution plans are at version 14 and journals/summaries are at version 13.
   The landed schemas include selection, sandbox, artifact, memory, cancellation,
   and lifecycle evidence that the next runtime revision must preserve.
@@ -58,7 +75,7 @@ and focused process, configuration, CLI, sandbox, and plan call paths.
   boundaries with clean environments and staged artifacts. Those contracts do
   not fix the shared mutable host path and must remain intact during this
   refactor.
-- Validation passed on 2026-10-30: all 303 xylem-lib tests (2 ignored), all
+- Validation passed on 2026-10-30: all 310 xylem-lib tests (2 ignored), all
   xylem-lib doctests (4 ignored), all xylem-cli tests (3 ignored), strict
   all-target/all-feature Clippy for both packages, and rustdoc generation.
 
@@ -77,9 +94,8 @@ Xylem adapts `Script` to the ACORN API and owns configuration, variable preceden
 - **Update:** configuration, execution, script, plan, journal, run store,
   reporter, TUI, and CLI run modules; the dependency lockfile, current schemas,
   focused tests, and user documentation.
-- **Create:** immutable `RunContext` and `WorkflowContext`, `FailurePolicy`,
-  `DispatchReport<T>`, focused process fixtures, and the next coordinated plan
-  and summary schemas.
+- **Create:** `DispatchReport<T>`, focused process fixtures, and the next
+  coordinated plan and summary schemas.
 - **Delete:** production parent-environment mutation APIs, the combined
   `Vec<String>` script result, and whitespace-only shell-format parsing.
 
@@ -241,33 +257,11 @@ this refactor with Kubernetes behavior.
 
 # Execution phases
 
-## ENV-03 — Build immutable run and input contexts
+## ENV-05 — Return ordered dispatch outcomes and apply failure policy
 
 - Status: ready
 - Budget: 5 active hours maximum
-- Prerequisites: exclusive ownership of the configuration lock
-- Exact write set: `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-cli/src/commands/run/preparation.rs`, `crates/xylem-lib/src/run/mod.rs`
-- Primary integration lock: run context
-- Outcome: Pure ordered variable and path resolution constructs complete run and input contexts without parent-environment mutation.
-- Focused validation: precedence, reserved names, zero and repeated inputs, configuration-relative paths, and non-Unicode path tests.
-- Handoff: Record context fields and validation results; remove ENV-03 when accepted.
-
-## ENV-04 — Keep preparation inside the owned input boundary
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: ENV-03
-- Exact write set: `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-cli/src/commands/run/execution.rs`
-- Primary integration lock: input preparation
-- Outcome: Conda/Mamba, Pixi, and supported managers prepare in the input workspace under one admission slot.
-- Focused validation: repeated-input workspace and environment-prefix tests with peak concurrent work bounded by the effective ceiling.
-- Handoff: Record manager coverage and remove ENV-04 when accepted.
-
-## ENV-05 — Return ordered dispatch outcomes and apply failure policy
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: ENV-04
+- Prerequisites: none
 - Exact write set: `crates/xylem-lib/src/execution.rs`, `crates/xylem-cli/src/commands/run/dispatch.rs`
 - Primary integration lock: scheduler
 - Outcome: One ordered dispatch report distinguishes failed, cancelled, and never-admitted inputs; fail-fast cancels siblings and continue admits all eligible inputs.

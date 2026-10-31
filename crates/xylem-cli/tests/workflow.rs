@@ -222,9 +222,10 @@ fn test_configuration_module_executes_and_reports_qualified_leaf_identity() {
         }"#,
     )
     .expect("write child configuration");
-    let artifact_output = test_root.join("artifacts");
+    let artifact_output = test_root.canonicalize().expect("canonical test root").join("artifacts");
     let mut dry_run = xylem_command();
     let dry_run = dry_run
+        .current_dir(&test_root)
         .args([
             "run",
             root_config.to_str().expect("UTF-8 configuration path"),
@@ -232,7 +233,7 @@ fn test_configuration_module_executes_and_reports_qualified_leaf_identity() {
             "--reporter",
             "json",
             "--artifact-output",
-            artifact_output.to_str().expect("UTF-8 artifact path"),
+            "artifacts",
         ])
         .output()
         .expect("run nested dry run");

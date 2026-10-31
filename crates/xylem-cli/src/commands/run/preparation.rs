@@ -5,8 +5,9 @@ use acorn_schema::validation::Validate;
 use std::env;
 use std::path::{absolute, Path, PathBuf};
 use xylem_lib::acquisition::{AcquisitionCache, AcquisitionLimits, AcquisitionPolicy};
-use xylem_lib::config::{Config, ConfigOptions, ConfigReadError};
+use xylem_lib::config::{Config, ConfigOptions, ConfigReadError, FailurePolicy};
 use xylem_lib::plan::ExecutionPlan;
+use xylem_lib::run::RunContext;
 use xylem_lib::sandbox::{EffectiveSandboxPolicy, SandboxProviderKind, DOCKER_SANDBOX_WARNING, OPENSHELL_WARNING};
 use xylem_lib::script::EnvironmentValue;
 use xylem_lib::workspace::RunWorkspace;
@@ -14,10 +15,9 @@ use xylem_lib::workspace::RunWorkspace;
 pub(super) struct PreparedRun {
     pub(super) config: Config,
     pub(super) config_path: PathBuf,
-    pub(super) id: Option<String>,
+    pub(super) context: Option<RunContext>,
     pub(super) inputs: Vec<Option<String>>,
     pub(super) plan: ExecutionPlan,
-    pub(super) workspace: Option<RunWorkspace>,
 }
 struct ResolvedRun {
     config: Config,
@@ -44,22 +44,26 @@ fn apply_preview_artifact_output(config: &mut Config, output: &Path) -> Result<(
         },
     )
 }
-fn apply_resolved_artifact_output(config: &mut Config, output: &Path) {
-    if let Some(output) = output.to_str() {
-        config.output = Some(output.to_string());
-        config
-            .variables
-            .get_or_insert_default()
-            .insert("OUTPUT_DIRECTORY".to_string(), serde_json::Value::String(output.to_string()));
-        config.modules.iter_mut().for_each(|module| {
-            module
+fn apply_resolved_artifact_output(config: &mut Config, output: &Path) -> Result<(), RunFailure> {
+    output.to_str().map_or_else(
+        || Err(RunFailure::new(exitcode::USAGE, "--artifact-output must be valid UTF-8")),
+        |output| {
+            config.output = Some(output.to_string());
+            config
                 .variables
                 .get_or_insert_default()
                 .insert("OUTPUT_DIRECTORY".to_string(), serde_json::Value::String(output.to_string()));
-        });
-    }
+            config.modules.iter_mut().for_each(|module| {
+                module
+                    .variables
+                    .get_or_insert_default()
+                    .insert("OUTPUT_DIRECTORY".to_string(), serde_json::Value::String(output.to_string()));
+            });
+            Ok(())
+        },
+    )
 }
-pub(super) fn configure_preview(mut preview: Config, request: &RunRequest<'_>) -> Result<Config, RunFailure> {
+pub(super) fn configure_preview(mut preview: Config, request: &RunRequest<'_>, artifact_output: Option<&Path>) -> Result<Config, RunFailure> {
     let effective_sandbox = match (preview.sandbox, request.sandbox_policy.as_deref()) {
         | (false, None) => Ok(None),
         | (false, Some(_)) => Err(RunFailure::new(
@@ -82,9 +86,7 @@ pub(super) fn configure_preview(mut preview: Config, request: &RunRequest<'_>) -
             .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string())),
     };
     effective_sandbox.and_then(|effective_sandbox| {
-        request
-            .artifact_output
-            .as_ref()
+        artifact_output
             .map_or(Ok(()), |output| apply_preview_artifact_output(&mut preview, output))
             .map(|()| {
                 let options = preview.options.take().unwrap_or_else(|| ConfigOptions::init().build());
@@ -119,7 +121,7 @@ fn normalize_sandbox_artifact_output(config: &mut Config) -> Result<(), RunFailu
     match (config.sandbox, config.output.as_ref()) {
         | (true, Some(output)) => std::path::absolute(output)
             .map_err(|why| RunFailure::new(exitcode::DATAERR, format!("resolve sandbox artifact output {output} — {why}")))
-            .map(|output| apply_resolved_artifact_output(config, &output)),
+            .and_then(|output| apply_resolved_artifact_output(config, &output)),
         | _ => Ok(()),
     }
 }
@@ -127,16 +129,27 @@ pub(super) fn prepare(request: &RunRequest<'_>) -> Result<PreparedRun, RunFailur
     env::current_dir()
         .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, format!("resolve current directory — {why}")))
         .and_then(|directory| {
-            resolve_config_path(request.config.as_deref(), &directory, &DEFAULT_CONFIG_NAMES).ok_or_else(|| {
-                RunFailure::new(
-                    exitcode::USAGE,
-                    format!("no workflow configuration found; expected one of {}", DEFAULT_CONFIG_NAMES.join(", ")),
-                )
-            })
+            resolve_config_path(request.config.as_deref(), &directory, &DEFAULT_CONFIG_NAMES)
+                .ok_or_else(|| {
+                    RunFailure::new(
+                        exitcode::USAGE,
+                        format!("no workflow configuration found; expected one of {}", DEFAULT_CONFIG_NAMES.join(", ")),
+                    )
+                })
+                .map(|config_path| (config_path, directory))
         })
-        .and_then(|config_path| prepare_config(request, config_path))
+        .and_then(|(config_path, directory)| prepare_config(request, config_path, directory))
 }
-fn prepare_config(request: &RunRequest<'_>, config_path: PathBuf) -> Result<PreparedRun, RunFailure> {
+fn prepare_config(request: &RunRequest<'_>, config_path: PathBuf, invocation_directory: PathBuf) -> Result<PreparedRun, RunFailure> {
+    resolve_artifact_output(request, &invocation_directory)
+        .and_then(|artifact_output| prepare_config_with_output(request, config_path, invocation_directory, artifact_output))
+}
+fn prepare_config_with_output(
+    request: &RunRequest<'_>,
+    config_path: PathBuf,
+    invocation_directory: PathBuf,
+    artifact_output: Option<PathBuf>,
+) -> Result<PreparedRun, RunFailure> {
     Config::try_from(config_path.as_path())
         .map_err(|why| {
             let exit_code = match &why {
@@ -146,7 +159,7 @@ fn prepare_config(request: &RunRequest<'_>, config_path: PathBuf) -> Result<Prep
             };
             RunFailure::new(exit_code, why.to_string())
         })
-        .and_then(|preview| configure_preview(preview, request))
+        .and_then(|preview| configure_preview(preview, request, artifact_output.as_deref()))
         .and_then(|mut preview| {
             match (request.artifact_output.is_some(), preview.output.as_ref()) {
                 | (false, Some(output)) if Path::new(output).is_relative() => config_path
@@ -208,22 +221,22 @@ fn prepare_config(request: &RunRequest<'_>, config_path: PathBuf) -> Result<Prep
                     owned.and_then(|(id, workspace)| {
                         preview
                             .resolve_with_policy(&config_path, &policy, &cache, dry_run)
-                            .map(|mut resolved| {
-                                if let Some(output) = request.artifact_output.as_ref() {
-                                    apply_resolved_artifact_output(&mut resolved, output);
-                                }
-                                ResolvedRun {
-                                    config: resolved,
-                                    id,
-                                    workspace,
-                                }
-                            })
                             .map_err(|why| {
                                 let exit_code = match why.is_availability() {
                                     | true => exitcode::UNAVAILABLE,
                                     | false => exitcode::DATAERR,
                                 };
                                 RunFailure::new(exit_code, why.to_string())
+                            })
+                            .and_then(|mut resolved| {
+                                artifact_output
+                                    .as_ref()
+                                    .map_or(Ok(()), |output| apply_resolved_artifact_output(&mut resolved, output))
+                                    .map(|()| ResolvedRun {
+                                        config: resolved,
+                                        id,
+                                        workspace,
+                                    })
                             })
                     })
                 })
@@ -291,13 +304,47 @@ fn prepare_config(request: &RunRequest<'_>, config_path: PathBuf) -> Result<Prep
                     };
                     RunFailure::new(exit_code, why.to_string())
                 })
-                .map(|plan| PreparedRun {
-                    config: resolved.config,
-                    config_path,
-                    id: resolved.id,
-                    inputs: inputs.values,
-                    plan,
-                    workspace: resolved.workspace,
+                .and_then(|plan| {
+                    let context = resolved.id.zip(resolved.workspace).map_or(Ok(None), |(id, workspace)| {
+                        config_path
+                            .parent()
+                            .map(Path::to_path_buf)
+                            .ok_or_else(|| RunFailure::new(exitcode::DATAERR, "workflow configuration has no parent directory"))
+                            .and_then(|configuration_directory| {
+                                let options = resolved.config.options.as_ref();
+                                RunContext::init()
+                                    .maybe_batch(options.and_then(|options| options.batch))
+                                    .cancellation(request.cancellation.clone().unwrap_or_default())
+                                    .failure_policy(options.map_or_else(FailurePolicy::default, |options| options.failure_policy))
+                                    .limits(request.limits)
+                                    .retain_workspace(request.retain_workspace)
+                                    .run_id(id)
+                                    .and_then(|builder| builder.configuration_directory(configuration_directory))
+                                    .and_then(|builder| builder.invocation_directory(invocation_directory))
+                                    .and_then(|builder| builder.maybe_artifact_output(artifact_output.clone()))
+                                    .and_then(|builder| builder.workspace(workspace))
+                                    .map(|builder| Some(builder.build()))
+                                    .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
+                            })
+                    });
+                    context.map(|context| PreparedRun {
+                        config: resolved.config,
+                        config_path,
+                        context,
+                        inputs: inputs.values,
+                        plan,
+                    })
                 })
         })
+}
+fn resolve_artifact_output(request: &RunRequest<'_>, invocation_directory: &Path) -> Result<Option<PathBuf>, RunFailure> {
+    request.artifact_output.as_ref().map_or(Ok(None), |output| {
+        let output = match output.is_absolute() {
+            | true => output.clone(),
+            | false => invocation_directory.join(output),
+        };
+        absolute(&output)
+            .map(Some)
+            .map_err(|why| RunFailure::new(exitcode::USAGE, format!("resolve --artifact-output {} — {why}", output.display())))
+    })
 }

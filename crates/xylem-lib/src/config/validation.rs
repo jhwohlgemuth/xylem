@@ -1,6 +1,6 @@
 use super::{
-    BTreeSet, Config, ContainerEnvironment, ContainerRuntime, Map, MemoryOptions, Module, ModuleType, ModuleUri, Path, PathBuf, Scheme,
-    TemplateAttribute, Value, VirtualEnvironmentManager,
+    BTreeSet, Config, ContainerEnvironment, ContainerRuntime, MemoryOptions, Module, ModuleType, ModuleUri, Path, PathBuf, Scheme, TemplateAttribute,
+    VariableLookup, VirtualEnvironmentManager, RESERVED_VARIABLES,
 };
 use crate::completion::{Completion, CompletionPlan};
 use crate::memory::{MemoryEstimator, MemoryEstimatorError};
@@ -150,7 +150,7 @@ impl Validate for Config {
             }
             names
         });
-        validate_variables(self.variables.as_ref(), "variables", &mut report);
+        report = report.merge("variables", report_of(VariableLookup::from_values(self.variables.as_ref()).validate()));
         report.finish()
     }
 }
@@ -393,7 +393,7 @@ impl Validate for Module {
                 report = report.merge("completion", report_of(completion.validate()));
             }
         }
-        validate_variables(self.variables.as_ref(), "variables", &mut report);
+        report = report.merge("variables", report_of(VariableLookup::from_values(self.variables.as_ref()).validate()));
         report.finish()
     }
 }
@@ -435,15 +435,19 @@ impl Validate for TemplateAttribute {
         report.finish()
     }
 }
-fn validate_variables(variables: Option<&Map<String, Value>>, path: &str, report: &mut ValidationReport) {
-    variables.into_iter().flat_map(|values| values.iter()).for_each(|(name, _)| {
-        if matches!(name.as_str(), "INPUT" | "MODULE_LIST" | "PARENT_DIRECTORY") {
-            report.add(
-                format!("{path}.{name}"),
-                validation_error("reserved", "reserved variable cannot be configured"),
-            );
-        }
-    });
+impl Validate for VariableLookup {
+    fn validate(&self) -> Result<(), ValidationReport> {
+        let mut report = ValidationReport::new();
+        self.0
+            .keys()
+            .filter(|name| RESERVED_VARIABLES.contains(&name.as_str()))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .for_each(|name| {
+                report.add(name, validation_error("reserved", "reserved variable cannot be configured"));
+            });
+        report.finish()
+    }
 }
 fn validation_error(code: &str, message: impl Into<String>) -> ValidationError {
     ValidationError::new(code).with_message(message)

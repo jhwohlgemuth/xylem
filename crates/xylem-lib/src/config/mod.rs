@@ -11,10 +11,11 @@ use crate::journal::{ExecutionState, RunJournal};
 use crate::outcome::{ModuleOutcome, WorkflowOutcome};
 use crate::plan::PlanError;
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
+use crate::run::{ContextError, WorkflowContext};
 use crate::sandbox::EffectiveSandboxPolicy;
 use crate::script::{
     module_working_directory, Command, ContainerCleanup, ContainerEnvironment, ContainerRuntime, EnvironmentValue, Module, ModuleLanguage,
-    ModuleType, ModuleUri, Script, TemplateAttribute, VirtualEnvironment, VirtualEnvironmentManager,
+    ModuleType, ModuleUri, Script, StringTemplate, TemplateAttribute, VirtualEnvironment, VirtualEnvironmentManager,
 };
 pub use crate::selection::{InputSelection, SelectionEngine, SelectionOptions, SelectionRequest};
 use crate::workspace::{materialize, InputWorkspace};
@@ -43,6 +44,7 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 mod validation;
+const RESERVED_VARIABLES: [&str; 5] = ["INPUT", "MODULE_LIST", "PARENT_DIRECTORY", "RUN_ID", "WORK_DIRECTORY"];
 /// Executes one resolved module command for an orchestration adapter.
 pub trait ModuleExecutor: Send + Sync {
     /// Execute a script for the stable input and module positions.
@@ -62,16 +64,6 @@ pub enum ConfigFormat {
     Jsonc,
     /// YAML Ain't Markup Language.
     Yaml,
-}
-/// Workflow behavior after an input fails.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, clap::ValueEnum)]
-#[serde(rename_all = "snake_case")]
-pub enum FailurePolicy {
-    /// Stop admitting inputs after the first failure.
-    #[default]
-    FailFast,
-    /// Continue admitting independent inputs after failures.
-    Continue,
 }
 /// Failure to select or deserialize a workflow configuration file.
 #[derive(Debug)]
@@ -138,6 +130,16 @@ enum ConfigurationSource {
     Git { identity: String, path: PathBuf },
     Http { identity: String },
     Oci { identity: String, path: PathBuf },
+}
+/// Workflow behavior after an input fails.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum FailurePolicy {
+    /// Stop admitting inputs after the first failure.
+    #[default]
+    FailFast,
+    /// Continue admitting independent inputs after failures.
+    Continue,
 }
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -322,6 +324,8 @@ pub struct Rule {
     /// Options to pass to the checker
     pub parameters: Option<Parameters>,
 }
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct VariableLookup(HashMap<String, String>);
 impl Config {
     /// Resolve local configuration modules into their executable leaf modules.
     pub fn resolve(self, source: &Path) -> Result<Self, ConfigurationModuleError> {
@@ -373,26 +377,14 @@ impl Config {
         )
     }
     pub fn get_environment_variables(self, module: Option<Module>, input: Option<String>) -> HashMap<String, String> {
-        let mut variables = self.variables.clone().unwrap_or_default();
-        if !variables.contains_key("OUTPUT_DIRECTORY") {
-            if let Some(output) = &self.output {
-                variables.insert("OUTPUT_DIRECTORY".to_string(), Value::String(output.clone()));
-            }
-        }
-        if let Some(module) = module {
-            variables.extend(module.variables.unwrap_or_default());
-        }
-        variables.insert("MODULE_LIST".to_string(), Value::String(self.clone().get_module_list()));
-        if let Some(value) = input {
-            let parent = PathBuf::from(&value)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or(&value)
-                .to_string();
-            variables.insert("INPUT".to_string(), Value::String(value));
-            variables.insert("PARENT_DIRECTORY".to_string(), Value::String(parent));
-        }
-        let envs = EnvironmentValue::expand(EnvironmentValue::get_from_serde(&variables));
+        let envs = VariableLookup::from_values(self.variables.as_ref())
+            .with_output_default(self.output.as_deref())
+            .with_values(module.as_ref().and_then(|module| module.variables.as_ref()))
+            .with_value("MODULE_LIST", self.get_module_list())
+            .with_input(input.as_deref())
+            .expand()
+            .namespaced()
+            .into_hash_map();
         debug!("=> {} Environment variables: {:#?}", Label::using(), envs.dimmed());
         envs
     }
@@ -409,7 +401,7 @@ impl Config {
             }
         })
     }
-    pub fn get_module_list(self) -> String {
+    pub fn get_module_list(&self) -> String {
         let names = self
             .modules
             .iter()
@@ -423,6 +415,45 @@ impl Config {
             })
             .collect::<Vec<String>>();
         names.join(",").to_string()
+    }
+    pub(crate) fn resolve_context_variables(
+        &self,
+        context: &WorkflowContext<'_>,
+        module: Option<&Module>,
+    ) -> Result<BTreeMap<String, String>, ContextError> {
+        let run = context.run();
+        let artifact_output = run.artifact_output().map_or(Ok(None), |output| {
+            output
+                .to_str()
+                .map(|value| Some(value.to_string()))
+                .ok_or_else(|| ContextError::NonUnicodePath {
+                    field: "artifact output",
+                    path: output.to_path_buf(),
+                })
+        });
+        let work_directory = context
+            .workspace()
+            .root()
+            .to_str()
+            .map(str::to_string)
+            .ok_or_else(|| ContextError::NonUnicodePath {
+                field: "input workspace",
+                path: context.workspace().root().to_path_buf(),
+            });
+        artifact_output.and_then(|artifact_output| {
+            work_directory.map(|work_directory| {
+                VariableLookup::from_values(self.variables.as_ref())
+                    .with_output_default(self.output.as_deref())
+                    .with_values(module.and_then(|module| module.variables.as_ref()))
+                    .with_optional_value("OUTPUT_DIRECTORY", artifact_output)
+                    .with_value("MODULE_LIST", self.get_module_list())
+                    .with_value("RUN_ID", run.run_id())
+                    .with_value("WORK_DIRECTORY", work_directory)
+                    .with_input(context.input())
+                    .expand()
+                    .into_ordered_map()
+            })
+        })
     }
     /// Prepare workflow modules for execution
     ///
@@ -698,12 +729,53 @@ impl Config {
         journal: Option<&RunJournal>,
         input_index: usize,
     ) -> WorkflowOutcome {
-        EnvironmentValue::print_all();
+        self.run_workflow_recorded_with_context(input, options, observer, executor, journal, input_index, None)
+    }
+    /// Run workflow modules using one immutable input context.
+    pub fn run_workflow_in_context(
+        self,
+        context: &WorkflowContext<'_>,
+        options: &ConfigOptions,
+        observer: Option<&dyn ProgressObserver>,
+        executor: Option<&dyn ModuleExecutor>,
+        journal: Option<&RunJournal>,
+    ) -> WorkflowOutcome {
+        self.run_workflow_recorded_with_context(
+            context.input().map(str::to_string),
+            options,
+            observer,
+            executor,
+            journal,
+            context.input_index(),
+            Some(context),
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn run_workflow_recorded_with_context(
+        self,
+        input: Option<String>,
+        options: &ConfigOptions,
+        observer: Option<&dyn ProgressObserver>,
+        executor: Option<&dyn ModuleExecutor>,
+        journal: Option<&RunJournal>,
+        input_index: usize,
+        context: Option<&WorkflowContext<'_>>,
+    ) -> WorkflowOutcome {
+        if context.is_none() {
+            EnvironmentValue::print_all();
+        }
         let execution = self.modules.iter().enumerate().try_fold(
             Vec::new(),
             |mut outcomes, (module_index, module)| -> Result<Vec<ModuleOutcome>, (Vec<ModuleOutcome>, String)> {
-                let envs = self.clone().get_environment_variables(Some(module.clone()), input.clone());
-                let result = CompletionPlan::inspect(module, &envs, options.resume.unwrap_or_default(), self.output.as_deref())
+                let envs = match context {
+                    | Some(context) => match context.command_environment(&self, module) {
+                        | Ok(environment) => environment.into_iter().collect::<HashMap<_, _>>(),
+                        | Err(why) => return Err((outcomes, why.to_string())),
+                    },
+                    | None => self.clone().get_environment_variables(Some(module.clone()), input.clone()),
+                };
+                let completion_envs = VariableLookup::from(envs.clone()).completion().into_hash_map();
+                let result = CompletionPlan::inspect(module, &completion_envs, options.resume.unwrap_or_default(), self.output.as_deref())
                     .map_err(|why| why.to_string())
                     .and_then(|completion| {
                         let skip_existing = matches!(completion.as_ref().map(|plan| plan.decision), Some(CompletionDecision::SkipExisting))
@@ -1661,6 +1733,86 @@ impl Module {
         }
     }
 }
+impl From<HashMap<String, String>> for VariableLookup {
+    fn from(values: HashMap<String, String>) -> Self {
+        Self(values)
+    }
+}
+impl VariableLookup {
+    fn completion(mut self) -> Self {
+        self.0.retain(|key, _| !matches!(key.as_str(), "_XYLEM_RUN_ID" | "_XYLEM_WORK_DIRECTORY"));
+        self
+    }
+    fn expand(self) -> Self {
+        let raw = self.0;
+        let mut expanded = raw.clone();
+        for _ in 0..=raw.len() {
+            let variables = expanded.iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>();
+            let next = raw
+                .iter()
+                .map(|(key, value)| (key.clone(), StringTemplate::new(value).expand(variables.clone())))
+                .collect::<HashMap<_, _>>();
+            if next == expanded {
+                break;
+            }
+            expanded = next;
+        }
+        Self(expanded)
+    }
+    fn from_values(values: Option<&Map<String, Value>>) -> Self {
+        Self(
+            values
+                .into_iter()
+                .flat_map(Map::iter)
+                .map(|(key, value)| {
+                    let value = match value {
+                        | Value::String(value) => value.clone(),
+                        | value => value.to_string(),
+                    };
+                    (key.clone(), value)
+                })
+                .collect(),
+        )
+    }
+    fn into_hash_map(self) -> HashMap<String, String> {
+        self.0
+    }
+    fn into_ordered_map(self) -> BTreeMap<String, String> {
+        self.0.into_iter().collect()
+    }
+    fn namespaced(self) -> Self {
+        Self(self.0.into_iter().map(|(key, value)| (format!("_XYLEM_{key}"), value)).collect())
+    }
+    fn with_input(self, input: Option<&str>) -> Self {
+        match input {
+            | Some(input) => {
+                let parent = Path::new(input).file_name().and_then(|name| name.to_str()).unwrap_or(input).to_string();
+                self.with_value("INPUT", input).with_value("PARENT_DIRECTORY", parent)
+            }
+            | None => self,
+        }
+    }
+    fn with_optional_value(self, name: &str, value: Option<String>) -> Self {
+        match value {
+            | Some(value) => self.with_value(name, value),
+            | None => self,
+        }
+    }
+    fn with_output_default(self, output: Option<&str>) -> Self {
+        match (self.0.contains_key("OUTPUT_DIRECTORY"), output) {
+            | (false, Some(output)) => self.with_value("OUTPUT_DIRECTORY", output),
+            | _ => self,
+        }
+    }
+    fn with_value(mut self, name: &str, value: impl Into<String>) -> Self {
+        self.0.insert(name.to_string(), value.into());
+        self
+    }
+    fn with_values(mut self, values: Option<&Map<String, Value>>) -> Self {
+        self.0.extend(Self::from_values(values).0);
+        self
+    }
+}
 fn default_container_env() -> bool {
     true
 }
@@ -1703,6 +1855,5 @@ fn read_configuration_content(path: &Path, format: ConfigFormat) -> Result<Strin
             | false => Ok(content),
         })
 }
-
 #[cfg(test)]
 mod tests;

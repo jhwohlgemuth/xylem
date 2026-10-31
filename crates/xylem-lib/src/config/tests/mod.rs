@@ -9,6 +9,7 @@ use crate::acquisition::{AcquisitionCache, AcquisitionCacheStatus, AcquisitionLi
 use crate::config::*;
 use crate::execution::{ExecutionContext, ExecutionLimits, InputBatch};
 use crate::progress::{ProgressObserver, ProgressPhase, ProgressState, ProgressUpdate};
+use crate::run::{ContextError, RunCancellation, RunContext};
 use crate::workspace::RunWorkspace;
 use acorn_core::time::{Seconds, UnitOfTime};
 use acorn_schema::validation::Validate;
@@ -17,17 +18,12 @@ use sha2::{Digest, Sha256};
 use std::fs::{create_dir_all, read_dir, remove_dir_all, remove_file, write};
 use std::io::{Read, Write};
 use std::net::TcpListener;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStringExt;
 use std::sync::Mutex;
 use std::thread;
 
 const FIXTURES: &str = "../../tests/fixtures";
-
-fn acquisition_policy(hosts: Option<&[String]>, allow_insecure_http: bool, offline: bool) -> AcquisitionPolicy {
-    AcquisitionPolicy::from_hosts(hosts, allow_insecure_http, None, offline, AcquisitionLimits::default()).expect("valid acquisition policy")
-}
-fn checksum(content: &str) -> String {
-    format!("sha256:{:x}", Sha256::digest(content.as_bytes()))
-}
 struct CancelledExecutor;
 #[derive(Default)]
 struct RecordingProgress {
@@ -50,6 +46,9 @@ impl ProgressObserver for RecordingProgress {
         self.updates.lock().expect("progress lock").push(update);
     }
 }
+fn acquisition_policy(hosts: Option<&[String]>, allow_insecure_http: bool, offline: bool) -> AcquisitionPolicy {
+    AcquisitionPolicy::from_hosts(hosts, allow_insecure_http, None, offline, AcquisitionLimits::default()).expect("valid acquisition policy")
+}
 #[allow(clippy::std_instead_of_core)]
 fn bind_local_server() -> Option<TcpListener> {
     match TcpListener::bind("127.0.0.1:0") {
@@ -57,6 +56,9 @@ fn bind_local_server() -> Option<TcpListener> {
         | Err(why) if why.kind() == std::io::ErrorKind::PermissionDenied => None,
         | Err(why) => panic!("bind local server: {why}"),
     }
+}
+fn checksum(content: &str) -> String {
+    format!("sha256:{:x}", Sha256::digest(content.as_bytes()))
 }
 fn configuration_files(root: &Path) -> Vec<PathBuf> {
     read_dir(root)
@@ -103,6 +105,17 @@ fn memory_module(name: &str) -> Value {
 }
 
 #[test]
+fn test_acquisition_limits_must_be_positive() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "modules": [],
+        "options": { "acquisition_limits": { "git_entries": 0 } },
+        "requirements": []
+    }))
+    .expect("configuration should deserialize before semantic validation");
+    let report = config.validate().expect_err("zero acquisition limit should fail");
+    assert!(report.iter().any(|issue| issue.path == "options.acquisition_limits"));
+}
+#[test]
 fn test_all_module_locations_round_trip_scalar_and_structured_forms() {
     let document = serde_json::json!({
         "requirements": [],
@@ -144,107 +157,6 @@ fn test_allowed_round_trips_in_configuration_options() {
     );
 }
 #[test]
-fn test_failure_policy_and_module_timeout_round_trip_across_formats() {
-    let json = r#"{
-        "requirements": [],
-        "modules": [{"name": "probe", "type": "script", "uri": "file:.", "timeout_seconds": 30}],
-        "options": {"failure_policy": "continue"}
-    }"#;
-    let jsonc = r#"{
-        // Continue independent inputs after a failure.
-        "requirements": [],
-        "modules": [{"name": "probe", "type": "script", "uri": "file:.", "timeout_seconds": 30}],
-        "options": {"failure_policy": "continue"},
-    }"#;
-    let yaml = "requirements: []\nmodules:\n  - name: probe\n    type: script\n    uri: 'file:.'\n    timeout_seconds: 30\noptions:\n  failure_policy: continue\n";
-    let yml_path = std::env::temp_dir().join(format!("xylem-policy-timeout-{}.yml", std::process::id()));
-    write(&yml_path, yaml).expect("write YML policy");
-    let yml = Config::try_from(yml_path.clone()).expect("parse YML policy");
-    remove_file(yml_path).expect("remove YML policy");
-    let configurations = [
-        parse_json_configuration(json).expect("parse JSON policy"),
-        parse_jsonc_configuration(jsonc).expect("parse JSONC policy"),
-        parse_yaml_configuration(yaml).expect("parse YAML policy"),
-        yml,
-    ];
-    configurations.iter().for_each(|config| {
-        assert_eq!(
-            config.options.as_ref().map(|options| options.failure_policy),
-            Some(FailurePolicy::Continue)
-        );
-        assert_eq!(config.modules[0].timeout, Some(Seconds::new(30)));
-        config.validate().expect("validate policy and timeout");
-    });
-    let json = serde_json::to_string(&configurations[0]).expect("serialize JSON policy");
-    let json = parse_json_configuration(&json).expect("round trip JSON policy");
-    let yaml = serde_norway::to_string(&configurations[0]).expect("serialize YAML policy");
-    let yaml = parse_yaml_configuration(&yaml).expect("round trip YAML policy");
-    assert_eq!(json.options.map(|options| options.failure_policy), Some(FailurePolicy::Continue));
-    assert_eq!(yaml.modules[0].timeout, Some(Seconds::new(30)));
-}
-#[test]
-fn test_failure_policy_defaults_and_unknown_values() {
-    let config: Config = serde_json::from_value(serde_json::json!({
-        "requirements": [],
-        "modules": [{"name": "probe", "type": "binary", "uri": "file:./probe"}],
-        "options": {}
-    }))
-    .expect("default failure policy");
-    assert_eq!(config.options.map(|options| options.failure_policy), Some(FailurePolicy::FailFast));
-    assert_eq!(ConfigOptions::init().build().failure_policy, FailurePolicy::FailFast);
-    let explicit: Config = serde_json::from_value(serde_json::json!({
-        "requirements": [],
-        "modules": [],
-        "options": {"failure_policy": "fail_fast"}
-    }))
-    .expect("explicit fail-fast policy");
-    assert_eq!(
-        serde_json::to_value(explicit).expect("serialize fail-fast policy")["options"]["failure_policy"],
-        "fail_fast"
-    );
-    assert!(parse_json_configuration(r#"{"requirements":[],"modules":[],"options":{"failure_policy":"fail-fast"}}"#).is_err());
-    assert!(parse_json_configuration(r#"{"requirements":[],"modules":[],"options":{"failure_policy":"unknown"}}"#).is_err());
-    assert!(parse_jsonc_configuration(r#"{"requirements":[],"modules":[],"options":{"failure_policy":"unknown"}}"#).is_err());
-    assert!(parse_yaml_configuration("requirements: []\nmodules: []\noptions:\n  failure_policy: unknown\n").is_err());
-}
-#[test]
-fn test_module_timeout_validation_is_type_qualified() {
-    let zero: Config = serde_json::from_value(serde_json::json!({
-        "requirements": [],
-        "modules": [{"name": "probe", "type": "script", "uri": "file:.", "timeout_seconds": 0}]
-    }))
-    .expect("zero timeout configuration");
-    let report = zero.validate().expect_err("zero timeout should fail");
-    assert!(report
-        .iter()
-        .any(|issue| issue.path == "modules[0].timeout_seconds" && issue.error.code == "positive"));
-    let wrapper: Config = serde_json::from_value(serde_json::json!({
-        "requirements": [],
-        "modules": [{"name": "wrapper", "type": "configuration", "uri": "file:./child.json", "timeout_seconds": 30}]
-    }))
-    .expect("wrapper timeout configuration");
-    let report = wrapper.validate().expect_err("configuration timeout should fail");
-    assert!(report
-        .iter()
-        .any(|issue| issue.path == "modules[0].timeout_seconds" && issue.error.code == "unsupported"));
-    assert!(serde_json::from_value::<Config>(serde_json::json!({
-        "requirements": [],
-        "modules": [{"name": "probe", "type": "script", "uri": "file:.", "timeout_seconds": "later"}]
-    }))
-    .is_err());
-}
-#[test]
-fn test_acquisition_limits_must_be_positive() {
-    let config: Config = serde_json::from_value(serde_json::json!({
-        "modules": [],
-        "options": { "acquisition_limits": { "git_entries": 0 } },
-        "requirements": []
-    }))
-    .expect("configuration should deserialize before semantic validation");
-    let report = config.validate().expect_err("zero acquisition limit should fail");
-    assert!(report.iter().any(|issue| issue.path == "options.acquisition_limits"));
-}
-#[test]
 fn test_batch_rejects_zero_negative_non_numeric_and_overflow_values() {
     let overflow = (usize::MAX as u128 + 1).to_string();
     for value in ["0".to_string(), "-1".to_string(), "\"many\"".to_string(), overflow] {
@@ -274,6 +186,22 @@ fn test_batch_round_trips_through_json_and_yaml() {
     let yaml = serde_norway::to_string(&config).expect("serialize YAML configuration");
     let round_trip = parse_yaml_configuration(&yaml).expect("deserialize YAML batch");
     assert_eq!(round_trip.options.and_then(|options| options.batch).map(InputBatch::get), Some(2));
+}
+#[test]
+fn test_checksum_escape_hatch_allows_an_unpinned_remote_binary() {
+    let module = serde_json::json!({
+        "modules": [{
+            "name": "Remote",
+            "type": "binary",
+            "uri": "https://example.org/tool"
+        }],
+        "requirements": []
+    });
+    let denied: Config = serde_json::from_value(module.clone()).expect("parse remote binary configuration");
+    assert!(denied.validate().is_err());
+    let mut allowed: Config = serde_json::from_value(module).expect("parse checksum escape hatch configuration");
+    allowed.options = Some(ConfigOptions::init().skip_verify_checksum(true).build());
+    assert!(allowed.validate().is_ok());
 }
 #[test]
 fn test_completion_declarations_round_trip_through_json_and_yaml() {
@@ -845,77 +773,6 @@ fn test_configuration_modules_resolve_nested_http_documents() {
     }
 }
 #[test]
-fn test_checksum_escape_hatch_allows_an_unpinned_remote_binary() {
-    let module = serde_json::json!({
-        "modules": [{
-            "name": "Remote",
-            "type": "binary",
-            "uri": "https://example.org/tool"
-        }],
-        "requirements": []
-    });
-    let denied: Config = serde_json::from_value(module.clone()).expect("parse remote binary configuration");
-    assert!(denied.validate().is_err());
-    let mut allowed: Config = serde_json::from_value(module).expect("parse checksum escape hatch configuration");
-    allowed.options = Some(ConfigOptions::init().skip_verify_checksum(true).build());
-    assert!(allowed.validate().is_ok());
-}
-#[test]
-fn test_remote_binary_is_verified_and_copied_into_the_input_workspace() {
-    if let Some(listener) = bind_local_server() {
-        let address = listener.local_addr().expect("server address");
-        let body = "#!/bin/sh\nexit 0\n";
-        let expected = body.as_bytes().to_vec();
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("accept binary request");
-            let mut request = [0_u8; 1024];
-            let count = stream.read(&mut request).expect("read binary request");
-            assert!(String::from_utf8_lossy(&request[..count]).starts_with("GET "));
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            stream.write_all(response.as_bytes()).expect("write binary response");
-        });
-        let config: Config = serde_json::from_value(serde_json::json!({
-            "modules": [{
-                "checksum": checksum(body),
-                "name": "Remote",
-                "type": "binary",
-                "uri": format!("http://{address}/tool")
-            }],
-            "requirements": []
-        }))
-        .expect("valid remote binary configuration");
-        let hosts = vec![address.to_string()];
-        let policy = acquisition_policy(Some(&hosts), true, false);
-        let root = std::env::temp_dir().join(format!("xylem-binary-workspace-{address}"));
-        let cache = AcquisitionCache::new(root.join("cache"));
-        let workspace = RunWorkspace::create(&root.join("workspaces"), "run").expect("create run workspace");
-        let input = workspace.input(0).expect("create input workspace");
-        let prepared = config
-            .resolve_with_policy(Path::new("config.json"), &policy, &cache, false)
-            .expect("resolve remote binary")
-            .prepare_modules_selected_in_workspace(&BTreeSet::from([0]), None, &input)
-            .expect("prepare remote binary");
-        server.join().expect("binary server");
-        let module = &prepared.modules[0];
-        let path = prepared
-            .options
-            .as_ref()
-            .and_then(|options| options.workspace_modules.get(&0))
-            .expect("materialized binary path");
-        assert!(path.starts_with(input.modules()));
-        assert_eq!(std::fs::read(path).expect("read materialized binary"), expected);
-        assert_eq!(
-            module.acquisition.as_ref().expect("remote acquisition evidence").cache,
-            AcquisitionCacheStatus::Miss
-        );
-        workspace.close().expect("close run workspace");
-        remove_dir_all(root).expect("remove remote binary test directory");
-    }
-}
-#[test]
 fn test_configuration_try_from_uses_mime_type_for_yml_files() {
     let path = std::env::temp_dir().join(format!("xylem-config-mime-{}.yml", std::process::id()));
     write(&path, "requirements: []\nmodules: []\n").expect("write YAML configuration");
@@ -944,6 +801,160 @@ fn test_configuration_version_must_be_semantic() {
     }
 }
 #[test]
+fn test_context_variables_apply_precedence_and_derived_values() {
+    let root = std::env::temp_dir().join(format!("xylem-context-precedence-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    let workspace = RunWorkspace::create(&root, "run").expect("create run workspace");
+    let context = RunContext::init()
+        .artifact_output(root.join("cli-output"))
+        .expect("UTF-8 artifact output")
+        .batch(InputBatch::try_from(2).expect("positive batch"))
+        .cancellation(RunCancellation::default())
+        .failure_policy(FailurePolicy::Continue)
+        .limits(ExecutionLimits::try_from(4).expect("positive thread limit"))
+        .retain_workspace(true)
+        .run_id("run-id".to_string())
+        .expect("safe run id")
+        .configuration_directory(root.clone())
+        .expect("UTF-8 configuration directory")
+        .invocation_directory(root.clone())
+        .expect("UTF-8 invocation directory")
+        .workspace(workspace)
+        .expect("UTF-8 workspace")
+        .build();
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "name": "Probe Module",
+            "programmingLanguage": "generic",
+            "template": { "arguments": [], "command": "true" },
+            "type": "script",
+            "uri": "file:.",
+            "variables": {
+                "COMPOSED": "{{ BASE }}:{{ LAYER }}:{{ RUN_ID }}",
+                "LAYER": "module",
+                "OUTPUT_DIRECTORY": "module-output"
+            }
+        }],
+        "output": "configuration-output",
+        "requirements": [],
+        "variables": { "BASE": "workflow", "LAYER": "workflow" }
+    }))
+    .expect("context fixture");
+    let workflow = context.workflow_context(0, Some("/data/repeat.tif".to_string())).expect("input context");
+    let variables = workflow.variables(&config, config.modules.first()).expect("resolved variables");
+    assert_eq!(variables["BASE"], "workflow");
+    assert_eq!(variables["COMPOSED"], "workflow:module:run-id");
+    assert_eq!(variables["INPUT"], "/data/repeat.tif");
+    assert_eq!(variables["LAYER"], "module");
+    assert_eq!(variables["MODULE_LIST"], "probe_module");
+    assert_eq!(variables["OUTPUT_DIRECTORY"], root.join("cli-output").display().to_string());
+    assert_eq!(variables["PARENT_DIRECTORY"], "repeat.tif");
+    assert_eq!(variables["RUN_ID"], "run-id");
+    assert_eq!(variables["WORK_DIRECTORY"], workflow.workspace().root().display().to_string());
+    let environment = workflow
+        .command_environment(&config, config.modules.first().expect("module"))
+        .expect("command environment");
+    assert_eq!(environment["_XYLEM_COMPOSED"], "workflow:module:run-id");
+    assert!(!environment.contains_key("COMPOSED"));
+    assert_eq!(context.batch().map(InputBatch::get), Some(2));
+    assert_eq!(context.failure_policy(), FailurePolicy::Continue);
+    assert!(context.retain_workspace());
+    let journal = root.join("journal.jsonl");
+    context.bind_journal_path(journal.clone()).expect("bind journal path");
+    assert_eq!(context.journal_path(), Some(journal.as_path()));
+    assert!(matches!(
+        context.bind_journal_path(root.join("second.jsonl")),
+        Err(ContextError::JournalAlreadyBound)
+    ));
+    drop(workflow);
+    let retained = context.retain();
+    remove_dir_all(retained).expect("remove retained context workspace");
+}
+#[cfg(unix)]
+#[test]
+fn test_context_variables_reject_non_unicode_paths() {
+    let root = std::env::temp_dir().join(format!("xylem-context-unicode-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    let workspace = RunWorkspace::create(&root, "run").expect("create run workspace");
+    let invalid = PathBuf::from(std::ffi::OsString::from_vec(vec![b'o', b'u', b't', 0x80]));
+    let error = RunContext::init()
+        .limits(ExecutionLimits::default())
+        .run_id("run-id".to_string())
+        .expect("safe run id")
+        .configuration_directory(root.clone())
+        .expect("UTF-8 configuration directory")
+        .invocation_directory(root.clone())
+        .expect("UTF-8 invocation directory")
+        .workspace(workspace)
+        .expect("UTF-8 workspace")
+        .artifact_output(invalid)
+        .expect_err("non-Unicode output must fail");
+    assert!(matches!(
+        error,
+        ContextError::NonUnicodePath {
+            field: "artifact output",
+            ..
+        }
+    ));
+    let _ = remove_dir_all(root);
+}
+#[test]
+fn test_context_variables_reject_reserved_names() {
+    let workflow: Config = serde_json::from_value(serde_json::json!({
+        "modules": [],
+        "requirements": [],
+        "variables": { "RUN_ID": "forged" }
+    }))
+    .expect("reserved workflow fixture");
+    let error = workflow.validate().expect_err("workflow reserved name must fail");
+    assert!(error.to_string().contains("variables.RUN_ID"));
+    let module: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "name": "probe",
+            "type": "script",
+            "uri": "file:.",
+            "variables": { "INPUT": "forged" }
+        }],
+        "requirements": []
+    }))
+    .expect("reserved module fixture");
+    let error = module.validate().expect_err("module reserved name must fail");
+    assert!(error.to_string().contains("modules[0].variables.INPUT"));
+}
+#[test]
+fn test_contexts_isolate_repeated_and_zero_inputs() {
+    let root = std::env::temp_dir().join(format!("xylem-context-inputs-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    let workspace = RunWorkspace::create(&root, "run").expect("create run workspace");
+    let context = RunContext::init()
+        .limits(ExecutionLimits::default())
+        .run_id("run-id".to_string())
+        .expect("safe run id")
+        .configuration_directory(root.clone())
+        .expect("UTF-8 configuration directory")
+        .invocation_directory(root.clone())
+        .expect("UTF-8 invocation directory")
+        .workspace(workspace)
+        .expect("UTF-8 workspace")
+        .build();
+    let config: Config = serde_json::from_value(serde_json::json!({ "modules": [], "requirements": [], "variables": { "VALUE": "shared" } }))
+        .expect("zero-input fixture");
+    let first = context.workflow_context(0, Some("same".to_string())).expect("first input context");
+    let second = context.workflow_context(1, Some("same".to_string())).expect("second input context");
+    let zero = context.workflow_context(2, None).expect("zero-input context");
+    assert_ne!(first.workspace().root(), second.workspace().root());
+    assert_ne!(first.workspace().environments(), second.workspace().environments());
+    assert_eq!(first.variables(&config, None).expect("first variables")["INPUT"], "same");
+    let zero_variables = zero.variables(&config, None).expect("zero-input variables");
+    assert!(!zero_variables.contains_key("INPUT"));
+    assert!(!zero_variables.contains_key("PARENT_DIRECTORY"));
+    assert_eq!(zero_variables["MODULE_LIST"], "");
+    assert_eq!(zero_variables["RUN_ID"], "run-id");
+    drop((first, second, zero));
+    context.close().expect("close run context");
+    let _ = remove_dir_all(root);
+}
+#[test]
 fn test_every_example_configuration_passes_semantic_validation() {
     let mut configurations = configuration_files(Path::new("../../examples"));
     configurations.extend(configuration_files(Path::new("../../tests")));
@@ -953,6 +964,70 @@ fn test_every_example_configuration_passes_semantic_validation() {
         let config = Config::try_from(path.as_path()).unwrap_or_else(|error| panic!("parse {}: {error}", path.display()));
         config.validate().unwrap_or_else(|error| panic!("validate {}: {error}", path.display()));
     });
+}
+#[test]
+fn test_failure_policy_and_module_timeout_round_trip_across_formats() {
+    let json = r#"{
+        "requirements": [],
+        "modules": [{"name": "probe", "type": "script", "uri": "file:.", "timeout_seconds": 30}],
+        "options": {"failure_policy": "continue"}
+    }"#;
+    let jsonc = r#"{
+        // Continue independent inputs after a failure.
+        "requirements": [],
+        "modules": [{"name": "probe", "type": "script", "uri": "file:.", "timeout_seconds": 30}],
+        "options": {"failure_policy": "continue"},
+    }"#;
+    let yaml = "requirements: []\nmodules:\n  - name: probe\n    type: script\n    uri: 'file:.'\n    timeout_seconds: 30\noptions:\n  failure_policy: continue\n";
+    let yml_path = std::env::temp_dir().join(format!("xylem-policy-timeout-{}.yml", std::process::id()));
+    write(&yml_path, yaml).expect("write YML policy");
+    let yml = Config::try_from(yml_path.clone()).expect("parse YML policy");
+    remove_file(yml_path).expect("remove YML policy");
+    let configurations = [
+        parse_json_configuration(json).expect("parse JSON policy"),
+        parse_jsonc_configuration(jsonc).expect("parse JSONC policy"),
+        parse_yaml_configuration(yaml).expect("parse YAML policy"),
+        yml,
+    ];
+    configurations.iter().for_each(|config| {
+        assert_eq!(
+            config.options.as_ref().map(|options| options.failure_policy),
+            Some(FailurePolicy::Continue)
+        );
+        assert_eq!(config.modules[0].timeout, Some(Seconds::new(30)));
+        config.validate().expect("validate policy and timeout");
+    });
+    let json = serde_json::to_string(&configurations[0]).expect("serialize JSON policy");
+    let json = parse_json_configuration(&json).expect("round trip JSON policy");
+    let yaml = serde_norway::to_string(&configurations[0]).expect("serialize YAML policy");
+    let yaml = parse_yaml_configuration(&yaml).expect("round trip YAML policy");
+    assert_eq!(json.options.map(|options| options.failure_policy), Some(FailurePolicy::Continue));
+    assert_eq!(yaml.modules[0].timeout, Some(Seconds::new(30)));
+}
+#[test]
+fn test_failure_policy_defaults_and_unknown_values() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{"name": "probe", "type": "binary", "uri": "file:./probe"}],
+        "options": {}
+    }))
+    .expect("default failure policy");
+    assert_eq!(config.options.map(|options| options.failure_policy), Some(FailurePolicy::FailFast));
+    assert_eq!(ConfigOptions::init().build().failure_policy, FailurePolicy::FailFast);
+    let explicit: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [],
+        "options": {"failure_policy": "fail_fast"}
+    }))
+    .expect("explicit fail-fast policy");
+    assert_eq!(
+        serde_json::to_value(explicit).expect("serialize fail-fast policy")["options"]["failure_policy"],
+        "fail_fast"
+    );
+    assert!(parse_json_configuration(r#"{"requirements":[],"modules":[],"options":{"failure_policy":"fail-fast"}}"#).is_err());
+    assert!(parse_json_configuration(r#"{"requirements":[],"modules":[],"options":{"failure_policy":"unknown"}}"#).is_err());
+    assert!(parse_jsonc_configuration(r#"{"requirements":[],"modules":[],"options":{"failure_policy":"unknown"}}"#).is_err());
+    assert!(parse_yaml_configuration("requirements: []\nmodules: []\noptions:\n  failure_policy: unknown\n").is_err());
 }
 #[test]
 fn test_json_and_yaml_fixtures_deserialize_equally() {
@@ -1269,6 +1344,32 @@ fn test_memory_configuration_round_trips_through_json_and_yaml() {
     );
 }
 #[test]
+fn test_module_timeout_validation_is_type_qualified() {
+    let zero: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{"name": "probe", "type": "script", "uri": "file:.", "timeout_seconds": 0}]
+    }))
+    .expect("zero timeout configuration");
+    let report = zero.validate().expect_err("zero timeout should fail");
+    assert!(report
+        .iter()
+        .any(|issue| issue.path == "modules[0].timeout_seconds" && issue.error.code == "positive"));
+    let wrapper: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{"name": "wrapper", "type": "configuration", "uri": "file:./child.json", "timeout_seconds": 30}]
+    }))
+    .expect("wrapper timeout configuration");
+    let report = wrapper.validate().expect_err("configuration timeout should fail");
+    assert!(report
+        .iter()
+        .any(|issue| issue.path == "modules[0].timeout_seconds" && issue.error.code == "unsupported"));
+    assert!(serde_json::from_value::<Config>(serde_json::json!({
+        "requirements": [],
+        "modules": [{"name": "probe", "type": "script", "uri": "file:.", "timeout_seconds": "later"}]
+    }))
+    .is_err());
+}
+#[test]
 fn test_non_local_environment_managers_are_rejected() {
     let config: Config = serde_json::from_value(serde_json::json!({
         "modules": [{
@@ -1321,6 +1422,61 @@ fn test_preparation_and_execution_emit_progress_updates() {
     assert_eq!(updates[3].state, ProgressState::Skipped);
 }
 #[test]
+fn test_preparation_keeps_supported_managers_input_local() {
+    let root = std::env::temp_dir().join(format!("xylem-input-local-managers-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    let source = root.join("source");
+    create_dir_all(&source).expect("create manager module source");
+    write(source.join("environment.yml"), "name: isolated\ndependencies: []\n").expect("write conda manifest");
+    let modules = ["conda", "mamba", "pixi"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, manager)| {
+            serde_json::json!({
+                "name": format!("manager-{index}"),
+                "programmingLanguage": "python",
+                "template": {
+                    "arguments": [],
+                    "command": "python",
+                    "environment": { "manager": manager, "name": "isolated" }
+                },
+                "type": "script",
+                "uri": format!("file:{}", source.display())
+            })
+        })
+        .collect::<Vec<_>>();
+    let config: Config = serde_json::from_value(serde_json::json!({ "modules": modules, "requirements": [] })).expect("manager configuration");
+    let workspace = RunWorkspace::create(&root.join("workspaces"), "run").expect("create run workspace");
+    let first = workspace.input(0).expect("create first input workspace");
+    let second = workspace.input(1).expect("create second input workspace");
+    for input in [&first, &second] {
+        create_dir_all(input.environments().join("module-000000")).expect("create conda prefix");
+        create_dir_all(input.environments().join("module-000001")).expect("create mamba prefix");
+    }
+    let selected = BTreeSet::from([0, 1, 2]);
+    let first_prepared = config
+        .clone()
+        .prepare_modules_selected_in_workspace(&selected, None, &first)
+        .expect("prepare first repeated input");
+    let second_prepared = config
+        .prepare_modules_selected_in_workspace(&selected, None, &second)
+        .expect("prepare second repeated input");
+    for (prepared, input) in [(&first_prepared, &first), (&second_prepared, &second)] {
+        let options = prepared.options.as_ref().expect("input-local runtime options");
+        assert_eq!(options.environment_root.as_deref(), Some(input.environments()));
+        for index in 0..3 {
+            let path = options.workspace_modules.get(&index).expect("prepared module path");
+            assert!(path.starts_with(input.modules()), "{}", path.display());
+        }
+    }
+    assert_ne!(
+        first_prepared.options.as_ref().expect("first options").workspace_modules,
+        second_prepared.options.as_ref().expect("second options").workspace_modules
+    );
+    workspace.close().expect("close manager workspace");
+    let _ = remove_dir_all(root);
+}
+#[test]
 fn test_recorded_workflow_preserves_cancellation_state() {
     let config: Config = serde_json::from_value(serde_json::json!({
         "requirements": [],
@@ -1336,6 +1492,61 @@ fn test_recorded_workflow_preserves_cancellation_state() {
     let outcome = config.run_workflow_recorded(None, &options, None, Some(&CancelledExecutor), None, 0);
     assert!(outcome.state.is_cancelled());
     assert!(outcome.modules[0].state.is_cancelled());
+}
+#[test]
+fn test_remote_binary_is_verified_and_copied_into_the_input_workspace() {
+    if let Some(listener) = bind_local_server() {
+        let address = listener.local_addr().expect("server address");
+        let body = "#!/bin/sh\nexit 0\n";
+        let expected = body.as_bytes().to_vec();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept binary request");
+            let mut request = [0_u8; 1024];
+            let count = stream.read(&mut request).expect("read binary request");
+            assert!(String::from_utf8_lossy(&request[..count]).starts_with("GET "));
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).expect("write binary response");
+        });
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "modules": [{
+                "checksum": checksum(body),
+                "name": "Remote",
+                "type": "binary",
+                "uri": format!("http://{address}/tool")
+            }],
+            "requirements": []
+        }))
+        .expect("valid remote binary configuration");
+        let hosts = vec![address.to_string()];
+        let policy = acquisition_policy(Some(&hosts), true, false);
+        let root = std::env::temp_dir().join(format!("xylem-binary-workspace-{address}"));
+        let cache = AcquisitionCache::new(root.join("cache"));
+        let workspace = RunWorkspace::create(&root.join("workspaces"), "run").expect("create run workspace");
+        let input = workspace.input(0).expect("create input workspace");
+        let prepared = config
+            .resolve_with_policy(Path::new("config.json"), &policy, &cache, false)
+            .expect("resolve remote binary")
+            .prepare_modules_selected_in_workspace(&BTreeSet::from([0]), None, &input)
+            .expect("prepare remote binary");
+        server.join().expect("binary server");
+        let module = &prepared.modules[0];
+        let path = prepared
+            .options
+            .as_ref()
+            .and_then(|options| options.workspace_modules.get(&0))
+            .expect("materialized binary path");
+        assert!(path.starts_with(input.modules()));
+        assert_eq!(std::fs::read(path).expect("read materialized binary"), expected);
+        assert_eq!(
+            module.acquisition.as_ref().expect("remote acquisition evidence").cache,
+            AcquisitionCacheStatus::Miss
+        );
+        workspace.close().expect("close run workspace");
+        remove_dir_all(root).expect("remove remote binary test directory");
+    }
 }
 #[test]
 fn test_sandbox_is_an_opt_in_boolean() {

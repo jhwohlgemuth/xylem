@@ -15,7 +15,7 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 | Lock | Primary owners | Rule |
 |---|---|---|
 | Acquisition policy and executor | OCI-01/02 | Finish or hand off the current acquisition change before another phase writes its files. |
-| Configuration | ENV-03/04, OCI-01, K8S-04 | Preserve typed validation, batching, memory fallback, resume, and source nesting. |
+| Configuration | OCI-01, K8S-04 | Preserve typed validation, batching, memory fallback, resume, source nesting, and immutable context resolution. |
 | Process adapter | ENV-09 | Other phases consume the accepted ACORN process boundary. |
 | Scheduler | ENV-05 | Preserve ordered fixed and memory-aware admission. |
 | Run state | ENV-07/08, K8S-08 | Allocate versions serially; update plans, writers, recovery, reporters, schemas, and TUI together. |
@@ -38,7 +38,7 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 
 ### Lane B: execution runtime
 
-- [ENV-03 through ENV-09](refactors/workflow-environment-and-concurrency.md):
+- [ENV-05 through ENV-09](refactors/workflow-environment-and-concurrency.md):
   immutable contexts, scheduling, cancellation, durable state, timeout
   forwarding, and parent-environment cleanup.
 - [K8S-01 through K8S-19](features/kubernetes-workflow-backend.md): operator
@@ -60,14 +60,15 @@ its write set remains disjoint from CI and documentation integration.
 
 | Phase | Primary lock | Start condition |
 |---|---|---|
-| ENV-03 | Run context | The configuration lock is free. |
+| ENV-05 | Scheduler | Immutable contexts and input-local preparation are accepted. |
 | BRW-01 | Tap validation | Assigned `RE Runner (macbook)` remains online. |
 | APO-01 | A/P/O measurement evidence | Rollout, corpus, and credentials are supplied. |
 | K8S-01 | Kubernetes deployment assumptions | Operator demand, cluster, storage, and image owner are supplied. |
 
 The process adapter uses the published and pinned ACORN 0.5.1 contract at
 `3e915697d214eda33e0d4c52f03fb09f27d9d3e4`. OCI-01 is also ready, but it and
-ENV-03 share configuration files and must take that lock serially.
+The completed environment-context phases released the configuration lock, so
+OCI-01 and ENV-05 now have disjoint primary locks.
 
 ## Agent start checklist
 

@@ -22,12 +22,12 @@ use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::{ExecutionPlan, MemoryPlanMode};
 use xylem_lib::run::store::{Bundle, Manifest, Store};
 use xylem_lib::run::telemetry::SystemMonitor;
+use xylem_lib::run::RunContext;
 use xylem_lib::sandbox::{
     ArtifactPublication, ArtifactPublicationStatus, SandboxCapabilities, SandboxLease, SandboxProvider, SandboxResourceEvidence, SandboxSession,
     WorkloadAcquisition,
 };
 use xylem_lib::script::managed_container_name;
-use xylem_lib::workspace::InputWorkspace;
 
 trait ExecutionPlanExt {
     fn finalize_unopened_sandbox(&self, journal: &RunJournal, reconciled: Vec<SandboxResourceEvidence>, failure: RunFailure) -> RunFailure;
@@ -39,13 +39,11 @@ struct OpenedSandbox {
 struct Runtime<'a> {
     config: Config,
     config_path: PathBuf,
+    context: &'a RunContext,
     execution: ExecutionContext,
-    id: String,
-    input_workspaces: Vec<InputWorkspace>,
     inputs: Vec<Option<String>>,
     plan: ExecutionPlan,
     request: &'a RunRequest<'a>,
-    root: PathBuf,
     sandbox_capabilities: Option<SandboxCapabilities>,
 }
 impl ExecutionPlanExt for ExecutionPlan {
@@ -95,7 +93,7 @@ impl Runtime<'_> {
                     reconciliation.resources,
                     RunFailure::new(exitcode::IOERR, format!("reconcile stale sandbox resources — {error}")),
                 )),
-                | None => <dyn SandboxSession>::open(&self.id, options.sandbox_policy.as_ref(), acquisition)
+                | None => <dyn SandboxSession>::open(self.context.run_id(), options.sandbox_policy.as_ref(), acquisition)
                     .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, format!("open sandbox provider session — {why}")))
                     .map_err(|failure| self.plan.finalize_unopened_sandbox(&journal, reconciliation.resources.clone(), failure))
                     .and_then(|sandbox| {
@@ -149,7 +147,7 @@ fn create_journal(runtime: &Runtime<'_>, bundle: &Bundle, options: &ConfigOption
         .map(|(index, container)| JournalContainer {
             index,
             name: match container.action.as_str() {
-                | "would_create" => managed_container_name(&container.name, &runtime.id),
+                | "would_create" => managed_container_name(&container.name, runtime.context.run_id()),
                 | _ => container.name.clone(),
             },
             owned: container.action == "would_create",
@@ -164,10 +162,12 @@ fn create_journal(runtime: &Runtime<'_>, bundle: &Bundle, options: &ConfigOption
         .transpose()
         .map_err(|why| RunFailure::new(exitcode::SOFTWARE, format!("derive durable memory evidence — {why}")))
         .and_then(|memory| {
-            let metadata = RunMetadata::now(runtime.id.clone(), configuration, options.dry_run.unwrap_or_default(), sandbox)
-                .with_configuration_acquisitions(runtime.config.acquisitions.clone());
-            let metadata = match runtime.plan.artifacts.as_ref() {
-                | Some(artifacts) => metadata.with_artifacts(
+            let runtime_id = runtime.context.run_id().to_string();
+            let dry_run = options.dry_run.unwrap_or_default();
+            let acquisitions = runtime.config.acquisitions.clone();
+            let base = RunMetadata::now(runtime_id, configuration, dry_run, sandbox).with_configuration_acquisitions(acquisitions);
+            let artifact_metadata = match runtime.plan.artifacts.as_ref() {
+                | Some(artifacts) => base.with_artifacts(
                     ArtifactPublication::init()
                         .bytes_per_input(artifacts.bytes_per_input.clone())
                         .destination(artifacts.destination.as_str())
@@ -175,11 +175,11 @@ fn create_journal(runtime: &Runtime<'_>, bundle: &Bundle, options: &ConfigOption
                         .status(ArtifactPublicationStatus::Pending)
                         .build(),
                 ),
-                | None => metadata,
+                | None => base,
             };
             let metadata = match memory {
-                | Some(memory) => metadata.with_memory(memory),
-                | None => metadata,
+                | Some(memory) => artifact_metadata.with_memory(memory),
+                | None => artifact_metadata,
             };
             RunJournal::create_with_containers(journal_path, metadata, journal_inputs, journal_modules, journal_containers.clone())
                 .map(|journal| (journal, journal_containers))
@@ -203,71 +203,60 @@ pub(super) fn execute(request: &RunRequest<'_>, prepared: PreparedRun) -> Result
             memory.estimator.identity
         );
     }
-    let id = prepared
-        .id
-        .clone()
-        .ok_or_else(|| RunFailure::new(exitcode::SOFTWARE, "real execution is missing a run identifier"));
-    let workspace = prepared
-        .workspace
-        .ok_or_else(|| RunFailure::new(exitcode::SOFTWARE, "real execution is missing a run workspace"));
-    id.and_then(|id| workspace.map(|workspace| (id, workspace))).and_then(|(id, workspace)| {
-        let input_workspaces = prepared
-            .inputs
-            .iter()
-            .enumerate()
-            .map(|(index, _)| workspace.input(index))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|why| RunFailure::new(exitcode::CANTCREAT, why.to_string()));
-        let execution = input_workspaces.and_then(|input_workspaces| {
-            prepared
-                .config
+    let PreparedRun {
+        config,
+        config_path,
+        context,
+        inputs,
+        plan,
+    } = prepared;
+    context
+        .ok_or_else(|| RunFailure::new(exitcode::SOFTWARE, "real execution is missing a run context"))
+        .and_then(|context| {
+            let execution = config
                 .options
                 .as_ref()
                 .and_then(|options| options.sandbox_policy.as_ref())
                 .map_or(Ok(None), |policy| policy.discover().map(Some))
                 .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
                 .and_then(|sandbox_capabilities| {
-                    ExecutionContext::new(request.limits)
+                    ExecutionContext::new(context.limits())
                         .map(|execution| (execution, sandbox_capabilities))
                         .map_err(|why| RunFailure::new(exitcode::OSERR, format!("initialize Xylem worker pool — {why}")))
                 })
                 .and_then(|(execution, sandbox_capabilities)| {
                     debug!(target: "xylem_cli::commands::run", threads = execution.limits().threads(), "=> {} Rayon worker limit", Label::using());
-                    let root = workspace.root().to_path_buf();
-                    debug!(target: "xylem_cli::commands::run", path = %root.display(), "=> {} Root directory", Label::using());
+                    debug!(target: "xylem_cli::commands::run", path = %context.workspace().root().display(), "=> {} Root directory", Label::using());
                     execute_runtime(Runtime {
-                        config: prepared.config,
-                        config_path: prepared.config_path,
+                        config,
+                        config_path,
+                        context: &context,
                         execution,
-                        id: id.clone(),
-                        input_workspaces,
-                        inputs: prepared.inputs,
-                        plan: prepared.plan,
+                        inputs,
+                        plan,
                         request,
-                        root,
                         sandbox_capabilities,
                     })
-                })
-        });
-        match request.retain_workspace {
-            | true => {
-                let path = workspace.retain();
-                eprintln!("Workspace: {}", path.display());
-                execution
-            }
-            | false => {
-                let cleanup = workspace
-                    .close()
-                    .map_err(|why| RunFailure::new(exitcode::IOERR, format!("remove run workspace — {why}")));
-                match (execution, cleanup) {
-                    | (Ok(()), Ok(())) => Ok(()),
-                    | (Err(primary), Ok(())) => Err(primary),
-                    | (Ok(()), Err(cleanup)) => Err(cleanup),
-                    | (Err(primary), Err(cleanup)) => Err(primary.with_secondary(cleanup)),
+                });
+            match context.retain_workspace() {
+                | true => {
+                    let path = context.retain();
+                    eprintln!("Workspace: {}", path.display());
+                    execution
+                }
+                | false => {
+                    let cleanup = context
+                        .close()
+                        .map_err(|why| RunFailure::new(exitcode::IOERR, format!("remove run workspace — {why}")));
+                    match (execution, cleanup) {
+                        | (Ok(()), Ok(())) => Ok(()),
+                        | (Err(primary), Ok(())) => Err(primary),
+                        | (Ok(()), Err(cleanup)) => Err(cleanup),
+                        | (Err(primary), Err(cleanup)) => Err(primary.with_secondary(cleanup)),
+                    }
                 }
             }
-        }
-    })
+        })
 }
 fn execute_opened(
     runtime: Runtime<'_>,
@@ -285,19 +274,18 @@ fn execute_opened(
     let Runtime {
         config,
         config_path: _,
+        context,
         execution,
-        id,
-        input_workspaces,
         inputs,
         plan,
         request,
-        root,
         sandbox_capabilities: _,
     } = runtime;
+    let id = context.run_id();
+    let root = context.workspace().root();
     let journal_path = bundle.journal_path();
     let journal = Arc::new(journal);
     let system_monitor = SystemMonitor::start(bundle.clone());
-    let run_cancellation = request.cancellation.clone().unwrap_or_default();
     info!(target: "xylem_cli::commands::run", path = %journal_path.display(), run_id = id, "=> {} Execution journal", Label::using());
     let progress_disabled = request.no_progress || !io::stderr().is_terminal() || env::var_os("CI").is_some();
     let preparation_total = required_modules.len().saturating_mul(inputs.len());
@@ -327,7 +315,7 @@ fn execute_opened(
             let options = prepared
                 .options
                 .clone()
-                .unwrap_or_else(|| ConfigOptions::init().root(root.clone()).build());
+                .unwrap_or_else(|| ConfigOptions::init().root(root.to_path_buf()).build());
             let input_kind = match request.cli_input.as_ref().is_some_and(|values| !values.is_empty()) {
                 | true => "CLI",
                 | false => "Configuration",
@@ -336,9 +324,7 @@ fn execute_opened(
                 bundle: &bundle,
                 config: &prepared,
                 execution: &execution,
-                id: &id,
                 input_kind,
-                input_workspaces: &input_workspaces,
                 inputs: &inputs,
                 journal: &journal,
                 journal_containers: &journal_containers,
@@ -346,8 +332,7 @@ fn execute_opened(
                 plan: &plan,
                 progress: &progress,
                 required_modules: &required_modules,
-                root: &root,
-                run_cancellation: &run_cancellation,
+                run_context: context,
                 sandbox: sandbox.as_ref(),
             })
         }
@@ -419,7 +404,7 @@ fn execute_opened(
     finalize(
         ReportContext {
             bundle: &bundle,
-            id: &id,
+            id,
             journal: &journal,
             journal_path: &journal_path,
             progress: &progress,
@@ -440,8 +425,8 @@ fn execute_runtime(runtime: Runtime<'_>) -> Result<(), RunFailure> {
                 .options
                 .clone()
                 .unwrap_or_else(|| ConfigOptions::init().build())
-                .with_root(Some(runtime.root.clone()))
-                .with_container_run_id(Some(runtime.id.clone()));
+                .with_root(Some(runtime.context.workspace().root().to_path_buf()))
+                .with_container_run_id(Some(runtime.context.run_id().to_string()));
             debug!(target: "xylem_cli::commands::run", "=> {} Run configuration options = {}", Label::using(), format!("{options:#?}").dimmed());
             let required_modules = runtime
                 .plan
@@ -453,12 +438,22 @@ fn execute_runtime(runtime: Runtime<'_>) -> Result<(), RunFailure> {
             Store::system()
                 .and_then(|store| {
                     store.sandbox_leases().and_then(|leases| {
-                        Manifest::from_config(runtime.id.clone(), &runtime.config_path, runtime.execution.limits().threads())
-                            .and_then(|manifest| store.start(&manifest))
-                            .map(|bundle| (bundle, leases))
+                        Manifest::from_config(
+                            runtime.context.run_id().to_string(),
+                            &runtime.config_path,
+                            runtime.execution.limits().threads(),
+                        )
+                        .and_then(|manifest| store.start(&manifest))
+                        .map(|bundle| (bundle, leases))
                     })
                 })
                 .map_err(|why| RunFailure::new(exitcode::CANTCREAT, why.to_string()))
-                .and_then(|(bundle, leases)| runtime.execute_bundle(bundle, options, required_modules, leases))
+                .and_then(|(bundle, leases)| {
+                    runtime
+                        .context
+                        .bind_journal_path(bundle.journal_path())
+                        .map_err(|why| RunFailure::new(exitcode::CANTCREAT, why.to_string()))
+                        .and_then(|()| runtime.execute_bundle(bundle, options, required_modules, leases))
+                })
         })
 }

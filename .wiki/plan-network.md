@@ -5,7 +5,8 @@ execution: coordination
 
 # Plan dependency network
 
-Rechecked on 2026-10-30 against committed source `292aa49`. Arrows denote a
+Rechecked on 2026-10-30 against committed source `d14016b` and the current
+ENV-03/04 implementation diff. Arrows denote a
 required contract or gate, not a whole-plan serialization. Current landed
 baselines are execution-plan v14, run-summary v13, verified acquisition,
 owned workspaces, sandbox providers, memory admission, and run storage.
@@ -13,7 +14,7 @@ owned workspaces, sandbox providers, memory admission, and run storage.
 ## Delivery paths
 
 ```text
-validated failure policy + CLI override + module timeout -> ENV-03 -> ENV-05/06 -> ENV-07/08/09 -> K8S-03 onward
+immutable contexts + input-local preparation -> ENV-05/06 -> ENV-07/08/09 -> K8S-03 onward
 shared script/configuration lock -> OCI-01 -> OCI-02 -> OCI-03 -> OCI-04
 operator demand + cluster/PVC/image path -> K8S-01 -> K8S-02 onward
 assigned Mac runner -> successful macOS job BRW-01 -> BRW-02 -> BRW-03
@@ -52,7 +53,7 @@ immutable environment, cancellation, and durable-state contracts from ENV.
 | Boundary | Phase owners | Coordination rule |
 |---|---|---|
 | Manifests and `Cargo.lock` | SEC-07, ENV-06, K8S-02 | One dependency owner at a time; inspect feature tree and audit the accepted lockfile. |
-| `crates/xylem-lib/src/config/` | ENV-03/04, OCI-01, K8S-04 | Serialize writes while preserving batching, memory, resume, source nesting, and sandbox opt-in. |
+| `crates/xylem-lib/src/config/` | OCI-01, K8S-04 | Serialize writes while preserving batching, memory, resume, source nesting, and sandbox opt-in. |
 | `crates/xylem-lib/src/script/` | ENV-09, OCI-01 | Environment phases own the host process adapter; local URI edits serialize on the exact shared file even when their primary lock differs. |
 | `crates/xylem-lib/src/execution.rs` and `commands/run/dispatch.rs` | ENV-05, K8S-03 | Preserve ordered fixed and memory-aware admission. |
 | Acquisition executor and cache | OCI-02 | One publication and transport owner at a time. |
