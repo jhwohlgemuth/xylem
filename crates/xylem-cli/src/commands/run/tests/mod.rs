@@ -1,6 +1,7 @@
 #![expect(clippy::expect_used, reason = "test fixtures should fail immediately when setup or preparation fails")]
 use super::preparation::configure_preview;
 use super::*;
+use core::sync::atomic::AtomicBool;
 use xylem_lib::config::{Config, ConfigOptions};
 
 fn config(failure_policy: FailurePolicy) -> Config {
@@ -54,4 +55,10 @@ fn test_failure_policy_override_replaces_configuration() {
     let request = request(Some(FailurePolicy::FailFast), &path, &values);
     let configured = configure_preview(config(FailurePolicy::Continue), &request, request.artifact_output.as_deref()).expect("configure preview");
     assert_eq!(configured.options.map(|options| options.failure_policy), Some(FailurePolicy::FailFast));
+}
+#[test]
+fn test_signal_action_cancels_once_then_exits() {
+    let received = AtomicBool::new(false);
+    assert_eq!(signal_action(&received), SignalAction::Cancel);
+    assert_eq!(signal_action(&received), SignalAction::Exit);
 }

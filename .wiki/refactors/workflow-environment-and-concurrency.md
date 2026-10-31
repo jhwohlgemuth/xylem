@@ -21,14 +21,17 @@ Xylem owns workflow policy. Generic child-process mechanics come from ACORN's
 
 # Current evidence
 
-Rechecked on 2026-10-30 against committed tree `d14016b`, the current
-ENV-03/04 implementation diff, ACORN 0.5.1 at
+Rechecked on 2026-10-31 against baseline `85c72df`, the current ENV-05/06
+implementation diff, ACORN 0.5.1 at
 `3e915697d214eda33e0d4c52f03fb09f27d9d3e4`, current schema/help artifacts,
 and focused process, configuration, CLI, sandbox, and plan call paths.
 
-- `ExecutionContext` already owns a run-local Rayon pool, `InputBatch` is a positive concurrency ceiling, and `dispatch_inputs_fail_fast` provides rolling admission with result slots in configured input order. The dispatch methods still construct a second Rayon pool instead of using one run-level admission mechanism.
-- The current fail-fast dispatcher stops new admission but allows already-active inputs to settle. It has no cancellation token, no `continue` policy, and no structured dispatch report describing never-admitted work.
-- Native module acquisition, local materialization, and environment preparation now run per input inside the existing bounded dispatcher. The remaining scheduler work is to replace optional result slots, cancel active siblings on fail-fast, and add the `continue` policy.
+- Policy-aware fixed and memory dispatch now return ordered structured reports,
+  use the run-local worker pool, cancel active fail-fast siblings, preserve the
+  triggering failure, and admit all eligible inputs under `continue`. Legacy
+  optional-slot methods remain as compatibility wrappers. Native acquisition,
+  local materialization, environment preparation, and execution share that
+  bounded admission slot.
 - Runtime command construction uses the immutable context resolver. The legacy
   `Config::get_environment_variables` compatibility path still returns a
   mutable prefixed `HashMap` to planning and library callers and remains for
@@ -53,8 +56,10 @@ and focused process, configuration, CLI, sandbox, and plan call paths.
 - Remote configuration resolution now uses the run-owned `configuration/` directory. Each input receives separate `modules/`, `environments/`, and `scratch/` paths, including repeated input values.
 - The CLI now owns `${TMPDIR}/xylem/workspaces/<run-id>` through `RunWorkspace`. It removes the tree after success, failure, or unwind; `--retain-workspace` transfers ownership and reports the path. Durable evidence remains independently owned by the canonical run store.
 - `RunCancellation` and durable `cancelled`/`not_started` states are landed.
-  TUI-launched runs use the cancellation handle, but the headless CLI still has
-  no signal integration and fail-fast does not cancel active siblings.
+  TUI-launched runs force the shared cancellation token. Headless runs install
+  termination-signal handling: the first signal cancels for normal journal and
+  workspace cleanup, a second exits immediately with code 130, and externally
+  cancelled reports also map to exit 130.
 - `RunContext` now owns the run workspace, invocation and configuration
   directories, effective thread and batch limits, failure policy, cancellation,
   artifact override, and retention choice. Each admitted input constructs a
@@ -75,9 +80,12 @@ and focused process, configuration, CLI, sandbox, and plan call paths.
   boundaries with clean environments and staged artifacts. Those contracts do
   not fix the shared mutable host path and must remain intact during this
   refactor.
-- Validation passed on 2026-10-30: all 310 xylem-lib tests (2 ignored), all
-  xylem-lib doctests (4 ignored), all xylem-cli tests (3 ignored), strict
-  all-target/all-feature Clippy for both packages, and rustdoc generation.
+- Validation passed on 2026-10-31: all 312 xylem-lib tests (2 ignored), all 12
+  executed xylem-lib doctests (4 ignored), all 68 xylem-cli tests (3 ignored),
+  strict all-target/all-feature Clippy for both packages, no-default-feature CLI
+  checking, formatting, and rustdoc generation. Dependency-policy validation
+  accepts the updated lockfile thresholds and stops at the pre-existing expired
+  `RUSTSEC-2026-0097` exception, whose review was due 2026-10-28.
 
 # Ownership boundary
 
@@ -257,33 +265,11 @@ this refactor with Kubernetes behavior.
 
 # Execution phases
 
-## ENV-05 — Return ordered dispatch outcomes and apply failure policy
+## ENV-07 — Version plan and dry-run policy evidence
 
 - Status: ready
 - Budget: 5 active hours maximum
-- Prerequisites: none
-- Exact write set: `crates/xylem-lib/src/execution.rs`, `crates/xylem-cli/src/commands/run/dispatch.rs`
-- Primary integration lock: scheduler
-- Outcome: One ordered dispatch report distinguishes failed, cancelled, and never-admitted inputs; fail-fast cancels siblings and continue admits all eligible inputs.
-- Focused validation: focused scheduler tests for admission ceiling, order, sibling cancellation, and continue policy.
-- Handoff: Record report and cancellation semantics; remove ENV-05 when accepted.
-
-## ENV-06 — Connect headless signals and CLI exit mapping
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: ENV-05
-- Exact write set: `crates/xylem-cli/Cargo.toml`, `Cargo.lock`, `crates/xylem-cli/src/main.rs`, `crates/xylem-cli/src/commands/run/mod.rs`, `crates/xylem-cli/src/commands/run/failure.rs`
-- Primary integration lock: CLI
-- Outcome: First termination signal cancels and flushes the run; external cancellation maps to exit 130.
-- Focused validation: CLI signal tests for active and never-admitted inputs, journal flush, and workspace cleanup.
-- Handoff: Record signal behavior and remove ENV-06 when accepted.
-
-## ENV-07 — Version plan and dry-run policy evidence
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: ENV-05 and ENV-06; reserve execution-plan v15 after v14
+- Prerequisites: none; reserve execution-plan v15 after v14
 - Exact write set: `crates/xylem-lib/src/plan.rs`, `crates/xylem-lib/src/tests/plan.rs`, `docs/schema/execution-plan-v15.schema.json`
 - Primary integration lock: run state
 - Outcome: The current deterministic plan records effective policy, timeout, context identity, and ordered admission intent without disposable paths.

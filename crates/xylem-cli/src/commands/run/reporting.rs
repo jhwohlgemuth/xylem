@@ -1,8 +1,10 @@
+use super::failure::CANCELLED_EXIT_CODE;
 use super::progress::WorkflowProgress;
 use super::RunFailure;
 use std::fs::{copy, create_dir_all};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use xylem_lib::execution::{DispatchOutcome, DispatchReport, DispatchStopReason};
 use xylem_lib::journal::{FinalStatus, RunJournal};
 use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::ExecutionPlan;
@@ -10,7 +12,6 @@ use xylem_lib::run::store::Bundle;
 use xylem_lib::util::deduplicate;
 use xylem_lib::ReporterType;
 
-const CANCELLED_EXIT_CODE: i32 = 130;
 pub(super) struct ReportContext<'a> {
     pub(super) bundle: &'a Bundle,
     pub(super) id: &'a str,
@@ -20,21 +21,13 @@ pub(super) struct ReportContext<'a> {
     pub(super) report_output: &'a Option<PathBuf>,
     pub(super) reporters: &'a [ReporterType],
 }
-pub(super) fn finalize(context: ReportContext<'_>, dispatched: Result<Vec<Option<WorkflowOutcome>>, RunFailure>) -> Result<(), RunFailure> {
+pub(super) fn finalize(context: ReportContext<'_>, dispatched: Result<DispatchReport<WorkflowOutcome>, RunFailure>) -> Result<(), RunFailure> {
     let mut primary_failure = match &dispatched {
-        | Ok(outcomes) => outcomes.iter().flatten().find(|outcome| !outcome.is_success()).map(|outcome| {
-            let exit_code = match outcome.state.is_cancelled() {
-                | true => CANCELLED_EXIT_CODE,
-                | false => exitcode::SOFTWARE,
-            };
-            RunFailure::new(exit_code, outcome.error.clone().unwrap_or_else(|| "workflow input failed".to_string()))
-        }),
+        | Ok(report) => report_failure(report),
         | Err(why) => Some(RunFailure::new(why.exit_code(), why.to_string())),
     };
     context.progress.finish_execution(primary_failure.is_none());
-    let cancelled = dispatched
-        .as_ref()
-        .is_ok_and(|outcomes| outcomes.iter().flatten().any(|outcome| outcome.state.is_cancelled()));
+    let cancelled = dispatched.as_ref().is_ok_and(report_cancelled);
     let final_status = match (cancelled, primary_failure.as_ref()) {
         | (true, _) => FinalStatus::Cancelled,
         | (false, Some(failure)) => FinalStatus::from(failure),
@@ -96,6 +89,41 @@ pub(super) fn finalize(context: ReportContext<'_>, dispatched: Result<Vec<Option
     match primary_failure {
         | Some(failure) => Err(failure),
         | None => Ok(()),
+    }
+}
+fn report_cancelled(report: &DispatchReport<WorkflowOutcome>) -> bool {
+    match report.stop_reason() {
+        | Some(reason) => matches!(reason, DispatchStopReason::ExternalCancellation),
+        | None => report.outcomes().iter().any(|outcome| matches!(outcome, DispatchOutcome::Cancelled(_))),
+    }
+}
+fn report_failure(report: &DispatchReport<WorkflowOutcome>) -> Option<RunFailure> {
+    match report.stop_reason() {
+        | Some(DispatchStopReason::ExternalCancellation) => Some(RunFailure::new(CANCELLED_EXIT_CODE, "workflow cancellation requested")),
+        | Some(DispatchStopReason::Failure { input_index }) => report.outcomes().get(input_index).and_then(DispatchOutcome::output).map_or_else(
+            || Some(RunFailure::new(exitcode::SOFTWARE, format!("workflow input {input_index} failed"))),
+            |outcome| {
+                Some(RunFailure::new(
+                    exitcode::SOFTWARE,
+                    outcome.error.clone().unwrap_or_else(|| "workflow input failed".to_string()),
+                ))
+            },
+        ),
+        | None => report.outcomes().iter().find_map(|outcome| match outcome {
+            | DispatchOutcome::Cancelled(output) => Some(RunFailure::new(
+                CANCELLED_EXIT_CODE,
+                output
+                    .as_ref()
+                    .and_then(|outcome| outcome.error.clone())
+                    .unwrap_or_else(|| "workflow cancellation requested".to_string()),
+            )),
+            | DispatchOutcome::Failed(outcome) => Some(RunFailure::new(
+                exitcode::SOFTWARE,
+                outcome.error.clone().unwrap_or_else(|| "workflow input failed".to_string()),
+            )),
+            | _ => None,
+        }),
+        | Some(_) => Some(RunFailure::new(exitcode::SOFTWARE, "workflow input dispatch stopped")),
     }
 }
 pub(super) fn render_dry_run(plan: &ExecutionPlan, reporters: &[ReporterType], report_output: &Option<PathBuf>) -> Result<(), RunFailure> {

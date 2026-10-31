@@ -1,6 +1,8 @@
 use clap_verbosity_flag::Verbosity;
+use core::sync::atomic::{AtomicBool, Ordering};
 pub use failure::RunFailure;
 use std::path::PathBuf;
+use std::process;
 use xylem_lib::config::FailurePolicy;
 use xylem_lib::execution::ExecutionLimits;
 use xylem_lib::run::RunCancellation;
@@ -40,6 +42,19 @@ struct RunRequest<'a> {
     reporter: &'a [ReporterType],
     retain_workspace: bool,
     sandbox_policy: &'a Option<PathBuf>,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SignalAction {
+    Cancel,
+    Exit,
+}
+fn install_headless_signal_handler(cancellation: RunCancellation) -> Result<(), RunFailure> {
+    let received = AtomicBool::new(false);
+    ctrlc::set_handler(move || match signal_action(&received) {
+        | SignalAction::Cancel => cancellation.force(),
+        | SignalAction::Exit => process::exit(failure::CANCELLED_EXIT_CODE),
+    })
+    .map_err(|why| RunFailure::new(exitcode::OSERR, format!("install workflow signal handler — {why}")))
 }
 #[allow(clippy::too_many_arguments)]
 /// Resolve, validate, plan, execute, journal, and report one workflow run.
@@ -95,7 +110,19 @@ pub fn run(
     preparation::prepare(&request).and_then(|prepared| {
         match prepared.config.options.as_ref().and_then(|options| options.dry_run).unwrap_or_default() {
             | true => reporting::render_dry_run(&prepared.plan, reporter, report_output),
-            | false => execution::execute(&request, prepared),
+            | false => {
+                let signals = match (request.cancellation.as_ref(), prepared.context.as_ref()) {
+                    | (None, Some(context)) => install_headless_signal_handler(context.cancellation().clone()),
+                    | (None, None) | (Some(_), _) => Ok(()),
+                };
+                signals.and_then(|()| execution::execute(&request, prepared))
+            }
         }
     })
+}
+fn signal_action(received: &AtomicBool) -> SignalAction {
+    match received.swap(true, Ordering::AcqRel) {
+        | true => SignalAction::Exit,
+        | false => SignalAction::Cancel,
+    }
 }

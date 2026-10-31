@@ -17,11 +17,10 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 | Acquisition policy and executor | OCI-01/02 | Finish or hand off the current acquisition change before another phase writes its files. |
 | Configuration | OCI-01, K8S-04 | Preserve typed validation, batching, memory fallback, resume, source nesting, and immutable context resolution. |
 | Process adapter | ENV-09 | Other phases consume the accepted ACORN process boundary. |
-| Scheduler | ENV-05 | Preserve ordered fixed and memory-aware admission. |
 | Run state | ENV-07/08, K8S-08 | Allocate versions serially; update plans, writers, recovery, reporters, schemas, and TUI together. |
-| CLI | ENV-06, K8S-03/09/10/11/14 | One owner changes command registration, run orchestration, cancellation, or exit mapping at a time. |
+| CLI | K8S-03/09/10/11/14 | One owner changes command registration, run orchestration, cancellation, or exit mapping at a time. |
 | Sandbox preparation | OCI-03 | Preserve provider conformance and lifecycle evidence. |
-| Manifest | SEC-07, ENV-06, K8S-02 | Inspect the feature tree and audit the resulting lockfile. |
+| Manifest | SEC-07, K8S-02 | Inspect the feature tree and audit the resulting lockfile. |
 | Delivery | BRW-02, K8S-15/16/17/18 | Serialize CI, image, and release wiring. |
 | Documentation | BRW-03, OCI-04, ENV-09, K8S-19 | Land final names and verified behavior before user-facing updates. |
 
@@ -38,9 +37,9 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 
 ### Lane B: execution runtime
 
-- [ENV-05 through ENV-09](refactors/workflow-environment-and-concurrency.md):
-  immutable contexts, scheduling, cancellation, durable state, timeout
-  forwarding, and parent-environment cleanup.
+- [ENV-07 through ENV-09](refactors/workflow-environment-and-concurrency.md):
+  durable state, timeout forwarding, and parent-environment cleanup build on
+  the accepted immutable contexts, scheduling, and cancellation contracts.
 - [K8S-01 through K8S-19](features/kubernetes-workflow-backend.md): operator
   gates first; reusable runtime, protocol, controller, worker, image, and
   cluster phases follow accepted ENV prerequisites.
@@ -60,15 +59,15 @@ its write set remains disjoint from CI and documentation integration.
 
 | Phase | Primary lock | Start condition |
 |---|---|---|
-| ENV-05 | Scheduler | Immutable contexts and input-local preparation are accepted. |
+| ENV-07 | Run state | Structured dispatch and headless cancellation are accepted; execution-plan v15 is unallocated. |
 | BRW-01 | Tap validation | Assigned `RE Runner (macbook)` remains online. |
 | APO-01 | A/P/O measurement evidence | Rollout, corpus, and credentials are supplied. |
 | K8S-01 | Kubernetes deployment assumptions | Operator demand, cluster, storage, and image owner are supplied. |
 
 The process adapter uses the published and pinned ACORN 0.5.1 contract at
-`3e915697d214eda33e0d4c52f03fb09f27d9d3e4`. OCI-01 is also ready, but it and
-The completed environment-context phases released the configuration lock, so
-OCI-01 and ENV-05 now have disjoint primary locks.
+`3e915697d214eda33e0d4c52f03fb09f27d9d3e4`. The completed environment,
+scheduler, and cancellation phases released their locks, so OCI-01 and ENV-07
+have disjoint primary locks.
 
 ## Agent start checklist
 

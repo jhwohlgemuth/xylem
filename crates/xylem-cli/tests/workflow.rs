@@ -664,6 +664,225 @@ fn test_fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
+fn test_fail_fast_preserves_failure_and_cancels_active_sibling() {
+    let test_root = std::env::temp_dir().join(format!("xylem-fail-fast-cancellation-{}", std::process::id()));
+    let module = test_root.join("module");
+    let reports = test_root.join("reports");
+    let state = test_root.join("state");
+    create_dir_all(&module).expect("create fail-fast module");
+    create_dir_all(&reports).expect("create fail-fast reports");
+    create_dir_all(&state).expect("create fail-fast state");
+    write(
+        module.join("run.sh"),
+        r#"#!/bin/sh
+set -eu
+state="$1"
+case "$_XYLEM_INPUT" in
+  slow)
+    : > "$state/slow-started"
+    while [ ! -f "$state/failure-started" ]; do sleep 0.01; done
+    sleep 30
+    ;;
+  failure)
+    while [ ! -f "$state/slow-started" ]; do sleep 0.01; done
+    : > "$state/failure-started"
+    exit 7
+    ;;
+  *)
+    : > "$state/unexpected-later-input"
+    ;;
+esac
+"#,
+    )
+    .expect("write fail-fast probe");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "input": ["slow", "failure", "later"],
+        "modules": [{
+            "name": "Fail Fast Probe",
+            "programmingLanguage": "generic",
+            "template": { "arguments": ["run.sh", state], "command": "sh" },
+            "type": "script",
+            "uri": format!("file:{}", module.display())
+        }],
+        "options": { "batch": 2 },
+        "requirements": ["sh"]
+    });
+    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize fail-fast config")).expect("write fail-fast config");
+    let output = xylem_command()
+        .args([
+            "run",
+            config_path.to_str().expect("UTF-8 config path"),
+            "--report-output",
+            reports.to_str().expect("UTF-8 report path"),
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("run fail-fast cancellation workflow");
+    assert_eq!(
+        output.status.code(),
+        Some(exitcode::SOFTWARE),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = native_report(&reports);
+    assert_eq!(report.status, xylem_lib::journal::RunStatus::Failed);
+    assert_eq!(
+        report.inputs.iter().map(|input| input.state).collect::<Vec<_>>(),
+        [
+            xylem_lib::journal::ExecutionState::Cancelled,
+            xylem_lib::journal::ExecutionState::Failed,
+            xylem_lib::journal::ExecutionState::NotStarted,
+        ]
+    );
+    assert!(!state.join("unexpected-later-input").exists());
+    remove_dir_all(test_root).expect("remove fail-fast cancellation directory");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_failure_policy_continue_admits_later_inputs() {
+    let test_root = std::env::temp_dir().join(format!("xylem-continue-policy-{}", std::process::id()));
+    let module = test_root.join("module");
+    let reports = test_root.join("reports");
+    let state = test_root.join("state");
+    create_dir_all(&module).expect("create continue module");
+    create_dir_all(&reports).expect("create continue reports");
+    create_dir_all(&state).expect("create continue state");
+    write(
+        module.join("run.sh"),
+        r#"#!/bin/sh
+set -eu
+case "$_XYLEM_INPUT" in
+  failure) exit 7 ;;
+  later) : > "$1/later-ran" ;;
+esac
+"#,
+    )
+    .expect("write continue probe");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "input": ["failure", "later"],
+        "modules": [{
+            "name": "Continue Probe",
+            "programmingLanguage": "generic",
+            "template": { "arguments": ["run.sh", state], "command": "sh" },
+            "type": "script",
+            "uri": format!("file:{}", module.display())
+        }],
+        "options": { "batch": 1 },
+        "requirements": ["sh"]
+    });
+    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize continue config")).expect("write continue config");
+    let output = xylem_command()
+        .args([
+            "run",
+            config_path.to_str().expect("UTF-8 config path"),
+            "--failure-policy",
+            "continue",
+            "--report-output",
+            reports.to_str().expect("UTF-8 report path"),
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("run continue workflow");
+    assert_eq!(
+        output.status.code(),
+        Some(exitcode::SOFTWARE),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = native_report(&reports);
+    assert_eq!(
+        report.inputs.iter().map(|input| input.state).collect::<Vec<_>>(),
+        [xylem_lib::journal::ExecutionState::Failed, xylem_lib::journal::ExecutionState::Succeeded]
+    );
+    assert!(state.join("later-ran").exists());
+    remove_dir_all(test_root).expect("remove continue policy directory");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_termination_signal_cancels_inputs_flushes_journal_and_removes_workspaces() {
+    let test_root = std::env::temp_dir().join(format!("xylem-signal-cancellation-{}", std::process::id()));
+    let module = test_root.join("module");
+    let reports = test_root.join("reports");
+    let state = test_root.join("state");
+    create_dir_all(&module).expect("create signal module");
+    create_dir_all(&reports).expect("create signal reports");
+    create_dir_all(&state).expect("create signal state");
+    write(
+        module.join("run.sh"),
+        r#"#!/bin/sh
+set -eu
+state="$1"
+printf '%s\n' "$_XYLEM_WORK_DIRECTORY" > "$state/${_XYLEM_INPUT}.workspace"
+: > "$state/${_XYLEM_INPUT}.started"
+sleep 30
+"#,
+    )
+    .expect("write signal probe");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "input": ["one", "two", "three"],
+        "modules": [{
+            "name": "Signal Probe",
+            "programmingLanguage": "generic",
+            "template": { "arguments": ["run.sh", state], "command": "sh" },
+            "type": "script",
+            "uri": format!("file:{}", module.display())
+        }],
+        "options": { "batch": 2 },
+        "requirements": ["sh"]
+    });
+    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize signal config")).expect("write signal config");
+    let mut command = std::process::Command::new(assert_cmd::cargo::cargo_bin!("xylem"));
+    command
+        .env(
+            xylem_lib::run::store::RUN_STORE_ENV,
+            std::env::temp_dir().join(format!("xylem-cli-run-store-{}", std::process::id())),
+        )
+        .args([
+            "run",
+            config_path.to_str().expect("UTF-8 config path"),
+            "--report-output",
+            reports.to_str().expect("UTF-8 report path"),
+            "--reporter",
+            "json",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    let child = command.spawn().expect("spawn signal workflow");
+    let deadline = std::time::Instant::now() + core::time::Duration::from_secs(10);
+    while !(state.join("one.started").exists() && state.join("two.started").exists()) && std::time::Instant::now() < deadline {
+        std::thread::sleep(core::time::Duration::from_millis(10));
+    }
+    assert!(state.join("one.started").exists(), "first signal input should start");
+    assert!(state.join("two.started").exists(), "second signal input should start");
+    let signal = std::process::Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .expect("send termination signal");
+    assert!(signal.success(), "termination signal should be delivered");
+    let output = child.wait_with_output().expect("wait for cancelled workflow");
+    assert_eq!(output.status.code(), Some(130), "{}", String::from_utf8_lossy(&output.stderr));
+    let report = native_report(&reports);
+    assert_eq!(report.status, xylem_lib::journal::RunStatus::Cancelled);
+    assert!(report
+        .inputs
+        .iter()
+        .all(|input| input.state == xylem_lib::journal::ExecutionState::Cancelled));
+    for input in ["one", "two"] {
+        let workspace = read_to_string(state.join(format!("{input}.workspace"))).expect("read input workspace");
+        assert!(
+            !Path::new(workspace.trim()).exists(),
+            "cancelled workspace should be removed: {workspace}"
+        );
+    }
+    remove_dir_all(test_root).expect("remove signal cancellation directory");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
 fn test_gpu_monitoring_fails_before_execution_when_nvidia_smi_is_missing() {
     let test_root = std::env::temp_dir().join(format!("xylem-gpu-missing-{}", std::process::id()));
     let empty_path = test_root.join("empty-path");

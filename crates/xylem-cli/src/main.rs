@@ -155,7 +155,7 @@ fn main() -> Void {
                     .map_err(|why| why.to_string());
                     let _ = sender.send(result);
                 });
-                xylem_tui::LaunchHandle::new(completion, move || cancel.request())
+                xylem_tui::LaunchHandle::new(completion, move || cancel.force())
             })?;
             Ok(())
         }

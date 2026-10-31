@@ -7,7 +7,7 @@ use alloc::sync::Arc;
 use tracing::{debug, info, warn};
 use xylem_lib::config::{Config, ConfigOptions};
 use xylem_lib::container::ContainerLifecycle;
-use xylem_lib::execution::ExecutionContext;
+use xylem_lib::execution::{DispatchClassification, DispatchOutcome, DispatchReport, ExecutionContext};
 use xylem_lib::journal::{ContainerState, ExecutionState, JournalContainer, RunJournal};
 use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::{ExecutionPlan, MemoryPlanMode};
@@ -31,7 +31,7 @@ pub(super) struct DispatchContext<'a> {
     pub(super) run_context: &'a RunContext,
     pub(super) sandbox: Option<&'a Arc<dyn SandboxSession>>,
 }
-pub(super) fn dispatch_inputs(context: DispatchContext<'_>) -> Result<Vec<Option<WorkflowOutcome>>, RunFailure> {
+pub(super) fn dispatch_inputs(context: DispatchContext<'_>) -> Result<DispatchReport<WorkflowOutcome>, RunFailure> {
     let concurrency = context.execution.input_concurrency(context.run_context.batch());
     debug!(target: "xylem_cli::commands::run", concurrency, "=> {} Active workflow input limit", Label::using());
     let lifecycle = match context.options.sandbox_policy.is_some() {
@@ -62,29 +62,40 @@ pub(super) fn dispatch_inputs(context: DispatchContext<'_>) -> Result<Vec<Option
             let _ = context.journal.transition_container(container.index, state, None);
         });
         let operation = |index, input: &Option<String>| execute_input(&context, index, input);
-        let failed = |outcome: &WorkflowOutcome| !outcome.is_success();
+        let classify = |outcome: &WorkflowOutcome| match (outcome.is_success(), outcome.state.is_cancelled()) {
+            | (true, _) => DispatchClassification::Succeeded,
+            | (false, true) => DispatchClassification::Cancelled,
+            | (false, false) => DispatchClassification::Failed,
+        };
         let dispatched = match context.plan.memory.as_ref() {
             | Some(memory) if memory.mode == MemoryPlanMode::MemoryAware => memory.reservations().map_or_else(
                 || Err(RunFailure::new(exitcode::SOFTWARE, "memory-aware plan is missing an input reservation")),
                 |reservations| {
                     context
                         .execution
-                        .dispatch_inputs_fail_fast_memory(
+                        .dispatch_inputs_report_memory(
                             context.inputs,
                             context.run_context.batch(),
                             memory.budget.clone(),
                             reservations,
+                            context.run_context.failure_policy(),
+                            context.run_context.cancellation(),
                             operation,
-                            failed,
+                            classify,
                         )
                         .map_err(|why| RunFailure::new(exitcode::OSERR, format!("run memory-aware input dispatcher — {why}")))
                 },
             ),
-            | Some(_) | None => context
-                .execution
-                .dispatch_inputs_fail_fast(context.inputs, context.run_context.batch(), operation, failed)
-                .map_err(|why| RunFailure::new(exitcode::OSERR, format!("initialize Xylem input worker pool — {why}"))),
+            | Some(_) | None => Ok(context.execution.dispatch_inputs_report(
+                context.inputs,
+                context.run_context.batch(),
+                context.run_context.failure_policy(),
+                context.run_context.cancellation(),
+                operation,
+                classify,
+            )),
         };
+        let dispatched = dispatched.and_then(|report| record_unstarted_cancellations(&context, report));
         finish_lifecycle(context.journal, context.journal_containers, lifecycle, dispatched)
     })
 }
@@ -246,11 +257,9 @@ fn finish_lifecycle(
     journal: &RunJournal,
     journal_containers: &[JournalContainer],
     lifecycle: ContainerLifecycle,
-    dispatched: Result<Vec<Option<WorkflowOutcome>>, RunFailure>,
-) -> Result<Vec<Option<WorkflowOutcome>>, RunFailure> {
-    let succeeded = dispatched
-        .as_ref()
-        .is_ok_and(|outcomes| outcomes.iter().flatten().all(WorkflowOutcome::is_success));
+    dispatched: Result<DispatchReport<WorkflowOutcome>, RunFailure>,
+) -> Result<DispatchReport<WorkflowOutcome>, RunFailure> {
+    let succeeded = dispatched.as_ref().is_ok_and(|report| report.is_success());
     let cleanup = lifecycle.finish(succeeded);
     match (dispatched, cleanup) {
         | (Ok(outcomes), Ok(finished)) => {
@@ -282,4 +291,21 @@ fn mark_owned_containers_failed(journal: &RunJournal, journal_containers: &[Jour
     journal_containers.iter().filter(|container| container.owned).for_each(|container| {
         let _ = journal.transition_container(container.index, ContainerState::Failed, Some(message));
     });
+}
+fn record_unstarted_cancellations(
+    context: &DispatchContext<'_>,
+    report: DispatchReport<WorkflowOutcome>,
+) -> Result<DispatchReport<WorkflowOutcome>, RunFailure> {
+    report
+        .outcomes()
+        .iter()
+        .enumerate()
+        .filter(|(_, outcome)| matches!(outcome, DispatchOutcome::Cancelled(None)))
+        .try_for_each(|(index, _)| {
+            context
+                .journal
+                .transition_input(index, ExecutionState::Cancelled, Some("workflow cancellation requested"))
+                .map_err(|why| RunFailure::new(exitcode::IOERR, format!("record cancelled input {index} — {why}")))
+        })
+        .map(|()| report)
 }

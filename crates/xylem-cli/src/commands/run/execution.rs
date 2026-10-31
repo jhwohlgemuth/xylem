@@ -18,7 +18,6 @@ use xylem_lib::gpu::GpuMonitor;
 use xylem_lib::journal::{
     ConfigurationIdentity, JournalContainer, JournalInput, JournalModule, RunJournal, RunMemoryEvidence, RunMetadata, SandboxEvidence,
 };
-use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::{ExecutionPlan, MemoryPlanMode};
 use xylem_lib::run::store::{Bundle, Manifest, Store};
 use xylem_lib::run::telemetry::SystemMonitor;
@@ -337,9 +336,7 @@ fn execute_opened(
             })
         }
     };
-    let sandbox_succeeded = dispatched
-        .as_ref()
-        .is_ok_and(|outcomes| outcomes.iter().flatten().all(WorkflowOutcome::is_success));
+    let sandbox_succeeded = dispatched.as_ref().is_ok_and(|report| report.is_success());
     progress.finish_preparation(sandbox_succeeded);
     let sandbox_cleanup = sandbox.as_ref().map_or(Ok(()), |sandbox| {
         let outcome = sandbox.finish(sandbox_succeeded);

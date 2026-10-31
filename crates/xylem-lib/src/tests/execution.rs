@@ -1,4 +1,8 @@
-use crate::execution::{ExecutionContext, ExecutionLimits, InputBatch, InvalidThreadCount};
+use crate::config::FailurePolicy;
+use crate::execution::{
+    DispatchClassification, DispatchOutcome, DispatchStopReason, ExecutionContext, ExecutionLimits, InputBatch, InvalidThreadCount,
+};
+use crate::run::RunCancellation;
 use acorn_schema::hardware::Memory;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use core::time::Duration;
@@ -60,6 +64,98 @@ fn fail_fast_dispatch_leaves_unadmitted_inputs_empty() {
     assert_eq!(outputs[0], Some((0, true)));
     assert_eq!(outputs[1], Some((1, false)));
     assert!(outputs[2..].iter().all(Option::is_none));
+}
+#[test]
+fn test_dispatch_report_cancels_active_siblings_and_preserves_failure() {
+    let context = ExecutionContext::new(ExecutionLimits::try_from(4).expect("valid thread limit")).expect("execution context");
+    let batch = InputBatch::try_from(2).expect("valid input batch");
+    let cancellation = RunCancellation::default();
+    let both_started = Barrier::new(2);
+    let report = context.dispatch_inputs_report(
+        &[0, 1, 2, 3],
+        Some(batch),
+        FailurePolicy::FailFast,
+        &cancellation,
+        |_, input| {
+            if *input < 2 {
+                both_started.wait();
+            }
+            match *input {
+                | 0 => {
+                    while !cancellation.is_requested() {
+                        thread::yield_now();
+                    }
+                    DispatchClassification::Cancelled
+                }
+                | 1 => DispatchClassification::Failed,
+                | _ => DispatchClassification::Succeeded,
+            }
+        },
+        |classification| *classification,
+    );
+    assert_eq!(report.effective_concurrency(), 2);
+    assert!(report.admission_stopped_early());
+    assert_eq!(report.stop_reason(), Some(DispatchStopReason::Failure { input_index: 1 }));
+    assert_eq!(
+        report.outcomes(),
+        [
+            DispatchOutcome::Cancelled(Some(DispatchClassification::Cancelled)),
+            DispatchOutcome::Failed(DispatchClassification::Failed),
+            DispatchOutcome::NotStarted,
+            DispatchOutcome::NotStarted,
+        ]
+    );
+}
+#[test]
+fn test_dispatch_report_continue_admits_every_input() {
+    let context = ExecutionContext::new(ExecutionLimits::try_from(2).expect("valid thread limit")).expect("execution context");
+    let cancellation = RunCancellation::default();
+    let report = context.dispatch_inputs_report(
+        &[0, 1, 2],
+        None,
+        FailurePolicy::Continue,
+        &cancellation,
+        |_, input| match *input {
+            | 1 => DispatchClassification::Failed,
+            | _ => DispatchClassification::Succeeded,
+        },
+        |classification| *classification,
+    );
+    assert!(!report.admission_stopped_early());
+    assert_eq!(report.stop_reason(), None);
+    assert!(!cancellation.is_requested());
+    assert_eq!(
+        report.outcomes(),
+        [
+            DispatchOutcome::Succeeded(DispatchClassification::Succeeded),
+            DispatchOutcome::Failed(DispatchClassification::Failed),
+            DispatchOutcome::Succeeded(DispatchClassification::Succeeded),
+        ]
+    );
+}
+#[test]
+fn test_dispatch_report_external_cancellation_marks_unstarted_inputs() {
+    let context = ExecutionContext::new(ExecutionLimits::try_from(2).expect("valid thread limit")).expect("execution context");
+    let cancellation = RunCancellation::default();
+    cancellation.force();
+    let report = context.dispatch_inputs_report(
+        &[0, 1, 2],
+        None,
+        FailurePolicy::FailFast,
+        &cancellation,
+        |_, _| DispatchClassification::Succeeded,
+        |classification| *classification,
+    );
+    assert!(report.admission_stopped_early());
+    assert_eq!(report.stop_reason(), Some(DispatchStopReason::ExternalCancellation));
+    assert_eq!(
+        report.outcomes(),
+        [
+            DispatchOutcome::Cancelled(None),
+            DispatchOutcome::Cancelled(None),
+            DispatchOutcome::Cancelled(None)
+        ]
+    );
 }
 #[test]
 fn input_dispatch_admits_work_as_soon_as_capacity_is_available() {
@@ -184,6 +280,48 @@ fn memory_dispatch_stops_new_admission_after_failure() {
     assert_eq!(outputs[1], Some((1, false)));
     assert!(outputs[2..].iter().all(Option::is_none));
     assert_eq!(attempts.map(|attempts| attempts.load(Ordering::SeqCst)), [1, 1, 0, 0]);
+}
+#[test]
+fn test_memory_dispatch_report_cancels_active_siblings() {
+    let context = ExecutionContext::new(ExecutionLimits::try_from(4).expect("valid thread limit")).expect("execution context");
+    let batch = InputBatch::try_from(2).expect("valid input batch");
+    let cancellation = RunCancellation::default();
+    let both_started = Barrier::new(2);
+    let report = context
+        .dispatch_inputs_report_memory(
+            &[0, 1, 2],
+            Some(batch),
+            Memory::kb(2.0 / 1024.0),
+            (0..3).map(|_| Memory::kb(1.0 / 1024.0)).collect(),
+            FailurePolicy::FailFast,
+            &cancellation,
+            |_, input| {
+                if *input < 2 {
+                    both_started.wait();
+                }
+                match *input {
+                    | 0 => {
+                        while !cancellation.is_requested() {
+                            thread::yield_now();
+                        }
+                        DispatchClassification::Cancelled
+                    }
+                    | 1 => DispatchClassification::Failed,
+                    | _ => DispatchClassification::Succeeded,
+                }
+            },
+            |classification| *classification,
+        )
+        .expect("memory-aware input pool should run");
+    assert_eq!(report.stop_reason(), Some(DispatchStopReason::Failure { input_index: 1 }));
+    assert_eq!(
+        report.outcomes(),
+        [
+            DispatchOutcome::Cancelled(Some(DispatchClassification::Cancelled)),
+            DispatchOutcome::Failed(DispatchClassification::Failed),
+            DispatchOutcome::NotStarted,
+        ]
+    );
 }
 #[test]
 fn rejects_zero_threads() {

@@ -2,6 +2,7 @@ use core::fmt;
 use xylem_lib::gpu::GpuMonitorError;
 use xylem_lib::journal::FinalStatus;
 
+pub(super) const CANCELLED_EXIT_CODE: i32 = 130;
 /// Failure returned to the executable boundary with a stable exit code.
 #[derive(Debug)]
 pub struct RunFailure {
