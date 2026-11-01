@@ -6,13 +6,21 @@
     clippy::arithmetic_side_effects
 )]
 use super::*;
-use crate::journal::{ConfigurationIdentity, InputSummary, ModuleSummary, SandboxEvidence, JOURNAL_SCHEMA_VERSION};
+use crate::config::FailurePolicy;
+use crate::journal::{
+    ConfigurationIdentity, InputSummary, ModuleSummary, SandboxEvidence, WorkflowContextEvidence, WorkspaceIdentity, JOURNAL_SCHEMA_VERSION,
+};
 use acorn_core::time::UnitOfTime;
 
 fn summary(state: ExecutionState, started: u64, updated: u64) -> RunSummary {
     RunSummary {
         artifacts: None,
         configuration_acquisitions: Vec::new(),
+        contexts: vec![WorkflowContextEvidence {
+            input_index: 0,
+            input_id: "input-000000".to_string(),
+            workspace: WorkspaceIdentity::InputLocal,
+        }],
         schema_version: JOURNAL_SCHEMA_VERSION,
         run_id: "run".to_string(),
         configuration: ConfigurationIdentity {
@@ -21,11 +29,13 @@ fn summary(state: ExecutionState, started: u64, updated: u64) -> RunSummary {
             version: None,
         },
         dry_run: false,
+        failure_policy: FailurePolicy::default(),
         sandbox: SandboxEvidence::off(),
         started_at: Milliseconds::new(0),
         finished_at: Some(Milliseconds::new(updated)),
         duration: Some(Milliseconds::new(updated)),
         status: RunStatus::Succeeded,
+        stop_reason: None,
         error: None,
         gpu_monitoring: None,
         containers: Vec::new(),
@@ -42,6 +52,7 @@ fn summary(state: ExecutionState, started: u64, updated: u64) -> RunSummary {
                 index: 0,
                 name: "module".to_string(),
                 module_path: vec!["module".to_string()],
+                timeout: None,
                 state,
                 error: None,
                 started_at: Some(Milliseconds::new(started)),
@@ -49,6 +60,7 @@ fn summary(state: ExecutionState, started: u64, updated: u64) -> RunSummary {
             }],
         }],
         memory: None,
+        workspace: WorkspaceIdentity::RunLocal,
     }
 }
 

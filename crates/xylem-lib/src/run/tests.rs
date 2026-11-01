@@ -7,7 +7,7 @@
 )]
 use super::store::{BundleStatus, Manifest, Store, TaskLogSink};
 use super::RunCancellation;
-use crate::journal::JOURNAL_SCHEMA_VERSION;
+use crate::journal::{ConfigurationIdentity, FinalStatus, RunJournal, RunMetadata, SandboxEvidence, JOURNAL_SCHEMA_VERSION};
 use crate::sandbox::SandboxLeaseState;
 use acorn_cmd::{OutputSink, OutputStream};
 use std::fs::{create_dir_all, read_to_string, write};
@@ -26,7 +26,6 @@ fn test_cancellation_is_graceful_then_forced() {
     cancellation.request();
     assert!(cancellation.token().is_cancelled());
 }
-
 #[test]
 fn test_history_marks_unfinished_and_corrupt_bundles() {
     let root = temporary_root("history");
@@ -66,7 +65,34 @@ fn test_history_marks_unfinished_and_corrupt_bundles() {
         .any(|lease| lease.run_id == "run-d" && lease.state == SandboxLeaseState::Terminal));
     let _ = std::fs::remove_dir_all(root);
 }
-
+#[test]
+fn test_history_rejects_historical_summary_version() {
+    let root = temporary_root("historical-summary");
+    let _ = std::fs::remove_dir_all(&root);
+    let store = Store::new(root.clone()).expect("store should initialize");
+    let config = root.join("workflow.json");
+    write(&config, "{}").expect("config should write");
+    let manifest = Manifest::from_config("run".to_string(), &config, 1).expect("manifest should build");
+    let bundle = store.start(&manifest).expect("bundle should start");
+    let metadata = RunMetadata::now(
+        "run".to_string(),
+        ConfigurationIdentity {
+            path: config.display().to_string(),
+            id: None,
+            version: None,
+        },
+        false,
+        SandboxEvidence::off(),
+    );
+    let journal = RunJournal::create(bundle.journal_path(), metadata, Vec::new(), Vec::new()).expect("journal should create");
+    journal.finish(FinalStatus::Succeeded, None).expect("journal should finish");
+    let mut summary = RunJournal::read(bundle.journal_path()).expect("summary should recover");
+    summary.schema_version = JOURNAL_SCHEMA_VERSION.saturating_sub(1);
+    bundle.write_summary(&summary).expect("historical summary should write");
+    let runs = store.list().expect("history should load");
+    assert_eq!(runs[0].status, BundleStatus::Corrupt);
+    let _ = std::fs::remove_dir_all(root);
+}
 #[test]
 fn test_store_does_not_overwrite_run_identifier() {
     let root = temporary_root("exclusive");
@@ -79,7 +105,6 @@ fn test_store_does_not_overwrite_run_identifier() {
     assert!(store.start(&manifest).is_err());
     let _ = std::fs::remove_dir_all(root);
 }
-
 #[test]
 fn test_task_log_sink_attributes_streams_and_flushes_fragments() {
     let root = temporary_root("logs");

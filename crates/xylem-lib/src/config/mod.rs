@@ -14,11 +14,12 @@ use crate::progress::{ProgressObserver, ProgressPhase, ProgressState};
 use crate::run::{ContextError, WorkflowContext};
 use crate::sandbox::EffectiveSandboxPolicy;
 use crate::script::{
-    module_working_directory, Command, ContainerCleanup, ContainerEnvironment, ContainerRuntime, EnvironmentValue, Module, ModuleLanguage,
-    ModuleType, ModuleUri, Script, StringTemplate, TemplateAttribute, VirtualEnvironment, VirtualEnvironmentManager,
+    module_working_directory, Command, ContainerCleanup, ContainerEnvironment, ContainerRuntime, Module, ModuleLanguage, ModuleType, ModuleUri,
+    Script, StringTemplate, TemplateAttribute, VirtualEnvironment, VirtualEnvironmentManager,
 };
 pub use crate::selection::{InputSelection, SelectionEngine, SelectionOptions, SelectionRequest};
 use crate::workspace::{materialize, InputWorkspace};
+use acorn_core::time::Seconds;
 use acorn_core::util::{MimeType, ParseOptionsExt, SemanticVersion, StringConversion};
 use acorn_core::{Location, Scheme};
 use acorn_host::config::{read_jsonc, ConfigError as AcornConfigError};
@@ -47,8 +48,8 @@ mod validation;
 const RESERVED_VARIABLES: [&str; 5] = ["INPUT", "MODULE_LIST", "PARENT_DIRECTORY", "RUN_ID", "WORK_DIRECTORY"];
 /// Executes one resolved module command for an orchestration adapter.
 pub trait ModuleExecutor: Send + Sync {
-    /// Execute a script for the stable input and module positions.
-    fn execute(&self, script: &Script, input_index: usize, module_index: usize) -> Result<(), ProcessError>;
+    /// Execute a script for the stable input and module positions, applying the validated module timeout to the managed process when one is present.
+    fn execute(&self, script: &Script, input_index: usize, module_index: usize, timeout: Option<Seconds>) -> Result<(), ProcessError>;
 
     /// Return whether the caller has requested cancellation.
     fn is_cancellation_requested(&self) -> bool {
@@ -376,12 +377,12 @@ impl Config {
             Some(cache.clone()),
         )
     }
-    pub fn get_environment_variables(self, module: Option<Module>, input: Option<String>) -> HashMap<String, String> {
+    pub(crate) fn module_environment(&self, module: Option<&Module>, input: Option<&str>) -> HashMap<String, String> {
         let envs = VariableLookup::from_values(self.variables.as_ref())
             .with_output_default(self.output.as_deref())
-            .with_values(module.as_ref().and_then(|module| module.variables.as_ref()))
+            .with_values(module.and_then(|module| module.variables.as_ref()))
             .with_value("MODULE_LIST", self.get_module_list())
-            .with_input(input.as_deref())
+            .with_input(input)
             .expand()
             .namespaced()
             .into_hash_map();
@@ -618,7 +619,7 @@ impl Config {
                     .iter()
                     .enumerate()
                     .try_fold(state, |(mut selected, mut markers), (index, module)| {
-                        let variables = self.clone().get_environment_variables(Some(module.clone()), input.clone());
+                        let variables = self.module_environment(Some(module), input.as_deref());
                         CompletionPlan::inspect(module, &variables, resume, self.output.as_deref())
                             .map_err(PlanError::from)
                             .and_then(|completion| {
@@ -761,9 +762,6 @@ impl Config {
         input_index: usize,
         context: Option<&WorkflowContext<'_>>,
     ) -> WorkflowOutcome {
-        if context.is_none() {
-            EnvironmentValue::print_all();
-        }
         let execution = self.modules.iter().enumerate().try_fold(
             Vec::new(),
             |mut outcomes, (module_index, module)| -> Result<Vec<ModuleOutcome>, (Vec<ModuleOutcome>, String)> {
@@ -772,7 +770,7 @@ impl Config {
                         | Ok(environment) => environment.into_iter().collect::<HashMap<_, _>>(),
                         | Err(why) => return Err((outcomes, why.to_string())),
                     },
-                    | None => self.clone().get_environment_variables(Some(module.clone()), input.clone()),
+                    | None => self.module_environment(Some(module), input.as_deref()),
                 };
                 let completion_envs = VariableLookup::from(envs.clone()).completion().into_hash_map();
                 let result = CompletionPlan::inspect(module, &completion_envs, options.resume.unwrap_or_default(), self.output.as_deref())
@@ -848,8 +846,10 @@ impl Config {
                                                             }
                                                             | false => executor
                                                                 .map_or_else(
-                                                                    || script.run_checked().map(|_| ()),
-                                                                    |executor| executor.execute(&script, input_index, module_index),
+                                                                    || script.run_checked_with_timeout(executable.timeout).map(|_| ()),
+                                                                    |executor| {
+                                                                        executor.execute(&script, input_index, module_index, executable.timeout)
+                                                                    },
                                                                 )
                                                                 .map_err(|why| why.to_string()),
                                                         }
@@ -903,8 +903,10 @@ impl Config {
                                                                 }
                                                                 | false => executor
                                                                     .map_or_else(
-                                                                        || script.run_checked().map(|_| ()),
-                                                                        |executor| executor.execute(&script, input_index, module_index),
+                                                                        || script.run_checked_with_timeout(executable.timeout).map(|_| ()),
+                                                                        |executor| {
+                                                                            executor.execute(&script, input_index, module_index, executable.timeout)
+                                                                        },
                                                                     )
                                                                     .map_err(|why| why.to_string()),
                                                             })
@@ -997,12 +999,6 @@ impl Config {
                     .build()
             }
         }
-    }
-    /// Set environment variables from Xylem configuration "variables" attribute
-    pub fn set_environment_variables(self) -> Config {
-        let variables = self.clone().get_environment_variables(None, None);
-        EnvironmentValue::set_namespaced_variables(variables);
-        self
     }
     /// Verify software requirements are met on host system (ex. Python, conda, etc...)
     ///
@@ -1525,6 +1521,14 @@ impl ConfigurationSource {
             | Self::File(path) | Self::Git { path, .. } | Self::Oci { path, .. } => Some(path),
             | Self::Http { .. } => None,
         }
+    }
+}
+impl fmt::Display for FailurePolicy {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            | Self::Continue => "continue",
+            | Self::FailFast => "fail_fast",
+        })
     }
 }
 impl From<ConfigFormat> for MimeType {

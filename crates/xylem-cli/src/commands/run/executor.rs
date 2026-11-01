@@ -1,4 +1,5 @@
 use acorn_cmd::{CaptureLimits, ExecutionOptions, OutputSink, OutputStream};
+use acorn_core::time::Seconds;
 use acorn_host::terminal::Label;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;
@@ -61,7 +62,13 @@ impl LoggedModuleExecutor {
     }
 }
 impl ModuleExecutor for LoggedModuleExecutor {
-    fn execute(&self, script: &Script, input_index: usize, module_index: usize) -> Result<(), xylem_lib::error::ProcessError> {
+    fn execute(
+        &self,
+        script: &Script,
+        input_index: usize,
+        module_index: usize,
+        timeout: Option<Seconds>,
+    ) -> Result<(), xylem_lib::error::ProcessError> {
         let sink = TaskLogSink::module(self.bundle.clone(), input_index, module_index);
         let output_limit = self.sandbox.as_ref().map(|sandbox| sandbox.resources().captured_output_bytes);
         let options = ExecutionOptions::new()
@@ -70,10 +77,17 @@ impl ModuleExecutor for LoggedModuleExecutor {
         let options = self.sandbox.as_ref().map_or(options.clone(), |sandbox| {
             let resources = sandbox.resources();
             let captured_output_bytes = usize::try_from(resources.captured_output_bytes).unwrap_or(usize::MAX);
-            options
-                .with_capture_limits(CaptureLimits::new(Some(captured_output_bytes), None))
-                .with_timeout(Duration::from_secs(resources.wall_time_seconds))
+            options.with_capture_limits(CaptureLimits::new(Some(captured_output_bytes), None))
         });
+        let sandbox_timeout = self
+            .sandbox
+            .as_ref()
+            .map(|sandbox| Duration::from_secs(sandbox.resources().wall_time_seconds));
+        let timeout = timeout.map(Duration::from).into_iter().chain(sandbox_timeout).min();
+        let options = match timeout {
+            | Some(timeout) => options.with_timeout(timeout),
+            | None => options,
+        };
         let execution = self.sandbox.as_ref().map_or_else(
             || script.execute_checked(&options),
             |sandbox| sandbox.execute(script, module_index, &options),

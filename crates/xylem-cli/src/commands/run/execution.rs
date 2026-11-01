@@ -127,7 +127,13 @@ fn create_journal(runtime: &Runtime<'_>, bundle: &Bundle, options: &ConfigOption
         .modules
         .iter()
         .enumerate()
-        .map(|(index, module)| JournalModule::new(index, module.name.clone(), module.module_path.clone()))
+        .map(|(index, module)| {
+            let journal_module = JournalModule::new(index, module.name.clone(), module.module_path.clone());
+            match module.timeout {
+                | Some(timeout) => journal_module.with_timeout(timeout),
+                | None => journal_module,
+            }
+        })
         .collect::<Vec<_>>();
     let configuration = ConfigurationIdentity {
         path: runtime.config_path.display().to_string(),
@@ -164,7 +170,9 @@ fn create_journal(runtime: &Runtime<'_>, bundle: &Bundle, options: &ConfigOption
             let runtime_id = runtime.context.run_id().to_string();
             let dry_run = options.dry_run.unwrap_or_default();
             let acquisitions = runtime.config.acquisitions.clone();
-            let base = RunMetadata::now(runtime_id, configuration, dry_run, sandbox).with_configuration_acquisitions(acquisitions);
+            let base = RunMetadata::now(runtime_id, configuration, dry_run, sandbox)
+                .with_configuration_acquisitions(acquisitions)
+                .with_failure_policy(runtime.plan.failure_policy);
             let artifact_metadata = match runtime.plan.artifacts.as_ref() {
                 | Some(artifacts) => base.with_artifacts(
                     ArtifactPublication::init()

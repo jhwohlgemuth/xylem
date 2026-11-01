@@ -18,7 +18,6 @@ use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
 use std::collections::HashMap;
-use std::env::{set_var, vars};
 use std::ffi::{OsStr, OsString};
 use std::fs::{canonicalize, read_to_string};
 use std::path::{is_separator, Component, Path, PathBuf};
@@ -502,46 +501,6 @@ impl EnvironmentValue {
         });
         lookup
     }
-    pub fn get_all() -> Vec<(String, String)> {
-        let pre = EnvironmentValue::formatted_prefix();
-        vars()
-            .filter(|(key, _)| key.starts_with(&pre))
-            .map(|(key, value)| {
-                let key = key.trim_start_matches(&pre).to_string();
-                (key, value)
-            })
-            .collect()
-    }
-    pub fn print_all() {
-        EnvironmentValue::get_all().into_iter().for_each(|(key, value)| {
-            trace!(
-                "=> {} {}{} = {}",
-                Label::using(),
-                EnvironmentValue::formatted_prefix().dimmed(),
-                key,
-                value
-            );
-        });
-    }
-    pub fn set_variable(self, key: String) {
-        let prefixed = EnvironmentValue::prepend_prefix(key);
-        let prefixed_key = OsStr::new(&prefixed);
-        match self {
-            | EnvironmentValue::String(value) => set_var(prefixed_key, value),
-            | EnvironmentValue::Number(value) => set_var(prefixed_key, value.to_string()),
-            | EnvironmentValue::Bool(value) => set_var(prefixed_key, value.to_string()),
-            | EnvironmentValue::Unknown => (),
-        }
-    }
-    pub fn set_variables(values: HashMap<String, String>) {
-        values
-            .into_iter()
-            .for_each(|(key, value)| EnvironmentValue::String(value).set_variable(key));
-    }
-    /// Set values that already use Xylem's `_XYLEM_` namespace.
-    pub fn set_namespaced_variables(values: HashMap<String, String>) {
-        values.into_iter().for_each(|(key, value)| set_var(key, value));
-    }
 }
 impl Module {
     /// Resolve the module's explicitly configured or auto-detected virtual environment.
@@ -674,36 +633,6 @@ impl Script {
     pub fn ensure_relative(mut self) -> Script {
         let path = PathBuf::from(self.command.name);
         self.command.name = add_dot_slash(path).to_string_lossy().into_owned();
-        self
-    }
-    /// Expand environment variables in the script arguments from environment
-    /// ### Example
-    /// ```
-    /// use acorn_cmd::args;
-    /// use xylem_lib::script::*;
-    ///
-    /// // Environment: ANSWER=42
-    /// std::env::set_var("_XYLEM_ANSWER", "42");
-    /// let command = Command::init().name("echo".to_string()).build();
-    /// let arguments = args!["{{ ANSWER }}"];
-    /// let script = Script::init().command(command).arguments(arguments).build().expand_arguments();
-    /// assert_eq!(script.to_string(), "echo 42");
-    /// ```
-    pub fn expand_arguments(mut self) -> Script {
-        let expanded = self
-            .arguments
-            .into_iter()
-            .map(|argument| StringTemplate::new(&argument))
-            .map(|argument| {
-                if StringTemplate::is_handlebars(argument.clone()) {
-                    let vars = EnvironmentValue::get_all();
-                    argument.expand(vars)
-                } else {
-                    argument.value.clone()
-                }
-            })
-            .collect();
-        self.arguments = expanded;
         self
     }
     /// Expand environment variables in the script arguments from a HashMap parameter
@@ -1042,6 +971,9 @@ impl Script {
     }
     /// Execute a script and preserve command failures for the caller.
     pub fn run_checked(&self) -> Result<Vec<String>, ProcessError> {
+        self.run_checked_with_timeout(None)
+    }
+    pub(crate) fn run_checked_with_timeout(&self, timeout: Option<Seconds>) -> Result<Vec<String>, ProcessError> {
         let dispatcher = tracing::dispatcher::get_default(Clone::clone);
         let options = ExecutionOptions::new().with_sink(move |_: OutputStream, bytes: &[u8]| {
             tracing::dispatcher::with_default(&dispatcher, || {
@@ -1052,6 +984,10 @@ impl Script {
             });
             Ok(())
         });
+        let options = match timeout {
+            | Some(timeout) => options.with_timeout(timeout.into()),
+            | None => options,
+        };
         self.execute_checked(&options).map(|result| {
             let stdout = String::from_utf8_lossy(result.stdout().bytes())
                 .lines()

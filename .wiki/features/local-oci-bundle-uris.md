@@ -26,7 +26,7 @@ implementation at `97d5203`.
 - Local OCI layout directories are native script and configuration module
   sources. Paths resolve relative to the declaring configuration, ORAS reads
   the layout, and the `oci-local` example now uses the native URI.
-- Execution-plan v15 permits `oci-layout:` references and run-summary v13
+- Execution-plan v15 permits `oci-layout:` references and run-summary v14
   records the existing digest evidence. Neither schema needs a new version if
   archive handling uses the same source and evidence shape.
 - The checked-in acquisition tests cover a local layout directory and offline
@@ -50,8 +50,8 @@ implementation at `97d5203`.
 # Dependencies and ordering
 
 The configuration/acquisition lock is released after OCI-01. OCI-02 owns the
-acquisition executor and can proceed independently of ENV-08. The archive
-extension does not wait for unrelated platform qualification. Keep the v15/v13
+acquisition executor and can proceed independently of the completed environment work. The archive
+extension does not wait for unrelated platform qualification. Keep the v15/v14
 durable vocabulary unless an observed missing field requires a separately
 coordinated schema phase.
 

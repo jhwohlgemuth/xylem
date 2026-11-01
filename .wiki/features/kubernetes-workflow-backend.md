@@ -57,8 +57,8 @@ The first release does not:
 
 # Current evidence
 
-Rechecked on 2026-10-31 against baseline `ef95f81`, current v15/v13
-schemas, CLI/help surfaces, dependency manifests, and ENV execution call paths.
+Rechecked on 2026-11-01 against baseline `83bc01c`, current v15/v14
+schemas, CLI/help surfaces, dependency manifests, and accepted environment execution paths.
 Kubernetes operator demand, shared storage, cluster access, and image runners
 still need owner-provided evidence before implementation starts.
 
@@ -82,10 +82,10 @@ still need owner-provided evidence before implementation starts.
   acquisition, module commands, local containers, resume, GPU monitoring,
   memory admission, policy, timeout, context identity, and sandbox intent
   without an execution target.
-- Journal/run-summary v13 retains selection, cancellation, sandbox lifecycle,
+- Journal/run-summary v14 retains selection, cancellation, sandbox lifecycle,
   atomic artifacts, memory evidence, and durable dashboard state. Kubernetes
   must allocate new plan and durable-state versions after the environment
-  plan's version allocation, preserving the current v15/v13 baseline instead
+  plan's version allocation, preserving the current v15/v14 baseline instead
   of modifying current artifacts in place.
 - `RunJournal` is append-only, flushed at every transition, and recovered into
   `RunSummary`. It is the correct authoritative worker result once its path is
@@ -1018,7 +1018,7 @@ bounded repair phase instead of expanding a phase below.
 
 - Status: planned
 - Budget: 5 active hours maximum
-- Prerequisites: ENV-09 and K8S-02
+- Prerequisites: K8S-02 and the accepted immutable local run context
 - Exact write set: `crates/xylem-cli/src/commands/run/mod.rs`, `crates/xylem-cli/src/commands/run/preparation.rs`, `crates/xylem-cli/src/commands/run/execution.rs`
 - Primary integration lock: run orchestration
 - Outcome: Local execution accepts an explicit immutable request, injected run identity, workspace, and cancellation handle without changing local behavior.
@@ -1073,7 +1073,7 @@ bounded repair phase instead of expanding a phase below.
 
 - Status: planned
 - Budget: 5 active hours maximum
-- Prerequisites: ENV-08 and K8S-07; environment plan has allocated v15/v14
+- Prerequisites: K8S-07; execution-plan v15 and run-summary v14 are allocated
 - Exact write set: `crates/xylem-lib/src/plan.rs`, `crates/xylem-lib/src/journal/mod.rs`, `crates/xylem-lib/src/run/store.rs`, `crates/xylem-tui/src/lib.rs`, `crates/xylem-cli/src/commands/run/reporting.rs`, `docs/schema/execution-plan-v16.schema.json`, `docs/schema/run-summary-v15.schema.json`
 - Primary integration lock: run state
 - Outcome: Local and Kubernetes artifacts carry target, profile, image, Job, PVC, and Pod evidence without credentials.
@@ -1349,4 +1349,3 @@ and a workflow rooted entirely beneath the shared workspace.
 # Related plans
 
 - [ACORN Xylem runtime prerequisites](https://code.ornl.gov/research-enablement/acorn/-/blob/main/.wiki/refactors/xylem-runtime-prerequisites.md)
-- [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)

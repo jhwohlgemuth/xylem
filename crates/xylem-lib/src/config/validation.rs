@@ -49,7 +49,7 @@ impl Config {
         inputs.iter().enumerate().for_each(|(input_index, input)| {
             self.modules.iter().enumerate().for_each(|(module_index, module)| {
                 let path = format!("inputs[{input_index}].modules[{module_index}].completion");
-                let variables = self.clone().get_environment_variables(Some(module.clone()), input.clone());
+                let variables = self.module_environment(Some(module), input.as_deref());
                 match CompletionPlan::resolve(module, &variables, self.output.as_deref()) {
                     | Ok(Some(completion)) if !markers.insert(completion.marker.clone()) => report.add(
                         format!("{path}.marker"),

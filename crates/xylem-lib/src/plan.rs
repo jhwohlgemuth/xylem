@@ -497,8 +497,7 @@ impl Module {
             );
         }
         let variables = config
-            .clone()
-            .get_environment_variables(Some(self.clone()), input.clone())
+            .module_environment(Some(self), input.as_deref())
             .into_iter()
             .collect::<BTreeMap<_, _>>();
         let hash_variables = variables.iter().map(|(key, value)| (key.clone(), value.clone())).collect();

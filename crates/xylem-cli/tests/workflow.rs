@@ -6,6 +6,7 @@
     clippy::arithmetic_side_effects
 )]
 //! End-to-end command-line workflow tests.
+use acorn_core::time::UnitOfTime;
 use acorn_schema::hardware::Memory;
 use std::fs::copy;
 use std::fs::{create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write};
@@ -665,6 +666,8 @@ fn test_fail_fast_journal_distinguishes_failed_and_not_started_inputs() {
     let report: xylem_lib::journal::RunSummary =
         serde_json::from_slice(&read(report_path).expect("read failure report")).expect("valid failure report");
     assert_eq!(report.status, xylem_lib::journal::RunStatus::Failed);
+    assert_eq!(report.failure_policy, xylem_lib::config::FailurePolicy::FailFast);
+    assert_eq!(report.stop_reason, Some(xylem_lib::journal::RunStopReason::Failure { input_index: 0 }));
     assert_eq!(report.inputs[0].state, xylem_lib::journal::ExecutionState::Failed);
     assert_eq!(report.inputs[1].state, xylem_lib::journal::ExecutionState::NotStarted);
     assert_eq!(report.inputs[2].state, xylem_lib::journal::ExecutionState::NotStarted);
@@ -736,6 +739,8 @@ esac
     );
     let report = native_report(&reports);
     assert_eq!(report.status, xylem_lib::journal::RunStatus::Failed);
+    assert_eq!(report.failure_policy, xylem_lib::config::FailurePolicy::FailFast);
+    assert_eq!(report.stop_reason, Some(xylem_lib::journal::RunStopReason::Failure { input_index: 1 }));
     assert_eq!(
         report.inputs.iter().map(|input| input.state).collect::<Vec<_>>(),
         [
@@ -775,6 +780,7 @@ esac
             "name": "Continue Probe",
             "programmingLanguage": "generic",
             "template": { "arguments": ["run.sh", state], "command": "sh" },
+            "timeout_seconds": 30,
             "type": "script",
             "uri": format!("file:{}", module.display())
         }],
@@ -806,8 +812,70 @@ esac
         report.inputs.iter().map(|input| input.state).collect::<Vec<_>>(),
         [xylem_lib::journal::ExecutionState::Failed, xylem_lib::journal::ExecutionState::Succeeded]
     );
+    assert_eq!(report.failure_policy, xylem_lib::config::FailurePolicy::Continue);
+    assert_eq!(report.workspace, xylem_lib::journal::WorkspaceIdentity::RunLocal);
+    assert_eq!(report.contexts.len(), 2);
+    assert_eq!(report.contexts[0].input_id, "input-000000");
+    assert_eq!(report.contexts[1].input_id, "input-000001");
+    assert_eq!(report.inputs[0].modules[0].timeout, Some(acorn_core::time::Seconds::new(30)));
+    assert_eq!(report.stop_reason, None);
     assert!(state.join("later-ran").exists());
     remove_dir_all(test_root).expect("remove continue policy directory");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_module_timeout_reaches_managed_execution() {
+    let test_root = std::env::temp_dir().join(format!("xylem-module-timeout-{}", std::process::id()));
+    let module = test_root.join("module");
+    let reports = test_root.join("reports");
+    create_dir_all(&module).expect("create timeout module");
+    create_dir_all(&reports).expect("create timeout reports");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "modules": [{
+            "name": "Timeout Probe",
+            "programmingLanguage": "generic",
+            "template": { "arguments": ["-c", "sleep 5"], "command": "sh" },
+            "timeout_seconds": 1,
+            "type": "script",
+            "uri": format!("file:{}", module.display())
+        }],
+        "requirements": ["sh"]
+    });
+    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize timeout config")).expect("write timeout config");
+    let started = std::time::Instant::now();
+    let output = xylem_command()
+        .args([
+            "run",
+            config_path.to_str().expect("UTF-8 config path"),
+            "--report-output",
+            reports.to_str().expect("UTF-8 report path"),
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("run module timeout workflow");
+    assert_eq!(
+        output.status.code(),
+        Some(exitcode::SOFTWARE),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        started.elapsed() < core::time::Duration::from_secs(4),
+        "configured timeout did not bound execution"
+    );
+    let report = native_report(&reports);
+    assert_eq!(report.inputs[0].modules[0].timeout, Some(acorn_core::time::Seconds::new(1)));
+    assert!(
+        report.inputs[0].modules[0]
+            .error
+            .as_deref()
+            .is_some_and(|error| error.to_ascii_lowercase().contains("timed out")),
+        "{:?}",
+        report.inputs[0].modules[0].error
+    );
+    remove_dir_all(test_root).expect("remove timeout directory");
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
@@ -876,6 +944,7 @@ sleep 30
     assert_eq!(output.status.code(), Some(130), "{}", String::from_utf8_lossy(&output.stderr));
     let report = native_report(&reports);
     assert_eq!(report.status, xylem_lib::journal::RunStatus::Cancelled);
+    assert_eq!(report.stop_reason, Some(xylem_lib::journal::RunStopReason::ExternalCancellation));
     assert!(report
         .inputs
         .iter()

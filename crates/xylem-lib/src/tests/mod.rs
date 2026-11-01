@@ -15,7 +15,6 @@ use alloc::sync::Arc;
 use core::time::Duration;
 use pyproject_toml::Project;
 use std::collections::HashMap;
-use std::env::set_var;
 use std::fs::{remove_file, write};
 use std::io::Write;
 use std::path::PathBuf;
@@ -102,8 +101,7 @@ fn test_config_environment_variables_without_input() {
         ]
     }))
     .expect("test config should deserialize");
-    let module = config.modules[0].clone();
-    let variables = config.get_environment_variables(Some(module), None);
+    let variables = config.module_environment(config.modules.first(), None);
 
     assert_eq!(variables.get("_XYLEM_GREETING"), Some(&"Goodbye".to_string()));
     assert_eq!(variables.get("_XYLEM_MESSAGE"), Some(&"Goodbye, workflow!".to_string()));
@@ -314,57 +312,6 @@ fn test_script_ensure_relative() {
     assert_eq!(script.clone().ensure_relative().command.name, expected);
     // Should not add ./ to command name if already relative
     assert_eq!(script.ensure_relative().ensure_relative().command.name, expected);
-}
-#[test]
-fn test_script_expand_arguments() {
-    set_var("_XYLEM_INPUT_DIRECTORY", "/path/to/input");
-    set_var("_XYLEM_OUTPUT_DIRECTORY", "/path/to/output");
-    set_var("_XYLEM_FOO", "one!");
-    set_var("_XYLEM_BAR", "two!");
-    set_var("_XYLEM_BAZ", "three!");
-    let command = Command::init().name("python".to_string()).build();
-    let arguments = to_string(vec![
-        "-m",
-        "lib",
-        "--input",
-        "{{ INPUT_DIRECTORY }}",
-        "--output",
-        "{{ OUTPUT_DIRECTORY }}",
-    ]);
-    let script = Script::init().command(command).arguments(arguments).build();
-    assert_eq!(
-        script.clone().expand_arguments().arguments,
-        vec!["-m", "lib", "--input", "/path/to/input", "--output", "/path/to/output"]
-    );
-    let environment = VirtualEnvironment::init()
-        .name("foo".to_string())
-        .manager(VirtualEnvironmentManager::Conda)
-        .build();
-    assert_eq!(
-        script
-            .clone()
-            .expand_arguments()
-            .with_virtual_environment(Some(environment.clone()))
-            .to_string(),
-        format!("conda run --name {environment} --no-capture-output python -m lib --input /path/to/input --output /path/to/output")
-    );
-    assert_eq!(
-        script.clone().expand_arguments().with_virtual_environment(None).to_string(),
-        "python -m lib --input /path/to/input --output /path/to/output"
-    );
-    let command = Command::init().name("echo".to_string()).build();
-    let arguments = to_string(vec![
-        "{{ FOO }}",
-        "{{ BAR }} and",
-        "{{ BAZ }}",
-        "{{ FOO }} {{ BAR }} {{ BAZ }}",
-        "{{FOO}}/{{BAZ}}",
-    ]);
-    let script = Script::init().command(command).arguments(arguments).build();
-    assert_eq!(
-        script.clone().expand_arguments().with_virtual_environment(None).to_string(),
-        "echo one! two! and three! one! two! three! one!/three!"
-    );
 }
 #[test]
 fn test_script_expand_arguments_from() {

@@ -7,7 +7,8 @@
 )]
 use super::*;
 use crate::acquisition::{AcquisitionCacheStatus, AcquisitionIdentity, AcquisitionLimits, AcquisitionPolicyEvidence};
-use acorn_core::time::UnitOfTime;
+use crate::config::FailurePolicy;
+use acorn_core::time::{Seconds, UnitOfTime};
 use acorn_schema::validation::Validate;
 use alloc::sync::Arc;
 use std::fs::{create_dir_all, read, read_to_string, remove_dir, remove_file};
@@ -69,6 +70,7 @@ fn metadata(run_id: &str) -> RunMetadata {
     RunMetadata {
         artifacts: None,
         configuration_acquisitions: Vec::new(),
+        contexts: Vec::new(),
         run_id: run_id.to_string(),
         configuration: ConfigurationIdentity {
             path: "config.json".to_string(),
@@ -76,9 +78,11 @@ fn metadata(run_id: &str) -> RunMetadata {
             version: Some("1.0.0".to_string()),
         },
         dry_run: false,
+        failure_policy: FailurePolicy::default(),
         memory: None,
         sandbox: SandboxEvidence::off(),
         started_at: Milliseconds::new(1),
+        workspace: WorkspaceIdentity::RunLocal,
     }
 }
 fn module() -> JournalModule {
@@ -338,6 +342,7 @@ fn test_json_report_is_atomic_and_refuses_overwrite() {
     let summary = RunSummary {
         artifacts: None,
         configuration_acquisitions: Vec::new(),
+        contexts: Vec::new(),
         schema_version: JOURNAL_SCHEMA_VERSION,
         containers: Vec::new(),
         run_id: "atomic-report".to_string(),
@@ -347,15 +352,18 @@ fn test_json_report_is_atomic_and_refuses_overwrite() {
             version: None,
         },
         dry_run: false,
+        failure_policy: FailurePolicy::default(),
         sandbox: SandboxEvidence::off(),
         started_at: Milliseconds::new(1),
         finished_at: Some(Milliseconds::new(2)),
         duration: Some(Milliseconds::new(1)),
         status: RunStatus::Succeeded,
+        stop_reason: None,
         error: None,
         gpu_monitoring: None,
         inputs: Vec::new(),
         memory: None,
+        workspace: WorkspaceIdentity::RunLocal,
     };
     let path = summary.write_json_atomic(&directory).expect("write JSON report");
     let bytes = read(&path).expect("read report");
@@ -445,6 +453,27 @@ fn test_metadata_and_journal_inputs_are_validated_before_use() {
     duplicate.input_id.clone_from(&first.input_id);
     assert!(RunJournal::create(path.clone(), metadata("run-validation"), vec![first, duplicate], Vec::new()).is_err());
     assert!(!path.exists());
+
+    let input = JournalInput::new(0, None);
+    let mut context = WorkflowContextEvidence::new(&input);
+    context.input_id = "wrong-input".to_string();
+    assert!(RunJournal::create(
+        path.clone(),
+        metadata("run-context-validation").with_contexts(vec![context]),
+        vec![input],
+        Vec::new(),
+    )
+    .is_err());
+    assert!(!path.exists());
+
+    assert!(RunJournal::create(
+        path.clone(),
+        metadata("run-timeout-validation"),
+        Vec::new(),
+        vec![module().with_timeout(Seconds::new(0))],
+    )
+    .is_err());
+    assert!(!path.exists());
 }
 #[test]
 fn test_missing_finalization_is_interrupted_and_truncated_tail_is_ignored() {
@@ -507,6 +536,41 @@ fn test_module_acquisition_is_exactly_once_before_execution_and_recovered() {
     journal.finish(FinalStatus::Succeeded, None).expect("finish run");
     let summary = RunJournal::read(&path).expect("recover acquisition evidence");
     assert_eq!(summary.inputs[0].modules[0].acquisition.as_ref(), Some(&evidence));
+    remove_file(path).expect("remove journal");
+}
+#[test]
+fn test_policy_context_timeout_and_stop_reason_round_trip() {
+    let path = path("runtime-contract");
+    let input = JournalInput::new(0, Some("failure".to_string()));
+    let metadata = metadata("run-runtime-contract").with_contexts(vec![WorkflowContextEvidence::new(&input)]);
+    let module = module().with_timeout(Seconds::new(5));
+    let journal = RunJournal::create(path.clone(), metadata, vec![input], vec![module]).expect("create runtime contract journal");
+    journal.transition_input(0, ExecutionState::Running, None).expect("start input");
+    journal.transition_module(0, 0, ExecutionState::Running, None).expect("start module");
+    journal
+        .transition_module(0, 0, ExecutionState::Failed, Some("failed"))
+        .expect("fail module");
+    journal.transition_input(0, ExecutionState::Failed, Some("failed")).expect("fail input");
+    assert!(journal
+        .finish_with_reason(FinalStatus::Failed, Some("failed"), Some(RunStopReason::Failure { input_index: 1 }),)
+        .is_err());
+    journal
+        .finish_with_reason(FinalStatus::Failed, Some("failed"), Some(RunStopReason::Failure { input_index: 0 }))
+        .expect("finish run with failure reason");
+    let summary = RunJournal::read(&path).expect("recover runtime contract");
+    assert_eq!(summary.schema_version, 14);
+    assert_eq!(summary.failure_policy, FailurePolicy::FailFast);
+    assert_eq!(summary.workspace, WorkspaceIdentity::RunLocal);
+    assert_eq!(
+        summary.contexts,
+        vec![WorkflowContextEvidence::new(&JournalInput::new(0, Some("failure".to_string())))]
+    );
+    assert_eq!(summary.inputs[0].modules[0].timeout, Some(Seconds::new(5)));
+    assert_eq!(summary.stop_reason, Some(RunStopReason::Failure { input_index: 0 }));
+    let mut output = Vec::new();
+    summary.render_console_to(&mut output, &path, false).expect("render runtime contract");
+    let output = String::from_utf8(output).expect("runtime contract report should be UTF-8");
+    assert!(output.contains("Policy: fail_fast; stop reason: failure at input 0"), "{output}");
     remove_file(path).expect("remove journal");
 }
 #[test]

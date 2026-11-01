@@ -1008,6 +1008,8 @@ fn render_workflow(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>, s
             scroll,
         ),
         | Some(Ok(summary)) => {
+            let failure_policy = summary.failure_policy;
+            let stop_reason = summary.stop_reason.as_ref().map_or_else(|| "none".to_string(), ToString::to_string);
             let counts = WorkflowCounts::from(&summary);
             let total = counts.terminal().saturating_add(counts.running).saturating_add(counts.waiting);
             let ratio = match total {
@@ -1020,7 +1022,7 @@ fn render_workflow(frame: &mut Frame<'_>, area: Rect, run: Option<&StoredRun>, s
                 .split(area);
             frame.render_widget(
                 Gauge::default()
-                    .block(panel("Workflow completion"))
+                    .block(panel(format!("Workflow completion · {failure_policy} · {stop_reason}")))
                     .ratio(ratio)
                     .label(Span::styled(
                         format!("{} / {total} steps terminal", counts.terminal()),

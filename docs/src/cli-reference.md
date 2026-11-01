@@ -73,10 +73,13 @@ after success or failure. `--retain-workspace` transfers cleanup responsibility
 to the operator and prints the retained path; canonical journals and summaries
 remain outside that tree.
 
-The version 12 JSON summary includes the run and configuration identities,
+The version 14 JSON summary includes the run and configuration identities,
 timestamps and duration, dry-run flag, final status, and ordered input/module
 states, verified configuration and module acquisition provenance, plus explicit
 `sandbox` evidence (`mode: off` for compatibility runs).
+It also records the effective failure policy, stable input-context and
+run-local workspace identities, configured module timeouts, and the reason a
+run stopped admitting work.
 Required sandbox runs include the effective retention and stale-resource
 policy, exactly-once terminal resource outcomes, and any expired resources
 reconciled before the session opened. Retained resource identifiers remain in
@@ -94,7 +97,9 @@ selected reporters run.
 
 When `--failure-policy` is omitted, `options.failure_policy` remains effective;
 when both are omitted, it resolves to `fail-fast`. The CLI accepts and previews
-`continue`, while the later scheduler phase owns its runtime admission behavior.
+`continue`, which keeps admitting eligible inputs after failures. Fail-fast
+stops new admission after the first failure and cancels active siblings while
+preserving the triggering failure.
 
 Exit codes are selected at the CLI boundary. Unsupported command usage maps to
 usage errors, malformed or semantically invalid configurations to data errors,

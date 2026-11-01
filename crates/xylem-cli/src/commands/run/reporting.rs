@@ -5,7 +5,7 @@ use std::fs::{copy, create_dir_all};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use xylem_lib::execution::{DispatchOutcome, DispatchReport, DispatchStopReason};
-use xylem_lib::journal::{FinalStatus, RunJournal};
+use xylem_lib::journal::{FinalStatus, RunJournal, RunStopReason};
 use xylem_lib::outcome::WorkflowOutcome;
 use xylem_lib::plan::ExecutionPlan;
 use xylem_lib::run::store::Bundle;
@@ -21,20 +21,33 @@ pub(super) struct ReportContext<'a> {
     pub(super) report_output: &'a Option<PathBuf>,
     pub(super) reporters: &'a [ReporterType],
 }
+trait WorkflowDispatchReport {
+    fn failure(&self) -> Option<RunFailure>;
+    fn is_cancelled(&self) -> bool;
+}
 pub(super) fn finalize(context: ReportContext<'_>, dispatched: Result<DispatchReport<WorkflowOutcome>, RunFailure>) -> Result<(), RunFailure> {
     let mut primary_failure = match &dispatched {
-        | Ok(report) => report_failure(report),
+        | Ok(report) => report.failure(),
         | Err(why) => Some(RunFailure::new(why.exit_code(), why.to_string())),
     };
     context.progress.finish_execution(primary_failure.is_none());
-    let cancelled = dispatched.as_ref().is_ok_and(report_cancelled);
+    let cancelled = dispatched.as_ref().is_ok_and(|report| report.is_cancelled());
     let final_status = match (cancelled, primary_failure.as_ref()) {
         | (true, _) => FinalStatus::Cancelled,
         | (false, Some(failure)) => FinalStatus::from(failure),
         | (false, None) => FinalStatus::Succeeded,
     };
     let final_error = primary_failure.as_ref().map(ToString::to_string);
-    if let Err(why) = context.journal.finish(final_status, final_error.as_deref()) {
+    let stop_reason = dispatched
+        .as_ref()
+        .ok()
+        .and_then(DispatchReport::stop_reason)
+        .and_then(|reason| match reason {
+            | DispatchStopReason::ExternalCancellation => Some(RunStopReason::ExternalCancellation),
+            | DispatchStopReason::Failure { input_index } => Some(RunStopReason::Failure { input_index }),
+            | _ => None,
+        });
+    if let Err(why) = context.journal.finish_with_reason(final_status, final_error.as_deref(), stop_reason) {
         primary_failure = Some(match primary_failure {
             | Some(failure) => failure.with_secondary(format!("finalize execution journal — {why}")),
             | None => RunFailure::new(exitcode::IOERR, format!("finalize execution journal — {why}")),
@@ -91,39 +104,41 @@ pub(super) fn finalize(context: ReportContext<'_>, dispatched: Result<DispatchRe
         | None => Ok(()),
     }
 }
-fn report_cancelled(report: &DispatchReport<WorkflowOutcome>) -> bool {
-    match report.stop_reason() {
-        | Some(reason) => matches!(reason, DispatchStopReason::ExternalCancellation),
-        | None => report.outcomes().iter().any(|outcome| matches!(outcome, DispatchOutcome::Cancelled(_))),
-    }
-}
-fn report_failure(report: &DispatchReport<WorkflowOutcome>) -> Option<RunFailure> {
-    match report.stop_reason() {
-        | Some(DispatchStopReason::ExternalCancellation) => Some(RunFailure::new(CANCELLED_EXIT_CODE, "workflow cancellation requested")),
-        | Some(DispatchStopReason::Failure { input_index }) => report.outcomes().get(input_index).and_then(DispatchOutcome::output).map_or_else(
-            || Some(RunFailure::new(exitcode::SOFTWARE, format!("workflow input {input_index} failed"))),
-            |outcome| {
-                Some(RunFailure::new(
+impl WorkflowDispatchReport for DispatchReport<WorkflowOutcome> {
+    fn failure(&self) -> Option<RunFailure> {
+        match self.stop_reason() {
+            | Some(DispatchStopReason::ExternalCancellation) => Some(RunFailure::new(CANCELLED_EXIT_CODE, "workflow cancellation requested")),
+            | Some(DispatchStopReason::Failure { input_index }) => self.outcomes().get(input_index).and_then(DispatchOutcome::output).map_or_else(
+                || Some(RunFailure::new(exitcode::SOFTWARE, format!("workflow input {input_index} failed"))),
+                |outcome| {
+                    Some(RunFailure::new(
+                        exitcode::SOFTWARE,
+                        outcome.error.clone().unwrap_or_else(|| "workflow input failed".to_string()),
+                    ))
+                },
+            ),
+            | None => self.outcomes().iter().find_map(|outcome| match outcome {
+                | DispatchOutcome::Cancelled(output) => Some(RunFailure::new(
+                    CANCELLED_EXIT_CODE,
+                    output
+                        .as_ref()
+                        .and_then(|outcome| outcome.error.clone())
+                        .unwrap_or_else(|| "workflow cancellation requested".to_string()),
+                )),
+                | DispatchOutcome::Failed(outcome) => Some(RunFailure::new(
                     exitcode::SOFTWARE,
                     outcome.error.clone().unwrap_or_else(|| "workflow input failed".to_string()),
-                ))
-            },
-        ),
-        | None => report.outcomes().iter().find_map(|outcome| match outcome {
-            | DispatchOutcome::Cancelled(output) => Some(RunFailure::new(
-                CANCELLED_EXIT_CODE,
-                output
-                    .as_ref()
-                    .and_then(|outcome| outcome.error.clone())
-                    .unwrap_or_else(|| "workflow cancellation requested".to_string()),
-            )),
-            | DispatchOutcome::Failed(outcome) => Some(RunFailure::new(
-                exitcode::SOFTWARE,
-                outcome.error.clone().unwrap_or_else(|| "workflow input failed".to_string()),
-            )),
-            | _ => None,
-        }),
-        | Some(_) => Some(RunFailure::new(exitcode::SOFTWARE, "workflow input dispatch stopped")),
+                )),
+                | _ => None,
+            }),
+            | Some(_) => Some(RunFailure::new(exitcode::SOFTWARE, "workflow input dispatch stopped")),
+        }
+    }
+    fn is_cancelled(&self) -> bool {
+        match self.stop_reason() {
+            | Some(reason) => matches!(reason, DispatchStopReason::ExternalCancellation),
+            | None => self.outcomes().iter().any(|outcome| matches!(outcome, DispatchOutcome::Cancelled(_))),
+        }
     }
 }
 pub(super) fn render_dry_run(plan: &ExecutionPlan, reporters: &[ReporterType], report_output: &Option<PathBuf>) -> Result<(), RunFailure> {

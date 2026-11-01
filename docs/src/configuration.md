@@ -407,7 +407,10 @@ supplies reserved values such as `MODULE_LIST`, `INPUT`, and
 `PARENT_DIRECTORY`. Placeholders use `{{ VARIABLE_NAME }}` syntax.
 
 Resolved values are passed to child processes with an `_XYLEM_` prefix. For
-example, `GREETING` is available as `_XYLEM_GREETING`.
+example, `GREETING` is available as `_XYLEM_GREETING`. Resolution is local to
+each input and module command: Xylem does not write resolved values into its
+own process environment, so concurrently active inputs cannot overwrite one
+another's variables.
 
 ## Options
 
@@ -420,15 +423,16 @@ configured values.
 
 `failure_policy` accepts `fail_fast` or `continue` and defaults to `fail_fast`.
 Fail-fast stops admitting new inputs after a failure while allowing work that is
-already active to settle. Continue policy is configuration intent until the
-corresponding scheduler phase lands; it does not make module order within one
-input concurrent.
+already active to settle. Continue keeps admitting independent inputs after a
+failure. Either policy preserves configured result order and sequential module
+order within each input.
 
 Executable `script` and `binary` modules may declare a positive
 `timeout_seconds`. Omission applies no module timeout. Configuration modules do
-not execute and reject this field. Xylem currently validates and preserves the
-value; the remaining environment execution work will apply it to module
-processes, excluding source acquisition and environment preparation.
+not execute and reject this field. The timeout bounds the managed module
+process and its descendants; it excludes source acquisition and environment
+preparation. Under a sandbox policy, the shorter of the module timeout and the
+sandbox wall-time limit applies.
 
 Checksum verification can only be disabled by the operator-only
 `--skip-verify-checksum` flag. This emergency path applies to remote binaries,

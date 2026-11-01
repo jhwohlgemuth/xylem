@@ -30,7 +30,7 @@ struct RecordingProgress {
     updates: Mutex<Vec<ProgressUpdate>>,
 }
 impl ModuleExecutor for CancelledExecutor {
-    fn execute(&self, script: &Script, _input_index: usize, _module_index: usize) -> Result<(), ProcessError> {
+    fn execute(&self, script: &Script, _input_index: usize, _module_index: usize, _timeout: Option<Seconds>) -> Result<(), ProcessError> {
         Err(ProcessError::Spawn {
             script: script.to_string(),
             working_directory: PathBuf::from(&script.current_dir),
@@ -900,10 +900,20 @@ fn test_context_variables_apply_precedence_and_derived_values() {
     assert_eq!(variables["PARENT_DIRECTORY"], "repeat.tif");
     assert_eq!(variables["RUN_ID"], "run-id");
     assert_eq!(variables["WORK_DIRECTORY"], workflow.workspace().root().display().to_string());
-    let environment = workflow
-        .command_environment(&config, config.modules.first().expect("module"))
-        .expect("command environment");
+    let repeated = context
+        .workflow_context(1, Some("/data/other.tif".to_string()))
+        .expect("second input context");
+    let [environment, repeated_environment] = thread::scope(|scope| {
+        let first = scope.spawn(|| workflow.command_environment(&config, config.modules.first().expect("module")));
+        let second = scope.spawn(|| repeated.command_environment(&config, config.modules.first().expect("module")));
+        [
+            first.join().expect("first context thread").expect("first command environment"),
+            second.join().expect("second context thread").expect("second command environment"),
+        ]
+    });
     assert_eq!(environment["_XYLEM_COMPOSED"], "workflow:module:run-id");
+    assert_eq!(environment["_XYLEM_INPUT"], "/data/repeat.tif");
+    assert_eq!(repeated_environment["_XYLEM_INPUT"], "/data/other.tif");
     assert!(!environment.contains_key("COMPOSED"));
     assert_eq!(context.batch().map(InputBatch::get), Some(2));
     assert_eq!(context.failure_policy(), FailurePolicy::Continue);
@@ -915,7 +925,7 @@ fn test_context_variables_apply_precedence_and_derived_values() {
         context.bind_journal_path(root.join("second.jsonl")),
         Err(ContextError::JournalAlreadyBound)
     ));
-    drop(workflow);
+    drop((repeated, workflow));
     let retained = context.retain();
     remove_dir_all(retained).expect("remove retained context workspace");
 }
@@ -1055,6 +1065,8 @@ fn test_failure_policy_and_module_timeout_round_trip_across_formats() {
 }
 #[test]
 fn test_failure_policy_defaults_and_unknown_values() {
+    assert_eq!(FailurePolicy::Continue.to_string(), "continue");
+    assert_eq!(FailurePolicy::FailFast.to_string(), "fail_fast");
     let config: Config = serde_json::from_value(serde_json::json!({
         "requirements": [],
         "modules": [{"name": "probe", "type": "binary", "uri": "file:./probe"}],

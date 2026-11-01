@@ -2,6 +2,7 @@
 extern crate alloc;
 
 use crate::acquisition::AcquisitionEvidence;
+use crate::config::FailurePolicy;
 use crate::memory::{MemoryEstimator, PlannedMemoryFallback};
 use crate::plan::{MemoryPlanMode, PlannedMemory};
 use crate::sandbox::{
@@ -10,7 +11,7 @@ use crate::sandbox::{
 };
 use crate::util::timestamp;
 use crate::ReporterType;
-use acorn_core::time::{Milliseconds, UnitOfTime};
+use acorn_core::time::{Milliseconds, Seconds, UnitOfTime};
 use acorn_core::validation::ValidationError;
 use acorn_macros::With;
 use acorn_schema::hardware::Memory;
@@ -28,7 +29,7 @@ use std::sync::Mutex;
 use strum::EnumIs;
 
 /// Current on-disk journal schema version.
-pub const JOURNAL_SCHEMA_VERSION: u32 = 13;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 14;
 /// Maximum number of UTF-8 bytes retained for one journal error detail.
 pub const MAX_ERROR_BYTES: usize = 4096;
 trait Summary {
@@ -181,11 +182,16 @@ pub enum JournalEvent {
         module_index: usize,
         module: String,
         module_path: Vec<String>,
+        timeout: Option<Seconds>,
         state: ExecutionState,
         error: Option<String>,
     },
     /// Marks a normal run finalization.
-    RunFinished { status: FinalStatus, error: Option<String> },
+    RunFinished {
+        status: FinalStatus,
+        error: Option<String>,
+        stop_reason: Option<RunStopReason>,
+    },
 }
 /// Memory scheduling behavior recorded for a run.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -231,6 +237,24 @@ pub enum RunStatus {
     /// The journal has no finalization record.
     Interrupted,
 }
+/// Durable reason input admission stopped before every input completed.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RunStopReason {
+    /// The caller requested cancellation.
+    ExternalCancellation,
+    /// Fail-fast policy stopped admission after one input failed.
+    Failure { input_index: usize },
+}
+/// Stable workspace allocation identity without a disposable filesystem path.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceIdentity {
+    /// Every input owns a distinct workspace.
+    InputLocal,
+    /// The run owns one disposable workspace root.
+    RunLocal,
+}
 /// Stable configuration identity recorded at run start.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -241,6 +265,16 @@ pub struct ConfigurationIdentity {
     pub id: Option<String>,
     /// Optional workflow version declared by the configuration.
     pub version: Option<String>,
+}
+/// Stable identity for one input-local workflow context.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct WorkflowContextEvidence {
+    /// Deterministic zero-based input position.
+    pub input_index: usize,
+    /// Stable input identity within the run.
+    pub input_id: String,
+    /// Workspace allocation policy.
+    pub workspace: WorkspaceIdentity,
 }
 /// Latest reconstructed lifecycle state for one container.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -388,6 +422,8 @@ pub struct JournalModule {
     pub name: String,
     /// Stable ancestry from the root workflow to the executable leaf.
     pub module_path: Vec<String>,
+    /// Configured execution timeout, when present.
+    pub timeout: Option<Seconds>,
 }
 /// One versioned line in a journal file.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -408,6 +444,7 @@ pub struct JournalRecord {
 struct JournalSink {
     artifact_expected: bool,
     artifact_status: Option<ArtifactPublicationStatus>,
+    failure_policy: FailurePolicy,
     writer: BufWriter<File>,
     next_sequence: u64,
     input_observations: Vec<bool>,
@@ -456,6 +493,8 @@ pub struct ModuleSummary {
     pub name: String,
     /// Stable ancestry from the root workflow to the executable leaf.
     pub module_path: Vec<String>,
+    /// Configured execution timeout, when present.
+    pub timeout: Option<Seconds>,
     /// Latest durable state.
     pub state: ExecutionState,
     /// Bounded failure detail, when present.
@@ -503,8 +542,12 @@ pub struct RunMetadata {
     pub configuration: ConfigurationIdentity,
     /// Verified remote configuration wrappers loaded before the journal opened.
     pub configuration_acquisitions: Vec<AcquisitionEvidence>,
+    /// Ordered immutable input contexts.
+    pub contexts: Vec<WorkflowContextEvidence>,
     /// Whether this is a side-effect-free dry run.
     pub dry_run: bool,
+    /// Effective workflow failure policy.
+    pub failure_policy: FailurePolicy,
     /// Portable memory admission evidence, when configured.
     #[with(some)]
     pub memory: Option<RunMemoryEvidence>,
@@ -512,6 +555,8 @@ pub struct RunMetadata {
     pub sandbox: SandboxEvidence,
     /// Unix timestamp in milliseconds.
     pub started_at: Milliseconds,
+    /// Run workspace allocation policy.
+    pub workspace: WorkspaceIdentity,
 }
 /// Deterministic summary reconstructed from durable journal records.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -526,8 +571,12 @@ pub struct RunSummary {
     pub configuration: ConfigurationIdentity,
     /// Verified remote configuration wrappers used to build the workflow.
     pub configuration_acquisitions: Vec<AcquisitionEvidence>,
+    /// Ordered immutable input contexts.
+    pub contexts: Vec<WorkflowContextEvidence>,
     /// Whether this was a dry run.
     pub dry_run: bool,
+    /// Effective workflow failure policy.
+    pub failure_policy: FailurePolicy,
     /// Effective sandbox mode and non-secret policy identity.
     pub sandbox: SandboxEvidence,
     /// Run start timestamp.
@@ -538,6 +587,8 @@ pub struct RunSummary {
     pub duration: Option<Milliseconds>,
     /// Overall recovered status.
     pub status: RunStatus,
+    /// Durable reason admission stopped early, when applicable.
+    pub stop_reason: Option<RunStopReason>,
     /// Final bounded run error, when present.
     pub error: Option<String>,
     /// Run-wide NVIDIA GPU telemetry, when requested.
@@ -548,6 +599,8 @@ pub struct RunSummary {
     pub inputs: Vec<InputSummary>,
     /// Portable memory admission evidence and optional observed peaks.
     pub memory: Option<RunMemoryEvidence>,
+    /// Run workspace allocation policy.
+    pub workspace: WorkspaceIdentity,
 }
 /// Non-secret sandbox evidence recorded for every run.
 #[skip_serializing_none]
@@ -828,10 +881,30 @@ impl JournalInput {
         }
     }
 }
+impl WorkflowContextEvidence {
+    /// Derive stable context evidence from one declared journal input.
+    pub fn new(input: &JournalInput) -> Self {
+        Self {
+            input_index: input.index,
+            input_id: input.input_id.clone(),
+            workspace: WorkspaceIdentity::InputLocal,
+        }
+    }
+}
 impl JournalModule {
     /// Create a stable module identity from its ordered position, display name, and ancestry.
     pub fn new(index: usize, name: String, module_path: Vec<String>) -> Self {
-        Self { index, name, module_path }
+        Self {
+            index,
+            name,
+            module_path,
+            timeout: None,
+        }
+    }
+    /// Attach a configured execution timeout.
+    pub fn with_timeout(mut self, timeout: Seconds) -> Self {
+        self.timeout = Some(timeout);
+        self
     }
 }
 impl JournalSink {
@@ -997,14 +1070,20 @@ impl RunJournal {
         modules: Vec<JournalModule>,
         containers: Vec<JournalContainer>,
     ) -> Result<Self, JournalError> {
+        let metadata = match metadata.contexts.is_empty() {
+            | true => metadata.with_contexts(inputs.iter().map(WorkflowContextEvidence::new).collect::<Vec<_>>()),
+            | false => metadata,
+        };
         metadata
             .validate()
             .map_err(JournalError::from)
+            .and_then(|()| validate_contexts(&metadata.contexts, &inputs))
             .and_then(|()| path.parent().map_or(Ok(()), create_dir_all).map_err(JournalError::from))
             .and_then(|()| OpenOptions::new().write(true).create_new(true).open(&path).map_err(JournalError::from))
             .and_then(|file| {
                 let module_states = inputs.iter().map(|_| vec![ExecutionState::NotStarted; modules.len()]).collect::<Vec<_>>();
                 let artifact_expected = metadata.artifacts.is_some();
+                let failure_policy = metadata.failure_policy;
                 let sandbox_expected = metadata.sandbox.lifecycle.is_some();
                 let memory = metadata.memory.clone();
                 let journal = Self {
@@ -1017,6 +1096,7 @@ impl RunJournal {
                     sink: Mutex::new(JournalSink {
                         artifact_expected,
                         artifact_status: None,
+                        failure_policy,
                         writer: BufWriter::new(file),
                         next_sequence: 0,
                         input_observations: vec![false; inputs.len()],
@@ -1061,6 +1141,7 @@ impl RunJournal {
                                                 module_index: module.index,
                                                 module: module.name.clone(),
                                                 module_path: module.module_path.clone(),
+                                                timeout: module.timeout,
                                                 state: ExecutionState::NotStarted,
                                                 error: None,
                                             })
@@ -1341,6 +1422,7 @@ impl RunJournal {
                                     module_index,
                                     module: module.name.clone(),
                                     module_path: module.module_path.clone(),
+                                    timeout: module.timeout,
                                     state,
                                     error: error.map(bounded_error),
                                 },
@@ -1352,6 +1434,14 @@ impl RunJournal {
     }
     /// Durably finalize the run.
     pub fn finish(&self, status: FinalStatus, error: Option<&str>) -> Result<(), JournalError> {
+        let stop_reason = match status {
+            | FinalStatus::Cancelled => Some(RunStopReason::ExternalCancellation),
+            | FinalStatus::Failed | FinalStatus::Succeeded => None,
+        };
+        self.finish_with_reason(status, error, stop_reason)
+    }
+    /// Durably finalize the run with the scheduler's terminal admission reason.
+    pub fn finish_with_reason(&self, status: FinalStatus, error: Option<&str>, stop_reason: Option<RunStopReason>) -> Result<(), JournalError> {
         self.sink.lock().map_err(|_| JournalError::Poisoned).and_then(|mut sink| {
             match (
                 sink.finalized,
@@ -1381,15 +1471,19 @@ impl RunJournal {
                 | (false, false, false, _, _, true, false) => Err(JournalError::Invalid(
                     "run cannot finalize before sandbox lifecycle finalization".to_string(),
                 )),
-                | (false, false, false, _, _, _, _) => sink
-                    .append_locked(
-                        &self.run_id,
-                        JournalEvent::RunFinished {
-                            status,
-                            error: error.map(bounded_error),
-                        },
-                    )
-                    .map(|()| sink.finalized = true),
+                | (false, false, false, _, _, _, _) => {
+                    validate_stop_reason(status, stop_reason, sink.failure_policy, &sink.input_states).and_then(|()| {
+                        sink.append_locked(
+                            &self.run_id,
+                            JournalEvent::RunFinished {
+                                status,
+                                error: error.map(bounded_error),
+                                stop_reason,
+                            },
+                        )
+                        .map(|()| sink.finalized = true)
+                    })
+                }
             }
         })
     }
@@ -1509,6 +1603,12 @@ impl Validate for RunJournal {
                     report.add(
                         format!("modules[{expected_index}].module_path"),
                         ValidationError::new("nonempty").with_message("Module name and ancestry cannot be empty"),
+                    );
+                }
+                if module.timeout.is_some_and(|timeout| timeout.is_zero()) {
+                    report.add(
+                        format!("modules[{expected_index}].timeout"),
+                        ValidationError::new("positive").with_message("Module timeout must be greater than zero"),
                     );
                 }
                 report
@@ -1695,10 +1795,13 @@ impl RunMetadata {
             run_id,
             configuration,
             configuration_acquisitions: Vec::new(),
+            contexts: Vec::new(),
             dry_run,
+            failure_policy: FailurePolicy::default(),
             memory: None,
             sandbox,
             started_at: timestamp(),
+            workspace: WorkspaceIdentity::RunLocal,
         }
     }
 }
@@ -1708,6 +1811,33 @@ impl Validate for RunMetadata {
         if self.run_id.is_empty() {
             report.add("run_id", ValidationError::new("nonempty").with_message("Run ID cannot be empty"));
         }
+        if self.workspace != WorkspaceIdentity::RunLocal {
+            report.add(
+                "workspace",
+                ValidationError::new("run_local").with_message("run workspace identity must be run_local"),
+            );
+        }
+        report = self.contexts.iter().enumerate().fold(report, |mut report, (expected_index, context)| {
+            if context.input_index != expected_index {
+                report.add(
+                    format!("contexts[{expected_index}].input_index"),
+                    ValidationError::new("sequence").with_message(format!("expected context index {expected_index}, found {}", context.input_index)),
+                );
+            }
+            if context.input_id.is_empty() {
+                report.add(
+                    format!("contexts[{expected_index}].input_id"),
+                    ValidationError::new("nonempty").with_message("context input ID cannot be empty"),
+                );
+            }
+            if context.workspace != WorkspaceIdentity::InputLocal {
+                report.add(
+                    format!("contexts[{expected_index}].workspace"),
+                    ValidationError::new("input_local").with_message("input context workspace identity must be input_local"),
+                );
+            }
+            report
+        });
         if self.artifacts.as_ref().is_some_and(|artifacts| !artifacts.status.is_pending()) {
             report.add(
                 "artifacts",
@@ -1767,6 +1897,14 @@ impl RunStatus {
             | Self::Failed => Style::new().red().bold(),
             | Self::Interrupted => Style::new().yellow().bold(),
             | Self::Succeeded => Style::new().green().bold(),
+        }
+    }
+}
+impl fmt::Display for RunStopReason {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            | Self::ExternalCancellation => formatter.write_str("external cancellation"),
+            | Self::Failure { input_index } => write!(formatter, "failure at input {input_index}"),
         }
     }
 }
@@ -1851,7 +1989,10 @@ impl RunSummary {
         let skipped = console_text(format!("{skipped} skipped"), Style::new().dimmed(), color);
         let skipped_existing = console_text(format!("{skipped_existing} skipped existing"), Style::new().dimmed(), color);
         let unfinished = console_text(format!("{unfinished} unfinished"), Style::new().cyan(), color);
+        let failure_policy = self.failure_policy;
+        let stop_reason = self.stop_reason.map_or_else(|| "none".to_string(), |reason| reason.to_string());
         writeln!(output, "Run {run_id}: {run_status}")
+            .and_then(|()| writeln!(output, "Policy: {failure_policy}; stop reason: {stop_reason}"))
             .and_then(|()| {
                 writeln!(
                     output,
@@ -2245,6 +2386,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                             module_index,
                             module,
                             module_path,
+                            timeout,
                             state,
                             error,
                         } => inputs
@@ -2256,7 +2398,11 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                     let initialized_modules = input.modules.len();
                                     match input.modules.get_mut(module_index) {
                                         | Some(summary) => {
-                                            match summary.index != module_index || summary.name != module || summary.module_path != module_path {
+                                            let identity_changed = summary.index != module_index
+                                                || summary.name != module
+                                                || summary.module_path != module_path
+                                                || summary.timeout != timeout;
+                                            match identity_changed {
                                                 | true => Err(JournalError::Invalid(format!(
                                                     "module identity changed at input {input_index}, index {module_index}"
                                                 ))),
@@ -2270,6 +2416,7 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                                 index: module_index,
                                                 name: module,
                                                 module_path,
+                                                timeout,
                                                 state,
                                                 error,
                                                 started_at: None,
@@ -2283,14 +2430,15 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                     }
                                 }
                             }),
-                        | JournalEvent::RunFinished { status, error } => match gpu_monitoring.as_ref().is_some_and(|monitoring| !monitoring.finished)
-                        {
-                            | true => Err(JournalError::Invalid("run finalized while GPU monitoring was active".to_string())),
-                            | false => {
-                                finalization = Some((status, error, timestamp));
-                                Ok(())
+                        | JournalEvent::RunFinished { status, error, stop_reason } => {
+                            match gpu_monitoring.as_ref().is_some_and(|monitoring| !monitoring.finished) {
+                                | true => Err(JournalError::Invalid("run finalized while GPU monitoring was active".to_string())),
+                                | false => {
+                                    finalization = Some((status, error, stop_reason, timestamp));
+                                    Ok(())
+                                }
                             }
-                        },
+                        }
                     })
             })
             .and_then(|()| metadata.ok_or_else(|| JournalError::Invalid("run_started record is missing".to_string())))
@@ -2299,14 +2447,26 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                     .memory
                     .as_ref()
                     .map_or(Ok(()), |memory| memory.validate_for_inputs(inputs.len(), true));
-                let invalid_success = matches!(finalization, Some((FinalStatus::Succeeded, _, _)))
+                let invalid_success = matches!(finalization, Some((FinalStatus::Succeeded, _, _, _)))
                     && inputs.values().any(|input| {
                         !input.state.is_complete() || (input.state.is_succeeded() && input.modules.iter().any(|module| !module.state.is_complete()))
                     });
+                let contexts_match = metadata.contexts.len() == inputs.len()
+                    && metadata.contexts.iter().enumerate().all(|(index, context)| {
+                        inputs.get(&index).is_some_and(|input| {
+                            context.input_index == index && context.input_id == input.input_id && context.workspace == WorkspaceIdentity::InputLocal
+                        })
+                    });
+                let context_validation = match contexts_match {
+                    | true => Ok(()),
+                    | false => Err(JournalError::Invalid(
+                        "workflow context evidence does not match recovered inputs".to_string(),
+                    )),
+                };
                 let artifact_validation = match (&metadata.artifacts, &artifacts, finalization.as_ref()) {
                     | (None, None, _) | (Some(_), None, None) => Ok(()),
-                    | (Some(_), Some(publication), Some((FinalStatus::Succeeded, _, _))) if publication.status.is_published() => Ok(()),
-                    | (Some(_), Some(publication), Some((FinalStatus::Failed | FinalStatus::Cancelled, _, _)))
+                    | (Some(_), Some(publication), Some((FinalStatus::Succeeded, _, _, _))) if publication.status.is_published() => Ok(()),
+                    | (Some(_), Some(publication), Some((FinalStatus::Failed | FinalStatus::Cancelled, _, _, _)))
                         if publication.status.is_discarded() || publication.status.is_failed() =>
                     {
                         Ok(())
@@ -2322,19 +2482,31 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                     }
                     | _ => Ok(()),
                 };
+                let input_states = inputs.values().map(|input| input.state).collect::<Vec<_>>();
+                let stop_reason_validation = finalization.as_ref().map_or(Ok(()), |(status, _, stop_reason, _)| {
+                    validate_stop_reason(*status, *stop_reason, metadata.failure_policy, &input_states)
+                });
                 memory_validation
+                    .and(context_validation)
                     .and(artifact_validation)
                     .and(sandbox_validation)
+                    .and(stop_reason_validation)
                     .and_then(|()| match invalid_success {
                         | true => Err(JournalError::Invalid(
                             "a successful finalization contains unfinished or failed work".to_string(),
                         )),
                         | false => {
-                            let (status, error, finished_at) = match finalization {
-                                | Some((FinalStatus::Cancelled, error, finished_at)) => (RunStatus::Cancelled, error, Some(finished_at)),
-                                | Some((FinalStatus::Succeeded, error, finished_at)) => (RunStatus::Succeeded, error, Some(finished_at)),
-                                | Some((FinalStatus::Failed, error, finished_at)) => (RunStatus::Failed, error, Some(finished_at)),
-                                | None => (RunStatus::Interrupted, None, None),
+                            let (status, error, stop_reason, finished_at) = match finalization {
+                                | Some((FinalStatus::Cancelled, error, stop_reason, finished_at)) => {
+                                    (RunStatus::Cancelled, error, stop_reason, Some(finished_at))
+                                }
+                                | Some((FinalStatus::Succeeded, error, stop_reason, finished_at)) => {
+                                    (RunStatus::Succeeded, error, stop_reason, Some(finished_at))
+                                }
+                                | Some((FinalStatus::Failed, error, stop_reason, finished_at)) => {
+                                    (RunStatus::Failed, error, stop_reason, Some(finished_at))
+                                }
+                                | None => (RunStatus::Interrupted, None, None, None),
                             };
                             let duration = finished_at.map(|finished| Milliseconds::new(finished.get().saturating_sub(metadata.started_at.get())));
                             Ok(RunSummary {
@@ -2343,17 +2515,21 @@ impl TryFrom<Vec<JournalRecord>> for RunSummary {
                                 run_id: metadata.run_id,
                                 configuration: metadata.configuration,
                                 configuration_acquisitions: metadata.configuration_acquisitions,
+                                contexts: metadata.contexts,
                                 dry_run: metadata.dry_run,
+                                failure_policy: metadata.failure_policy,
                                 sandbox: metadata.sandbox,
                                 started_at: metadata.started_at,
                                 finished_at,
                                 duration,
                                 status,
+                                stop_reason,
                                 error,
                                 gpu_monitoring: gpu_monitoring.map(GpuRecovery::summary),
                                 containers: containers.into_values().collect(),
                                 inputs: inputs.into_values().collect(),
                                 memory: metadata.memory,
+                                workspace: metadata.workspace,
                             })
                         }
                     })
@@ -2629,6 +2805,38 @@ fn validate_resource_evidence(resources: &[SandboxResourceEvidence], reconciled:
                 }
             })
         })
+}
+fn validate_contexts(contexts: &[WorkflowContextEvidence], inputs: &[JournalInput]) -> Result<(), JournalError> {
+    let valid = contexts.len() == inputs.len()
+        && contexts.iter().zip(inputs).all(|(context, input)| {
+            context.input_index == input.index && context.input_id == input.input_id && context.workspace == WorkspaceIdentity::InputLocal
+        });
+    match valid {
+        | true => Ok(()),
+        | false => Err(JournalError::Invalid(
+            "workflow context evidence does not match declared inputs".to_string(),
+        )),
+    }
+}
+fn validate_stop_reason(
+    status: FinalStatus,
+    stop_reason: Option<RunStopReason>,
+    failure_policy: FailurePolicy,
+    input_states: &[ExecutionState],
+) -> Result<(), JournalError> {
+    let valid = match (status, stop_reason) {
+        | (FinalStatus::Cancelled, Some(RunStopReason::ExternalCancellation)) | (FinalStatus::Failed, None) | (FinalStatus::Succeeded, None) => true,
+        | (FinalStatus::Failed, Some(RunStopReason::Failure { input_index })) => {
+            failure_policy == FailurePolicy::FailFast && input_states.get(input_index).is_some_and(|state| state.is_failed())
+        }
+        | _ => false,
+    };
+    match valid {
+        | true => Ok(()),
+        | false => Err(JournalError::Invalid(
+            "run stop reason does not match final status and input states".to_string(),
+        )),
+    }
 }
 fn validate_transition(current: ExecutionState, next: ExecutionState, kind: &str) -> Result<(), JournalError> {
     let valid = match current {

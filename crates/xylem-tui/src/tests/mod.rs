@@ -8,7 +8,8 @@
 use super::*;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use ratatui::backend::TestBackend;
-use xylem_lib::journal::{ConfigurationIdentity, FinalStatus, JournalInput, JournalModule, RunMetadata, SandboxEvidence};
+use xylem_lib::config::FailurePolicy;
+use xylem_lib::journal::{ConfigurationIdentity, FinalStatus, JournalInput, JournalModule, RunMetadata, RunStopReason, SandboxEvidence};
 
 #[test]
 fn test_cancellation_requires_confirmation() {
@@ -180,7 +181,8 @@ fn test_workflow_renders_chart_and_table() {
         },
         false,
         SandboxEvidence::off(),
-    );
+    )
+    .with_failure_policy(FailurePolicy::Continue);
     let journal = RunJournal::create(
         bundle.journal_path(),
         metadata,
@@ -197,8 +199,18 @@ fn test_workflow_renders_chart_and_table() {
         .transition_module(0, 0, ExecutionState::Running, None)
         .expect("module should start");
     journal
-        .transition_module(0, 0, ExecutionState::Succeeded, None)
-        .expect("module should finish");
+        .transition_module(0, 0, ExecutionState::Cancelled, Some("intentional cancellation"))
+        .expect("module should cancel");
+    journal
+        .transition_input(0, ExecutionState::Cancelled, Some("intentional cancellation"))
+        .expect("input should cancel");
+    journal
+        .finish_with_reason(
+            FinalStatus::Cancelled,
+            Some("intentional cancellation"),
+            Some(RunStopReason::ExternalCancellation),
+        )
+        .expect("run should finish");
     let mut dashboard = Dashboard::new(None, store, DiagnosticLog::default()).expect("dashboard should initialize");
     dashboard.tab = Tab::Workflow;
     let backend = TestBackend::new(100, 30);
@@ -209,6 +221,8 @@ fn test_workflow_renders_chart_and_table() {
     let display = terminal.backend().to_string();
     assert!(display.contains("STEP STATES"), "{display}");
     assert!(display.contains("EXECUTION TABLE"), "{display}");
+    assert!(display.contains("CONTINUE"), "{display}");
+    assert!(display.contains("EXTERNAL CANCELLATION"), "{display}");
     assert!(display.contains("Group::Module"), "{display}");
     let _ = std::fs::remove_dir_all(root);
 }

@@ -26,7 +26,7 @@ rechecked on 2026-10-30 against committed tree `292aa49`.
 - The pure fixed-point estimator and FIFO admission queue are implemented.
 - `options.memory` validation, deterministic input sizing, fixed-batch fallback,
   and budget-plus-`options.batch` admission are active.
-- Execution-plan v14 and journal/run-summary v13 retain estimator identity,
+- Execution-plan v15 and journal/run-summary v14 retain estimator identity,
   reservations, fallback reasons, and optional observed peaks.
 - Linux OCI-sandboxed runs collect cgroup v2 `memory.peak` before cleanup when
   memory evidence is configured. Unsupported and unsandboxed runs leave the
@@ -99,10 +99,6 @@ or the accepted A/P estimator.
 - Until GO, the A/P/O production profile keeps input concurrency at one.
 - A no-go result leaves fixed batching and existing memory admission behavior
   unchanged.
-
-# Related plans
-
-- [Workflow environment and concurrency](../refactors/workflow-environment-and-concurrency.md)
 
 # Execution phases
 

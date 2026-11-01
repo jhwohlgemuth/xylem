@@ -253,10 +253,7 @@ impl ArtifactRun {
     fn synthesize_markers(&self, merged: &Path) -> Result<(), SandboxError> {
         self.inputs.iter().try_for_each(|(_, record)| {
             record.config.modules.iter().try_for_each(|module| {
-                let variables = record
-                    .config
-                    .clone()
-                    .get_environment_variables(Some(module.clone()), record.input.clone());
+                let variables = record.config.module_environment(Some(module), record.input.as_deref());
                 CompletionPlan::resolve(module, &variables, record.config.output.as_deref())
                     .map_err(|why| SandboxError::Validation(why.to_string()))
                     .and_then(|completion| {
