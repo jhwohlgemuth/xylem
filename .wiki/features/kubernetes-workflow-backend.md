@@ -57,7 +57,7 @@ The first release does not:
 
 # Current evidence
 
-Rechecked on 2026-10-30 against clean committed tree `292aa49`, current v14/v13
+Rechecked on 2026-10-31 against baseline `ef95f81`, current v15/v13
 schemas, CLI/help surfaces, dependency manifests, and ENV execution call paths.
 Kubernetes operator demand, shared storage, cluster access, and image runners
 still need owner-provided evidence before implementation starts.
@@ -78,13 +78,14 @@ still need owner-provided evidence before implementation starts.
   once per run, journaled as run-scoped resources, and cleaned after input
   dispatch. A Kubernetes Job cannot safely inherit this behavior through a
   new match arm.
-- `ExecutionPlan` is deterministic and write-free, but v14 describes local
+- `ExecutionPlan` is deterministic and write-free, but v15 describes local
   acquisition, module commands, local containers, resume, GPU monitoring,
-  memory admission, and sandbox intent without an execution target.
+  memory admission, policy, timeout, context identity, and sandbox intent
+  without an execution target.
 - Journal/run-summary v13 retains selection, cancellation, sandbox lifecycle,
   atomic artifacts, memory evidence, and durable dashboard state. Kubernetes
   must allocate new plan and durable-state versions after the environment
-  plan's version allocation, preserving the current v14/v13 baseline instead
+  plan's version allocation, preserving the current v15/v13 baseline instead
   of modifying current artifacts in place.
 - `RunJournal` is append-only, flushed at every transition, and recovered into
   `RunSummary`. It is the correct authoritative worker result once its path is
@@ -96,9 +97,9 @@ still need owner-provided evidence before implementation starts.
   or runtime actions. Kubernetes dry-run must preserve that contract.
 - The CLI exposes generated help as a checked-in contract. New target and
   lifecycle commands require regenerated snapshots and explicit tests.
-- `RunCancellation` and managed child cancellation are landed, but the
-  headless CLI does not yet install the signal lifecycle required by an
-  attached Kubernetes controller or worker.
+- `RunCancellation`, managed child cancellation, and headless CLI signal
+  handling are landed. Kubernetes still needs controller and worker signal
+  lifecycle integration.
 - The workspace publishes sandbox workload images, not a Kubernetes Xylem
   worker image or controller/worker protocol. The rigorously supported binary
   target remains Linux amd64; Kubernetes would deliberately add Linux amd64
@@ -942,10 +943,10 @@ current path.
 
 ## Prerequisites
 
-- Preserve the current execution-plan v14 and journal/report v13 contracts;
+- Preserve the current execution-plan v15 and journal/report v13 contracts;
   Kubernetes allocates versions after the environment plan's schema phase.
 - Preserve managed child cancellation and reaping, then complete lossless
-  process results, module timeouts, and headless signal handling before
+  process results, module timeouts, and controller/worker signal handling before
   claiming graceful Pod termination.
 - Complete immutable workflow environment/run-context work before serializing
   a controller request; the Kubernetes worker must not depend on controller

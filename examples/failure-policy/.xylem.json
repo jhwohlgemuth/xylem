@@ -1,0 +1,24 @@
+{
+  "version": "1.0.0",
+  "id": "failure-policy",
+  "description": "Continue admitting inputs after an intentional failure",
+  "requirements": ["sh"],
+  "input": ["first", "failure", "later"],
+  "options": {
+    "batch": 1,
+    "failure_policy": "continue",
+    "offline": true
+  },
+  "modules": [
+    {
+      "name": "Process Input",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:./module",
+      "template": {
+        "command": "sh",
+        "arguments": ["run.sh", "{{ INPUT }}"]
+      }
+    }
+  ]
+}

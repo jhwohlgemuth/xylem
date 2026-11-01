@@ -1377,6 +1377,14 @@ impl Config {
                             }
                             | module_type => {
                                 let mut module = Module { module_type, ..module };
+                                if let Some(source) = source.path() {
+                                    if matches!(
+                                        &module.module_type,
+                                        ModuleType::Script { uri, .. } if matches!(ModuleUri::from(uri), ModuleUri::Oci(value) if value.starts_with("oci-layout:"))
+                                    ) {
+                                        module.absolutize(source);
+                                    }
+                                }
                                 Self::validate_nested_leaf(&module, &source, offline, &path, policy.as_ref()).map(|()| {
                                     if let Some(source) = source.path() {
                                         module.absolutize_container_mounts(source);

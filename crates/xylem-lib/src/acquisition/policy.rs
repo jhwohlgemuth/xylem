@@ -8,6 +8,7 @@ use acorn_core::{
     Location,
 };
 use acorn_schema::validation::{rules, Validate, ValidationReport};
+use std::path::{Component, Path};
 
 impl AcquisitionLimits {
     /// Intersect these ceilings with a child configuration's ceilings.
@@ -398,12 +399,36 @@ fn validate_oci_reference(reference: &str, expected_digest: &str) -> Result<Opti
         | Some(layout) => layout
             .rsplit_once('@')
             .filter(|(path, digest)| !path.is_empty() && *digest == expected_digest && !path.contains(['?', '#']))
-            .map(|_| None)
             .ok_or_else(|| AcquisitionError::Identity {
                 value: reference.to_string(),
                 reason: "OCI layout references must use oci-layout:<path>@sha256:<64 lowercase hex>",
-            }),
+            })
+            .and_then(|(path, _)| validate_oci_layout_path(reference, Path::new(path)).map(|()| None)),
         | None => validate_oci_registry_reference(reference, expected_digest).map(Some),
+    }
+}
+fn validate_oci_layout_path(reference: &str, path: &Path) -> Result<(), AcquisitionError> {
+    let invalid = |reason| AcquisitionError::Identity {
+        value: reference.to_string(),
+        reason,
+    };
+    if !path.is_absolute() && path.components().any(|component| matches!(component, Component::ParentDir)) {
+        return Err(invalid("OCI layout paths must not contain parent traversal"));
+    }
+    let metadata = std::fs::symlink_metadata(path).ok();
+    path.ancestors()
+        .filter(|ancestor| !ancestor.as_os_str().is_empty())
+        .try_for_each(|ancestor| match std::fs::symlink_metadata(ancestor) {
+            | Ok(metadata) => (!metadata.file_type().is_symlink())
+                .then_some(())
+                .ok_or_else(|| invalid("OCI layout paths must not contain symlinks")),
+            | Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            | Err(_) => Err(invalid("OCI layout source cannot be inspected")),
+        })?;
+    match metadata {
+        | Some(metadata) if metadata.is_dir() || metadata.is_file() && path.extension().is_some_and(|extension| extension == "tar") => Ok(()),
+        | Some(_) => Err(invalid("OCI layout source must be a directory or .tar archive")),
+        | None => Ok(()),
     }
 }
 fn validate_oci_registry_reference(reference: &str, expected_digest: &str) -> Result<String, AcquisitionError> {

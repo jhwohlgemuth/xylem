@@ -478,15 +478,23 @@ fn test_dry_run_renders_a_plan_without_writing_files() {
             "--artifact-output",
             output_directory.to_str().expect("UTF-8 artifact output"),
             "--dry-run",
+            "--failure-policy",
+            "continue",
             "--gpu-monitor",
             "--reporter",
             "json",
+            "--threads",
+            "2",
         ])
         .output()
         .expect("run dry-run plan");
     assert!(output.status.success(), "dry run failed: {}", String::from_utf8_lossy(&output.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid dry-run plan");
-    assert_eq!(plan["schema_version"], 14);
+    assert_eq!(plan["schema_version"], 15);
+    assert_eq!(plan["failure_policy"], "continue");
+    assert_eq!(plan["admission"]["effective_ceiling"], 2);
+    assert_eq!(plan["admission"]["input_indices"], serde_json::json!([0]));
+    assert_eq!(plan["contexts"][0]["workspace"], "input_local");
     assert!(plan["memory"].is_null());
     assert_eq!(plan["sandbox"]["mode"], "off");
     assert_eq!(plan["gpu_monitoring"]["interval"], 1000);
@@ -551,7 +559,7 @@ input:
     assert_eq!(repeated.stdout, output.stdout);
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid selection plan");
     let inputs = std::fs::canonicalize(inputs).expect("canonical selection inputs");
-    assert_eq!(plan["schema_version"], 14);
+    assert_eq!(plan["schema_version"], 15);
     assert!(plan["memory"].is_null());
     assert_eq!(plan["sandbox"]["mode"], "off");
     assert_eq!(plan["inputs"]["source"]["kind"], "selection");
@@ -1315,7 +1323,7 @@ fn test_memory_intent_plans_and_runs_with_a_fixed_batching_warning() {
         .expect("render memory intent plan");
     assert!(dry_run.status.success(), "{}", String::from_utf8_lossy(&dry_run.stderr));
     let plan: serde_json::Value = serde_json::from_slice(&dry_run.stdout).expect("valid memory intent plan");
-    assert_eq!(plan["schema_version"], 14);
+    assert_eq!(plan["schema_version"], 15);
     assert_eq!(plan["memory"]["budget"], "64GB");
     assert_eq!(plan["memory"]["estimator"]["identity"], "custom-modules-v1");
     assert_eq!(plan["memory"]["inputs"][0]["fallback"]["kind"], "no_input");

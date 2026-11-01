@@ -137,6 +137,55 @@ fn test_all_module_locations_round_trip_scalar_and_structured_forms() {
     serde_json::from_value::<Config>(serialized).expect("round trip module locations");
 }
 #[test]
+fn test_local_oci_archive_paths_follow_declaring_configuration() {
+    let root = std::env::temp_dir().join(format!("xylem-oci-archive-config-{}", std::process::id()));
+    let child = root.join("child");
+    create_dir_all(&child).expect("create child configuration directory");
+    let root = std::fs::canonicalize(root).expect("canonical fixture root");
+    let child = root.join("child");
+    write(root.join("direct.tar"), []).expect("write direct archive placeholder");
+    write(child.join("nested.tar"), []).expect("write nested archive placeholder");
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let direct: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{"name": "direct", "type": "script", "uri": format!("oci-layout:./direct.tar@{digest}")}],
+        "requirements": []
+    }))
+    .expect("direct configuration");
+    let direct = direct.resolve(&root.join("config.json")).expect("resolve direct archive");
+    let direct_plan = crate::plan::ExecutionPlan::build(&direct, "config.json".to_string(), &[None], false).expect("plan direct archive");
+    assert_eq!(
+        direct_plan.modules[0].acquisition.source.to_string(),
+        format!("oci-layout:{}@{digest}", root.join("direct.tar").display())
+    );
+    write(
+        child.join("config.json"),
+        format!(r#"{{"modules":[{{"name":"nested","type":"script","uri":"oci-layout:./nested.tar@{digest}"}}],"requirements":[]}}"#),
+    )
+    .expect("write nested configuration");
+    let nested: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{"name": "child", "type": "configuration", "uri": "file:./child/config.json"}],
+        "requirements": []
+    }))
+    .expect("root configuration");
+    let policy = acquisition_policy(None, false, false);
+    let cache = AcquisitionCache::new(root.join("cache"));
+    let nested = nested
+        .resolve_with_policy(&root.join("config.json"), &policy, &cache, false)
+        .expect("resolve nested archive");
+    let nested_plan = crate::plan::ExecutionPlan::build(&nested, "config.json".to_string(), &[None], false).expect("plan nested archive");
+    assert_eq!(
+        nested_plan.modules[0].acquisition.source.to_string(),
+        format!("oci-layout:{}@{digest}", child.join("nested.tar").display())
+    );
+    let binary: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{"name": "unsupported", "type": "binary", "uri": format!("oci-layout:./direct.tar@{digest}")}],
+        "requirements": []
+    }))
+    .expect("binary archive configuration");
+    assert!(binary.validate().is_err());
+    remove_dir_all(root).expect("remove archive configuration fixture");
+}
+#[test]
 fn test_allowed_round_trips_in_configuration_options() {
     let config: Config = serde_json::from_value(serde_json::json!({
         "requirements": [],

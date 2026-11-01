@@ -296,7 +296,7 @@ fn prepare_config_with_output(
         })
         .and_then(|(resolved, inputs)| {
             let resume = resolved.config.options.as_ref().and_then(|options| options.resume).unwrap_or_default();
-            ExecutionPlan::build_resolved(&resolved.config, config_path.display().to_string(), &inputs, resume)
+            ExecutionPlan::build_resolved_with_limits(&resolved.config, config_path.display().to_string(), &inputs, resume, Some(request.limits))
                 .map_err(|why| {
                     let exit_code = match why.is_availability() {
                         | true => exitcode::UNAVAILABLE,

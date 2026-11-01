@@ -21,8 +21,8 @@ Xylem owns workflow policy. Generic child-process mechanics come from ACORN's
 
 # Current evidence
 
-Rechecked on 2026-10-31 against baseline `85c72df`, the current ENV-05/06
-implementation diff, ACORN 0.5.1 at
+Rechecked on 2026-10-31 against baseline `ef95f81`, the current ENV-07
+implementation, ACORN 0.5.1 at
 `3e915697d214eda33e0d4c52f03fb09f27d9d3e4`, current schema/help artifacts,
 and focused process, configuration, CLI, sandbox, and plan call paths.
 
@@ -73,9 +73,12 @@ and focused process, configuration, CLI, sandbox, and plan call paths.
   slot, with distinct module and environment roots for repeated inputs.
 - Volatile `RUN_ID` and `WORK_DIRECTORY` values reach child commands but are
   excluded from completion fingerprints, preserving resume compatibility.
-- Execution plans are at version 14 and journals/summaries are at version 13.
-  The landed schemas include selection, sandbox, artifact, memory, cancellation,
-  and lifecycle evidence that the next runtime revision must preserve.
+- Execution plans are at version 15 and journals/summaries remain at version 13.
+  The v15 plan records effective failure policy, module timeouts, stable
+  input-local context identities, ordered admission, and the CLI's effective
+  concurrency ceiling without disposable workspace paths. Historical v14 is
+  retained. Selection, sandbox, artifact, memory, cancellation, and lifecycle
+  evidence remains in the current plan.
 - Sandboxed execution already creates per-input preparation/execution
   boundaries with clean environments and staged artifacts. Those contracts do
   not fix the shared mutable host path and must remain intact during this
@@ -86,6 +89,10 @@ and focused process, configuration, CLI, sandbox, and plan call paths.
   checking, formatting, and rustdoc generation. Dependency-policy validation
   accepts the updated lockfile thresholds and stops at the pre-existing expired
   `RUSTSEC-2026-0097` exception, whose review was due 2026-10-28.
+- ENV-07 validation passed on 2026-10-31: 315 xylem-lib tests (2 ignored),
+  12 doctests (4 ignored), 41 CLI workflow tests (3 ignored), strict focused
+  Clippy, and xylem-lib rustdoc. The CLI dry-run test covers effective
+  failure-policy override, thread ceiling, and write-free rendering.
 
 # Ownership boundary
 
@@ -102,8 +109,7 @@ Xylem adapts `Script` to the ACORN API and owns configuration, variable preceden
 - **Update:** configuration, execution, script, plan, journal, run store,
   reporter, TUI, and CLI run modules; the dependency lockfile, current schemas,
   focused tests, and user documentation.
-- **Create:** `DispatchReport<T>`, focused process fixtures, and the next
-  coordinated plan and summary schemas.
+- **Create:** the next coordinated summary schema.
 - **Delete:** production parent-environment mutation APIs, the combined
   `Vec<String>` script result, and whitespace-only shell-format parsing.
 
@@ -118,8 +124,8 @@ Xylem adapts `Script` to the ACORN API and owns configuration, variable preceden
    coordinated phases. `crates/xylem-lib/src/script/mod.rs`, run-state files,
    manifests, and `crates/xylem-cli/src/commands/run/` remain single-writer
    integration surfaces.
-4. Allocate the next execution-plan and journal/run-summary versions from v14
-   and v13. Preserve selection, sandbox, artifact, memory, lifecycle,
+4. The execution plan has allocated v15. Allocate journal/run-summary v14
+   after v13. Preserve selection, sandbox, artifact, memory, lifecycle,
    cancellation, and run-store compatibility; coordinate version allocation
    with Kubernetes.
 
@@ -206,7 +212,7 @@ The caller applies workflow failure policy. `Script` never logs an error and ret
 # Journal and schema revision
 
 Use the landed `cancelled` and `not_started` durable vocabulary. Advance the
-execution plan from v14 and journal/recovered summary from v13 only when the
+journal/recovered summary from v13 only when the
 new context, failure-policy, timeout, and workspace evidence is stable. Keep
 the current exact-version runtime policy: retain historical schema documents,
 but reject non-current runtime artifacts without normalization or migration.
@@ -265,22 +271,11 @@ this refactor with Kubernetes behavior.
 
 # Execution phases
 
-## ENV-07 — Version plan and dry-run policy evidence
+## ENV-08 — Version journal and summary outcomes
 
 - Status: ready
 - Budget: 5 active hours maximum
-- Prerequisites: none; reserve execution-plan v15 after v14
-- Exact write set: `crates/xylem-lib/src/plan.rs`, `crates/xylem-lib/src/tests/plan.rs`, `docs/schema/execution-plan-v15.schema.json`
-- Primary integration lock: run state
-- Outcome: The current deterministic plan records effective policy, timeout, context identity, and ordered admission intent without disposable paths.
-- Focused validation: plan/schema round trips, old-version rejection, and write-free dry-run tests.
-- Handoff: Record v15 schema and consumer evidence; remove ENV-07 when accepted.
-
-## ENV-08 — Version journal and summary outcomes
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: ENV-07; reserve journal/run-summary v14 after v13
+- Prerequisites: execution-plan v15 landed; reserve journal/run-summary v14 after v13
 - Exact write set: `crates/xylem-lib/src/journal/mod.rs`, `crates/xylem-lib/src/run/store.rs`, `crates/xylem-lib/src/journal/tests/mod.rs`, `crates/xylem-lib/src/run/tests.rs`, `crates/xylem-tui/src/lib.rs`, `crates/xylem-cli/src/commands/run/reporting.rs`, `docs/schema/run-summary-v14.schema.json`
 - Primary integration lock: run state
 - Outcome: Writers, recovery, reporters, and TUI retain ordered disposition, cancellation reason, timeout, and context evidence.

@@ -66,8 +66,10 @@ classification to a process exit code and renders the terminal diagnostic.
 Resume decisions are made before module preparation from explicit completion
 declarations. The runtime requires both non-empty declared outputs and an exact
 canonical marker identity, and records skips as `skipped_existing`. Execution
-plans use schema version 14, including OCI artifact-tree acquisition, per-input
-memory sizing, reservation, fallback decisions, and sandbox lifecycle intent.
+plans use schema version 15, including OCI artifact-tree acquisition, per-input
+memory sizing, reservation, fallback decisions, sandbox lifecycle intent,
+effective failure policy, configured module timeouts, and input-local context
+and admission declarations without disposable workspace paths.
 Journals and recovered summaries use schema version 13 with verified
 configuration/module acquisition provenance, the durable `cancelled` state,
 explicit sandbox lifecycle/resource evidence, and nullable memory evidence. Configured runs

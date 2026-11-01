@@ -3,8 +3,9 @@ extern crate alloc;
 
 use crate::acquisition::{AcquisitionError, AcquisitionPlan};
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
-use crate::config::{Config, ConfigOptions, InputAttribute, MemoryEstimatorOptions, MemoryOptions};
+use crate::config::{Config, ConfigOptions, FailurePolicy, InputAttribute, MemoryEstimatorOptions, MemoryOptions};
 use crate::error::TemplateError;
+use crate::execution::{ExecutionLimits, InputBatch};
 use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
 use crate::memory::{MemoryAdmissionError, MemoryCalculationError, MemoryEstimator, MemoryEstimatorError, PlannedMemoryInput};
 use crate::sandbox::{IsolationClass, OciRuntime, PreparationNetwork, ProcessGuard, SandboxLifecycle, SandboxProviderKind, SandboxResources};
@@ -13,7 +14,7 @@ use crate::script::{
     TemplateAttribute,
 };
 use crate::selection::{InputSource, ResolvedInputs, SelectionError};
-use acorn_core::time::Milliseconds;
+use acorn_core::time::{Milliseconds, Seconds};
 use acorn_schema::hardware::Memory;
 use acorn_schema::validation::ValidationReport;
 use alloc::collections::BTreeMap;
@@ -66,12 +67,18 @@ impl PlanError {
 /// Versioned dry-run plan rendered without mutating the host.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ExecutionPlan {
+    /// Ordered input admission and concurrency intent.
+    pub admission: PlannedAdmission,
     /// Whole-run sandbox artifact publication intent.
     pub artifacts: Option<PlannedArtifactPublication>,
     /// Configuration used to build the plan.
     pub configuration: PlanConfiguration,
     /// Deduplicated containers required by modules that would run.
     pub containers: Vec<PlannedContainer>,
+    /// Stable input context identities without disposable workspace paths.
+    pub contexts: Vec<PlannedContext>,
+    /// Effective workflow failure policy.
+    pub failure_policy: FailurePolicy,
     /// GPU monitoring that would run during execution.
     pub gpu_monitoring: Option<PlannedGpuMonitoring>,
     /// Ordered resolved input values and their source provenance.
@@ -86,6 +93,24 @@ pub struct ExecutionPlan {
     pub sandbox: PlannedSandbox,
     /// Execution-plan schema version.
     pub schema_version: u32,
+}
+/// Planned input admission without executing or creating workspaces.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PlannedAdmission {
+    /// Configured maximum number of active inputs.
+    pub batch: Option<InputBatch>,
+    /// Effective ceiling when the caller supplies its thread limit.
+    pub effective_ceiling: Option<usize>,
+    /// Input positions in admission order.
+    pub input_indices: Vec<usize>,
+}
+/// Stable identity for an input-local execution context.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PlannedContext {
+    /// Configured input position, including the zero-input case.
+    pub input_index: usize,
+    /// Workspace allocation policy rather than a disposable path.
+    pub workspace: &'static str,
 }
 /// Configuration identity embedded in an execution plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -199,6 +224,8 @@ pub struct PlannedModule {
     pub module_path: Vec<String>,
     /// Whether the decision includes a read-only completion observation.
     pub observed_completion: bool,
+    /// Configured execution timeout, when present.
+    pub timeout_seconds: Option<Seconds>,
     /// Effective variables after workflow, output-default, module, and input precedence.
     pub variables: BTreeMap<String, String>,
 }
@@ -315,6 +342,16 @@ impl ExecutionPlan {
     }
     /// Build a plan from inputs resolved by the provenance-aware planning boundary.
     pub fn build_resolved(config: &Config, path: String, inputs: &ResolvedInputs, resume: bool) -> Result<Self, PlanError> {
+        Self::build_resolved_with_limits(config, path, inputs, resume, None)
+    }
+    /// Build a plan with the caller's effective thread limit for admission evidence.
+    pub fn build_resolved_with_limits(
+        config: &Config,
+        path: String,
+        inputs: &ResolvedInputs,
+        resume: bool,
+        limits: Option<ExecutionLimits>,
+    ) -> Result<Self, PlanError> {
         PlannedSandbox::try_from(config.clone())
             .and_then(|sandbox| config.validate_for_inputs(&inputs.values).map_err(PlanError::from).map(|()| sandbox))
             .and_then(|sandbox| {
@@ -342,6 +379,17 @@ impl ExecutionPlan {
                                     })
                             })
                             .map(|modules| Self {
+                                admission: PlannedAdmission {
+                                    batch: config.options.as_ref().and_then(|options| options.batch),
+                                    effective_ceiling: limits.map(|limits| {
+                                        config
+                                            .options
+                                            .as_ref()
+                                            .and_then(|options| options.batch)
+                                            .map_or_else(|| limits.threads(), |batch| batch.get().min(limits.threads()))
+                                    }),
+                                    input_indices: (0..inputs.values.len()).collect(),
+                                },
                                 artifacts: match (&config.output, sandbox.resources.as_ref()) {
                                     | (Some(destination), Some(resources)) => Some(PlannedArtifactPublication {
                                         bytes_per_input: Memory::kb(resources.artifact_bytes as f64 / 1024.0),
@@ -352,6 +400,12 @@ impl ExecutionPlan {
                                     | _ => None,
                                 },
                                 containers: PlannedContainer::from_modules(config, &modules),
+                                contexts: (0..inputs.values.len())
+                                    .map(|input_index| PlannedContext {
+                                        input_index,
+                                        workspace: "input_local",
+                                    })
+                                    .collect(),
                                 configuration: PlanConfiguration {
                                     id: config.id.clone(),
                                     output: config.output.clone(),
@@ -367,12 +421,16 @@ impl ExecutionPlan {
                                         interval: *GPU_SAMPLE_INTERVAL_MS,
                                         source: "nvidia-smi".to_string(),
                                     }),
+                                failure_policy: config
+                                    .options
+                                    .as_ref()
+                                    .map_or_else(FailurePolicy::default, |options| options.failure_policy),
                                 inputs: inputs.clone(),
                                 memory,
                                 modules,
                                 resume,
                                 sandbox,
-                                schema_version: 14,
+                                schema_version: 15,
                             })
                     })
             })
@@ -480,6 +538,7 @@ impl Module {
                             .module(self.name.as_str())
                             .module_path(self.module_path.clone())
                             .observed_completion(resume && self.completion.is_some())
+                            .maybe_timeout_seconds(self.timeout)
                             .variables(variables)
                             .build()
                     })

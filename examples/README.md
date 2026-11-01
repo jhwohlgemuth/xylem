@@ -14,6 +14,8 @@ Examples are grouped by the dependencies they require:
   experimental public local `sbx` provider with separate microVM phases.
 - [`failure-logging`](./failure-logging/) is an intentionally failing,
   shell-only workflow that demonstrates concurrent inputs and module logs.
+- [`failure-policy`](./failure-policy/) uses serial admission to show how the
+  `continue` policy admits another input after a failure.
 - [`openshell-provider`](./openshell-provider/) demonstrates the experimental
   public OpenShell provider with separate phase policies and staged transfer.
 - [`python-with-pixi`](./python-with-pixi/) and

@@ -32,6 +32,7 @@ run without spelling out a configuration path:
 
 ```shell
 cargo run --example failure-logging
+cargo run --example failure-policy
 ```
 
 OCI workflow targets include:
@@ -70,6 +71,17 @@ cargo run --example failure-logging
 
 See the [example README](https://code.ornl.gov/research-enablement/xylem/-/blob/main/examples/failure-logging/README.md)
 for a representative terminal transcript and the resulting module states.
+
+## Failure policy
+
+The shell-only failure policy example sets `batch: 1` and
+`failure_policy: continue`. Its second input fails, but Xylem still admits and
+runs the third input. The command exits with a failure status because the run
+retains the failed input:
+
+```shell
+cargo run --example failure-policy
+```
 
 ## Multi-module
 

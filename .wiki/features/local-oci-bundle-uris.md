@@ -19,22 +19,25 @@ usable without registry access while registry `oci://` behavior stays intact.
 
 # Current evidence
 
-Rechecked on 2026-10-30 against clean committed tree `292aa49`, current
+Rechecked on 2026-10-31 against baseline `ef95f81` and current OCI-01 changes,
 acquisition/configuration tests, and the history since the directory-form
 implementation at `97d5203`.
 
 - Local OCI layout directories are native script and configuration module
   sources. Paths resolve relative to the declaring configuration, ORAS reads
   the layout, and the `oci-local` example now uses the native URI.
-- Execution-plan v14 permits `oci-layout:` references and run-summary v13
+- Execution-plan v15 permits `oci-layout:` references and run-summary v13
   records the existing digest evidence. Neither schema needs a new version if
   archive handling uses the same source and evidence shape.
 - The checked-in acquisition tests cover a local layout directory and offline
-  cache reuse. Archive input, malformed archive/index/blob cases, and the
-  complete sandbox preparation matrix lack accepted qualification.
+  cache reuse. OCI-01 resolves direct and nested archive paths against their
+  declaring configuration and rejects symlinked, traversing,
+  non-regular, unsupported-extension, and malformed-digest sources before
+  acquisition. Archive extraction, malformed archive/index/blob cases, and
+  the complete sandbox preparation matrix lack accepted qualification.
 - Secure acquisition implementation and Linux/macOS qualification are landed.
   Its remaining SEC-07 work owns the Windows runner and manifests, not the
-  configuration/acquisition source files, so it no longer blocks OCI-01.
+  configuration/acquisition source files, so it does not block OCI-02.
 
 # Project code boundaries
 
@@ -46,10 +49,11 @@ implementation at `97d5203`.
 
 # Dependencies and ordering
 
-Claim the configuration/acquisition integration lock only when no ENV phase is
-writing `script/mod.rs` or configuration files. The archive extension does not
-wait for unrelated platform qualification. Keep the v14/v13 durable vocabulary
-unless an observed missing field requires a separately coordinated schema phase.
+The configuration/acquisition lock is released after OCI-01. OCI-02 owns the
+acquisition executor and can proceed independently of ENV-08. The archive
+extension does not wait for unrelated platform qualification. Keep the v15/v13
+durable vocabulary unless an observed missing field requires a separately
+coordinated schema phase.
 
 # Recommendation
 
@@ -81,22 +85,11 @@ network access disabled.
 
 # Execution phases
 
-## OCI-01 — Validate archive references and configuration ownership
+## OCI-02 — Materialize bounded archives through ORAS
 
 - Status: ready
 - Budget: 5 active hours maximum
-- Prerequisites: none; claim exclusive ownership of the shared script/configuration files before writing
-- Exact write set: `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/validation.rs`, `crates/xylem-lib/src/config/tests/mod.rs`
-- Primary integration lock: configuration/acquisition
-- Outcome: The existing local OCI URI resolves archive paths against the declaring configuration and rejects unsafe or unsupported sources.
-- Focused validation: focused configuration tests for direct and nested archives, digest syntax, symlinks, and unsupported module kinds.
-- Handoff: Record accepted URI and path cases; remove OCI-01 when validation passes.
-
-## OCI-02 — Materialize bounded archives through ORAS
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: OCI-01
+- Prerequisites: local archive source validation accepted; configuration ownership released
 - Exact write set: `crates/xylem-lib/src/acquisition/oci.rs`, `crates/xylem-lib/src/acquisition/executor.rs`, `crates/xylem-lib/src/acquisition/tests.rs`, `examples/oci-local/module/bundle.tar`
 - Primary integration lock: acquisition executor
 - Outcome: Archive reads verify the pinned manifest, bound extraction, and publish only complete cache entries.

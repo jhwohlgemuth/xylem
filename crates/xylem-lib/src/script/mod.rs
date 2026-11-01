@@ -20,8 +20,8 @@ use serde_json::{Map, Number, Value};
 use std::collections::HashMap;
 use std::env::{set_var, vars};
 use std::ffi::{OsStr, OsString};
-use std::fs::read_to_string;
-use std::path::{is_separator, Path, PathBuf};
+use std::fs::{canonicalize, read_to_string};
+use std::path::{is_separator, Component, Path, PathBuf};
 use strum::EnumIs;
 use tracing::{debug, error, info, trace, warn};
 use uriparse::URI;
@@ -628,11 +628,13 @@ impl ModuleUri<'_> {
                 .and_then(|reference| reference.rsplit_once('@'))
                 .and_then(|(path, digest)| {
                     let path = PathBuf::from(path);
-                    (!path.is_absolute())
+                    (!path.is_absolute() && !path.components().any(|component| matches!(component, Component::ParentDir)))
                         .then(|| {
                             source
                                 .parent()
-                                .map_or(path.clone(), |parent| parent.join(path))
+                                .map_or(path.clone(), |parent| {
+                                    canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf()).join(path)
+                                })
                                 .components()
                                 .collect::<PathBuf>()
                         })

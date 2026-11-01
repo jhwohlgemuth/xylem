@@ -18,6 +18,7 @@ use core::time::Duration;
 use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
 #[cfg(unix)]
 use rustls::{ServerConfig, ServerConnection, StreamOwned};
+use std::fs::write;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Command, Stdio};
@@ -1114,6 +1115,40 @@ fn test_local_oci_layout_is_verified_and_reused_offline() {
         .expect("reuse OCI layout offline");
     assert_eq!(second.evidence.cache, AcquisitionCacheStatus::Hit);
     assert_eq!(first.path, second.path);
+}
+#[test]
+fn test_local_oci_archive_plan_rejects_unsafe_sources() {
+    let root = TestDirectory::create("local-oci-archive-validation");
+    let archive = root.0.join("bundle.tar");
+    let unsupported = root.0.join("bundle.zip");
+    write(&archive, []).expect("write archive placeholder");
+    write(&unsupported, []).expect("write unsupported placeholder");
+    let archive = std::fs::canonicalize(archive).expect("canonical archive path");
+    let unsupported = std::fs::canonicalize(unsupported).expect("canonical unsupported path");
+    let canonical_root = std::fs::canonicalize(&root.0).expect("canonical archive root");
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let policy = policy(&[], false, false);
+    let build = |path: &str, digest: &str| {
+        AcquisitionPlan::build(
+            vec!["oci".to_string()],
+            AcquisitionSource::Oci {
+                digest: digest.to_string(),
+                reference: format!("oci-layout:{path}@{digest}"),
+            },
+            &policy,
+        )
+    };
+    assert!(build(&archive.display().to_string(), &digest).is_ok());
+    assert!(build("../outside.tar", &digest).is_err());
+    assert!(build(&canonical_root.join("missing.tar").display().to_string(), &digest).is_ok());
+    assert!(build(&unsupported.display().to_string(), &digest).is_err());
+    assert!(build(&archive.display().to_string(), "sha256:bad").is_err());
+    #[cfg(unix)]
+    {
+        let link = canonical_root.join("linked.tar");
+        std::os::unix::fs::symlink(&archive, &link).expect("create archive symlink");
+        assert!(build(&link.display().to_string(), &digest).is_err());
+    }
 }
 #[test]
 fn test_oci_bearer_realm_and_blob_redirect_follow_explicit_host_policy() {

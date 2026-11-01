@@ -1,5 +1,6 @@
 use crate::acquisition::AcquisitionAction;
 use crate::config::{Config, InputAttribute};
+use crate::execution::ExecutionLimits;
 use crate::journal::{MemoryEvidenceMode, MemoryFallbackEvidence, RunMemoryEvidence};
 use crate::plan::{ExecutionPlan, MemoryPlanMode, PlanError};
 use crate::script::ContainerStartup;
@@ -131,7 +132,7 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
     let first = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("build plan");
     let second = ExecutionPlan::build(&config, "config.yaml".to_string(), &inputs, false).expect("rebuild plan");
     assert_eq!(first, second);
-    assert_eq!(first.schema_version, 14);
+    assert_eq!(first.schema_version, 15);
     assert!(first.memory.is_none());
     assert_eq!(first.sandbox.mode, "off");
     assert_eq!(first.inputs.source, InputSource::List);
@@ -152,6 +153,32 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
         [output.join("input-a").join("*.txt").display().to_string()]
     );
     assert!(!output.exists());
+}
+#[test]
+fn test_execution_plan_records_policy_context_timeout_and_admission() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "input": ["a", "b"],
+        "modules": [{"name": "probe", "type": "script", "uri": "file:./probe", "timeout_seconds": 7}],
+        "options": {"batch": 2, "failure_policy": "continue"},
+        "requirements": []
+    }))
+    .expect("policy plan configuration");
+    let inputs = [Some("a".to_string()), Some("b".to_string())];
+    let resolved = crate::selection::ResolvedInputs::configured(InputSource::List, inputs.to_vec());
+    let limits = ExecutionLimits::try_from(4).expect("positive thread limit");
+    let plan =
+        ExecutionPlan::build_resolved_with_limits(&config, "config.json".to_string(), &resolved, false, Some(limits)).expect("build policy plan");
+    let value = serde_json::to_value(&plan).expect("serialize policy plan");
+    assert_eq!(value["schema_version"], 15);
+    assert_eq!(value["failure_policy"], "continue");
+    assert_eq!(value["admission"]["batch"], 2);
+    assert_eq!(value["admission"]["effective_ceiling"], 2);
+    assert_eq!(value["admission"]["input_indices"], serde_json::json!([0, 1]));
+    assert_eq!(value["contexts"][0], serde_json::json!({"input_index": 0, "workspace": "input_local"}));
+    assert_eq!(value["contexts"][1], serde_json::json!({"input_index": 1, "workspace": "input_local"}));
+    assert_eq!(value["modules"][0]["timeout_seconds"], 7);
+    assert_eq!(value["modules"][1]["timeout_seconds"], 7);
+    assert!(!value.to_string().contains("xylem/workspaces"));
 }
 #[test]
 fn test_execution_plan_preserves_shell_argument_boundaries() {
@@ -316,7 +343,7 @@ fn test_execution_plan_reports_container_startup_strategies() {
             .find(|container| container.name == name)
             .and_then(|container| container.startup)
     };
-    assert_eq!(plan.schema_version, 14);
+    assert_eq!(plan.schema_version, 15);
     assert_eq!(plan.sandbox.mode, "off");
     assert_eq!(startup("explicit"), Some(ContainerStartup::ExplicitCommand));
     assert_eq!(startup("external"), None);
@@ -391,7 +418,7 @@ fn test_execution_plan_reports_validated_memory_fallback() {
     assert_eq!(serialized["memory"]["estimator"]["slope_millionths"], 0);
     assert_eq!(serialized["memory"]["inputs"][0]["fallback"]["kind"], "no_input");
     assert_eq!(serialized["memory"]["mode"], "fixed_fallback");
-    assert_eq!(serialized["schema_version"], 14);
+    assert_eq!(serialized["schema_version"], 15);
 }
 #[test]
 fn test_execution_plan_uses_memory_aware_reservations() {

@@ -18,37 +18,35 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Portfolio review
 
-Rechecked on 2026-10-31 against baseline `85c72df`, the current ENV-05/06
-implementation diff, history since `de0bd89`, current schemas and generated
-help, focused ENV source and dependency evidence, retained measurement and
-platform evidence, and live Homebrew tap merge-request state. The portfolio
-contains 6 executable plans, all using five-hour phases. ENV-05 and ENV-06
-completed during this review. External Windows-runner, tap, A/P/O rollout,
+Rechecked on 2026-10-31 against baseline `ef95f81`, current ENV-07 and OCI-01
+implementation, schemas, focused tests, retained measurement and platform
+evidence. The portfolio contains 6 executable plans, all using five-hour
+phases. External Windows-runner, tap, A/P/O rollout,
 cluster, storage, image, corpus, and credential claims remain explicit
 prerequisites until their owners provide current evidence. Full xylem-lib and
 xylem-cli tests, strict focused Clippy, and rustdoc generation passed for the
-landed process, configuration, and CLI boundary changes.
+current plan, configuration, acquisition, and CLI changes. External tap state
+was not independently rechecked during these phases.
 
 | Plan | Quality | Impact | Remaining difficulty | Readiness | Assessment |
 |---|---:|---:|---:|---|---|
-| [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md) | 5/5 | Critical | High | Ready | Policy-aware structured dispatch and headless cancellation are implemented. ENV-07 is next. |
+| [Workflow environment and concurrency](refactors/workflow-environment-and-concurrency.md) | 5/5 | Critical | High | Ready | Execution-plan v15 records effective policy, timeout, context, and admission evidence. ENV-08 is next. |
 | [Secure module acquisition](refactors/secure-module-acquisition.md) | 5/5 | Critical | Low | Blocked on Windows runner support | SEC-01 through SEC-06 are accepted. Published ACORN CLI 0.5.1 still assumes a POSIX Docker socket for a local container runner, so SEC-07 awaits a native Windows-capable release and host. |
-| [Local OCI archive qualification](features/local-oci-bundle-uris.md) | 5/5 | High | Medium | Ready after shared lock | Native directory URIs and the example are landed; the prior acquisition worktree blocker is gone. OCI-01 may start when no ENV phase owns its shared script/configuration files. |
+| [Local OCI archive qualification](features/local-oci-bundle-uris.md) | 5/5 | High | Medium | Ready | OCI-01 validates archive URI source ownership and rejects unsafe paths. OCI-02 is next. |
 | [Homebrew release activation](features/homebrew-export.md) | 5/5 | High | Low | Ready | Tap merge request !2 remains open and mergeable at the intended commit. Its Linux job passes; three macOS retries remain canceled on the online assigned runner. |
 | [A/P/O memory validation](features/memory-aware-scheduling.md) | 5/5 | High | Low | Blocked on rollout decision | The scheduler and A/P evidence are landed. Run the pinned credentialed A/P/O holdout only when selected for rollout. |
 | [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) | 5/5 | Critical | Very high | Blocked on operator gates | No target, profile, protocol, client, or worker implementation has landed. Controller/worker work requires accepted demand, shared storage, authentication, image path, and the immutable environment boundary. |
 
-The current landed baselines include execution-plan v14, run-summary v13,
+The current baselines include execution-plan v15, run-summary v13,
 verified acquisition, owned workspaces, sandbox providers, memory admission,
 and durable run storage. New runtime work must preserve those contracts.
 
 ## Recommended execution order
 
-1. Run ENV-07 on the run-state lock. Start SEC-07 after a published ACORN
+1. Run ENV-08 on the run-state lock. Start SEC-07 after a published ACORN
    release and Windows host support native Docker runner creation.
-2. OCI-01 may start on the now-free acquisition/configuration lock; it no
-   longer waits for the completed secure-acquisition or environment-context
-   implementation phases.
+2. OCI-02 may start on the acquisition executor lock alongside ENV-08; its
+   configuration/script lock was released after OCI-01.
 3. Start BRW-01 on the assigned online Mac runner. Run APO-01 only
    after the A/P/O rollout decision, corpus access, and credentials arrive.
 4. Start K8S-01 when the operator gates are available; runtime phases follow

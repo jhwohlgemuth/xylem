@@ -102,6 +102,8 @@ Xylem cache.
   which needs only a POSIX shell
 - Inspect intentional failures and their logs with the shell-only
   [failure logging example](./examples/failure-logging/README.md)
+- Compare failure admission behavior with the shell-only
+  [failure policy example](./examples/failure-policy/README.md)
 - Run the broader [kitchensink example](./examples/kitchensink/README.md),
   [multi-module example](./examples/multi-module/README.md),
   [Python with Pixi example](./examples/python-with-pixi/README.md), or
