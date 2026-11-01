@@ -9,8 +9,10 @@ use super::artifact::{ArtifactInput, ArtifactManager};
 use super::lifecycle::{archive_export_arguments, archive_mount, OciResourceSpec};
 use super::reconcile::is_eligible;
 use super::*;
+use crate::acquisition::AcquisitionCache;
 use crate::config::ConfigOptions;
 use crate::script::Command;
+use crate::workspace::RunWorkspace;
 use acorn_cmd::args;
 use alloc::sync::Arc;
 use std::ffi::OsString;
@@ -647,6 +649,47 @@ fn test_lifecycle_container_invocation_has_exact_ownership_labels_and_export_lim
     assert!(arguments.contains(&"--ulimit".to_string()));
     assert!(arguments.iter().any(|argument| argument.starts_with("fsize=")));
     remove_dir_all(directory).expect("remove policy fixture directory");
+}
+#[test]
+fn test_materialized_oci_archive_is_local_to_sandbox_validation() {
+    let directory = root("materialized-oci-archive");
+    let _ = remove_dir_all(&directory);
+    create_dir_all(&directory).expect("create materialized OCI fixture root");
+    let directory = std::fs::canonicalize(directory).expect("canonical materialized OCI fixture root");
+    let policy_path = directory.join("policy.json");
+    write(&policy_path, policy("json")).expect("write materialized OCI sandbox policy");
+    let policy = EffectiveSandboxPolicy::read(&policy_path).expect("read materialized OCI sandbox policy");
+    let workspace = RunWorkspace::create(&directory.join("modules"), "run").expect("create materialized OCI run workspace");
+    let input = workspace.input(0).expect("create materialized OCI input workspace");
+    let archive = std::fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/oci-local/module/bundle.tar"))
+        .expect("canonical OCI archive fixture");
+    let digest = "sha256:98970c614c6c50785f7fc7b220e2b966249e95d6705f60cbc9b451923a74f805";
+    let source = format!("oci-layout:{}@{digest}", archive.display());
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "name": "archive",
+            "type": "script",
+            "uri": source,
+            "template": { "command": "sh", "arguments": ["run.sh"] }
+        }],
+        "requirements": [],
+        "sandbox": true
+    }))
+    .expect("materialized OCI sandbox configuration");
+    let options = ConfigOptions::init()
+        .build()
+        .with_acquisition_cache(Some(AcquisitionCache::new(directory.join("cache"))))
+        .with_offline(Some(true));
+    let prepared = config
+        .with_options(options)
+        .materialize_modules_selected_in_workspace(&BTreeSet::from([0]), None, &input)
+        .expect("materialize local OCI archive");
+    assert!(policy.validate_workflow(&prepared, &[None]).is_ok());
+    let expected = prepared.options.as_ref().and_then(|options| options.workspace_modules.get(&0)).cloned();
+    assert_eq!(prepared.modules[0].sandbox_local_source().expect("resolve sandbox source"), expected);
+    assert_eq!(prepared.modules[0].acquisition.as_ref().expect("OCI acquisition evidence").source, source);
+    workspace.close().expect("close materialized OCI workspace");
+    remove_dir_all(directory).expect("remove materialized OCI fixture");
 }
 #[test]
 fn test_missing_declared_output_leaves_destination_absent() {

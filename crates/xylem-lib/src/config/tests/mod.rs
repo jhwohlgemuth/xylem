@@ -137,6 +137,51 @@ fn test_all_module_locations_round_trip_scalar_and_structured_forms() {
     serde_json::from_value::<Config>(serialized).expect("round trip module locations");
 }
 #[test]
+fn test_local_oci_archive_materialization_rewrites_sandbox_source() {
+    let root = std::env::temp_dir().join(format!("xylem-oci-sandbox-handoff-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    let workspace = RunWorkspace::create(&root.join("workspaces"), "run").expect("create OCI handoff workspace");
+    let input = workspace.input(0).expect("create OCI handoff input workspace");
+    let archive = std::fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/oci-local/module/bundle.tar"))
+        .expect("canonical OCI archive fixture");
+    let digest = "sha256:98970c614c6c50785f7fc7b220e2b966249e95d6705f60cbc9b451923a74f805";
+    let source = format!("oci-layout:{}@{digest}", archive.display());
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "name": "archive",
+            "type": "script",
+            "uri": source,
+            "template": { "command": "sh", "arguments": ["run.sh"] }
+        }],
+        "requirements": [],
+        "sandbox": true
+    }))
+    .expect("local OCI archive configuration");
+    let options = ConfigOptions::init()
+        .build()
+        .with_acquisition_cache(Some(AcquisitionCache::new(root.join("cache"))))
+        .with_offline(Some(true));
+    let prepared = config
+        .with_options(options)
+        .materialize_modules_selected_in_workspace(&BTreeSet::from([0]), None, &input)
+        .expect("materialize local OCI archive for sandbox");
+    let path = prepared
+        .options
+        .as_ref()
+        .and_then(|options| options.workspace_modules.get(&0))
+        .expect("materialized OCI workspace path");
+    let uri = match &prepared.modules[0].module_type {
+        | ModuleType::Script { uri, .. } => <&str>::from(uri),
+        | _ => panic!("OCI archive fixture should remain a script module"),
+    };
+    assert_eq!(uri, format!("file:{}", path.display()));
+    let evidence = prepared.modules[0].acquisition.as_ref().expect("local OCI acquisition evidence");
+    assert_eq!(evidence.source, source);
+    assert!(evidence.policy.offline);
+    workspace.close().expect("close OCI handoff workspace");
+    remove_dir_all(root).expect("remove OCI handoff fixture");
+}
+#[test]
 fn test_local_oci_archive_paths_follow_declaring_configuration() {
     let root = std::env::temp_dir().join(format!("xylem-oci-archive-config-{}", std::process::id()));
     let child = root.join("child");

@@ -19,9 +19,9 @@ usable without registry access while registry `oci://` behavior stays intact.
 
 # Current evidence
 
-Rechecked on 2026-10-31 against baseline `ef95f81` and current OCI-01 changes,
-acquisition/configuration tests, and the history since the directory-form
-implementation at `97d5203`.
+Rechecked on 2026-11-01 against baseline `c921c90`, accepted OCI-01 source
+validation, OCI-02 archive qualification, focused acquisition tests, and the
+history since the directory-form implementation at `97d5203`.
 
 - Local OCI layout directories are native script and configuration module
   sources. Paths resolve relative to the declaring configuration, ORAS reads
@@ -29,29 +29,38 @@ implementation at `97d5203`.
 - Execution-plan v15 permits `oci-layout:` references and run-summary v14
   records the existing digest evidence. Neither schema needs a new version if
   archive handling uses the same source and evidence shape.
+- The deterministic `bundle.tar` fixture is 10,240 bytes with SHA-256
+  `cfe4bf409883c7fb0eb4b2010b1406ac380e1204bb06548a35db19617f0f74a9`.
+  ORAS 1.3.5 verified and extracted it by the pinned manifest digest without
+  network access. Malformed-index, missing-blob, staging-limit, cancellation,
+  cache-miss, and offline cache-hit cases pass without publishing incomplete
+  entries.
 - The checked-in acquisition tests cover a local layout directory and offline
   cache reuse. OCI-01 resolves direct and nested archive paths against their
   declaring configuration and rejects symlinked, traversing,
   non-regular, unsupported-extension, and malformed-digest sources before
-  acquisition. Archive extraction, malformed archive/index/blob cases, and
-  the complete sandbox preparation matrix lack accepted qualification.
+  acquisition. The complete sandbox preparation matrix still lacks accepted
+  qualification.
+- Sandbox-oriented materialization now replaces the selected module URI with
+  the verified input-local `file:` path before `SandboxInput` validation while
+  retaining the original `oci-layout:` source and digest in immutable
+  acquisition evidence. Deny-network validation accepts the resulting local
+  module without registry access.
 - Secure acquisition implementation and Linux/macOS qualification are landed.
   Its remaining SEC-07 work owns the Windows runner and manifests, not the
-  configuration/acquisition source files, so it does not block OCI-02.
+  sandbox preparation tests, so it does not block OCI-03.
 
 # Project code boundaries
 
-- **Update:** acquisition URI/path validation, ORAS materialization, focused
-  archive tests, configuration and sandbox preparation tests, and example docs.
-- **Create:** a small OCI layout archive fixture only when needed for the
-  focused tests.
+- **Update:** provider preparation tests, then example docs.
+- **Create:** None.
 - **Delete:** None.
 
 # Dependencies and ordering
 
-The configuration/acquisition lock is released after OCI-01. OCI-02 owns the
-acquisition executor and can proceed independently of the completed environment work. The archive
-extension does not wait for unrelated platform qualification. Keep the v15/v14
+The acquisition and configuration-to-sandbox handoff locks are released.
+OCI-03 may take the sandbox preparation lock independently of completed
+environment work and unrelated platform qualification. Keep the v15/v14
 durable vocabulary unless an observed missing field requires a separately
 coordinated schema phase.
 
@@ -70,10 +79,10 @@ coordinated schema phase.
 
 # Validation
 
-Cover archive parsing and acquisition, digest and descriptor errors, limits,
-corruption, cancellation, offline and dry-run behavior, nested configuration,
-and host/Docker Sandbox/OpenShell preparation. Run the native local example with
-network access disabled.
+Cover dry-run behavior, nested configuration, and host/Docker
+Sandbox/OpenShell preparation. Run the native local example with network
+access disabled and verify documentation links after the accepted behavior is
+documented.
 
 # Acceptance criteria
 
@@ -85,22 +94,11 @@ network access disabled.
 
 # Execution phases
 
-## OCI-02 — Materialize bounded archives through ORAS
+## OCI-03 — Qualify host and sandbox preparation
 
 - Status: ready
 - Budget: 5 active hours maximum
-- Prerequisites: local archive source validation accepted; configuration ownership released
-- Exact write set: `crates/xylem-lib/src/acquisition/oci.rs`, `crates/xylem-lib/src/acquisition/executor.rs`, `crates/xylem-lib/src/acquisition/tests.rs`, `examples/oci-local/module/bundle.tar`
-- Primary integration lock: acquisition executor
-- Outcome: Archive reads verify the pinned manifest, bound extraction, and publish only complete cache entries.
-- Focused validation: `cargo test -p xylem-lib acquisition::tests --locked` with archive, corruption, limit, cancellation, and offline cases.
-- Handoff: Record fixture identity, ORAS version, and cache evidence; remove OCI-02 when accepted.
-
-## OCI-03 — Qualify host and sandbox preparation
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: OCI-02 and release of the sandbox preparation lock
+- Prerequisites: accepted local archive handoff and release of the sandbox preparation lock
 - Exact write set: `crates/xylem-lib/src/sandbox/tests/mod.rs`, `crates/xylem-lib/src/sandbox/docker_sandbox/tests.rs`, `crates/xylem-lib/src/sandbox/openshell/tests.rs`, `crates/xylem-lib/src/config/tests/mod.rs`
 - Primary integration lock: sandbox preparation
 - Outcome: Host, Docker Sandbox, and OpenShell runs receive only the verified local tree, with no registry credentials or network use.

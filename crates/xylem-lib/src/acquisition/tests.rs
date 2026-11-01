@@ -26,6 +26,9 @@ use std::sync::Barrier;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+const OCI_FIXTURE_DIGEST: &str = "sha256:98970c614c6c50785f7fc7b220e2b966249e95d6705f60cbc9b451923a74f805";
+const OCI_FIXTURE_LAYER_PATH: &str = "blobs/sha256/d74bed91bbc99064053346c46343df89ff3333c14447b7479ba1de142a8e662e";
+
 struct TestDirectory(PathBuf);
 impl Drop for TestDirectory {
     fn drop(&mut self) {
@@ -100,6 +103,45 @@ fn git_fixture(root: &Path) -> String {
 }
 fn policy(hosts: &[String], allow_http: bool, offline: bool) -> AcquisitionPolicy {
     AcquisitionPolicy::from_hosts(Some(hosts), allow_http, None, offline, AcquisitionLimits::default()).expect("construct acquisition policy")
+}
+fn corrupt_tar_entry(source: &Path, destination: &Path, needle: &[u8]) {
+    let mut archive = read(source).expect("read OCI archive fixture");
+    let offset = archive
+        .windows(needle.len())
+        .position(|candidate| candidate == needle)
+        .expect("locate OCI archive entry");
+    archive[offset] = b'!';
+    write(destination, archive).expect("write corrupted OCI archive fixture");
+}
+fn local_oci_archive() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/oci-local/module/bundle.tar")
+}
+fn local_oci_plan(archive: &Path, policy: &AcquisitionPolicy) -> AcquisitionPlan {
+    let archive = std::fs::canonicalize(archive).expect("canonical local OCI archive");
+    AcquisitionPlan::build(
+        vec!["oci".to_string()],
+        AcquisitionSource::Oci {
+            digest: OCI_FIXTURE_DIGEST.to_string(),
+            reference: format!("oci-layout:{}@{OCI_FIXTURE_DIGEST}", archive.display()),
+        },
+        policy,
+    )
+    .expect("plan local OCI archive")
+}
+fn rename_tar_entry(source: &Path, destination: &Path, original: &str, renamed: &str) {
+    assert_eq!(original.len(), renamed.len(), "tar entry replacement length");
+    let mut archive = read(source).expect("read OCI archive fixture");
+    let offset = archive
+        .windows(original.len())
+        .position(|candidate| candidate == original.as_bytes())
+        .expect("locate OCI archive tar entry");
+    let header_start = offset - offset % 512;
+    archive[offset..offset + renamed.len()].copy_from_slice(renamed.as_bytes());
+    archive[header_start + 148..header_start + 156].fill(b' ');
+    let checksum = archive[header_start..header_start + 512].iter().map(|byte| u64::from(*byte)).sum::<u64>();
+    let checksum = format!("{checksum:06o}\0 ");
+    archive[header_start + 148..header_start + 156].copy_from_slice(checksum.as_bytes());
+    write(destination, archive).expect("write renamed OCI archive fixture");
 }
 fn serve(body: Vec<u8>) -> Option<(String, JoinHandle<()>)> {
     let listener = match TcpListener::bind("127.0.0.1:0") {
@@ -1117,6 +1159,60 @@ fn test_local_oci_layout_is_verified_and_reused_offline() {
     assert_eq!(first.path, second.path);
 }
 #[test]
+fn test_local_oci_archive_corruption_does_not_publish_cache() {
+    let root = TestDirectory::create("local-oci-corrupt-archive");
+    let archive = root.0.join("malformed-index.tar");
+    corrupt_tar_entry(
+        &local_oci_archive(),
+        &archive,
+        br#"{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json""#,
+    );
+    let policy = policy(&[], false, true);
+    let plan = local_oci_plan(&archive, &policy);
+    let cache = root.0.join("cache");
+    let result = AcquisitionExecutor::new(policy, AcquisitionCache::new(cache.clone())).execute(&plan);
+    assert!(matches!(result, Err(AcquisitionError::Process { .. })));
+    assert_eq!(read_dir(cache.join("oci-layout")).expect("read failed OCI cache namespace").count(), 0);
+}
+#[test]
+fn test_local_oci_archive_enforces_staging_limit() {
+    let limits = AcquisitionLimits {
+        git_staging: Memory::kb(1_f64 / 1024_f64),
+        ..AcquisitionLimits::default()
+    };
+    let policy = AcquisitionPolicy::from_hosts(Some(&[]), false, None, true, limits).expect("construct bounded local OCI policy");
+    let plan = local_oci_plan(&local_oci_archive(), &policy);
+    let root = TestDirectory::create("local-oci-archive-limit");
+    let result = AcquisitionExecutor::new(policy, AcquisitionCache::new(root.0.clone())).execute(&plan);
+    assert!(matches!(result, Err(AcquisitionError::Limit { .. })));
+    assert_eq!(read_dir(root.0.join("oci-layout")).expect("read bounded OCI cache namespace").count(), 0);
+}
+#[test]
+fn test_local_oci_archive_is_verified_and_reused_offline() {
+    let offline = policy(&[], false, true);
+    let plan = local_oci_plan(&local_oci_archive(), &offline);
+    let root = TestDirectory::create("local-oci-archive-cache");
+    let cache = AcquisitionCache::new(root.0.clone());
+    let first = AcquisitionExecutor::new(offline.clone(), cache.clone())
+        .execute(&plan)
+        .expect("acquire local OCI archive offline");
+    assert_eq!(first.evidence.cache, AcquisitionCacheStatus::Miss);
+    assert_eq!(
+        first.evidence.identity,
+        AcquisitionIdentity::OciDigest {
+            digest: OCI_FIXTURE_DIGEST.to_string()
+        }
+    );
+    assert_eq!(first.evidence.source, plan.source.to_string());
+    assert!(first.evidence.tree_digest.is_some());
+    assert!(first.path.join("run.sh").is_file());
+    let second = AcquisitionExecutor::new(offline, cache)
+        .execute(&plan)
+        .expect("reuse local OCI archive offline");
+    assert_eq!(second.evidence.cache, AcquisitionCacheStatus::Hit);
+    assert_eq!(first.path, second.path);
+}
+#[test]
 fn test_local_oci_archive_plan_rejects_unsafe_sources() {
     let root = TestDirectory::create("local-oci-archive-validation");
     let archive = root.0.join("bundle.tar");
@@ -1149,6 +1245,19 @@ fn test_local_oci_archive_plan_rejects_unsafe_sources() {
         std::os::unix::fs::symlink(&archive, &link).expect("create archive symlink");
         assert!(build(&link.display().to_string(), &digest).is_err());
     }
+}
+#[test]
+fn test_local_oci_archive_rejects_missing_blob() {
+    let root = TestDirectory::create("local-oci-missing-blob");
+    let archive = root.0.join("missing-blob.tar");
+    let renamed = OCI_FIXTURE_LAYER_PATH.replacen("d74bed", "e74bed", 1);
+    rename_tar_entry(&local_oci_archive(), &archive, OCI_FIXTURE_LAYER_PATH, &renamed);
+    let policy = policy(&[], false, true);
+    let plan = local_oci_plan(&archive, &policy);
+    let cache = root.0.join("cache");
+    let result = AcquisitionExecutor::new(policy, AcquisitionCache::new(cache.clone())).execute(&plan);
+    assert!(matches!(result, Err(AcquisitionError::Process { .. })));
+    assert_eq!(read_dir(cache.join("oci-layout")).expect("read failed OCI cache namespace").count(), 0);
 }
 #[test]
 fn test_oci_bearer_realm_and_blob_redirect_follow_explicit_host_policy() {

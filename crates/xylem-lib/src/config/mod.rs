@@ -603,6 +603,9 @@ impl Config {
                 prepared.into_iter().for_each(|(index, module, path)| {
                     if let Some(target) = self.modules.get_mut(index) {
                         target.acquisition = module.acquisition;
+                        if !prepare_environment {
+                            target.set_uri(path.clone());
+                        }
                     }
                     workspace_modules.insert(index, path);
                 });
