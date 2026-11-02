@@ -2,7 +2,6 @@
 
 ## Planned
 
-- [Local OCI archive qualification](local-oci-bundle-uris.md) - Complete archive and sandbox qualification for the landed local layout URI.
 - [Kubernetes workflow execution backend](kubernetes-workflow-backend.md) - Qualify operator gates, then add a reconnectable Job and versioned worker contract in bounded phases.
 
 ## Waiting on validation

@@ -4,9 +4,10 @@ The [`oci-local`](../../examples/oci-local/),
 [`oci-local-registry`](../../examples/oci-local-registry/), and
 [`oci-remote`](../../examples/oci-remote/) examples show digest-pinned OCI
 artifact workflows. `oci-local` runs ORAS against a checked-in OCI image layout
-directory without a registry. `oci-local-registry` publishes the layout to a
-local registry and uses Xylem's `oci://` registry acquisition. `oci-remote`
-pulls a public artifact from Savannah.
+directory without a registry; the same example includes an equivalent `.tar`
+archive accepted by the same `oci-layout:` URI. `oci-local-registry` publishes
+the layout to a local registry and uses Xylem's `oci://` registry acquisition.
+`oci-remote` pulls a public artifact from Savannah.
 
 The repository's [`examples/`](https://code.ornl.gov/research-enablement/xylem/-/tree/main/examples)
 directory contains single-module and composed workflows.
@@ -40,6 +41,23 @@ OCI workflow targets include:
 ```shell
 cargo run --example oci-local        # local OCI layout bundle; no registry
 cargo run --example oci-remote       # requires Savannah access
+```
+
+The local example can also run explicitly offline. From the repository root:
+
+```shell
+cd examples/oci-local
+xylem run --offline --no-progress
+```
+
+Its configuration uses the directory form
+`oci-layout:./module/bundle@sha256:<manifest-digest>`. Replace `bundle` with
+`bundle.tar` to exercise the checked-in archive with the same manifest digest.
+Both forms require ORAS but make no registry request. A dry-run validates the
+reference without invoking ORAS:
+
+```shell
+xylem run --dry-run --offline --no-progress
 ```
 
 The other runnable targets include:

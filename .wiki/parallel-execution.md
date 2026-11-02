@@ -19,7 +19,7 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 | CLI | K8S-03/09/10/11/14 | One owner changes command registration, run orchestration, cancellation, or exit mapping at a time. |
 | Manifest | SEC-07, K8S-02 | Inspect the feature tree and audit the resulting lockfile. |
 | Delivery | BRW-02, K8S-15/16/17/18 | Serialize CI, image, and release wiring. |
-| Documentation | BRW-03, OCI-04, K8S-19 | Land final names and verified behavior before user-facing updates. |
+| Documentation | BRW-03, K8S-19 | Land final names and verified behavior before user-facing updates. |
 
 ## Work lanes
 
@@ -28,9 +28,6 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 - [SEC-07](refactors/secure-module-acquisition.md): qualify Windows and close
   the dependency gate after a published ACORN release and Windows host support
   native Docker runner creation.
-- [OCI-04](features/local-oci-bundle-uris.md): document the accepted local
-  archive and provider contract without waiting on unrelated Git or platform
-  results.
 
 ### Lane B: execution runtime
 
@@ -53,15 +50,14 @@ its write set remains disjoint from CI and documentation integration.
 
 | Phase | Primary lock | Start condition |
 |---|---|---|
-| OCI-04 | Documentation | Ready after accepted local source, extraction, input-local handoff, and provider qualification. |
 | BRW-01 | Tap validation | Assigned `RE Runner (macbook)` remains online. |
 | APO-01 | A/P/O measurement evidence | Rollout, corpus, and credentials are supplied. |
 | K8S-01 | Kubernetes deployment assumptions | Operator demand, cluster, storage, and image owner are supplied. |
 
 The process adapter uses the published and pinned ACORN 0.5.1 contract at
 `3e915697d214eda33e0d4c52f03fb09f27d9d3e4`. The completed environment,
-scheduler, cancellation, plan, and source-validation phases released their
-locks.
+scheduler, cancellation, plan, source-validation, and local OCI qualification
+phases released their locks.
 
 ## Agent start checklist
 

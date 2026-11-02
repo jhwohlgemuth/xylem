@@ -503,22 +503,40 @@ populate the cache. A cached remote configuration wrapper can therefore be
 flattened during dry-run; a cache miss is reported without a request.
 
 OCI module references use `oci://registry/repository@sha256:<64 lowercase hex>`.
-Local OCI layouts use `oci-layout:<path>@sha256:<64 lowercase hex>`. Relative
-paths follow `file:` module rules: top-level executable modules use the working
-directory; configuration wrappers and nested modules use their source file.
-Both forms are supported for script and configuration modules. Local layouts
-need no allowed host and can be acquired while offline.
-The digest pins the image manifest; its config and file-layer sizes are checked
-against `git_staging`, and the extracted tree is checked against `git_tree` and
-`git_entries` before it enters the verified cache. Script modules execute from
-the artifact root. Configuration modules read `config.json` from that root.
-Xylem checks the exact-host allowlist for every registry, bearer-token, and
-redirect request. Cross-host token and blob endpoints must each be listed;
-HTTPS requests cannot redirect to HTTP. Registry credentials follow the local
-Docker configuration and credential-helper settings. Xylem verifies the pinned
-manifest and blobs before ORAS extracts a local OCI layout, so `oras` must be
-installed on the host. Offline registry use requires a verified cache hit.
-OCI modules accept version 2 image manifests with titled file layers.
+Local OCI sources use `oci-layout:<path>@sha256:<64 lowercase hex>`, where the
+path names either an OCI image layout directory or an uncompressed `.tar`
+archive of one. Relative paths follow `file:` module rules: top-level
+executable modules use the working directory; configuration wrappers and
+nested modules use their source file. Local paths cannot traverse through a
+parent directory or a symbolic link, and an existing source must be a
+directory or regular `.tar` file. Both registry and local forms are supported
+for script and configuration modules. Script modules execute from the artifact
+root; configuration modules read `config.json` from that root.
+
+Local layouts need no allowed host. Even under `--offline`, a cache miss may be
+filled from the named local directory or archive because no network request is
+needed. A registry cache miss fails offline. In either case, Xylem verifies the
+pinned manifest and every referenced blob before publishing the extracted tree
+to its immutable cache. A malformed layout, missing blob, digest mismatch, or
+limit failure does not publish a partial entry. `oras` must be installed on the
+host for an uncached acquisition.
+
+OCI acquisition reuses the existing limit names: `git_timeout` bounds the
+complete ORAS operation, `process_output` bounds captured ORAS output,
+`git_staging` bounds the manifest's declared config and layer bytes and the
+staging tree, and `git_tree` and `git_entries` bound the extracted tree. Dry-run
+validates the URI and local source rules and may inspect a verified cache entry,
+but does not invoke ORAS, populate the cache, or create an input workspace.
+During execution, Xylem copies the verified tree into the input workspace.
+Host execution and sandbox preparation consume that input-local tree rather
+than reopening the archive or contacting a registry; durable acquisition
+evidence retains the original OCI reference and manifest digest.
+
+For registry references, Xylem checks the exact-host allowlist for every
+registry, bearer-token, and redirect request. Cross-host token and blob
+endpoints must each be listed; HTTPS requests cannot redirect to HTTP. Registry
+credentials follow the local Docker configuration and credential-helper
+settings. OCI modules accept version 2 image manifests with titled file layers.
 
 See the repository's
 [module specification](https://code.ornl.gov/research-enablement/xylem/-/blob/main/MODULE_SPEC.md)
