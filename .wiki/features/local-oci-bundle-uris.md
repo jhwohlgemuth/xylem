@@ -19,9 +19,10 @@ usable without registry access while registry `oci://` behavior stays intact.
 
 # Current evidence
 
-Rechecked on 2026-11-01 against baseline `c921c90`, accepted OCI-01 source
-validation, OCI-02 archive qualification, focused acquisition tests, and the
-history since the directory-form implementation at `97d5203`.
+Rechecked on 2026-11-01 against baseline `830aa31`, accepted OCI-01 source
+validation, OCI-02 archive qualification, OCI-03 provider preparation
+qualification, and the history since the directory-form implementation at
+`97d5203`.
 
 - Local OCI layout directories are native script and configuration module
   sources. Paths resolve relative to the declaring configuration, ORAS reads
@@ -39,30 +40,34 @@ history since the directory-form implementation at `97d5203`.
   cache reuse. OCI-01 resolves direct and nested archive paths against their
   declaring configuration and rejects symlinked, traversing,
   non-regular, unsupported-extension, and malformed-digest sources before
-  acquisition. The complete sandbox preparation matrix still lacks accepted
-  qualification.
+  acquisition.
 - Sandbox-oriented materialization now replaces the selected module URI with
   the verified input-local `file:` path before `SandboxInput` validation while
   retaining the original `oci-layout:` source and digest in immutable
   acquisition evidence. Deny-network validation accepts the resulting local
   module without registry access.
+- Host execution consumes the extracted input-local tree, and OCI, Docker
+  Sandbox, and OpenShell policies accept that same verified source. Docker
+  Sandbox preparation is local-only with networking denied; OpenShell emits no
+  preparation network policy. The native `oci-local` example passes with
+  acquisition explicitly offline.
 - Secure acquisition implementation and Linux/macOS qualification are landed.
   Its remaining SEC-07 work owns the Windows runner and manifests, not the
-  sandbox preparation tests, so it does not block OCI-03.
+  local archive documentation, so it does not block OCI-04.
 
 # Project code boundaries
 
-- **Update:** provider preparation tests, then example docs.
+- **Update:** example docs.
 - **Create:** None.
 - **Delete:** None.
 
 # Dependencies and ordering
 
-The acquisition and configuration-to-sandbox handoff locks are released.
-OCI-03 may take the sandbox preparation lock independently of completed
-environment work and unrelated platform qualification. Keep the v15/v14
-durable vocabulary unless an observed missing field requires a separately
-coordinated schema phase.
+The acquisition, configuration-to-sandbox handoff, and sandbox preparation
+locks are released. OCI-04 may take the documentation lock independently of
+completed environment work and unrelated platform qualification. Keep the
+v15/v14 durable vocabulary unless an observed missing field requires a
+separately coordinated schema phase.
 
 # Recommendation
 
@@ -79,10 +84,8 @@ coordinated schema phase.
 
 # Validation
 
-Cover dry-run behavior, nested configuration, and host/Docker
-Sandbox/OpenShell preparation. Run the native local example with network
-access disabled and verify documentation links after the accepted behavior is
-documented.
+Verify documentation links and run the native local example with network
+access disabled after the accepted behavior is documented.
 
 # Acceptance criteria
 
@@ -94,22 +97,11 @@ documented.
 
 # Execution phases
 
-## OCI-03 — Qualify host and sandbox preparation
+## OCI-04 — Document the accepted local archive contract
 
 - Status: ready
 - Budget: 5 active hours maximum
-- Prerequisites: accepted local archive handoff and release of the sandbox preparation lock
-- Exact write set: `crates/xylem-lib/src/sandbox/tests/mod.rs`, `crates/xylem-lib/src/sandbox/docker_sandbox/tests.rs`, `crates/xylem-lib/src/sandbox/openshell/tests.rs`, `crates/xylem-lib/src/config/tests/mod.rs`
-- Primary integration lock: sandbox preparation
-- Outcome: Host, Docker Sandbox, and OpenShell runs receive only the verified local tree, with no registry credentials or network use.
-- Focused validation: focused provider preparation tests and `oci-local` example with networking unavailable.
-- Handoff: Record each supported provider result; remove OCI-03 when accepted.
-
-## OCI-04 — Document the accepted local archive contract
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: OCI-03
+- Prerequisites: accepted host and sandbox provider qualification
 - Exact write set: `docs/src/configuration.md`, `docs/src/examples.md`, `examples/oci-local/README.md`, `examples/README.md`
 - Primary integration lock: documentation
 - Outcome: URI syntax, archive limits, offline behavior, and the native example match tested behavior.

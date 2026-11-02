@@ -31,7 +31,7 @@ was not independently rechecked during these phases.
 | Plan | Quality | Impact | Remaining difficulty | Readiness | Assessment |
 |---|---:|---:|---:|---|---|
 | [Secure module acquisition](refactors/secure-module-acquisition.md) | 5/5 | Critical | Low | Blocked on Windows runner support | SEC-01 through SEC-06 are accepted. Published ACORN CLI 0.5.1 still assumes a POSIX Docker socket for a local container runner, so SEC-07 awaits a native Windows-capable release and host. |
-| [Local OCI archive qualification](features/local-oci-bundle-uris.md) | 5/5 | High | Medium | Ready | The input-local sandbox handoff is accepted; OCI-03 is the next provider-qualification phase. |
+| [Local OCI archive qualification](features/local-oci-bundle-uris.md) | 5/5 | High | Low | Ready | Host and sandbox provider qualification is accepted; OCI-04 documents the tested contract. |
 | [Homebrew release activation](features/homebrew-export.md) | 5/5 | High | Low | Ready | Tap merge request !2 remains open and mergeable at the intended commit. Its Linux job passes; three macOS retries remain canceled on the online assigned runner. |
 | [A/P/O memory validation](features/memory-aware-scheduling.md) | 5/5 | High | Low | Blocked on rollout decision | The scheduler and A/P evidence are landed. Run the pinned credentialed A/P/O holdout only when selected for rollout. |
 | [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) | 5/5 | Critical | Very high | Blocked on operator gates | No target, profile, protocol, client, or worker implementation has landed. Controller/worker work requires accepted demand, shared storage, authentication, image path, and the immutable environment boundary. |
@@ -44,8 +44,8 @@ and durable run storage. New runtime work must preserve those contracts.
 
 1. Start SEC-07 after a published ACORN release and Windows host support
    native Docker runner creation.
-2. OCI-03 may start on the sandbox preparation lock using the accepted local
-   archive handoff.
+2. OCI-04 may start on the documentation lock using the accepted host and
+   sandbox provider behavior.
 3. Start BRW-01 on the assigned online Mac runner. Run APO-01 only
    after the A/P/O rollout decision, corpus access, and credentials arrive.
 4. Start K8S-01 when the operator gates are available; runtime phases consume

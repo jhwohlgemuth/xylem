@@ -231,6 +231,44 @@ fn test_local_oci_archive_paths_follow_declaring_configuration() {
     remove_dir_all(root).expect("remove archive configuration fixture");
 }
 #[test]
+fn test_local_oci_archive_preparation_executes_from_input_local_tree() {
+    let root = std::env::temp_dir().join(format!("xylem-oci-host-preparation-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    let workspace = RunWorkspace::create(&root.join("workspaces"), "run").expect("create OCI host workspace");
+    let input = workspace.input(0).expect("create OCI host input workspace");
+    let archive = std::fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/oci-local/module/bundle.tar"))
+        .expect("canonical OCI archive fixture");
+    let digest = "sha256:98970c614c6c50785f7fc7b220e2b966249e95d6705f60cbc9b451923a74f805";
+    let source = format!("oci-layout:{}@{digest}", archive.display());
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "name": "archive",
+            "type": "script",
+            "uri": source,
+            "template": { "command": "sh", "arguments": ["-c", "test -f run.sh"] }
+        }],
+        "requirements": []
+    }))
+    .expect("local OCI host configuration");
+    let options = ConfigOptions::init()
+        .build()
+        .with_acquisition_cache(Some(AcquisitionCache::new(root.join("cache"))))
+        .with_offline(Some(true));
+    let prepared = config
+        .with_options(options)
+        .prepare_modules_selected_in_workspace(&BTreeSet::from([0]), None, &input)
+        .expect("prepare local OCI archive for host execution");
+    let options = prepared.options.clone().expect("prepared host options");
+    let module = options.workspace_modules.get(&0).expect("input-local OCI module");
+    assert!(module.starts_with(input.modules()));
+    assert!(module.join("run.sh").is_file());
+    assert_eq!(prepared.modules[0].acquisition.as_ref().expect("OCI acquisition evidence").source, source);
+    let outcome = prepared.run_workflow(None, &options);
+    assert!(outcome.state.is_succeeded());
+    workspace.close().expect("close OCI host workspace");
+    remove_dir_all(root).expect("remove OCI host fixture");
+}
+#[test]
 fn test_allowed_round_trips_in_configuration_options() {
     let config: Config = serde_json::from_value(serde_json::json!({
         "requirements": [],

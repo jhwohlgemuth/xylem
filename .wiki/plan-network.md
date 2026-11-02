@@ -15,7 +15,7 @@ owned workspaces, sandbox providers, memory admission, and run storage.
 
 ```text
 execution-plan v15 + run-summary v14 + immutable contexts -> K8S-03 onward
-accepted local archive handoff -> OCI-03 -> OCI-04
+accepted provider qualification -> OCI-04
 operator demand + cluster/PVC/image path -> K8S-01 -> K8S-02 onward
 assigned Mac runner -> successful macOS job BRW-01 -> BRW-02 -> BRW-03
 A/P/O rollout + corpus + credentials -> APO-01 -> APO-02
@@ -24,9 +24,9 @@ A/P/O rollout + corpus + credentials -> APO-01 -> APO-02
 SEC-01 through SEC-06 are accepted; SEC-07 qualifies Windows and closes the
 dependency gate after a published ACORN release and Windows host support
 native Docker runner creation. The published ACORN CLI 0.5.1 path still assumes
-the POSIX Docker socket. The local archive handoff is accepted; OCI-03 owns
-sandbox preparation without waiting for unrelated platform qualification.
-K8S worker and schema phases require the
+the POSIX Docker socket. Local archive provider qualification is accepted;
+OCI-04 documents that contract without waiting for unrelated platform
+qualification. K8S worker and schema phases require the
 immutable environment, cancellation, and durable-state contracts from ENV.
 
 ## Direct dependency edges
@@ -35,8 +35,8 @@ immutable environment, cancellation, and durable-state contracts from ENV.
   remaining platform qualification. Registry authorization and bounded OCI
   acquisition are accepted at `de0bd89`; Git transport at `1f5ed65`.
 - [Local OCI archive qualification](features/local-oci-bundle-uris.md) has
-  accepted source validation, extraction, and the local sandbox handoff;
-  OCI-03 qualifies provider preparation.
+  accepted source validation, extraction, local sandbox handoff, and provider
+  preparation; OCI-04 documents the tested contract.
 - [Kubernetes workflow execution](features/kubernetes-workflow-backend.md)
   begins with operator demand and storage qualification; executable runtime
   phases follow the environment context and schema phases.
@@ -55,7 +55,6 @@ immutable environment, cancellation, and durable-state contracts from ENV.
 | `crates/xylem-lib/src/execution.rs` and `commands/run/dispatch.rs` | K8S-03 | Preserve ordered fixed and memory-aware admission. |
 | Plan, journal, run store, projection, telemetry, reporter, and TUI | K8S-08 | Allocate schema revisions serially and update durable readers and views together. |
 | CLI roots and `commands/run/` | K8S-03/09/10/11/14 | One CLI integration owner at a time; preserve exit mapping and dry-run purity. |
-| Sandbox providers | OCI-03 | Keep the landed provider boundary and run focused conformance with the accepted local handoff. |
 | Delivery files and release images | BRW-02, K8S-15/16/17/18 | Serialize CI/release wiring; runner administration owns no repository files. |
 | User documentation and examples | BRW-03, OCI-04, K8S-19 | Document only accepted behavior and tested commands. |
 

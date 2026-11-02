@@ -6,10 +6,13 @@
     clippy::arithmetic_side_effects
 )]
 use super::*;
+use crate::acquisition::AcquisitionCache;
+use crate::config::{Config, ConfigOptions};
 use crate::sandbox::{EffectiveSandboxPolicy, OciRuntime, SandboxProviderKind};
 use crate::util::timestamp;
+use crate::workspace::RunWorkspace;
 use acorn_core::time::UnitOfTime;
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 use std::env;
 use std::fs::{create_dir_all, read, read_to_string, remove_dir_all, write, File};
@@ -708,6 +711,54 @@ fn test_identity_uses_dns_name_and_complete_digest_labels() {
         format!("{}{}", first.labels[POLICY_DIGEST_FIRST_LABEL], first.labels[POLICY_DIGEST_SECOND_LABEL]),
         &digest[7..]
     );
+}
+#[test]
+fn test_local_oci_archive_uses_input_local_source_without_preparation_network() {
+    let root = env::temp_dir().join(format!("xylem-openshell-oci-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    create_dir_all(&root).expect("create OpenShell OCI fixture root");
+    let policy_path = root.join("sandbox-policy.yaml");
+    write(
+        &policy_path,
+        read_to_string(example_directory().join("sandbox-policy.yaml")).expect("read example OpenShell operator policy"),
+    )
+    .expect("write OpenShell OCI operator policy");
+    let policy = EffectiveSandboxPolicy::read(&policy_path).expect("read OpenShell OCI operator policy");
+    let workspace = RunWorkspace::create(&root.join("module"), "run").expect("create OpenShell OCI workspace");
+    let input = workspace.input(0).expect("create OpenShell OCI input");
+    let archive = std::fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/oci-local/module/bundle.tar"))
+        .expect("canonical OCI archive fixture");
+    let digest = "sha256:98970c614c6c50785f7fc7b220e2b966249e95d6705f60cbc9b451923a74f805";
+    let source = format!("oci-layout:{}@{digest}", archive.display());
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "name": "archive",
+            "type": "script",
+            "uri": source,
+            "template": { "command": "sh", "arguments": ["run.sh"] }
+        }],
+        "requirements": [],
+        "sandbox": true
+    }))
+    .expect("OpenShell OCI configuration");
+    let options = ConfigOptions::init()
+        .build()
+        .with_acquisition_cache(Some(AcquisitionCache::new(root.join("cache"))))
+        .with_offline(Some(true));
+    let prepared = config
+        .with_options(options)
+        .materialize_modules_selected_in_workspace(&BTreeSet::from([0]), None, &input)
+        .expect("materialize OpenShell OCI module");
+    assert!(policy.validate_workflow(&prepared, &[None]).is_ok());
+    let expected = prepared.options.as_ref().and_then(|options| options.workspace_modules.get(&0)).cloned();
+    assert_eq!(prepared.modules[0].sandbox_local_source().expect("resolve OpenShell source"), expected);
+    assert_eq!(prepared.modules[0].acquisition.as_ref().expect("OCI acquisition evidence").source, source);
+    let generated = OpenShellPolicy::new(SandboxResourcePhase::Preparation, OpenShellNetworkAccess::Deny)
+        .and_then(|policy| policy.yaml())
+        .expect("generate offline OpenShell preparation policy");
+    assert!(!generated.contains("network_policies"));
+    workspace.close().expect("close OpenShell OCI workspace");
+    remove_dir_all(root).expect("remove OpenShell OCI fixture");
 }
 #[test]
 #[ignore = "requires OpenShell 0.1.x, an authenticated local gateway, and a digest-pinned workload"]

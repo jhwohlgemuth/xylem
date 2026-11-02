@@ -656,9 +656,6 @@ fn test_materialized_oci_archive_is_local_to_sandbox_validation() {
     let _ = remove_dir_all(&directory);
     create_dir_all(&directory).expect("create materialized OCI fixture root");
     let directory = std::fs::canonicalize(directory).expect("canonical materialized OCI fixture root");
-    let policy_path = directory.join("policy.json");
-    write(&policy_path, policy("json")).expect("write materialized OCI sandbox policy");
-    let policy = EffectiveSandboxPolicy::read(&policy_path).expect("read materialized OCI sandbox policy");
     let workspace = RunWorkspace::create(&directory.join("modules"), "run").expect("create materialized OCI run workspace");
     let input = workspace.input(0).expect("create materialized OCI input workspace");
     let archive = std::fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/oci-local/module/bundle.tar"))
@@ -684,7 +681,33 @@ fn test_materialized_oci_archive_is_local_to_sandbox_validation() {
         .with_options(options)
         .materialize_modules_selected_in_workspace(&BTreeSet::from([0]), None, &input)
         .expect("materialize local OCI archive");
-    assert!(policy.validate_workflow(&prepared, &[None]).is_ok());
+    let base = policy("json");
+    let policies = [
+        (SandboxProviderKind::Oci, base.clone()),
+        (
+            SandboxProviderKind::DockerSandbox,
+            base.clone()
+                .replace(
+                    "\"provider\": { \"type\": \"oci\", \"runtime\": \"docker\" }",
+                    "\"provider\": { \"type\": \"docker_sandbox\" }",
+                )
+                .replace("\"memory_bytes\": 268435456", "\"memory_bytes\": 536870912"),
+        ),
+        (
+            SandboxProviderKind::OpenShell,
+            base.replace(
+                "\"provider\": { \"type\": \"oci\", \"runtime\": \"docker\" }",
+                "\"provider\": { \"type\": \"openshell\", \"driver\": \"docker\" }",
+            ),
+        ),
+    ];
+    policies.into_iter().for_each(|(provider, contents)| {
+        let path = directory.join(format!("policy-{provider:?}.json"));
+        write(&path, contents).expect("write materialized OCI sandbox policy");
+        let policy = EffectiveSandboxPolicy::read(&path).expect("read materialized OCI sandbox policy");
+        assert_eq!(policy.provider, provider);
+        assert!(policy.validate_workflow(&prepared, &[None]).is_ok());
+    });
     let expected = prepared.options.as_ref().and_then(|options| options.workspace_modules.get(&0)).cloned();
     assert_eq!(prepared.modules[0].sandbox_local_source().expect("resolve sandbox source"), expected);
     assert_eq!(prepared.modules[0].acquisition.as_ref().expect("OCI acquisition evidence").source, source);
