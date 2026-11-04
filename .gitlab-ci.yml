@@ -301,6 +301,8 @@ build-geospatial-sandbox-workload:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
     SOURCE_DATE_EPOCH: "1789689600"
   rules:
+    # Temporarily disabled pending RBK-01 and RBK-02 in the planning wiki.
+    - when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - .gitlab-ci.yml
@@ -338,6 +340,8 @@ build-sandbox-runner:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
     SOURCE_DATE_EPOCH: "1789689600"
   rules:
+    # Temporarily disabled pending RBK-01 and RBK-02 in the planning wiki.
+    - when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - .gitlab-ci.yml
@@ -460,6 +464,8 @@ publish-geospatial-sandbox-workload:
     SOURCE_DATE_EPOCH: "1789689600"
   resource_group: sandbox-geospatial-workload
   rules:
+    # Temporarily disabled pending RBK-01 and RBK-03 in the planning wiki.
+    - when: never
     - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
     - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
@@ -804,6 +810,8 @@ publish-sandbox-runner:
     SOURCE_DATE_EPOCH: "1789689600"
   resource_group: sandbox-runner
   rules:
+    # Temporarily disabled pending RBK-01 and RBK-03 in the planning wiki.
+    - when: never
     - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG != null && $IS_VERSION_TAGGED
     - if: $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:

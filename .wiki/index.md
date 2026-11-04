@@ -19,7 +19,7 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 ## Portfolio review
 
 Rechecked on 2026-11-01 against baseline `fcf4df3`, current schemas, focused
-tests, retained measurement, and platform evidence. The portfolio contains 4
+tests, retained measurement, and platform evidence. The portfolio contains 5
 executable plans, all using five-hour phases. External Windows-runner, tap,
 A/P/O rollout,
 cluster, storage, image, corpus, and credential claims remain explicit
@@ -28,8 +28,13 @@ xylem-cli tests, strict focused Clippy, and rustdoc generation passed for the
 current plan, configuration, acquisition, and CLI changes. External tap state
 was not independently rechecked during these phases.
 
+Rootless BuildKit delivery evidence was added on 2026-11-04 against baseline
+`7aa9ef8` and failed job 4503475. Four affected jobs are temporarily skipped
+until a dedicated runner passes the bounded qualification plan.
+
 | Plan | Quality | Impact | Remaining difficulty | Readiness | Assessment |
 |---|---:|---:|---:|---|---|
+| [Rootless BuildKit runner](refactors/rootless-buildkit-runner.md) | 5/5 | High | Medium | Planned | Four rootless BuildKit jobs are skipped after generic runner `kronk` blocked RootlessKit startup. Provision a dedicated non-privileged runner with a narrow seccomp profile before phased re-enablement. |
 | [Secure module acquisition](refactors/secure-module-acquisition.md) | 5/5 | Critical | Low | Blocked on Windows runner support | SEC-01 through SEC-06 are accepted. Published ACORN CLI 0.5.1 still assumes a POSIX Docker socket for a local container runner, so SEC-07 awaits a native Windows-capable release and host. |
 | [Homebrew release activation](features/homebrew-export.md) | 5/5 | High | Low | Ready | Tap merge request !2 remains open and mergeable at the intended commit. Its Linux job passes; three macOS retries remain canceled on the online assigned runner. |
 | [A/P/O memory validation](features/memory-aware-scheduling.md) | 5/5 | High | Low | Blocked on rollout decision | The scheduler and A/P evidence are landed. Run the pinned credentialed A/P/O holdout only when selected for rollout. |
@@ -41,11 +46,14 @@ and durable run storage. New runtime work must preserve those contracts.
 
 ## Recommended execution order
 
-1. Start SEC-07 after a published ACORN release and Windows host support
+1. Start RBK-01 when runner administration access and an amd64 host maintenance
+   window are available; keep all four rootless BuildKit jobs skipped until
+   their owning validation phases pass.
+2. Start SEC-07 after a published ACORN release and Windows host support
    native Docker runner creation.
-2. Start BRW-01 on the assigned online Mac runner. Run APO-01 only
+3. Start BRW-01 on the assigned online Mac runner. Run APO-01 only
    after the A/P/O rollout decision, corpus access, and credentials arrive.
-3. Start K8S-01 when the operator gates are available; runtime phases consume
+4. Start K8S-01 when the operator gates are available; runtime phases consume
    the accepted immutable context and v15/v14 schema contracts.
 
 ## Planning gaps

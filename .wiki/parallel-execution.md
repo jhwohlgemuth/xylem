@@ -18,7 +18,7 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 | Run state | K8S-08 | Allocate versions serially; update plans, writers, recovery, reporters, schemas, and TUI together. |
 | CLI | K8S-03/09/10/11/14 | One owner changes command registration, run orchestration, cancellation, or exit mapping at a time. |
 | Manifest | SEC-07, K8S-02 | Inspect the feature tree and audit the resulting lockfile. |
-| Delivery | BRW-02, K8S-15/16/17/18 | Serialize CI, image, and release wiring. |
+| Delivery | RBK-02/03, BRW-02, K8S-15/16/17/18 | Serialize CI, image, and release wiring. |
 | Documentation | BRW-03, K8S-19 | Land final names and verified behavior before user-facing updates. |
 
 ## Work lanes
@@ -43,6 +43,12 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 - [APO-01 through APO-02](features/memory-aware-scheduling.md): pinned
   individual and concurrent holdout after rollout and credential gates.
 
+### Lane D: delivery infrastructure
+
+- [RBK-01 through RBK-03](refactors/rootless-buildkit-runner.md): provision a
+  dedicated narrowly confined rootless BuildKit runner, validate build-only
+  jobs, then restore protected dual-registry publication.
+
 External runner and measurement work can run beside repository phases while
 its write set remains disjoint from CI and documentation integration.
 
@@ -50,6 +56,7 @@ its write set remains disjoint from CI and documentation integration.
 
 | Phase | Primary lock | Start condition |
 |---|---|---|
+| RBK-01 | Runner security policy | Runner administration access and an amd64 host maintenance window are available. |
 | BRW-01 | Tap validation | Assigned `RE Runner (macbook)` remains online. |
 | APO-01 | A/P/O measurement evidence | Rollout, corpus, and credentials are supplied. |
 | K8S-01 | Kubernetes deployment assumptions | Operator demand, cluster, storage, and image owner are supplied. |
