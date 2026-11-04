@@ -43,8 +43,8 @@ sha2 = { workspace = true }
 tracing = { workspace = true }
 tracing-log = { workspace = true }
 tracing-subscriber = { workspace = true }
-xylem-lib = { version = "1.0.4", path = "../xylem-lib" }
-xylem-tui = { version = "1.0.4", path = "../xylem-tui", optional = true }
+xylem-lib = { version = "1.0.5", path = "../xylem-lib" }
+xylem-tui = { version = "1.0.5", path = "../xylem-tui", optional = true }
 
 [dev-dependencies]
 assert_cmd = "2.1.1"

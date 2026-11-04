@@ -58,7 +58,7 @@ make doc
 make doctest
 
 # Regenerate checked-in CLI help files after changing command arguments or help text
-make help
+make help-cli
 
 # Run coverage
 make cover
@@ -101,7 +101,7 @@ CLI options may change. Consult `docs/src/generated/xylem-help.txt` or run the r
 1. Define arguments and help in `crates/xylem-cli/src/cli.rs`.
 2. Implement dispatch and behavior in `crates/xylem-cli/src/commands/`.
 3. Update CLI integration tests under `crates/xylem-cli/tests/`.
-4. Regenerate the checked-in help with `make help` when argument or help text changes.
+4. Regenerate the checked-in help with `make help-cli` when argument or help text changes.
 5. Update book documentation and examples as needed.
 
 ### Changing retained runs or the dashboard
@@ -162,7 +162,7 @@ The authoritative entry point for implementation plans is [.wiki/index.md](.wiki
 - Update `docs/src/configuration.md` and `MODULE_SPEC.md` when configuration or module contracts change.
 - Update examples when user-visible setup or execution behavior changes.
 - Update `ARCHITECTURE.md` for structural changes.
-- Regenerate CLI help files with `make help` after changing CLI syntax or help descriptions.
+- Regenerate CLI help files with `make help-cli` after changing CLI syntax or help descriptions.
 - Keep public Rust documentation aligned with actual behavior and error conditions.
 
 ## Repository Information

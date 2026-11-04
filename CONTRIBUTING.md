@@ -11,7 +11,8 @@ cd xylem
 make setup
 ```
 
-`make setup` installs the Cargo and mdBook tools listed in `DEV_DEPENDENCIES`.
+`make setup` updates the stable Rust toolchain, installs the configured targets,
+and installs the Cargo and mdBook tools listed in `DEV_DEPENDENCIES`.
 Docker or Podman is needed only for container-specific tests and examples;
 Conda/Mamba and Pixi are needed only for their corresponding examples.
 
@@ -43,7 +44,7 @@ Changes to public configuration or CLI behavior must update the relevant book
 page and regenerate the checked-in help snapshots:
 
 ```shell
-make help
+make help-cli
 cargo test --package xylem-cli --test help
 ```
 
@@ -117,6 +118,15 @@ Homebrew formula merge request.
    and create the tag. Then watch the tag pipeline publish the crates and open
    the Homebrew tap merge request. Merge the formula only after its tap checks
    pass.
+
+   ```shell
+   make release-watch
+   make release-view
+   ```
+
+   `RELEASE_REF` selects the branch or tag pipeline to watch and `TAG` selects
+   the release to inspect. Use `make release-list`, `make release-retry`, or
+   `make release-download` for the corresponding GitLab release operation.
 
 Do not create the tag manually; the default-branch release pipeline creates it
 after the binary uploads succeed.

@@ -38,7 +38,12 @@ variables:
   SANDBOX_RUNNER_SAVANNAH_IMAGE: savannah.ornl.gov/research-enablement/xylem/runner
   SANDBOX_GEOSPATIAL_GHCR_IMAGE: ghcr.io/jhwohlgemuth/xylem-geospatial
   SANDBOX_GEOSPATIAL_SAVANNAH_IMAGE: savannah.ornl.gov/research-enablement/xylem/geospatial
+  GIT_CLONE_PATH: $CI_BUILDS_DIR/$CI_CONCURRENT_ID/$CI_JOB_ID/$CI_PROJECT_PATH
+  GIT_CLEAN_FLAGS: -ffdx
+  CARGO_TARGET_DIR: $CI_PROJECT_DIR/target
   XDG_CACHE_HOME: "$CI_PROJECT_DIR/.cache"
+  CARGO_NET_RETRY: "3"
+  CARGO_HTTP_TIMEOUT: "120"
 
 stages:
   - prepare
@@ -102,6 +107,7 @@ prepare-environment:
         - crates/xylem-cli/Cargo.toml
         - docs/src/_assets/xylem-app-icon.svg
         - packaging/linux/**/*
+        - scripts/check-windows-runtime.ps1
         - scripts/install-appimage-tools.sh
         - scripts/install-zigbuild.sh
         - scripts/package-linux.sh
@@ -568,6 +574,7 @@ sandbox-podman-conformance:
 build-release:
   extends: .build-release
   stage: build
+  timeout: 45 minutes
   image: savannah.ornl.gov/research-enablement/acorn/rust:latest
   tags:
     - amd64
@@ -590,6 +597,7 @@ build-release:
         - crates/xylem-cli/Cargo.toml
         - docs/src/_assets/xylem-app-icon.svg
         - packaging/linux/**/*
+        - scripts/check-windows-runtime.ps1
         - scripts/install-appimage-tools.sh
         - scripts/install-zigbuild.sh
         - scripts/package-linux.sh
@@ -727,16 +735,22 @@ publish-homebrew-formula:
         -o "merge_request.title=chore(homebrew): update xylem v${version}" \
         "${authenticated_url}" "HEAD:${release_branch}"
 
-publish-release-linux:
+publish-release:
   extends: .publish
   stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:v0.25.0
+  image: registry.gitlab.com/gitlab-org/cli@sha256:a1bc1b35decb0ceededbb22bb9a8c07eddc1279ab6e9342b32bc42e20333aa7a
   tags:
     - amd64
+  resource_group: gitlab-releases
   needs:
     - job: prepare-environment
       artifacts: true
     - job: upload-binaries
+  retry:
+    max: 2
+    when:
+      - api_failure
+      - script_failure
   script:
     - echo "Publishing ${BINARY_NAME} v${PKG_VERSION}"
   rules:
@@ -747,8 +761,8 @@ publish-release-linux:
         - Cargo.toml
   release:
     tag_name: "v${PKG_VERSION}"
-    description: "## ${BINARY_NAME} v${PKG_VERSION}\n> See [CHANGELOG](${CHANGELOG}) for details"
-    ref: "$CI_COMMIT_SHA"
+    description: "## ${BINARY_NAME} v${PKG_VERSION}\n> See [CHANGELOG](${CHANGELOG}) and [documentation](https://xylem.ornl.gov) for details"
+    ref: "${CI_COMMIT_SHA}"
     assets:
       links:
         - name: "${BINARY_NAME} v${PKG_VERSION} (Linux)"

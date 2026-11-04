@@ -154,4 +154,4 @@ xylem tui --help
 The checked-in [`xylem --help`](./generated/xylem-help.txt),
 [`xylem export --help`](./generated/xylem-export-help.txt), and
 [`xylem run --help`](./generated/xylem-run-help.txt) snapshots are regenerated
-with `make help` and compared with the compiled CLI in tests.
+with `make help-cli` and compared with the compiled CLI in tests.

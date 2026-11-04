@@ -50,7 +50,7 @@ xylem export workflow.json --gitlab --check
 xylem tui workflow.json
 ```
 
-Global options such as `--threads`, `--env`, `--no-progress`, and `--sandbox-policy` are defined by current top-level help. Use generated help under `docs/src/generated/` as the checked-in command reference and refresh it with `make help` after changing CLI syntax.
+Global options such as `--threads`, `--env`, `--no-progress`, and `--sandbox-policy` are defined by current top-level help. Use generated help under `docs/src/generated/` as the checked-in command reference and refresh it with `make help-cli` after changing CLI syntax.
 
 ## Configuration
 
