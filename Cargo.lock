@@ -4919,7 +4919,7 @@ dependencies = [
 
 [[package]]
 name = "xylem-cli"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "acorn-cmd",
  "acorn-core",
@@ -4948,7 +4948,7 @@ dependencies = [
 
 [[package]]
 name = "xylem-lib"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "acorn-cmd",
  "acorn-core",
@@ -4989,7 +4989,7 @@ dependencies = [
 
 [[package]]
 name = "xylem-memory-spike"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "exitcode",
  "serde",
@@ -4998,7 +4998,7 @@ dependencies = [
 
 [[package]]
 name = "xylem-tui"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "crossterm",
  "ratatui",
