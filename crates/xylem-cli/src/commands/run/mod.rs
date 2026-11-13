@@ -4,6 +4,7 @@ pub use failure::RunFailure;
 use std::path::PathBuf;
 use std::process;
 use xylem_lib::config::FailurePolicy;
+use xylem_lib::config::VariableOverrides;
 use xylem_lib::execution::ExecutionLimits;
 use xylem_lib::run::RunCancellation;
 use xylem_lib::script::ContainerCleanup;
@@ -16,9 +17,12 @@ mod failure;
 mod preparation;
 mod progress;
 mod reporting;
-#[cfg(test)]
-mod tests;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SignalAction {
+    Cancel,
+    Exit,
+}
 struct RunRequest<'a> {
     artifact_output: &'a Option<PathBuf>,
     cancellation: Option<RunCancellation>,
@@ -38,15 +42,12 @@ struct RunRequest<'a> {
     limits: ExecutionLimits,
     module_index: Option<usize>,
     no_progress: bool,
+    positional: &'a [String],
     report_output: &'a Option<PathBuf>,
     reporter: &'a [ReporterType],
     retain_workspace: bool,
     sandbox_policy: &'a Option<PathBuf>,
-}
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SignalAction {
-    Cancel,
-    Exit,
+    variable_overrides: VariableOverrides,
 }
 fn install_headless_signal_handler(cancellation: RunCancellation) -> Result<(), RunFailure> {
     let received = AtomicBool::new(false);
@@ -83,42 +84,165 @@ pub fn run(
     retain_workspace: bool,
     module_index: Option<usize>,
 ) -> Result<(), RunFailure> {
-    let request = RunRequest {
+    run_with_overrides(
+        config,
+        sandbox_policy,
+        reporter,
+        report_output,
         artifact_output,
-        cancellation,
-        cli_allow_insecure_http,
-        cli_allowed,
-        cli_container_cleanup,
+        cli_input,
         cli_dry_run,
         cli_failure_policy,
         cli_gpu_monitor,
-        cli_input,
-        cli_no_container_env,
         cli_offline,
         cli_resume,
+        cli_allowed,
+        cli_allow_insecure_http,
         cli_skip_verify_checksum,
         cli_skip_verify_requirements,
-        config,
+        cli_container_cleanup,
+        cli_no_container_env,
+        _verbose,
         limits,
-        module_index,
         no_progress,
-        report_output,
-        reporter,
+        cancellation,
         retain_workspace,
-        sandbox_policy,
+        module_index,
+        &[],
+    )
+}
+/// Run a workflow with named and ordered positional invocation values
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_arguments(
+    config: &Option<PathBuf>,
+    sandbox_policy: &Option<PathBuf>,
+    reporter: &[ReporterType],
+    report_output: &Option<PathBuf>,
+    artifact_output: &Option<PathBuf>,
+    cli_input: &Option<Vec<String>>,
+    cli_dry_run: bool,
+    cli_failure_policy: Option<FailurePolicy>,
+    cli_gpu_monitor: bool,
+    cli_offline: bool,
+    cli_resume: bool,
+    cli_allowed: &Option<Vec<String>>,
+    cli_allow_insecure_http: bool,
+    cli_skip_verify_checksum: bool,
+    cli_skip_verify_requirements: bool,
+    cli_container_cleanup: Option<ContainerCleanup>,
+    cli_no_container_env: bool,
+    _verbose: Verbosity,
+    limits: ExecutionLimits,
+    no_progress: bool,
+    cancellation: Option<RunCancellation>,
+    retain_workspace: bool,
+    module_index: Option<usize>,
+    variables: &[String],
+    positional: &[String],
+) -> Result<(), RunFailure> {
+    let variable_overrides = match (!positional.is_empty(), config.is_none()) {
+        | (true, true) => Err(RunFailure::new(
+            exitcode::USAGE,
+            "positional workflow values require an explicit CONFIG path",
+        )),
+        | _ => VariableOverrides::parse(variables).map_err(|why| RunFailure::new(exitcode::USAGE, why.to_string())),
     };
-    preparation::prepare(&request).and_then(|prepared| {
-        match prepared.config.options.as_ref().and_then(|options| options.dry_run).unwrap_or_default() {
-            | true => reporting::render_dry_run(&prepared.plan, reporter, report_output),
-            | false => {
-                let signals = match (request.cancellation.as_ref(), prepared.context.as_ref()) {
-                    | (None, Some(context)) => install_headless_signal_handler(context.cancellation().clone()),
-                    | (None, None) | (Some(_), _) => Ok(()),
-                };
-                signals.and_then(|()| execution::execute(&request, prepared))
+    variable_overrides.and_then(|variable_overrides| {
+        let request = RunRequest {
+            artifact_output,
+            cancellation,
+            cli_allow_insecure_http,
+            cli_allowed,
+            cli_container_cleanup,
+            cli_dry_run,
+            cli_failure_policy,
+            cli_gpu_monitor,
+            cli_input,
+            cli_no_container_env,
+            cli_offline,
+            cli_resume,
+            cli_skip_verify_checksum,
+            cli_skip_verify_requirements,
+            config,
+            limits,
+            module_index,
+            no_progress,
+            positional,
+            report_output,
+            reporter,
+            retain_workspace,
+            sandbox_policy,
+            variable_overrides,
+        };
+        preparation::prepare(&request).and_then(|prepared| {
+            match prepared.config.options.as_ref().and_then(|options| options.dry_run).unwrap_or_default() {
+                | true => reporting::render_dry_run(&prepared.plan, reporter, report_output),
+                | false => {
+                    let signals = match (request.cancellation.as_ref(), prepared.context.as_ref()) {
+                        | (None, Some(context)) => install_headless_signal_handler(context.cancellation().clone()),
+                        | (None, None) | (Some(_), _) => Ok(()),
+                    };
+                    signals.and_then(|()| execution::execute(&request, prepared))
+                }
             }
-        }
+        })
     })
+}
+#[allow(clippy::too_many_arguments)]
+/// Run a workflow with invocation-scoped string variable overrides
+pub fn run_with_overrides(
+    config: &Option<PathBuf>,
+    sandbox_policy: &Option<PathBuf>,
+    reporter: &[ReporterType],
+    report_output: &Option<PathBuf>,
+    artifact_output: &Option<PathBuf>,
+    cli_input: &Option<Vec<String>>,
+    cli_dry_run: bool,
+    cli_failure_policy: Option<FailurePolicy>,
+    cli_gpu_monitor: bool,
+    cli_offline: bool,
+    cli_resume: bool,
+    cli_allowed: &Option<Vec<String>>,
+    cli_allow_insecure_http: bool,
+    cli_skip_verify_checksum: bool,
+    cli_skip_verify_requirements: bool,
+    cli_container_cleanup: Option<ContainerCleanup>,
+    cli_no_container_env: bool,
+    _verbose: Verbosity,
+    limits: ExecutionLimits,
+    no_progress: bool,
+    cancellation: Option<RunCancellation>,
+    retain_workspace: bool,
+    module_index: Option<usize>,
+    variables: &[String],
+) -> Result<(), RunFailure> {
+    run_with_arguments(
+        config,
+        sandbox_policy,
+        reporter,
+        report_output,
+        artifact_output,
+        cli_input,
+        cli_dry_run,
+        cli_failure_policy,
+        cli_gpu_monitor,
+        cli_offline,
+        cli_resume,
+        cli_allowed,
+        cli_allow_insecure_http,
+        cli_skip_verify_checksum,
+        cli_skip_verify_requirements,
+        cli_container_cleanup,
+        cli_no_container_env,
+        _verbose,
+        limits,
+        no_progress,
+        cancellation,
+        retain_workspace,
+        module_index,
+        variables,
+        &[],
+    )
 }
 fn signal_action(received: &AtomicBool) -> SignalAction {
     match received.swap(true, Ordering::AcqRel) {
@@ -126,3 +250,5 @@ fn signal_action(received: &AtomicBool) -> SignalAction {
         | false => SignalAction::Cancel,
     }
 }
+#[cfg(test)]
+mod tests;

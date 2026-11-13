@@ -65,6 +65,8 @@ fn main() -> Void {
             container_cleanup,
             config,
             module_index,
+            positional,
+            variables,
             reporter,
             report_output,
             retain_workspace,
@@ -81,7 +83,7 @@ fn main() -> Void {
             skip_verify_requirements,
             verbose,
             ..
-        }) => match commands::run::run(
+        }) => match commands::run::run_with_arguments(
             config,
             &args.sandbox_policy,
             reporter,
@@ -105,6 +107,8 @@ fn main() -> Void {
             None,
             *retain_workspace,
             *module_index,
+            variables,
+            positional,
         ) {
             | Ok(()) => Ok(()),
             | Err(failure) => {

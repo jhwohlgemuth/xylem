@@ -22,9 +22,8 @@ preparation, execution, and resume. Each field has an explicit variable scope
 and resolution time. Complete the five expansion gaps identified by the review
 without performing unrestricted substitution over the entire configuration.
 
-This plan owns configuration-field expansion. The separate
-[CLI variable argument plan](cli-variable-arguments.md) owns `--var`, argument
-declarations, positional binding, and invocation precedence.
+This plan owns configuration-field expansion. Named `--var` bindings and
+config-declared positional invocation are accepted behavior to preserve.
 
 ## Current evidence and review findings
 
@@ -33,6 +32,8 @@ hard cutover and bounded selection-root interpolation are committed and are
 baseline behavior to preserve. `SelectionOptions::resolve` now owns the shared
 host/sandbox option-resolution entry point, while the bounded implementation
 still lives in `selection/roots.rs`; extracting it remains EXP-01 work.
+Named `--var` bindings are implemented in the current worktree; field phases
+can consume their invocation precedence after EXP-01.
 
 The full library suite passed again (336 passed, two ignored). Current code,
 configuration docs, CLI/help, and tests confirm the five gaps below remain;
@@ -77,8 +78,8 @@ Definitions:
   invocation overrides highest. Values needed to select a child configuration
   can use its parent's and wrapper's bindings; they cannot use values inside
   the child that has not been loaded yet.
-- **Invocation overrides:** the immutable named/positional bindings owned by
-  the CLI plan. They must remain separately available through nested resolution,
+- **Invocation overrides:** the immutable named/positional bindings. They must
+  remain separately available through nested resolution,
   rather than being indistinguishable from an ordinary root default.
 
 | Field | Bindings | Required resolution boundary |
@@ -180,23 +181,22 @@ claiming that the effective command has been inspected.
 
 ## Dependencies, execution order, and parallel work
 
-EXP-01 is ready on the reviewed worktree. Its exact code write set is disjoint
-from ARG-01, so those foundations can proceed in parallel if wiki edits are
-serialized. The committed baseline includes the completed root-resolution refactor.
+EXP-01 is ready on the reviewed worktree. The committed baseline includes the
+completed root-resolution refactor.
 
-The feature phases consume accepted ARG-02 named binding behavior so each
+The feature phases consume accepted named binding behavior so each
 new field ships with correct CLI precedence. This sequencing avoids releasing
 a field that expands config defaults while ignoring the advertised override.
-ARG-02 must apply root bindings before preview configuration as well as final
-leaf bindings after flattening. EXP-04 owns carrying the same immutable overlay
-into each source-resolution node. Neither plan requires a second override type.
+Named bindings apply before preview configuration and after leaf flattening.
+EXP-04 owns carrying the same immutable overlay
+into each source-resolution node. Do not introduce a second override type.
 
-Recommended order after the foundations: ARG-02, EXP-02, EXP-03, EXP-04,
+Recommended order after EXP-01: EXP-02, EXP-03, EXP-04,
 EXP-05, EXP-06, EXP-07, then EXP-08, EXP-09, EXP-10. This is a scheduling
-recommendation; the precise prerequisites are listed per phase. ARG-03/04 may
-proceed alongside disjoint work. EXP-11 qualifies their combined behavior.
+recommendation; the precise prerequisites are listed per phase. EXP-11
+qualifies the combined behavior.
 
-Configuration and CLI phases serialize with ARG and K8S owners of the same
+Configuration and CLI phases serialize with K8S owners of the same
 files. Source phases reserve acquisition tests, but do not require SEC-07's
 Windows qualification or a dependency update. Command/environment/container
 phases share `script/mod.rs` and must not run concurrently. External runner
@@ -247,8 +247,8 @@ behavior and all callers/tests to the shared implementation.
 Shared exact write sets:
 
 - **User documentation:** `MODULE_SPEC.md`, `docs/src/configuration.md`.
-- **Planning reconciliation:** this plan, `.wiki/features/cli-variable-arguments.md`,
-  `.wiki/features/index.md`, `.wiki/index.md`, `.wiki/plan-network.md`,
+- **Planning reconciliation:** this plan, `.wiki/features/index.md`,
+  `.wiki/index.md`, `.wiki/plan-network.md`,
   `.wiki/parallel-execution.md`.
 
 The phase fields below incorporate those named sets explicitly. Generate
@@ -285,18 +285,18 @@ requires new fields, stop and add a bounded schema phase with Run state ownershi
 
 - Status: ready
 - Budget: 5 active hours maximum
-- Prerequisites: preserve and recheck the current selection-root implementation; no external gate or ARG phase dependency.
+- Prerequisites: preserve and recheck the current selection-root implementation; no external gate.
 - Exact write set: `crates/xylem-lib/src/interpolation.rs`, `crates/xylem-lib/src/lib.rs`, `crates/xylem-lib/src/selection/roots.rs`, `crates/xylem-lib/src/selection/mod.rs`, `crates/xylem-lib/src/selection/cel/mod.rs`, `crates/xylem-lib/src/selection/cel/tests.rs`, `ARCHITECTURE.md`; Planning reconciliation set.
 - Primary integration lock: Interpolation
 - Outcome: Selection roots use a reusable internal scalar resolver with the same strict bounded semantics, errors, and discovery ordering. The root-specific wrapper validates paths; the shared core also permits field-valid empty strings. Remove the superseded root implementation without changing legacy argument interpolation.
 - Focused validation: `cargo test -p xylem-lib root_variables` and new `structural_interpolation` tests for recursion, scalar handling, limits, error field paths, and immutable bindings. Compare existing root behavior before/after extraction.
-- Handoff: Preserve the core contract in rustdoc/tests and architecture docs; prune EXP-01 and mark dependent phases ready once ARG-02 is accepted.
+- Handoff: Preserve the core contract in rustdoc/tests and architecture docs; prune EXP-01 and mark dependent phases ready.
 
 ## EXP-02 — Resolve plain input values before input identity is built
 
 - Status: planned
 - Budget: 5 active hours maximum
-- Prerequisites: EXP-01 and ARG-02 accepted; reserve Configuration and input-policy files.
+- Prerequisites: EXP-01 accepted; reserve Configuration and input-policy files.
 - Exact write set: `crates/xylem-lib/src/config/interpolation.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-lib/src/plan.rs`, `crates/xylem-lib/src/sandbox/mod.rs`, `crates/xylem-lib/src/sandbox/tests/mod.rs`, `crates/xylem-lib/src/tests/plan.rs`, `crates/xylem-cli/tests/workflow.rs`, `crates/xylem-cli/examples/configuration-variables.json`; User documentation and Planning reconciliation sets.
 - Primary integration lock: Configuration
 - Outcome: Configured directory/list input and selected CLI input values expand before discovery/deduplication/provenance. Plan input identity and command-visible input agree. Preserve CLI replacement, batching, existing path bases, sandbox checks, and selection bypass behavior.
@@ -307,7 +307,7 @@ requires new fields, stop and add a bounded schema phase with Run state ownershi
 
 - Status: planned
 - Budget: 5 active hours maximum
-- Prerequisites: EXP-01 and ARG-02 accepted; reserve CLI preparation and configuration files after conflicting work releases them.
+- Prerequisites: EXP-01 accepted; reserve CLI preparation and configuration files after conflicting work releases them.
 - Exact write set: `crates/xylem-lib/src/config/interpolation.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-lib/src/tests/completion.rs`, `crates/xylem-cli/src/commands/run/preparation.rs`, `crates/xylem-cli/src/commands/run/tests/mod.rs`, `crates/xylem-cli/tests/workflow.rs`, `crates/xylem-cli/examples/configuration-variables.json`; User documentation and Planning reconciliation sets.
 - Primary integration lock: CLI
 - Outcome: Workflow output aliases expand before normalization and artifact checks, using workflow/invocation scope. Existing module output defaults remain intact; `--artifact-output` wins and bypasses unused configured output interpolation. Direct library callers have an explicit equivalent normalization step without a breaking API replacement.
@@ -318,10 +318,10 @@ requires new fields, stop and add a bounded schema phase with Run state ownershi
 
 - Status: planned
 - Budget: 5 active hours maximum
-- Prerequisites: EXP-01 and ARG-02 accepted; reserve Configuration plus CLI preparation and source-policy test files.
+- Prerequisites: EXP-01 accepted; reserve Configuration plus CLI preparation and source-policy test files.
 - Exact write set: `crates/xylem-lib/src/config/interpolation.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-lib/src/tests/plan.rs`, `crates/xylem-lib/src/sandbox/tests/mod.rs`, `crates/xylem-cli/src/commands/run/preparation.rs`, `crates/xylem-cli/src/commands/run/tests/mod.rs`, `crates/xylem-cli/tests/workflow.rs`; User documentation and Planning reconciliation sets.
 - Primary integration lock: Configuration
-- Outcome: Local executable leaf URI text expands in module scope before rebasing/materialization. Carry the immutable ARG binding overlay through the resolution API with existing public entry points delegating to empty bindings. No child/module default can override an invocation binding. Non-local or configuration-wrapper URI interpolation remains explicitly unsupported until EXP-05; literal sources retain their behavior.
+- Outcome: Local executable leaf URI text expands in module scope before rebasing/materialization. Carry the immutable invocation bindings through the resolution API with existing public entry points delegating to empty bindings. No child/module default can override an invocation binding. Non-local or configuration-wrapper URI interpolation remains explicitly unsupported until EXP-05; literal sources retain their behavior.
 - Focused validation: New `local_source_interpolation` tests for simple/detailed file locations, module/nested defaults, named overrides, absolute/relative sources, malformed/escaping sources, workspace isolation, and matching source identity in dry-run/runtime.
 - Handoff: Document the bounded local-source support and binding-aware resolver handoff. Prune EXP-04 and make EXP-05 eligible.
 
@@ -340,7 +340,7 @@ requires new fields, stop and add a bounded schema phase with Run state ownershi
 
 - Status: planned
 - Budget: 5 active hours maximum
-- Prerequisites: EXP-01 and ARG-02 accepted; reserve command preparation and plan files.
+- Prerequisites: EXP-01 accepted; reserve command preparation and plan files.
 - Exact write set: `crates/xylem-lib/src/config/interpolation.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/script/tests/mod.rs`, `crates/xylem-lib/src/plan.rs`, `crates/xylem-lib/src/tests/plan.rs`, `crates/xylem-cli/tests/workflow.rs`; User documentation and Planning reconciliation sets.
 - Primary integration lock: Command preparation
 - Outcome: Inline and available external-template executable names expand from module/invocation bindings before validation and launch. Preserve one executable value and existing argument boundaries; reject input/run-derived placeholders in this static field. Keep external dry-run availability limitations explicit.
@@ -395,7 +395,7 @@ requires new fields, stop and add a bounded schema phase with Run state ownershi
 
 - Status: planned
 - Budget: 5 active hours maximum
-- Prerequisites: EXP-02, EXP-03, EXP-05, EXP-08, EXP-10, and ARG-04 accepted; serialize final checks after all implementation work stabilizes.
+- Prerequisites: EXP-02, EXP-03, EXP-05, EXP-08, and EXP-10 accepted; serialize final checks after all implementation work stabilizes.
 - Exact write set: `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-lib/src/tests/plan.rs`, `crates/xylem-lib/src/tests/completion.rs`, `crates/xylem-cli/src/commands/export.rs`, `crates/xylem-cli/tests/workflow.rs`, `crates/xylem-cli/tests/export.rs`, `crates/xylem-cli/examples/configuration-variables.json`, `ARCHITECTURE.md`; User documentation and Planning reconciliation sets.
 - Primary integration lock: CLI
 - Outcome: One executable configuration demonstrates combined inputs/output/source/template behavior with named and positional invocation bindings. Export check/generation validates effective configuration through the same shared resolution contract while keeping its existing command interface. No product feature is deferred from a prior phase to make that phase coherent.

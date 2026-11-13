@@ -19,7 +19,7 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 ## Portfolio review
 
 Reviewed **2026-11-13** against initially clean commit `e3f0e09` (workspace
-version 1.0.7). All **7 executable plans** were compared with current code,
+version 1.0.7). All **7 executable plans** at that review were compared with current code,
 adjacent tests, user/architecture documentation, generated CLI help, schemas,
 CI/release configuration, retained measurement/platform evidence, and relevant
 Git history. CodeGraph was used before code searches. The network and parallel
@@ -43,14 +43,14 @@ Pruned the obsolete v1.0.3/!2 Homebrew activation/merge tasks and already
 published install-command work; condensed completed acquisition phase logs
 into links to durable evidence; removed retired environment-plan dependencies
 from Kubernetes; replaced stale uncommitted-baseline and v13 schema claims.
-**No plan is fully accepted, so none was retired.** Remaining phase IDs are
-unchanged. Root interpolation and the basename cutover are committed baselines,
-not completion of the broader expansion or invocation plans.
+The CLI variable argument plan was subsequently implemented and retired after
+the xylem-lib and xylem-cli suites, generated help, Clippy, rustdoc, and the
+executable example passed. **6 executable plans remain.** Root interpolation
+and the basename cutover remain baselines for the broader expansion plan.
 
 | Recommended lane | Plan | Impact / remaining difficulty | Status and next action | Blockers / evidence |
 |---|---|---|---|---|
-| 1 | [CLI variable arguments](features/cli-variable-arguments.md) | High / medium | Ready: ARG-01 library bindings, then ARG-02 named CLI interface. | No external blocker; `--var` and positional bindings remain absent from code/help. |
-| 1, parallel foundation | [Configuration expansion](features/configuration-variable-expansion.md) | High / high | Ready: EXP-01 bounded core extraction; field phases follow ARG-02. | Current core remains in `selection/roots.rs`; five structural-field gaps remain. Serialize later shared files. |
+| 1 | [Configuration expansion](features/configuration-variable-expansion.md) | High / high | Ready: EXP-01 bounded core extraction; invocation bindings are available to later field phases. | Current core remains in `selection/roots.rs`; five structural-field gaps remain. Serialize later shared files. |
 | 2, parallel validation | [Homebrew platform validation](features/homebrew-export.md) | High / low | Waiting on validation: BRW-01 macOS, BRW-02 required checks, BRW-03 clean consumers. | v1.0.7 already merged in [MR !5](https://code.ornl.gov/research-enablement/homebrew-xylem/-/merge_requests/5); Linux passed, macOS manual/optional. Mac runner online at review; credential-setting and clean-consumer evidence outstanding. |
 | Conditional delivery lane | [Rootless BuildKit runner](refactors/rootless-buildkit-runner.md) | High / medium | Blocked: qualify dedicated runner in RBK-01, then re-enable builds/publishers. | All four jobs remain unconditionally skipped. Host policy, administration access, and maintenance window unqualified. |
 | Conditional platform lane | [Windows acquisition](refactors/secure-module-acquisition.md) | Critical / low | Blocked: SEC-07 native Windows qualification and audit. | ACORN libraries remain pinned at 0.5.1; published CLI 0.6.3 still assumes the POSIX runner socket. Native host/support evidence missing. |
@@ -59,11 +59,11 @@ not completion of the broader expansion or invocation plans.
 
 ## Recommended execution order
 
-1. Start ARG-01 and EXP-01 with disjoint code ownership and serialized wiki
-   updates; deliver ARG-02 before the new structural-field expansion phases.
+1. Start EXP-01; named and positional bindings are available to later
+   structural-field phases.
 2. Prioritize EXP-02/03 input/output consistency, then sources, templates, and
-   environment fields. ARG-03/04 positional binding follows named overrides;
-   shared configuration, CLI, test, and documentation files serialize. Finish
+   environment fields. Shared configuration, CLI, test, and documentation
+   files serialize. Finish
    combined acceptance in EXP-11.
 3. Run BRW-01 in parallel with disjoint repository work, then require both
    platform checks through a new tap CI change and verify clean consumers.

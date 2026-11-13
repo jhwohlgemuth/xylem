@@ -15,13 +15,13 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 | Lock | Primary owners | Rule |
 |---|---|---|
 | Interpolation | EXP-01 | Extract the bounded core without changing existing root behavior; reserve selection files and architecture docs. |
-| Configuration | ARG-01/03, EXP-02/04/05, K8S-04 | Preserve typed validation, batching, memory fallback, resume, source nesting, and immutable context resolution. |
+| Configuration | EXP-02/04/05, K8S-04 | Preserve typed validation, batching, memory fallback, resume, source nesting, and immutable context resolution. |
 | Command preparation | EXP-06/07/08/09/10 | Resolve static fields before their owning checks; reserve shared configuration, script, container, sandbox, and test paths. |
 | Run state | K8S-08 | Allocate versions serially; update plans, writers, recovery, reporters, schemas, and TUI together. |
-| CLI | ARG-02/04, EXP-03/11, K8S-03/09/10/11/14 | One owner changes command registration, run orchestration, cancellation, or exit mapping at a time. |
+| CLI | EXP-03/11, K8S-03/09/10/11/14 | One owner changes command registration, run orchestration, cancellation, or exit mapping at a time. |
 | Manifest | K8S-02 | Inspect the feature tree and audit the resulting lockfile. |
 | Delivery | SEC-07, RBK-02/03, BRW-02, K8S-15/16/17/18 | Serialize CI, image, and release wiring. |
-| Documentation | ARG-02/03/04, EXP-02 through EXP-11, BRW-01/02/03, K8S-19 | Reserve overlapping files even when a phase has another primary lock; land verified behavior before user-facing updates. |
+| Documentation | EXP-02 through EXP-11, BRW-01/02/03, K8S-19 | Reserve overlapping files even when a phase has another primary lock; land verified behavior before user-facing updates. |
 
 ## Work lanes
 
@@ -51,40 +51,28 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
   dedicated narrowly confined rootless BuildKit runner, validate build-only
   jobs, then restore protected dual-registry publication.
 
-### Lane E: workflow invocation
-
-- [ARG-01 through ARG-04](features/cli-variable-arguments.md): validated
-  library overrides, named CLI invocation, ordered config declarations, then
-  positional invocation. ARG-01 is ready; phases are sequential. Configuration
-  and CLI edits serialize with their K8S owners, and documentation files with
-  BRW/K8S documentation owners. External runner and measurement work can proceed
-  in parallel when files remain disjoint.
-
 External runner and measurement work can run beside repository phases while
 its write set remains disjoint from CI and documentation integration.
 
-### Lane F: configuration expansion
+### Lane E: configuration expansion
 
 - [EXP-01 through EXP-11](features/configuration-variable-expansion.md):
-  extract bounded interpolation first, then after ARG-02 deliver input/output
+  extract bounded interpolation first, then deliver input/output
   paths, sources, template commands/filenames, and environment/container fields.
-  EXP-01 and ARG-01 have disjoint code write sets; serialize their wiki edits.
   Later independent dependency branches share configuration, script, tests,
-  and docs and therefore normally execute serially. ARG-03/04 may overlap only
-  with a phase whose exact reserved write set is disjoint. EXP-11 waits for
-  both field delivery and ARG-04, then qualifies the combined interface.
+  and docs and therefore normally execute serially. EXP-11 waits for field
+  delivery, then qualifies the combined interface.
 
-Reviewed on 2026-11-13 at `e3f0e09`, which commits the basename/root work. Preserve
+Reviewed on 2026-11-13 with named and positional bindings implemented in the
+current worktree. Preserve
 the original immutable invocation bindings across early root application,
-nested resolution, and final leaf application. No reverse ARG dependency on
-EXP is introduced.
+nested resolution, and final leaf application.
 
 ## Ready work and conditional starts
 
 | Phase | Primary lock | Start condition |
 |---|---|---|
-| ARG-01 | Configuration | Ready at `e3f0e09`; reserve exact library/test files and planning metadata. |
-| EXP-01 | Interpolation | Ready at `e3f0e09`; reserve selection/core files and serialize wiki edits with ARG-01. |
+| EXP-01 | Interpolation | Ready at `ea8b6fc`; reserve selection/core files and planning metadata. |
 | RBK-01 | Runner security policy | Blocked until administration access and an amd64 host maintenance window are confirmed. |
 | BRW-01 | Tap validation | Waiting on validation; runner 54626 was online at review. Recheck and pin the current formula/job before starting. |
 | APO-01 | A/P/O measurement evidence | Blocked until rollout, corpus, and credentials are supplied. |

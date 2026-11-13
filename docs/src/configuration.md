@@ -431,6 +431,42 @@ the workflow has not defined it; a module may override that default. Xylem then
 supplies reserved values such as `MODULE_LIST`, `INPUT`, and
 `INPUT_BASENAME`. Placeholders use `{{ VARIABLE_NAME }}` syntax.
 
+For one run, use `--var NAME=VALUE` to replace a workflow or module default:
+
+```sh
+xylem run workflow.json --var DATASET=basin_range --var 'LABEL=Trial one'
+```
+
+Repeat `--var` for multiple names; the last value wins when a name repeats.
+Values are strings, including empty values, commas, spaces, and extra `=`
+characters. Names must match `[A-Z][A-Z0-9_]*`. An undeclared name is allowed.
+`INPUT`, `INPUT_BASENAME`, `MODULE_LIST`, `RUN_ID`, `WORK_DIRECTORY`, and
+`OUTPUT_DIRECTORY` cannot be set with `--var`; use `--artifact-output` for the
+output directory. The bindings apply to dry runs, input selection, and nested
+modules, and do not change the configuration file or the host environment.
+
+To accept positional values, declare their variable names at the workflow root:
+
+```json
+{"arguments": ["DATASET", "MODE"], "variables": {"DATASET": "default", "MODE": "full"}}
+```
+
+```sh
+xylem run workflow.json -- basin_range quick
+xylem run workflow.json --var MODE=full -- basin_range quick
+```
+
+Values after `--` bind in declaration order. The second command sets
+`DATASET=basin_range` and `MODE=full`; named values win without shifting a
+position. Omitted trailing values use existing defaults, while `""` supplies an
+explicit empty string. Values beginning with `-` are literal after `--`.
+Positional values require an explicit configuration path. Declarations must be
+unique valid variable names; extra values and values without declarations are
+usage errors. Nested workflows do not extend the invoked root's list.
+Put all Xylem options before `--`; these values are not passed directly to
+child programs. `--input` continues to select batch inputs. Export and TUI use
+defaults.
+
 `INPUT_BASENAME` is the final path component of the active input:
 `/data/basin_range` gives `basin_range`, while
 `/data/basin_range/elevation.tif` gives `elevation.tif`. Trailing directory

@@ -33,10 +33,12 @@ fn request<'request>(
         limits: ExecutionLimits::default(),
         module_index: None,
         no_progress: true,
+        positional: &[],
         report_output: path,
         reporter: &[],
         retain_workspace: false,
         sandbox_policy: path,
+        variable_overrides: VariableOverrides::default(),
     }
 }
 

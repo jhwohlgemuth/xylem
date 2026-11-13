@@ -51,6 +51,12 @@ pub enum Commands {
         /// Run only this zero-based resolved module position
         #[arg(long, value_name = "N")]
         module_index: Option<usize>,
+        /// Override a workflow variable with a string value; repeatable, last value wins
+        #[arg(long = "var", value_name = "NAME=VALUE")]
+        variables: Vec<String>,
+        /// Values bound to the workflow's ordered argument declarations
+        #[arg(last = true, value_name = "VALUES", num_args = 0..)]
+        positional: Vec<String>,
         /// Reporter(s) used for the final durable summary
         #[arg(short, long, value_enum, value_delimiter = ',', num_args = 1.., default_value = "console")]
         reporter: Vec<ReporterType>,

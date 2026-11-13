@@ -19,7 +19,6 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 const PROMPT_POLICY_REJECTION: &str = "Invalid prompt: your prompt was flagged as potentially violating our usage policy. Please try again with a different prompt: https://platform.openai.com/docs/guides/reasoning#advice-on-prompting";
-
 #[cfg(not(target_os = "windows"))]
 fn managed_keep_alive_config(module: &Path) -> serde_json::Value {
     serde_json::json!({
@@ -196,6 +195,206 @@ fn xylem_command() -> assert_cmd::Command {
 
 #[cfg(not(target_os = "windows"))]
 #[test]
+fn test_cli_arguments_bind_and_preserve_usage_boundaries() {
+    let root = std::env::temp_dir().join(format!("xylem-cli-arguments-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    create_dir_all(&root).expect("create arguments fixture");
+    let result = root.join("result.txt");
+    let config = root.join("workflow.json");
+    write(
+        &config,
+        serde_json::json!({
+            "arguments": ["DATASET", "MODE"],
+            "requirements": [],
+            "variables": {"DATASET": "default", "MODE": "workflow"},
+            "modules": [{
+                "name": "probe", "type": "script", "programmingLanguage": "generic",
+                "uri": format!("file:{}", root.display()), "variables": {"MODE": "module"},
+                "template": {"command": "sh", "arguments": [
+                    "-c", "printf '%s|%s' \"$1\" \"$_XYLEM_MODE\" > \"$2\"",
+                    "sh", "{{ DATASET }}", result.display().to_string()
+                ]}
+            }]
+        })
+        .to_string(),
+    )
+    .expect("write arguments config");
+    let path = config.to_str().expect("config path");
+    let plan = |arguments: &[&str]| {
+        let output = xylem_command()
+            .args(["run", path, "--dry-run", "--reporter", "json"])
+            .args(arguments)
+            .output()
+            .expect("run plan");
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("plan JSON")
+    };
+    let bound = plan(&["--var", "MODE=named", "--", "basin", "-literal"]);
+    assert_eq!(bound["modules"][0]["variables"]["_XYLEM_DATASET"], "basin");
+    assert_eq!(bound["modules"][0]["variables"]["_XYLEM_MODE"], "named");
+    let omitted = plan(&["--", "basin"]);
+    assert_eq!(omitted["modules"][0]["variables"]["_XYLEM_MODE"], "module");
+    let empty = plan(&["--", ""]);
+    assert_eq!(empty["modules"][0]["variables"]["_XYLEM_DATASET"], "");
+    let hyphen = plan(&["--", "-literal"]);
+    assert_eq!(hyphen["modules"][0]["variables"]["_XYLEM_DATASET"], "-literal");
+    let output = xylem_command()
+        .args(["run", path, "--var", "MODE=named", "--", "basin", "ignored"])
+        .output()
+        .expect("execute positional workflow");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(read_to_string(&result).expect("read positional result"), "basin|named");
+    for arguments in [vec!["run", "--", "value"], vec!["run", path, "--", "one", "two", "three"]] {
+        let output = xylem_command().args(arguments).output().expect("reject invocation");
+        assert_eq!(output.status.code(), Some(64), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+    let absent = root.join("absent.json");
+    write(&absent, r#"{"requirements":[],"modules":[]}"#).expect("write absent declarations");
+    let output = xylem_command()
+        .args(["run", absent.to_str().expect("absent path"), "--", "value"])
+        .output()
+        .expect("reject missing declarations");
+    assert_eq!(output.status.code(), Some(64));
+    let invalid = root.join("invalid.json");
+    write(&invalid, r#"{"arguments":["INPUT"],"requirements":[],"modules":[]}"#).expect("write invalid declarations");
+    let output = xylem_command()
+        .args(["run", invalid.to_str().expect("invalid path"), "--", "value"])
+        .output()
+        .expect("reject invalid declarations");
+    assert_eq!(output.status.code(), Some(65));
+    remove_dir_all(root).expect("remove arguments fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_cli_variable_override_matches_plan_and_execution() {
+    let root = std::env::temp_dir().join(format!("xylem-cli-variable-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    create_dir_all(&root).expect("create fixture");
+    let result = root.join("result.txt");
+    let external_result = root.join("external.txt");
+    write(
+        root.join("template.json"),
+        serde_json::json!({
+            "command": "sh", "arguments": [
+                "-c", "printf '%s|%s' \"$1\" \"$_XYLEM_DATASET\" > \"$2\"",
+                "sh", "{{ DATASET }}", external_result.display().to_string()
+            ]
+        })
+        .to_string(),
+    )
+    .expect("write external template");
+    let config = root.join("workflow.json");
+    write(
+        &config,
+        serde_json::json!({
+            "requirements": [],
+            "variables": {"DATASET": "root", "COMPOSED": "{{ DATASET }}:suffix"},
+            "modules": [{
+                "name": "probe", "type": "script", "programmingLanguage": "generic",
+                "uri": format!("file:{}", root.display()), "variables": {"DATASET": "module"},
+                "template": {"command": "sh", "arguments": [
+                    "-c", "printf '%s|%s|%s' \"$1\" \"$_XYLEM_DATASET\" \"$_XYLEM_COMPOSED\" > \"$2\"",
+                    "sh", "{{ DATASET }}", result.display().to_string()
+                ]}
+            }, {
+                "name": "external", "type": "script", "programmingLanguage": "generic",
+                "uri": format!("file:{}", root.display()), "template": "template.json"
+            }]
+        })
+        .to_string(),
+    )
+    .expect("write fixture");
+    let output = xylem_command()
+        .args([
+            "run",
+            config.to_str().expect("config path"),
+            "--dry-run",
+            "--reporter",
+            "json",
+            "--var",
+            "DATASET=first",
+            "--var",
+            "DATASET=final",
+        ])
+        .output()
+        .expect("dry run");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("plan JSON");
+    assert_eq!(plan["modules"][0]["variables"]["_XYLEM_DATASET"], "final");
+    assert_eq!(plan["modules"][0]["variables"]["_XYLEM_COMPOSED"], "final:suffix");
+    assert!(!result.exists());
+    let output = xylem_command()
+        .args(["run", config.to_str().expect("config path"), "--var", "DATASET=final"])
+        .output()
+        .expect("run workflow");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(read_to_string(&result).expect("read result"), "final|final|final:suffix");
+    assert_eq!(read_to_string(&external_result).expect("read external result"), "final|final");
+    let output = xylem_command()
+        .args(["run", config.to_str().expect("config path"), "--var", "INPUT=forbidden"])
+        .output()
+        .expect("reject variable");
+    assert_eq!(output.status.code(), Some(64));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("forbidden"));
+    remove_dir_all(root).expect("remove fixture");
+}
+#[test]
+fn test_cli_variable_override_reaches_nested_leaf_and_selection_roots() {
+    let root = std::env::temp_dir().join(format!("xylem-cli-variable-nested-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    let selected = root.join("selected");
+    create_dir_all(&selected).expect("create selected input root");
+    write(selected.join("item.tif"), "input").expect("write selected input");
+    let child = root.join("child.json");
+    write(
+        &child,
+        serde_json::json!({
+            "arguments": ["CHILD"], "requirements": [], "variables": {"DATASET": "child"},
+            "modules": [{"name": "leaf", "type": "script", "programmingLanguage": "generic",
+                "uri": "file:.", "variables": {"DATASET": "leaf"},
+                "template": {"command": "true", "arguments": ["{{ DATASET }}"]}}]
+        })
+        .to_string(),
+    )
+    .expect("write child");
+    let parent = root.join("parent.json");
+    write(
+        &parent,
+        serde_json::json!({
+            "arguments": ["ROOT", "DATASET"],
+            "requirements": [], "variables": {"ROOT": "missing", "DATASET": "parent"},
+            "input": {"select": {"engine": "cel", "options": {"roots": ["{{ ROOT }}"], "recursive": false},
+                "script": "items.filter(item, item.extension == '.tif').map(item, item.path)"}},
+            "modules": [{"name": "group", "type": "configuration", "uri": "file:./child.json",
+                "variables": {"DATASET": "wrapper"}}]
+        })
+        .to_string(),
+    )
+    .expect("write parent");
+    let output = xylem_command()
+        .args([
+            "run",
+            parent.to_str().expect("parent path"),
+            "--dry-run",
+            "--reporter",
+            "json",
+            "--var",
+            "DATASET=invocation",
+            "--",
+            selected.to_str().expect("selection root"),
+            "positional",
+        ])
+        .output()
+        .expect("plan nested workflow");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("plan JSON");
+    assert_eq!(plan["inputs"]["source"]["kind"], "selection");
+    assert_eq!(plan["inputs"]["source"]["candidate_count"], 1);
+    assert_eq!(plan["modules"][0]["variables"]["_XYLEM_DATASET"], "invocation");
+    remove_dir_all(root).expect("remove nested fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
 fn test_configuration_module_executes_and_reports_qualified_leaf_identity() {
     let test_root = std::env::temp_dir().join(format!("xylem-configuration-cli-{}", std::process::id()));
     let child_directory = test_root.join("child");
@@ -370,6 +569,8 @@ fn test_docker_sandbox_example_has_valid_public_dry_run() {
             "--dry-run",
             "--reporter",
             "json",
+            "--var",
+            "MODE=sandbox",
         ])
         .output()
         .expect("run Docker Sandbox example dry-run");
@@ -377,6 +578,7 @@ fn test_docker_sandbox_example_has_valid_public_dry_run() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("Warning: Docker Sandbox support is experimental"));
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid Docker Sandbox example plan");
     assert_eq!(plan["sandbox"]["provider"], "docker_sandbox");
+    assert_eq!(plan["modules"][0]["variables"]["_XYLEM_MODE"], "sandbox");
     assert_eq!(plan["sandbox"]["runtime"], serde_json::Value::Null);
     assert_eq!(
         plan["sandbox"]["workload"],
@@ -454,6 +656,9 @@ fn test_dry_run_plans_managed_container_without_starting_runtime() {
             "--dry-run",
             "--reporter",
             "json",
+            "--no-container-env",
+            "--var",
+            "MODE=container",
         ])
         .output()
         .expect("run managed dry-run plan");
@@ -463,6 +668,7 @@ fn test_dry_run_plans_managed_container_without_starting_runtime() {
     assert_eq!(plan["containers"][0]["name"], "worker");
     assert_eq!(plan["containers"][0]["mounts"][0]["source"], test_root.display().to_string());
     assert_eq!(plan["containers"][0]["startup"], "keep_alive");
+    assert_eq!(plan["modules"][0]["variables"]["_XYLEM_MODE"], "container");
     remove_dir_all(test_root).expect("remove managed plan fixture");
 }
 #[cfg(not(target_os = "windows"))]
@@ -828,142 +1034,6 @@ esac
     assert_eq!(report.stop_reason, None);
     assert!(state.join("later-ran").exists());
     remove_dir_all(test_root).expect("remove continue policy directory");
-}
-#[cfg(not(target_os = "windows"))]
-#[test]
-fn test_module_timeout_reaches_managed_execution() {
-    let test_root = std::env::temp_dir().join(format!("xylem-module-timeout-{}", std::process::id()));
-    let module = test_root.join("module");
-    let reports = test_root.join("reports");
-    create_dir_all(&module).expect("create timeout module");
-    create_dir_all(&reports).expect("create timeout reports");
-    let config_path = test_root.join("config.json");
-    let config = serde_json::json!({
-        "modules": [{
-            "name": "Timeout Probe",
-            "programmingLanguage": "generic",
-            "template": { "arguments": ["-c", "sleep 5"], "command": "sh" },
-            "timeout_seconds": 1,
-            "type": "script",
-            "uri": format!("file:{}", module.display())
-        }],
-        "requirements": ["sh"]
-    });
-    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize timeout config")).expect("write timeout config");
-    let started = std::time::Instant::now();
-    let output = xylem_command()
-        .args([
-            "run",
-            config_path.to_str().expect("UTF-8 config path"),
-            "--report-output",
-            reports.to_str().expect("UTF-8 report path"),
-            "--reporter",
-            "json",
-        ])
-        .output()
-        .expect("run module timeout workflow");
-    assert_eq!(
-        output.status.code(),
-        Some(exitcode::SOFTWARE),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(
-        started.elapsed() < core::time::Duration::from_secs(4),
-        "configured timeout did not bound execution"
-    );
-    let report = native_report(&reports);
-    assert_eq!(report.inputs[0].modules[0].timeout, Some(acorn_core::time::Seconds::new(1)));
-    assert!(
-        report.inputs[0].modules[0]
-            .error
-            .as_deref()
-            .is_some_and(|error| error.to_ascii_lowercase().contains("timed out")),
-        "{:?}",
-        report.inputs[0].modules[0].error
-    );
-    remove_dir_all(test_root).expect("remove timeout directory");
-}
-#[cfg(not(target_os = "windows"))]
-#[test]
-fn test_termination_signal_cancels_inputs_flushes_journal_and_removes_workspaces() {
-    let test_root = std::env::temp_dir().join(format!("xylem-signal-cancellation-{}", std::process::id()));
-    let module = test_root.join("module");
-    let reports = test_root.join("reports");
-    let state = test_root.join("state");
-    create_dir_all(&module).expect("create signal module");
-    create_dir_all(&reports).expect("create signal reports");
-    create_dir_all(&state).expect("create signal state");
-    write(
-        module.join("run.sh"),
-        r#"#!/bin/sh
-set -eu
-state="$1"
-printf '%s\n' "$_XYLEM_WORK_DIRECTORY" > "$state/${_XYLEM_INPUT}.workspace"
-: > "$state/${_XYLEM_INPUT}.started"
-sleep 30
-"#,
-    )
-    .expect("write signal probe");
-    let config_path = test_root.join("config.json");
-    let config = serde_json::json!({
-        "input": ["one", "two", "three"],
-        "modules": [{
-            "name": "Signal Probe",
-            "programmingLanguage": "generic",
-            "template": { "arguments": ["run.sh", state], "command": "sh" },
-            "type": "script",
-            "uri": format!("file:{}", module.display())
-        }],
-        "options": { "batch": 2 },
-        "requirements": ["sh"]
-    });
-    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize signal config")).expect("write signal config");
-    let mut command = std::process::Command::new(assert_cmd::cargo::cargo_bin!("xylem"));
-    command
-        .env(
-            xylem_lib::run::store::RUN_STORE_ENV,
-            std::env::temp_dir().join(format!("xylem-cli-run-store-{}", std::process::id())),
-        )
-        .args([
-            "run",
-            config_path.to_str().expect("UTF-8 config path"),
-            "--report-output",
-            reports.to_str().expect("UTF-8 report path"),
-            "--reporter",
-            "json",
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped());
-    let child = command.spawn().expect("spawn signal workflow");
-    let deadline = std::time::Instant::now() + core::time::Duration::from_secs(10);
-    while !(state.join("one.started").exists() && state.join("two.started").exists()) && std::time::Instant::now() < deadline {
-        std::thread::sleep(core::time::Duration::from_millis(10));
-    }
-    assert!(state.join("one.started").exists(), "first signal input should start");
-    assert!(state.join("two.started").exists(), "second signal input should start");
-    let signal = std::process::Command::new("kill")
-        .args(["-TERM", &child.id().to_string()])
-        .status()
-        .expect("send termination signal");
-    assert!(signal.success(), "termination signal should be delivered");
-    let output = child.wait_with_output().expect("wait for cancelled workflow");
-    assert_eq!(output.status.code(), Some(130), "{}", String::from_utf8_lossy(&output.stderr));
-    let report = native_report(&reports);
-    assert_eq!(report.status, xylem_lib::journal::RunStatus::Cancelled);
-    assert_eq!(report.stop_reason, Some(xylem_lib::journal::RunStopReason::ExternalCancellation));
-    assert!(report
-        .inputs
-        .iter()
-        .all(|input| input.state == xylem_lib::journal::ExecutionState::Cancelled));
-    for input in ["one", "two"] {
-        let workspace = read_to_string(state.join(format!("{input}.workspace"))).expect("read input workspace");
-        assert!(
-            !Path::new(workspace.trim()).exists(),
-            "cancelled workspace should be removed: {workspace}"
-        );
-    }
-    remove_dir_all(test_root).expect("remove signal cancellation directory");
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
@@ -1592,6 +1662,61 @@ fn test_memory_runtime_rejects_oversized_reservations_before_work_begins() {
     assert!(String::from_utf8_lossy(&run.stderr).contains("input 0 requires 3072 memory bytes, exceeding the 2048-byte budget"));
     assert!(!marker.exists(), "module work must not begin after an oversized reservation");
     remove_dir_all(test_root).expect("remove oversized memory fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_module_timeout_reaches_managed_execution() {
+    let test_root = std::env::temp_dir().join(format!("xylem-module-timeout-{}", std::process::id()));
+    let module = test_root.join("module");
+    let reports = test_root.join("reports");
+    create_dir_all(&module).expect("create timeout module");
+    create_dir_all(&reports).expect("create timeout reports");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "modules": [{
+            "name": "Timeout Probe",
+            "programmingLanguage": "generic",
+            "template": { "arguments": ["-c", "sleep 5"], "command": "sh" },
+            "timeout_seconds": 1,
+            "type": "script",
+            "uri": format!("file:{}", module.display())
+        }],
+        "requirements": ["sh"]
+    });
+    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize timeout config")).expect("write timeout config");
+    let started = std::time::Instant::now();
+    let output = xylem_command()
+        .args([
+            "run",
+            config_path.to_str().expect("UTF-8 config path"),
+            "--report-output",
+            reports.to_str().expect("UTF-8 report path"),
+            "--reporter",
+            "json",
+        ])
+        .output()
+        .expect("run module timeout workflow");
+    assert_eq!(
+        output.status.code(),
+        Some(exitcode::SOFTWARE),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        started.elapsed() < core::time::Duration::from_secs(4),
+        "configured timeout did not bound execution"
+    );
+    let report = native_report(&reports);
+    assert_eq!(report.inputs[0].modules[0].timeout, Some(acorn_core::time::Seconds::new(1)));
+    assert!(
+        report.inputs[0].modules[0]
+            .error
+            .as_deref()
+            .is_some_and(|error| error.to_ascii_lowercase().contains("timed out")),
+        "{:?}",
+        report.inputs[0].modules[0].error
+    );
+    remove_dir_all(test_root).expect("remove timeout directory");
 }
 #[test]
 #[ignore = "requires a native rootless OCI runtime and digest-pinned sandbox workload"]
@@ -2358,18 +2483,34 @@ fn test_resume_skips_a_complete_module_without_spawning_it() {
                 config_path.to_str().expect("UTF-8 config"),
                 "--output",
                 reports.to_str().expect("UTF-8 reports"),
+                "--var",
+                "MODE=first",
             ])
             .args(arguments)
             .assert()
             .success();
     }
     assert_eq!(read_to_string(&counter).expect("read invocation counter").lines().count(), 1);
+    xylem_command()
+        .current_dir(workspace)
+        .args([
+            "run",
+            config_path.to_str().expect("UTF-8 config"),
+            "--output",
+            reports.to_str().expect("UTF-8 reports"),
+            "--resume",
+            "--var",
+            "MODE=second",
+        ])
+        .assert()
+        .success();
+    assert_eq!(read_to_string(&counter).expect("read invocation counter").lines().count(), 2);
     let reports = read_dir(&reports)
         .expect("read reports")
         .map(|entry| entry.expect("report entry").path())
         .filter(|path| path.extension().is_some_and(|extension| extension == "jsonl"))
         .collect::<Vec<_>>();
-    assert_eq!(reports.len(), 2);
+    assert_eq!(reports.len(), 3);
     assert!(reports.iter().any(|path| {
         xylem_lib::journal::RunJournal::read(path).is_ok_and(|summary| summary.inputs[0].state == xylem_lib::journal::ExecutionState::SkippedExisting)
     }));
@@ -2830,6 +2971,87 @@ fn test_spawn_failure_reports_command_and_working_directory() {
         "{stderr}"
     );
     remove_dir_all(test_root).expect("remove spawn failure directory");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_termination_signal_cancels_inputs_flushes_journal_and_removes_workspaces() {
+    let test_root = std::env::temp_dir().join(format!("xylem-signal-cancellation-{}", std::process::id()));
+    let module = test_root.join("module");
+    let reports = test_root.join("reports");
+    let state = test_root.join("state");
+    create_dir_all(&module).expect("create signal module");
+    create_dir_all(&reports).expect("create signal reports");
+    create_dir_all(&state).expect("create signal state");
+    write(
+        module.join("run.sh"),
+        r#"#!/bin/sh
+set -eu
+state="$1"
+printf '%s\n' "$_XYLEM_WORK_DIRECTORY" > "$state/${_XYLEM_INPUT}.workspace"
+: > "$state/${_XYLEM_INPUT}.started"
+sleep 30
+"#,
+    )
+    .expect("write signal probe");
+    let config_path = test_root.join("config.json");
+    let config = serde_json::json!({
+        "input": ["one", "two", "three"],
+        "modules": [{
+            "name": "Signal Probe",
+            "programmingLanguage": "generic",
+            "template": { "arguments": ["run.sh", state], "command": "sh" },
+            "type": "script",
+            "uri": format!("file:{}", module.display())
+        }],
+        "options": { "batch": 2 },
+        "requirements": ["sh"]
+    });
+    write(&config_path, serde_json::to_vec_pretty(&config).expect("serialize signal config")).expect("write signal config");
+    let mut command = std::process::Command::new(assert_cmd::cargo::cargo_bin!("xylem"));
+    command
+        .env(
+            xylem_lib::run::store::RUN_STORE_ENV,
+            std::env::temp_dir().join(format!("xylem-cli-run-store-{}", std::process::id())),
+        )
+        .args([
+            "run",
+            config_path.to_str().expect("UTF-8 config path"),
+            "--report-output",
+            reports.to_str().expect("UTF-8 report path"),
+            "--reporter",
+            "json",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    let child = command.spawn().expect("spawn signal workflow");
+    let deadline = std::time::Instant::now() + core::time::Duration::from_secs(10);
+    while !(state.join("one.started").exists() && state.join("two.started").exists()) && std::time::Instant::now() < deadline {
+        std::thread::sleep(core::time::Duration::from_millis(10));
+    }
+    assert!(state.join("one.started").exists(), "first signal input should start");
+    assert!(state.join("two.started").exists(), "second signal input should start");
+    let signal = std::process::Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .expect("send termination signal");
+    assert!(signal.success(), "termination signal should be delivered");
+    let output = child.wait_with_output().expect("wait for cancelled workflow");
+    assert_eq!(output.status.code(), Some(130), "{}", String::from_utf8_lossy(&output.stderr));
+    let report = native_report(&reports);
+    assert_eq!(report.status, xylem_lib::journal::RunStatus::Cancelled);
+    assert_eq!(report.stop_reason, Some(xylem_lib::journal::RunStopReason::ExternalCancellation));
+    assert!(report
+        .inputs
+        .iter()
+        .all(|input| input.state == xylem_lib::journal::ExecutionState::Cancelled));
+    for input in ["one", "two"] {
+        let workspace = read_to_string(state.join(format!("{input}.workspace"))).expect("read input workspace");
+        assert!(
+            !Path::new(workspace.trim()).exists(),
+            "cancelled workspace should be removed: {workspace}"
+        );
+    }
+    remove_dir_all(test_root).expect("remove signal cancellation directory");
 }
 #[cfg(feature = "tui")]
 #[test]

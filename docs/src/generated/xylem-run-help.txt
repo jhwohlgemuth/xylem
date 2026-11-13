@@ -8,15 +8,21 @@ Run workflow using configuration file
     $> xylem run /path/to/config.json --dry-run
 ```
 
-Usage: xylem run [OPTIONS] [CONFIG]
+Usage: xylem run [OPTIONS] [CONFIG] [-- [VALUES]...]
 
 Arguments:
   [CONFIG]
           Path to configuration file
 
+  [VALUES]...
+          Values bound to the workflow's ordered argument declarations
+
 Options:
       --module-index <N>
           Run only this zero-based resolved module position
+
+      --var <NAME=VALUE>
+          Override a workflow variable with a string value; repeatable, last value wins
 
   -r, --reporter <REPORTER>...
           Reporter(s) used for the final durable summary
@@ -27,13 +33,16 @@ Options:
 
           [default: console]
 
-      --artifact-output <PATH>
-          Workflow artifact root; overrides configuration output
-
   -t, --threads <N>
           Maximum number of Rayon workers used by Xylem (does not limit child tools)
 
           [default: 10]
+
+      --artifact-output <PATH>
+          Workflow artifact root; overrides configuration output
+
+      --env <PATH>
+          Load environment variables from a specific dotenv file
 
       --container-cleanup <CONTAINER_CLEANUP>
           Override cleanup policy for containers created by Xylem
@@ -43,9 +52,6 @@ Options:
           - on-success: Remove the container only after a successful run
           - never:      Retain the container after the run
 
-      --env <PATH>
-          Load environment variables from a specific dotenv file
-
       --no-progress
           Disable interactive workflow progress indicators
 
@@ -54,11 +60,11 @@ Options:
 
           [aliases: --output]
 
-      --retain-workspace
-          Keep the disposable run workspace for diagnostics
-
       --sandbox-policy <PATH>
           Trusted operator policy used only by workflows with `sandbox: true`
+
+      --retain-workspace
+          Keep the disposable run workspace for diagnostics
 
   -i, --input <LIST>
           Value(s) to use as INPUT variable in workflow

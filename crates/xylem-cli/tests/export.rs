@@ -25,13 +25,14 @@ fn xylem(root: &Path) -> assert_cmd::Command {
 }
 
 #[test]
-fn export_gitlab_discovers_nested_modules_and_checks_source_changes() {
+fn test_export_gitlab_discovers_nested_modules_and_checks_source_changes() {
     let root = fixture_root("gitlab-export");
     create_dir_all(root.join("child/leaf")).expect("create nested module");
     create_dir_all(root.join("second")).expect("create second module");
     write(
         root.join(".xylem.json"),
         r#"{
+            "arguments": ["DATASET"],
             "output": "./artifacts",
             "input": ["first", "second"],
             "requirements": ["mamba", "pixi"],
@@ -46,6 +47,7 @@ fn export_gitlab_discovers_nested_modules_and_checks_source_changes() {
     write(
         &child,
         r#"{
+            "arguments": ["CHILD"],
             "requirements": [],
             "modules": [{"name": "Leaf", "type": "script", "uri": "file:./leaf", "template": {"command": "true", "arguments": []}}]
         }"#,
@@ -95,7 +97,7 @@ fn export_gitlab_discovers_nested_modules_and_checks_source_changes() {
 }
 #[cfg(unix)]
 #[test]
-fn run_module_index_executes_only_selected_module() {
+fn test_run_module_index_executes_only_selected_module() {
     let root = fixture_root("module-index");
     for name in ["first", "second"] {
         create_dir_all(root.join(name)).expect("create module");

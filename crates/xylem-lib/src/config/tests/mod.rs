@@ -141,138 +141,6 @@ fn test_all_module_locations_round_trip_scalar_and_structured_forms() {
     serde_json::from_value::<Config>(serialized).expect("round trip module locations");
 }
 #[test]
-fn test_local_oci_archive_materialization_rewrites_sandbox_source() {
-    let root = std::env::temp_dir().join(format!("xylem-oci-sandbox-handoff-{}", std::process::id()));
-    let _ = remove_dir_all(&root);
-    let workspace = RunWorkspace::create(&root.join("workspaces"), "run").expect("create OCI handoff workspace");
-    let input = workspace.input(0).expect("create OCI handoff input workspace");
-    let archive = std::fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/oci-local/module/bundle.tar"))
-        .expect("canonical OCI archive fixture");
-    let digest = "sha256:98970c614c6c50785f7fc7b220e2b966249e95d6705f60cbc9b451923a74f805";
-    let source = format!("oci-layout:{}@{digest}", archive.display());
-    let config: Config = serde_json::from_value(serde_json::json!({
-        "modules": [{
-            "name": "archive",
-            "type": "script",
-            "uri": source,
-            "template": { "command": "sh", "arguments": ["run.sh"] }
-        }],
-        "requirements": [],
-        "sandbox": true
-    }))
-    .expect("local OCI archive configuration");
-    let options = ConfigOptions::init()
-        .build()
-        .with_acquisition_cache(Some(AcquisitionCache::new(root.join("cache"))))
-        .with_offline(Some(true));
-    let prepared = config
-        .with_options(options)
-        .materialize_modules_selected_in_workspace(&BTreeSet::from([0]), None, &input)
-        .expect("materialize local OCI archive for sandbox");
-    let path = prepared
-        .options
-        .as_ref()
-        .and_then(|options| options.workspace_modules.get(&0))
-        .expect("materialized OCI workspace path");
-    let uri = match &prepared.modules[0].module_type {
-        | ModuleType::Script { uri, .. } => <&str>::from(uri),
-        | _ => panic!("OCI archive fixture should remain a script module"),
-    };
-    assert_eq!(uri, format!("file:{}", path.display()));
-    let evidence = prepared.modules[0].acquisition.as_ref().expect("local OCI acquisition evidence");
-    assert_eq!(evidence.source, source);
-    assert!(evidence.policy.offline);
-    workspace.close().expect("close OCI handoff workspace");
-    remove_dir_all(root).expect("remove OCI handoff fixture");
-}
-#[test]
-fn test_local_oci_archive_paths_follow_declaring_configuration() {
-    let root = std::env::temp_dir().join(format!("xylem-oci-archive-config-{}", std::process::id()));
-    let child = root.join("child");
-    create_dir_all(&child).expect("create child configuration directory");
-    let root = std::fs::canonicalize(root).expect("canonical fixture root");
-    let child = root.join("child");
-    write(root.join("direct.tar"), []).expect("write direct archive placeholder");
-    write(child.join("nested.tar"), []).expect("write nested archive placeholder");
-    let digest = format!("sha256:{}", "a".repeat(64));
-    let direct: Config = serde_json::from_value(serde_json::json!({
-        "modules": [{"name": "direct", "type": "script", "uri": format!("oci-layout:./direct.tar@{digest}")}],
-        "requirements": []
-    }))
-    .expect("direct configuration");
-    let direct = direct.resolve(&root.join("config.json")).expect("resolve direct archive");
-    let direct_plan = crate::plan::ExecutionPlan::build(&direct, "config.json".to_string(), &[None], false).expect("plan direct archive");
-    assert_eq!(
-        direct_plan.modules[0].acquisition.source.to_string(),
-        format!("oci-layout:{}@{digest}", root.join("direct.tar").display())
-    );
-    write(
-        child.join("config.json"),
-        format!(r#"{{"modules":[{{"name":"nested","type":"script","uri":"oci-layout:./nested.tar@{digest}"}}],"requirements":[]}}"#),
-    )
-    .expect("write nested configuration");
-    let nested: Config = serde_json::from_value(serde_json::json!({
-        "modules": [{"name": "child", "type": "configuration", "uri": "file:./child/config.json"}],
-        "requirements": []
-    }))
-    .expect("root configuration");
-    let policy = acquisition_policy(None, false, false);
-    let cache = AcquisitionCache::new(root.join("cache"));
-    let nested = nested
-        .resolve_with_policy(&root.join("config.json"), &policy, &cache, false)
-        .expect("resolve nested archive");
-    let nested_plan = crate::plan::ExecutionPlan::build(&nested, "config.json".to_string(), &[None], false).expect("plan nested archive");
-    assert_eq!(
-        nested_plan.modules[0].acquisition.source.to_string(),
-        format!("oci-layout:{}@{digest}", child.join("nested.tar").display())
-    );
-    let binary: Config = serde_json::from_value(serde_json::json!({
-        "modules": [{"name": "unsupported", "type": "binary", "uri": format!("oci-layout:./direct.tar@{digest}")}],
-        "requirements": []
-    }))
-    .expect("binary archive configuration");
-    assert!(binary.validate().is_err());
-    remove_dir_all(root).expect("remove archive configuration fixture");
-}
-#[test]
-fn test_local_oci_archive_preparation_executes_from_input_local_tree() {
-    let root = std::env::temp_dir().join(format!("xylem-oci-host-preparation-{}", std::process::id()));
-    let _ = remove_dir_all(&root);
-    let workspace = RunWorkspace::create(&root.join("workspaces"), "run").expect("create OCI host workspace");
-    let input = workspace.input(0).expect("create OCI host input workspace");
-    let archive = std::fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/oci-local/module/bundle.tar"))
-        .expect("canonical OCI archive fixture");
-    let digest = "sha256:98970c614c6c50785f7fc7b220e2b966249e95d6705f60cbc9b451923a74f805";
-    let source = format!("oci-layout:{}@{digest}", archive.display());
-    let config: Config = serde_json::from_value(serde_json::json!({
-        "modules": [{
-            "name": "archive",
-            "type": "script",
-            "uri": source,
-            "template": { "command": "sh", "arguments": ["-c", "test -f run.sh"] }
-        }],
-        "requirements": []
-    }))
-    .expect("local OCI host configuration");
-    let options = ConfigOptions::init()
-        .build()
-        .with_acquisition_cache(Some(AcquisitionCache::new(root.join("cache"))))
-        .with_offline(Some(true));
-    let prepared = config
-        .with_options(options)
-        .prepare_modules_selected_in_workspace(&BTreeSet::from([0]), None, &input)
-        .expect("prepare local OCI archive for host execution");
-    let options = prepared.options.clone().expect("prepared host options");
-    let module = options.workspace_modules.get(&0).expect("input-local OCI module");
-    assert!(module.starts_with(input.modules()));
-    assert!(module.join("run.sh").is_file());
-    assert_eq!(prepared.modules[0].acquisition.as_ref().expect("OCI acquisition evidence").source, source);
-    let outcome = prepared.run_workflow(None, &options);
-    assert!(outcome.state.is_succeeded());
-    workspace.close().expect("close OCI host workspace");
-    remove_dir_all(root).expect("remove OCI host fixture");
-}
-#[test]
 fn test_allowed_round_trips_in_configuration_options() {
     let config: Config = serde_json::from_value(serde_json::json!({
         "requirements": [],
@@ -1294,6 +1162,138 @@ fn test_jsonc_accepts_comments_and_trailing_commas_but_rejects_loose_json() {
     remove_dir_all(root).expect("remove JSONC test root");
 }
 #[test]
+fn test_local_oci_archive_materialization_rewrites_sandbox_source() {
+    let root = std::env::temp_dir().join(format!("xylem-oci-sandbox-handoff-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    let workspace = RunWorkspace::create(&root.join("workspaces"), "run").expect("create OCI handoff workspace");
+    let input = workspace.input(0).expect("create OCI handoff input workspace");
+    let archive = std::fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/oci-local/module/bundle.tar"))
+        .expect("canonical OCI archive fixture");
+    let digest = "sha256:98970c614c6c50785f7fc7b220e2b966249e95d6705f60cbc9b451923a74f805";
+    let source = format!("oci-layout:{}@{digest}", archive.display());
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "name": "archive",
+            "type": "script",
+            "uri": source,
+            "template": { "command": "sh", "arguments": ["run.sh"] }
+        }],
+        "requirements": [],
+        "sandbox": true
+    }))
+    .expect("local OCI archive configuration");
+    let options = ConfigOptions::init()
+        .build()
+        .with_acquisition_cache(Some(AcquisitionCache::new(root.join("cache"))))
+        .with_offline(Some(true));
+    let prepared = config
+        .with_options(options)
+        .materialize_modules_selected_in_workspace(&BTreeSet::from([0]), None, &input)
+        .expect("materialize local OCI archive for sandbox");
+    let path = prepared
+        .options
+        .as_ref()
+        .and_then(|options| options.workspace_modules.get(&0))
+        .expect("materialized OCI workspace path");
+    let uri = match &prepared.modules[0].module_type {
+        | ModuleType::Script { uri, .. } => <&str>::from(uri),
+        | _ => panic!("OCI archive fixture should remain a script module"),
+    };
+    assert_eq!(uri, format!("file:{}", path.display()));
+    let evidence = prepared.modules[0].acquisition.as_ref().expect("local OCI acquisition evidence");
+    assert_eq!(evidence.source, source);
+    assert!(evidence.policy.offline);
+    workspace.close().expect("close OCI handoff workspace");
+    remove_dir_all(root).expect("remove OCI handoff fixture");
+}
+#[test]
+fn test_local_oci_archive_paths_follow_declaring_configuration() {
+    let root = std::env::temp_dir().join(format!("xylem-oci-archive-config-{}", std::process::id()));
+    let child = root.join("child");
+    create_dir_all(&child).expect("create child configuration directory");
+    let root = std::fs::canonicalize(root).expect("canonical fixture root");
+    let child = root.join("child");
+    write(root.join("direct.tar"), []).expect("write direct archive placeholder");
+    write(child.join("nested.tar"), []).expect("write nested archive placeholder");
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let direct: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{"name": "direct", "type": "script", "uri": format!("oci-layout:./direct.tar@{digest}")}],
+        "requirements": []
+    }))
+    .expect("direct configuration");
+    let direct = direct.resolve(&root.join("config.json")).expect("resolve direct archive");
+    let direct_plan = crate::plan::ExecutionPlan::build(&direct, "config.json".to_string(), &[None], false).expect("plan direct archive");
+    assert_eq!(
+        direct_plan.modules[0].acquisition.source.to_string(),
+        format!("oci-layout:{}@{digest}", root.join("direct.tar").display())
+    );
+    write(
+        child.join("config.json"),
+        format!(r#"{{"modules":[{{"name":"nested","type":"script","uri":"oci-layout:./nested.tar@{digest}"}}],"requirements":[]}}"#),
+    )
+    .expect("write nested configuration");
+    let nested: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{"name": "child", "type": "configuration", "uri": "file:./child/config.json"}],
+        "requirements": []
+    }))
+    .expect("root configuration");
+    let policy = acquisition_policy(None, false, false);
+    let cache = AcquisitionCache::new(root.join("cache"));
+    let nested = nested
+        .resolve_with_policy(&root.join("config.json"), &policy, &cache, false)
+        .expect("resolve nested archive");
+    let nested_plan = crate::plan::ExecutionPlan::build(&nested, "config.json".to_string(), &[None], false).expect("plan nested archive");
+    assert_eq!(
+        nested_plan.modules[0].acquisition.source.to_string(),
+        format!("oci-layout:{}@{digest}", child.join("nested.tar").display())
+    );
+    let binary: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{"name": "unsupported", "type": "binary", "uri": format!("oci-layout:./direct.tar@{digest}")}],
+        "requirements": []
+    }))
+    .expect("binary archive configuration");
+    assert!(binary.validate().is_err());
+    remove_dir_all(root).expect("remove archive configuration fixture");
+}
+#[test]
+fn test_local_oci_archive_preparation_executes_from_input_local_tree() {
+    let root = std::env::temp_dir().join(format!("xylem-oci-host-preparation-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    let workspace = RunWorkspace::create(&root.join("workspaces"), "run").expect("create OCI host workspace");
+    let input = workspace.input(0).expect("create OCI host input workspace");
+    let archive = std::fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/oci-local/module/bundle.tar"))
+        .expect("canonical OCI archive fixture");
+    let digest = "sha256:98970c614c6c50785f7fc7b220e2b966249e95d6705f60cbc9b451923a74f805";
+    let source = format!("oci-layout:{}@{digest}", archive.display());
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "name": "archive",
+            "type": "script",
+            "uri": source,
+            "template": { "command": "sh", "arguments": ["-c", "test -f run.sh"] }
+        }],
+        "requirements": []
+    }))
+    .expect("local OCI host configuration");
+    let options = ConfigOptions::init()
+        .build()
+        .with_acquisition_cache(Some(AcquisitionCache::new(root.join("cache"))))
+        .with_offline(Some(true));
+    let prepared = config
+        .with_options(options)
+        .prepare_modules_selected_in_workspace(&BTreeSet::from([0]), None, &input)
+        .expect("prepare local OCI archive for host execution");
+    let options = prepared.options.clone().expect("prepared host options");
+    let module = options.workspace_modules.get(&0).expect("input-local OCI module");
+    assert!(module.starts_with(input.modules()));
+    assert!(module.join("run.sh").is_file());
+    assert_eq!(prepared.modules[0].acquisition.as_ref().expect("OCI acquisition evidence").source, source);
+    let outcome = prepared.run_workflow(None, &options);
+    assert!(outcome.state.is_succeeded());
+    workspace.close().expect("close OCI host workspace");
+    remove_dir_all(root).expect("remove OCI host fixture");
+}
+#[test]
 fn test_managed_container_keep_alive_round_trips_and_validates() {
     let document = serde_json::json!({
         "requirements": [],
@@ -1904,6 +1904,134 @@ fn test_type_specific_module_fields_are_rejected_in_json_and_yaml() {
         assert!(parse_json_configuration(json).is_err());
         assert!(parse_yaml_configuration(yaml).is_err());
     }
+}
+#[test]
+fn test_variable_override_validation_and_precedence() {
+    let bindings = ["DATASET=first", "EMPTY=", "LABEL=one,two=three", "DATASET=last"].map(str::to_string);
+    let overrides = VariableOverrides::parse(&bindings).expect("valid bindings");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{
+            "name": "probe", "type": "script", "programmingLanguage": "generic",
+            "uri": "file:.", "template": {"command": "true", "arguments": []},
+            "variables": {"DATASET": "module", "OTHER": 4}
+        }],
+        "variables": {"DATASET": "root", "UNCHANGED": true}
+    }))
+    .expect("fixture");
+    let root = overrides.apply_root(config.clone());
+    assert_eq!(root.variables.as_ref().expect("root values")["DATASET"], "last");
+    assert_eq!(root.modules[0].variables.as_ref().expect("module values")["DATASET"], "module");
+    let resolved = overrides.apply_resolved(root);
+    assert_eq!(resolved.modules[0].variables.as_ref().expect("module values")["DATASET"], "last");
+    assert_eq!(resolved.modules[0].variables.as_ref().expect("module values")["OTHER"], 4);
+    assert_eq!(resolved.module_environment(resolved.modules.first(), None)["_XYLEM_DATASET"], "last");
+    assert_eq!(resolved.variables.as_ref().expect("root values")["EMPTY"], "");
+    assert_eq!(resolved.variables.as_ref().expect("root values")["LABEL"], "one,two=three");
+    assert_eq!(resolved.variables.as_ref().expect("root values")["UNCHANGED"], true);
+    assert_eq!(VariableOverrides::default().apply_resolved(config.clone()).variables, config.variables);
+    for name in ["INPUT", "INPUT_BASENAME", "MODULE_LIST", "OUTPUT_DIRECTORY", "RUN_ID", "WORK_DIRECTORY"] {
+        assert!(matches!(
+            VariableOverrides::parse(&[format!("{name}=x")]),
+            Err(VariableOverrideError::ReservedName(_))
+        ));
+    }
+    for value in ["NO_EQUALS", "=value", "lower=value", "A-B=value", "1A=value"] {
+        assert!(VariableOverrides::parse(&[value.to_string()]).is_err(), "{value}");
+    }
+}
+#[test]
+fn test_workflow_arguments_bind_in_order_with_named_precedence() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "arguments": ["DATASET", "MODE"], "requirements": [], "modules": [],
+        "variables": {"DATASET": "default", "MODE": "full"}
+    }))
+    .expect("argument fixture");
+    let named = VariableOverrides::parse(&["MODE=fast".to_string()]).expect("named binding");
+    let bindings = config
+        .bind_arguments(&["basin".to_string(), "slow".to_string()], &named)
+        .expect("bind arguments");
+    let effective = bindings.apply_root(config.clone());
+    assert_eq!(effective.variables.as_ref().expect("values")["DATASET"], "basin");
+    assert_eq!(effective.variables.as_ref().expect("values")["MODE"], "fast");
+    let omitted = config
+        .bind_arguments(&["".to_string()], &VariableOverrides::default())
+        .expect("empty binding")
+        .apply_root(config.clone());
+    assert_eq!(omitted.variables.as_ref().expect("values")["DATASET"], "");
+    assert_eq!(omitted.variables.as_ref().expect("values")["MODE"], "full");
+    assert!(matches!(
+        config.bind_arguments(&["one".to_string(), "two".to_string(), "three".to_string()], &named),
+        Err(WorkflowArgumentsError::TooManyValues { .. })
+    ));
+    assert!(config.validate().is_ok());
+}
+#[test]
+fn test_workflow_arguments_declarations_validate_across_formats() {
+    let root = std::env::temp_dir().join(format!("xylem-workflow-arguments-{}", std::process::id()));
+    create_dir_all(&root).expect("create argument fixture directory");
+    for extension in ["json", "jsonc", "yaml", "yml"] {
+        let path = root.join(format!("workflow.{extension}"));
+        let content = match extension {
+            | "json" | "jsonc" => r#"{"arguments":["DATASET","MODE"],"requirements":[],"modules":[]}"#,
+            | _ => "arguments: [DATASET, MODE]\nrequirements: []\nmodules: []\n",
+        };
+        write(&path, content).expect("write workflow argument fixture");
+        let config = Config::read(path).expect("read argument fixture");
+        assert_eq!(config.arguments, Some(vec!["DATASET".to_string(), "MODE".to_string()]));
+        assert!(config.validate().is_ok());
+        assert_eq!(
+            serde_json::from_str::<Config>(&serde_json::to_string(&config).expect("serialize config"))
+                .expect("round trip")
+                .arguments,
+            config.arguments
+        );
+    }
+    for declarations in [
+        serde_json::json!(["DATASET", "DATASET"]),
+        serde_json::json!(["lower"]),
+        serde_json::json!(["INPUT"]),
+        serde_json::json!(["OUTPUT_DIRECTORY"]),
+    ] {
+        let config: Config = serde_json::from_value(serde_json::json!({"arguments": declarations, "requirements": [], "modules": []}))
+            .expect("deserialize declaration");
+        assert!(config.validate().is_err());
+        assert!(config.bind_arguments(&[], &VariableOverrides::default()).is_err());
+    }
+    let absent: Config = serde_json::from_value(serde_json::json!({"requirements": [], "modules": []})).expect("absent declaration");
+    let empty: Config = serde_json::from_value(serde_json::json!({"arguments": [], "requirements": [], "modules": []})).expect("empty declaration");
+    assert!(absent.validate().is_ok());
+    assert!(empty.validate().is_ok());
+    assert!(matches!(
+        absent.bind_arguments(&["extra".to_string()], &VariableOverrides::default()),
+        Err(WorkflowArgumentsError::TooManyValues { .. })
+    ));
+    remove_dir_all(root).expect("remove argument fixtures");
+}
+#[test]
+fn test_workflow_arguments_use_only_invoked_root_declarations() {
+    let root = std::env::temp_dir().join(format!("xylem-workflow-argument-root-{}", std::process::id()));
+    create_dir_all(&root).expect("create nested argument fixture");
+    let parent = root.join("parent.json");
+    let child = root.join("child.json");
+    write(
+        &parent,
+        r#"{"arguments":["ROOT"],"requirements":[],"modules":[{"name":"child","type":"configuration","uri":"file:./child.json"}]}"#,
+    )
+    .expect("write parent");
+    write(&child, r#"{"arguments":["CHILD"],"requirements":[],"modules":[]}"#).expect("write child");
+    let resolved = Config::read(parent.clone())
+        .expect("read parent")
+        .resolve(&parent)
+        .expect("resolve child");
+    assert_eq!(resolved.arguments, Some(vec!["ROOT".to_string()]));
+    let bindings = resolved
+        .bind_arguments(&["parent".to_string()], &VariableOverrides::default())
+        .expect("bind root");
+    assert_eq!(bindings.apply_root(resolved).variables.as_ref().expect("variables")["ROOT"], "parent");
+    let direct = Config::read(child).expect("read child");
+    assert_eq!(direct.arguments, Some(vec!["CHILD".to_string()]));
+    remove_dir_all(root).expect("remove nested argument fixture");
 }
 #[test]
 fn test_yaml_rejects_ambiguous_and_resource_exhausting_input() {

@@ -5,7 +5,7 @@ use acorn_schema::validation::Validate;
 use std::env;
 use std::path::{absolute, Path, PathBuf};
 use xylem_lib::acquisition::{AcquisitionCache, AcquisitionLimits, AcquisitionPolicy};
-use xylem_lib::config::{Config, ConfigOptions, ConfigReadError, FailurePolicy};
+use xylem_lib::config::{Config, ConfigOptions, ConfigReadError, FailurePolicy, WorkflowArgumentsError};
 use xylem_lib::plan::ExecutionPlan;
 use xylem_lib::run::RunContext;
 use xylem_lib::sandbox::{EffectiveSandboxPolicy, SandboxProviderKind, DOCKER_SANDBOX_WARNING, OPENSHELL_WARNING};
@@ -159,86 +159,100 @@ fn prepare_config_with_output(
             };
             RunFailure::new(exit_code, why.to_string())
         })
-        .and_then(|preview| configure_preview(preview, request, artifact_output.as_deref()))
-        .and_then(|mut preview| {
-            match (request.artifact_output.is_some(), preview.output.as_ref()) {
-                | (false, Some(output)) if Path::new(output).is_relative() => config_path
-                    .parent()
-                    .ok_or_else(|| RunFailure::new(exitcode::DATAERR, "workflow configuration has no parent directory"))
-                    .and_then(|parent| {
-                        absolute(parent.join(output))
-                            .map_err(|why| RunFailure::new(exitcode::DATAERR, format!("resolve workflow output path — {why}")))
-                    })
-                    .and_then(|output| {
-                        output
-                            .to_str()
-                            .map(str::to_string)
-                            .ok_or_else(|| RunFailure::new(exitcode::DATAERR, "workflow output path must be valid UTF-8"))
-                    })
-                    .map(|output| preview.output = Some(output)),
-                | _ => Ok(()),
-            }
-            .map(|()| preview)
-        })
         .and_then(|preview| {
             preview
-                .options
-                .as_ref()
-                .and_then(|options| options.sandbox_policy.as_ref())
-                .map_or(Ok(()), |policy| policy.validate_configuration(&preview))
-                .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
-                .map(|()| preview)
-        })
-        .and_then(|preview| {
-            let options = preview.options.as_ref();
-            let allowed = options.and_then(|value| value.allowed.as_deref());
-            let dry_run = options.and_then(|value| value.dry_run).unwrap_or_default();
-            let offline = options.and_then(|value| value.offline).unwrap_or_default();
-            let allow_insecure_http = options.is_some_and(|value| value.allow_insecure_http);
-            let skip_verify_checksum = options.and_then(|value| value.skip_verify_checksum).unwrap_or_default();
-            let limits = options
-                .and_then(|value| value.acquisition_limits.clone())
-                .unwrap_or_else(AcquisitionLimits::default);
-            AcquisitionPolicy::from_hosts(allowed, allow_insecure_http, None, offline, limits)
-                .map(|policy| policy.with_checksum_verification_disabled(skip_verify_checksum))
-                .map_err(|why| RunFailure::new(exitcode::USAGE, format!("invalid acquisition policy — {why}")))
-                .and_then(|policy| {
-                    AcquisitionCache::system()
-                        .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
-                        .map(|cache| (policy, cache))
-                })
-                .and_then(|(policy, cache)| {
-                    let owned = match dry_run {
-                        | true => Ok((None, None)),
-                        | false => {
-                            let id = nanoid::nanoid!(10, &nanoid::alphabet::SAFE);
-                            let parent = env::temp_dir().join(EnvironmentValue::PREFIX).join("workspaces");
-                            RunWorkspace::create(&parent, &id)
-                                .map(|workspace| (Some(id), Some(workspace)))
-                                .map_err(|why| RunFailure::new(exitcode::CANTCREAT, why.to_string()))
-                        }
+                .bind_arguments(request.positional, &request.variable_overrides)
+                .map_err(|why| {
+                    let code = match why {
+                        | WorkflowArgumentsError::InvalidDeclaration(_) | WorkflowArgumentsError::DuplicateDeclaration(_) => exitcode::DATAERR,
+                        | WorkflowArgumentsError::TooManyValues { .. } => exitcode::USAGE,
                     };
-                    owned.and_then(|(id, workspace)| {
-                        preview
-                            .resolve_with_policy(&config_path, &policy, &cache, dry_run)
-                            .map_err(|why| {
-                                let exit_code = match why.is_availability() {
-                                    | true => exitcode::UNAVAILABLE,
-                                    | false => exitcode::DATAERR,
-                                };
-                                RunFailure::new(exit_code, why.to_string())
-                            })
-                            .and_then(|mut resolved| {
-                                artifact_output
-                                    .as_ref()
-                                    .map_or(Ok(()), |output| apply_resolved_artifact_output(&mut resolved, output))
-                                    .map(|()| ResolvedRun {
-                                        config: resolved,
-                                        id,
-                                        workspace,
+                    RunFailure::new(code, why.to_string())
+                })
+                .and_then(|bindings| {
+                    configure_preview(bindings.apply_root(preview), request, artifact_output.as_deref())
+                        .and_then(|mut preview| {
+                            match (request.artifact_output.is_some(), preview.output.as_ref()) {
+                                | (false, Some(output)) if Path::new(output).is_relative() => config_path
+                                    .parent()
+                                    .ok_or_else(|| RunFailure::new(exitcode::DATAERR, "workflow configuration has no parent directory"))
+                                    .and_then(|parent| {
+                                        absolute(parent.join(output))
+                                            .map_err(|why| RunFailure::new(exitcode::DATAERR, format!("resolve workflow output path — {why}")))
                                     })
-                            })
-                    })
+                                    .and_then(|output| {
+                                        output
+                                            .to_str()
+                                            .map(str::to_string)
+                                            .ok_or_else(|| RunFailure::new(exitcode::DATAERR, "workflow output path must be valid UTF-8"))
+                                    })
+                                    .map(|output| preview.output = Some(output)),
+                                | _ => Ok(()),
+                            }
+                            .map(|()| preview)
+                        })
+                        .and_then(|preview| {
+                            preview
+                                .options
+                                .as_ref()
+                                .and_then(|options| options.sandbox_policy.as_ref())
+                                .map_or(Ok(()), |policy| policy.validate_configuration(&preview))
+                                .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
+                                .map(|()| preview)
+                        })
+                        .and_then(|preview| {
+                            let options = preview.options.as_ref();
+                            let allowed = options.and_then(|value| value.allowed.as_deref());
+                            let dry_run = options.and_then(|value| value.dry_run).unwrap_or_default();
+                            let offline = options.and_then(|value| value.offline).unwrap_or_default();
+                            let allow_insecure_http = options.is_some_and(|value| value.allow_insecure_http);
+                            let skip_verify_checksum = options.and_then(|value| value.skip_verify_checksum).unwrap_or_default();
+                            let limits = options
+                                .and_then(|value| value.acquisition_limits.clone())
+                                .unwrap_or_else(AcquisitionLimits::default);
+                            AcquisitionPolicy::from_hosts(allowed, allow_insecure_http, None, offline, limits)
+                                .map(|policy| policy.with_checksum_verification_disabled(skip_verify_checksum))
+                                .map_err(|why| RunFailure::new(exitcode::USAGE, format!("invalid acquisition policy — {why}")))
+                                .and_then(|policy| {
+                                    AcquisitionCache::system()
+                                        .map_err(|why| RunFailure::new(exitcode::UNAVAILABLE, why.to_string()))
+                                        .map(|cache| (policy, cache))
+                                })
+                                .and_then(|(policy, cache)| {
+                                    let owned = match dry_run {
+                                        | true => Ok((None, None)),
+                                        | false => {
+                                            let id = nanoid::nanoid!(10, &nanoid::alphabet::SAFE);
+                                            let parent = env::temp_dir().join(EnvironmentValue::PREFIX).join("workspaces");
+                                            RunWorkspace::create(&parent, &id)
+                                                .map(|workspace| (Some(id), Some(workspace)))
+                                                .map_err(|why| RunFailure::new(exitcode::CANTCREAT, why.to_string()))
+                                        }
+                                    };
+                                    owned.and_then(|(id, workspace)| {
+                                        preview
+                                            .resolve_with_policy(&config_path, &policy, &cache, dry_run)
+                                            .map_err(|why| {
+                                                let exit_code = match why.is_availability() {
+                                                    | true => exitcode::UNAVAILABLE,
+                                                    | false => exitcode::DATAERR,
+                                                };
+                                                RunFailure::new(exit_code, why.to_string())
+                                            })
+                                            .map(|resolved| bindings.apply_resolved(resolved))
+                                            .and_then(|mut resolved| {
+                                                artifact_output
+                                                    .as_ref()
+                                                    .map_or(Ok(()), |output| apply_resolved_artifact_output(&mut resolved, output))
+                                                    .map(|()| ResolvedRun {
+                                                        config: resolved,
+                                                        id,
+                                                        workspace,
+                                                    })
+                                            })
+                                    })
+                                })
+                        })
                 })
         })
         .and_then(|mut resolved| normalize_sandbox_artifact_output(&mut resolved.config).map(|()| resolved))

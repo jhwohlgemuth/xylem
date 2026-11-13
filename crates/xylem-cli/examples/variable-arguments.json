@@ -1,0 +1,19 @@
+{
+  "arguments": ["GREETING"],
+  "requirements": [],
+  "variables": {
+    "GREETING": "Hello"
+  },
+  "modules": [
+    {
+      "name": "greet",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:./crates/xylem-cli/examples",
+      "template": {
+        "command": "printf",
+        "arguments": ["{{ GREETING }} from Xylem\\n"]
+      }
+    }
+  ]
+}

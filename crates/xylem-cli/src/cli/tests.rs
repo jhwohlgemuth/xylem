@@ -28,28 +28,6 @@ fn test_allowed_accepts_repeated_and_comma_delimited_values() {
     }
 }
 #[test]
-fn test_insecure_http_is_an_explicit_operator_capability() {
-    match parse(&["xylem", "run", "--allow-insecure-http"]).command {
-        | Some(Commands::Run { allow_insecure_http, .. }) => assert!(allow_insecure_http),
-        | _ => panic!("run command should parse"),
-    }
-    match parse(&["xylem", "run"]).command {
-        | Some(Commands::Run { allow_insecure_http, .. }) => assert!(!allow_insecure_http),
-        | _ => panic!("run command should parse"),
-    }
-}
-#[test]
-fn test_checksum_escape_hatch_is_explicit() {
-    match parse(&["xylem", "run", "--skip-verify-checksum"]).command {
-        | Some(Commands::Run { skip_verify_checksum, .. }) => assert!(skip_verify_checksum),
-        | _ => panic!("run command should parse"),
-    }
-    match parse(&["xylem", "run"]).command {
-        | Some(Commands::Run { skip_verify_checksum, .. }) => assert!(!skip_verify_checksum),
-        | _ => panic!("run command should parse"),
-    }
-}
-#[test]
 fn test_artifact_and_report_outputs_are_distinct() {
     let args = parse(&["xylem", "run", "--artifact-output", "artifacts", "--report-output", "reports"]);
     match args.command {
@@ -69,6 +47,55 @@ fn test_artifact_and_report_outputs_are_distinct() {
         }
         | _ => panic!("run command should parse"),
     }
+}
+#[test]
+fn test_checksum_escape_hatch_is_explicit() {
+    match parse(&["xylem", "run", "--skip-verify-checksum"]).command {
+        | Some(Commands::Run { skip_verify_checksum, .. }) => assert!(skip_verify_checksum),
+        | _ => panic!("run command should parse"),
+    }
+    match parse(&["xylem", "run"]).command {
+        | Some(Commands::Run { skip_verify_checksum, .. }) => assert!(!skip_verify_checksum),
+        | _ => panic!("run command should parse"),
+    }
+}
+#[test]
+fn test_cli_arguments_require_separator_and_keep_literal_values() {
+    match parse(&["xylem", "run", "workflow.json", "--var", "MODE=fast", "--", "input", "-leading", ""]).command {
+        | Some(Commands::Run {
+            config,
+            positional,
+            variables,
+            ..
+        }) => {
+            assert_eq!(config, Some(PathBuf::from("workflow.json")));
+            assert_eq!(positional, ["input", "-leading", ""]);
+            assert_eq!(variables, ["MODE=fast"]);
+        }
+        | _ => panic!("run command should parse"),
+    }
+    assert!(Arguments::try_parse_from(["xylem", "run", "workflow.json", "extra"]).is_err());
+}
+#[test]
+fn test_cli_variable_values_are_repeatable_and_literal() {
+    match parse(&[
+        "xylem",
+        "run",
+        "workflow.json",
+        "--var",
+        "A=first",
+        "--var",
+        "A=last,with=equals",
+        "--var",
+        "EMPTY=",
+    ])
+    .command
+    {
+        | Some(Commands::Run { variables, .. }) => assert_eq!(variables, ["A=first", "A=last,with=equals", "EMPTY="]),
+        | _ => panic!("run command should parse"),
+    }
+    assert!(Arguments::try_parse_from(["xylem", "run", "--var"]).is_err());
+    assert!(Arguments::try_parse_from(["xylem", "export", "--var", "A=x"]).is_err());
 }
 #[test]
 fn test_container_policy_flags_parse() {
@@ -128,6 +155,17 @@ fn test_help_documents_thread_contract() {
     assert!(help.contains("-t, --threads <N>"));
     assert!(help.contains("[default: 10]"));
     assert!(help.contains("does not limit child tools"));
+}
+#[test]
+fn test_insecure_http_is_an_explicit_operator_capability() {
+    match parse(&["xylem", "run", "--allow-insecure-http"]).command {
+        | Some(Commands::Run { allow_insecure_http, .. }) => assert!(allow_insecure_http),
+        | _ => panic!("run command should parse"),
+    }
+    match parse(&["xylem", "run"]).command {
+        | Some(Commands::Run { allow_insecure_http, .. }) => assert!(!allow_insecure_http),
+        | _ => panic!("run command should parse"),
+    }
 }
 #[test]
 fn test_reporters_are_typed_repeatable_and_default_to_console() {

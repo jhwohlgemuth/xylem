@@ -44,7 +44,11 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 use url::Url;
 
+mod arguments;
+mod overrides;
 mod validation;
+pub use arguments::WorkflowArgumentsError;
+pub use overrides::{VariableOverrideError, VariableOverrides};
 const RESERVED_VARIABLES: [&str; 5] = ["INPUT", "INPUT_BASENAME", "MODULE_LIST", "RUN_ID", "WORK_DIRECTORY"];
 /// Executes one resolved module command for an orchestration adapter.
 pub trait ModuleExecutor: Send + Sync {
@@ -170,6 +174,9 @@ pub struct Config {
     #[builder(default)]
     #[serde(skip)]
     pub acquisitions: Vec<AcquisitionEvidence>,
+    /// Ordered names for invocation-level positional values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<Vec<String>>,
     /// Unique workflow identifier
     pub id: Option<String>,
     /// Configuration version in semver format

@@ -102,6 +102,21 @@ child leaf in that order. A child `output` replaces the inherited output
 default, while an explicit `OUTPUT_DIRECTORY` variable and the CLI
 `--artifact-output` override remain authoritative. `MODULE_LIST` contains the
 qualified, depth-first leaf identities.
+For `xylem run`, repeatable `--var NAME=VALUE` bindings override workflow and
+resolved leaf variables for that invocation, including nested module defaults.
+The last binding for a name wins. Values are strings; names match
+`[A-Z][A-Z0-9_]*`. Engine-owned names and `OUTPUT_DIRECTORY` are rejected;
+use `--artifact-output` for the latter. An undeclared name is accepted.
+
+A workflow MAY declare an ordered top-level `arguments` list of variable names.
+`xylem run CONFIG -- VALUE...` binds each value to the declaration at the same
+position. Names MUST be unique, match the invocation naming rule, and avoid
+engine-owned names and `OUTPUT_DIRECTORY`. Omitted trailing values leave
+defaults in place; excess values are a usage error. Empty strings are explicit
+values. Named `--var` values take precedence over the corresponding position
+without shifting positions. Only the invoked root workflow declares this
+interface; nested declarations do not extend it. Supplying positional values
+requires an explicit `CONFIG` path. `--input` remains the batch-input selector.
 
 The root dry-run, resume, batch, and artifact-output choices apply at every
 depth. A child may tighten `options.allowed` and `acquisition_limits` or enable

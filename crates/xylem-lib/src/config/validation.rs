@@ -66,6 +66,11 @@ impl Config {
 impl Validate for Config {
     fn validate(&self) -> Result<(), ValidationReport> {
         let mut report = ValidationReport::new();
+        if let Some(arguments) = &self.arguments {
+            if let Err(why) = super::arguments::validate_declarations(arguments) {
+                report.add("arguments", validation_error("workflow_arguments", why.to_string()));
+            }
+        }
         if self.check.is_some() {
             report.add(
                 "check",
