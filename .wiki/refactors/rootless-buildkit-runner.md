@@ -19,7 +19,8 @@ namespace operations required by rootless BuildKit.
 
 # Current evidence
 
-Rechecked on 2026-11-04 against Xylem `7aa9ef8` and failed GitLab job
+Repository CI and history rechecked on 2026-11-13 at clean baseline
+`e3f0e09`; the original failure is preserved in GitLab job
 [4503475](https://code.ornl.gov/research-enablement/xylem/-/jobs/4503475).
 
 - `build-geospatial-sandbox-workload`, `build-sandbox-runner`,
@@ -37,6 +38,11 @@ Rechecked on 2026-11-04 against Xylem `7aa9ef8` and failed GitLab job
 - All four rootless BuildKit jobs now begin their existing `rules` with
   unconditional `when: never`; their prior activation rules remain in place
   for phased re-enablement.
+
+No dedicated-runner policy or successful re-enablement evidence was found in
+the repository. Runner-host security configuration, administration access,
+and a maintenance window were not qualified during this review. All three
+phases remain; do not infer readiness from a generic runner being online.
 
 # Project code boundaries
 
@@ -86,7 +92,7 @@ repair phase rather than broadening the active phase.
 
 ## RBK-01 — Provision and qualify the dedicated BuildKit runner
 
-- Status: planned
+- Status: blocked
 - Budget: 5 active hours maximum
 - Prerequisites: GitLab group-runner administration access and a maintenance window on one self-managed amd64 Docker runner host
 - Exact write set: dedicated runner host `/etc/gitlab-runner/config.toml`, `/etc/gitlab-runner/seccomp-buildkit.json`, and GitLab group runner registration tagged `buildkit-rootless-amd64`

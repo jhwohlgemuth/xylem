@@ -18,63 +18,61 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 
 ## Portfolio review
 
-Rechecked on 2026-11-01 against baseline `fcf4df3`, current schemas, focused
-tests, retained measurement, and platform evidence. The portfolio now contains 7
-executable plans, all using five-hour phases. External Windows-runner, tap,
-A/P/O rollout,
-cluster, storage, image, corpus, and credential claims remain explicit
-prerequisites until their owners provide current evidence. Full xylem-lib and
-xylem-cli tests, strict focused Clippy, and rustdoc generation passed for the
-current plan, configuration, acquisition, and CLI changes. External tap state
-was not independently rechecked during these phases.
+Reviewed **2026-11-13** against initially clean commit `e3f0e09` (workspace
+version 1.0.7). All **7 executable plans** were compared with current code,
+adjacent tests, user/architecture documentation, generated CLI help, schemas,
+CI/release configuration, retained measurement/platform evidence, and relevant
+Git history. CodeGraph was used before code searches. The network and parallel
+guide are coordination records; there are no executable Epics.
 
-Rootless BuildKit delivery evidence was added on 2026-11-04 against baseline
-`7aa9ef8` and failed job 4503475. Four affected jobs are temporarily skipped
-until a dedicated runner passes the bounded qualification plan.
+Read-only external checks covered the Homebrew tap's current formula, CI,
+merged release MR/pipeline/jobs and runner inventory, plus published ACORN
+v0.6.3 and its runner/socket implementation. No external settings, branches,
+runners, environments, or product files were changed. Cluster/PVC availability,
+Windows hosts, BuildKit host policy/maintenance access, credentials, and the
+A/P/O rollout decision remain unqualified external prerequisites.
 
-CLI variable argument planning was added on 2026-11-13 against `1c4a75e`.
-ARG-01 is ready without external prerequisites; named overrides precede
-config-declared positional bindings. This addition rechecked configuration
-and CLI evidence, not the external readiness claims of the older plans below.
+Fresh checks: `cargo test -p xylem-lib --lib --quiet` passed **336 tests, two
+ignored**; `cargo test -p xylem-cli --test workflow --quiet` passed **44 tests,
+three ignored**. These qualify local baseline behavior, not missing Windows,
+cluster, macOS Homebrew, or credentialed holdout acceptance.
+`cargo test -p xtask --quiet` passed all **7 tests**. Planning wiki validation
+and `git diff --check` passed. Ignored tests were not promoted to acceptance.
 
-Configuration expansion planning was added on 2026-11-13 against the same
-HEAD plus the uncommitted basename cutover and selection-root expansion.
-It records five reviewed behavior gaps and eleven bounded phases. EXP-01 is
-ready; field phases require named invocation bindings from ARG-02. Existing
-external readiness claims below remain historical, not freshly qualified.
+Pruned the obsolete v1.0.3/!2 Homebrew activation/merge tasks and already
+published install-command work; condensed completed acquisition phase logs
+into links to durable evidence; removed retired environment-plan dependencies
+from Kubernetes; replaced stale uncommitted-baseline and v13 schema claims.
+**No plan is fully accepted, so none was retired.** Remaining phase IDs are
+unchanged. Root interpolation and the basename cutover are committed baselines,
+not completion of the broader expansion or invocation plans.
 
-| Plan | Quality | Impact | Remaining difficulty | Readiness | Assessment |
-|---|---:|---:|---:|---|---|
-| [CLI variable arguments](features/cli-variable-arguments.md) | Not scored | High | Medium | Ready | ARG-01 adds validated run-wide bindings; ARG-02 ships `--var`, then ARG-03/04 add ordered config declarations and positional invocation. |
-| [Configuration variable expansion](features/configuration-variable-expansion.md) | Not scored | High | High | Foundation ready | EXP-01 extracts bounded interpolation; after ARG-02, resolve input/output paths, source URIs, templates, and environments before their owning validation/preparation steps. |
-| [Rootless BuildKit runner](refactors/rootless-buildkit-runner.md) | 5/5 | High | Medium | Planned | Four rootless BuildKit jobs are skipped after generic runner `kronk` blocked RootlessKit startup. Provision a dedicated non-privileged runner with a narrow seccomp profile before phased re-enablement. |
-| [Secure module acquisition](refactors/secure-module-acquisition.md) | 5/5 | Critical | Low | Blocked on Windows runner support | SEC-01 through SEC-06 are accepted. Published ACORN CLI 0.5.1 still assumes a POSIX Docker socket for a local container runner, so SEC-07 awaits a native Windows-capable release and host. |
-| [Homebrew release activation](features/homebrew-export.md) | 5/5 | High | Low | Ready | Tap merge request !2 remains open and mergeable at the intended commit. Its Linux job passes; three macOS retries remain canceled on the online assigned runner. |
-| [A/P/O memory validation](features/memory-aware-scheduling.md) | 5/5 | High | Low | Blocked on rollout decision | The scheduler and A/P evidence are landed. Run the pinned credentialed A/P/O holdout only when selected for rollout. |
-| [Kubernetes workflow execution](features/kubernetes-workflow-backend.md) | 5/5 | Critical | Very high | Blocked on operator gates | No target, profile, protocol, client, or worker implementation has landed. Controller/worker work requires accepted demand, shared storage, authentication, image path, and the immutable environment boundary. |
-
-The current baselines include execution-plan v15, run-summary v14,
-verified acquisition, owned workspaces, sandbox providers, memory admission,
-and durable run storage. New runtime work must preserve those contracts.
+| Recommended lane | Plan | Impact / remaining difficulty | Status and next action | Blockers / evidence |
+|---|---|---|---|---|
+| 1 | [CLI variable arguments](features/cli-variable-arguments.md) | High / medium | Ready: ARG-01 library bindings, then ARG-02 named CLI interface. | No external blocker; `--var` and positional bindings remain absent from code/help. |
+| 1, parallel foundation | [Configuration expansion](features/configuration-variable-expansion.md) | High / high | Ready: EXP-01 bounded core extraction; field phases follow ARG-02. | Current core remains in `selection/roots.rs`; five structural-field gaps remain. Serialize later shared files. |
+| 2, parallel validation | [Homebrew platform validation](features/homebrew-export.md) | High / low | Waiting on validation: BRW-01 macOS, BRW-02 required checks, BRW-03 clean consumers. | v1.0.7 already merged in [MR !5](https://code.ornl.gov/research-enablement/homebrew-xylem/-/merge_requests/5); Linux passed, macOS manual/optional. Mac runner online at review; credential-setting and clean-consumer evidence outstanding. |
+| Conditional delivery lane | [Rootless BuildKit runner](refactors/rootless-buildkit-runner.md) | High / medium | Blocked: qualify dedicated runner in RBK-01, then re-enable builds/publishers. | All four jobs remain unconditionally skipped. Host policy, administration access, and maintenance window unqualified. |
+| Conditional platform lane | [Windows acquisition](refactors/secure-module-acquisition.md) | Critical / low | Blocked: SEC-07 native Windows qualification and audit. | ACORN libraries remain pinned at 0.5.1; published CLI 0.6.3 still assumes the POSIX runner socket. Native host/support evidence missing. |
+| Conditional rollout lane | [A/P/O memory validation](features/memory-aware-scheduling.md) | High / low | Blocked: APO-01 individual then APO-02 concurrent holdout. | No expanded A/P/O rollout evidence/decision; needs corpus and credentials. Earlier one-input GO does not qualify concurrency. |
+| Conditional feature lane | [Kubernetes execution](features/kubernetes-workflow-backend.md) | Critical / high | Blocked: K8S-01 deployment assumptions before implementation. | No target/client/worker/Kind code or accepted operator cluster/PVC/auth/image evidence. Local context/cancellation/v15-v14 prerequisites are already landed. |
 
 ## Recommended execution order
 
 1. Start ARG-01 and EXP-01 with disjoint code ownership and serialized wiki
-   edits, then ARG-02 for named CLI overrides and early root binding.
-2. Prioritize EXP-02/03 input/output consistency, then EXP-04/05 sources,
-   EXP-06/07 executable/template selection, and EXP-08/09/10 environments.
-   ARG-03/04 positional binding can proceed where exact write sets are disjoint;
-   otherwise serialize shared configuration, CLI, tests, and docs. Finish with
-   EXP-11 combined qualification. Coordinate these files with K8S work.
-3. Start RBK-01 when runner administration access and an amd64 host maintenance
-   window are available; keep all four rootless BuildKit jobs skipped until
-   their owning validation phases pass.
-4. Start SEC-07 after a published ACORN release and Windows host support
-   native Docker runner creation.
-5. Start BRW-01 on the assigned online Mac runner. Run APO-01 only
-   after the A/P/O rollout decision, corpus access, and credentials arrive.
-6. Start K8S-01 when the operator gates are available; runtime phases consume
-   the accepted immutable context and v15/v14 schema contracts.
+   updates; deliver ARG-02 before the new structural-field expansion phases.
+2. Prioritize EXP-02/03 input/output consistency, then sources, templates, and
+   environment fields. ARG-03/04 positional binding follows named overrides;
+   shared configuration, CLI, test, and documentation files serialize. Finish
+   combined acceptance in EXP-11.
+3. Run BRW-01 in parallel with disjoint repository work, then require both
+   platform checks through a new tap CI change and verify clean consumers.
+   The already-merged release update is not an outstanding task.
+4. Start RBK-01 only when host administration and the maintenance window are
+   confirmed. Keep the four image jobs skipped until their owning gates pass.
+5. Execute SEC-07, APO-01, or K8S-01 only when their explicit platform,
+   rollout, or deployment prerequisites arrive. These external gates do not
+   block the ready variable work or shipped local runtime.
 
 ## Planning gaps
 
@@ -94,7 +92,7 @@ provider, or other deferred scope.
    `priority: next` only for an immediate unblocked candidate.
 5. Document the goal, current evidence, project code boundaries, dependencies, recommendation, validation, and acceptance criteria. Separate accepted facts from remaining work.
 6. In project code boundaries, identify files to update, create, and delete. Write `None` when a category is intentionally empty.
-7. Add `# Execution phases`. Each phase has a stable ID, `planned`, `ready`, `blocked`, or `in-progress` status, at most five active hours, prerequisites, an exact write set or named external system, one primary integration lock, a mergeable outcome, focused validation, and a handoff.
+7. Add `# Execution phases`. Each phase has a stable ID, `planned`, `ready`, `blocked`, `in-progress`, or `waiting-on-validation` status, at most five active hours, prerequisites, an exact write set or named external system, one primary integration lock, a mergeable outcome, focused validation, and a handoff.
 8. Add the plan to its directory index, the [plan dependency network](plan-network.md), and a lane in the [parallel execution guide](parallel-execution.md).
 
 ## Maintaining plans

@@ -24,10 +24,11 @@ command preparation, execution, and completion/resume decisions.
 
 ## Current evidence
 
-Initially inspected on 2026-11-13 at `1c4a75e` (Xylem 1.0.7). Binding timing
-was rechecked against the subsequent uncommitted basename/root-expansion work.
-CodeGraph and targeted source/document inspection establish these boundaries;
-implementation tests have not been run for this proposed feature.
+Reviewed on 2026-11-13 at clean baseline `e3f0e09`. The basename cutover
+and selection-root expansion are committed. CodeGraph, CLI/help, config tests,
+and user docs still show no named override or positional interface; all four
+ARG phases remain. Existing-feature tests do not establish acceptance of this
+proposed feature.
 
 - `crates/xylem-cli/src/cli.rs` exposes `run [OPTIONS] [CONFIG]`, `--input`,
   `--artifact-output`, and global dotenv `--env`, but no variable override or

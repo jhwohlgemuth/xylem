@@ -57,7 +57,7 @@ The first release does not:
 
 # Current evidence
 
-Rechecked on 2026-11-01 against baseline `83bc01c`, current v15/v14
+Rechecked on 2026-11-13 against clean baseline `e3f0e09`, current v15/v14
 schemas, CLI/help surfaces, dependency manifests, and accepted environment execution paths.
 Kubernetes operator demand, shared storage, cluster access, and image runners
 still need owner-provided evidence before implementation starts.
@@ -84,8 +84,8 @@ still need owner-provided evidence before implementation starts.
   without an execution target.
 - Journal/run-summary v14 retains selection, cancellation, sandbox lifecycle,
   atomic artifacts, memory evidence, and durable dashboard state. Kubernetes
-  must allocate new plan and durable-state versions after the environment
-  plan's version allocation, preserving the current v15/v14 baseline instead
+  must allocate new plan and durable-state versions after the current
+  accepted version allocation, preserving the current v15/v14 baseline instead
   of modifying current artifacts in place.
 - `RunJournal` is append-only, flushed at every transition, and recovered into
   `RunSummary`. It is the correct authoritative worker result once its path is
@@ -943,20 +943,22 @@ current path.
 
 ## Prerequisites
 
-- Preserve the current execution-plan v15 and journal/report v13 contracts;
-  Kubernetes allocates versions after the environment plan's schema phase.
-- Preserve managed child cancellation and reaping, then complete lossless
-  process results, module timeouts, and controller/worker signal handling before
-  claiming graceful Pod termination.
-- Complete immutable workflow environment/run-context work before serializing
-  a controller request; the Kubernetes worker must not depend on controller
-  process-global environment mutation.
+- The immutable run context, lossless process results, timeouts, managed child
+  cancellation/reaping, execution-plan v15, and journal/run-summary v14 are
+  landed baselines. Remove their retired ENV phases from the dependency queue;
+  preserve those contracts and allocate subsequent schema versions serially.
+- K8S-01 still needs an operator-owned cluster, shared PVC/filesystem, accepted
+  demand/authentication, and image publication path. No operator evidence or
+  Kubernetes target/profile/client/worker/Kind implementation was found.
+- Kubernetes-specific request injection, worker execution, and signal handling
+  remain K8S-03/12/13/14 outcomes; existing local cancellation does not complete them.
 - Coordinate kube-rs/Tokio additions under the manifest lock and existing
-  dependency-security policy.
+  dependency-security policy. Coordinate config/CLI/tests/docs with ARG and EXP
+  phases by exact write set; neither whole plan blocks Kubernetes qualification.
 
-Profile/path/protocol types, pure Job construction, fake-client tests, and
-runner-image prototypes may proceed before all runtime prerequisites. The real
-worker and cancellation integration wait for them.
+All nineteen K8S phases remain. No cluster tests or current upstream support
+qualification were run; the proposed 1.31 floor is a plan decision, not a claim
+that an upstream-maintained 1.31 release or qualified Xylem backend exists.
 
 ## Relationship to sandboxing
 

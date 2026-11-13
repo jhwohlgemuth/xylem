@@ -21,7 +21,9 @@ concurrent holdout measurements pass.
 # Current evidence
 
 Runtime schema, retained evidence, measurement wrapper, and repository history
-rechecked on 2026-10-30 against committed tree `292aa49`.
+rechecked on 2026-11-13 against clean committed tree `e3f0e09`.
+The full library suite passed (336 passed, two ignored); no credentialed
+measurement was run and no operator rollout approval was inferred.
 
 - The pure fixed-point estimator and FIFO admission queue are implemented.
 - `options.memory` validation, deterministic input sizing, fixed-batch fallback,
@@ -39,6 +41,8 @@ rechecked on 2026-10-30 against committed tree `292aa49`.
 - Prompt-policy rejection coverage proves one attempt, fail-fast admission,
   released reservations, discarded artifacts, bounded diagnostics, and no
   invalid observed-peak event.
+- The retained 2026-10-06 A/P/O GO covers one active input and the original
+  measured range only; it does not satisfy the expanded concurrent holdout.
 - No `apo-rollout` evidence or recorded rollout decision has landed; the
   credentialed fifth-case gate remains external work rather than missing
   runtime implementation.

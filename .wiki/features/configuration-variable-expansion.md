@@ -28,17 +28,16 @@ declarations, positional binding, and invocation precedence.
 
 ## Current evidence and review findings
 
-Reviewed on 2026-11-13 against HEAD `1c4a75e` (1.0.7) plus the current uncommitted
-worktree. The worktree already contains the `INPUT_BASENAME` hard cutover and
-bounded selection-root interpolation. These are prerequisites to preserve, not
-unfinished phases in this plan. Do not mistake HEAD alone for the reviewed tree.
+Reviewed on 2026-11-13 at clean baseline `e3f0e09`. The `INPUT_BASENAME`
+hard cutover and bounded selection-root interpolation are committed and are
+baseline behavior to preserve. `SelectionOptions::resolve` now owns the shared
+host/sandbox option-resolution entry point, while the bounded implementation
+still lives in `selection/roots.rs`; extracting it remains EXP-01 work.
 
-The preceding implementation validation passed 335 library tests plus the new
-four-format test, 44 CLI workflow tests, and the measurement-config regression.
-Five environment-dependent tests were ignored. Formatting and wiki validation
-passed; Clippy completed with existing `expect_used` warnings in measurement
-tool tests. These results establish the current baseline, not acceptance of
-the remaining feature work below. Live provider qualification remains unverified.
+The full library suite passed again (336 passed, two ignored). Current code,
+configuration docs, CLI/help, and tests confirm the five gaps below remain;
+no EXP phase has landed. The earlier temporary dry-run observations are review
+evidence, not newly rerun probes or acceptance of future expansion work.
 
 | Review priority | Remaining gap | Repository evidence | Observable consequence |
 |---|---|---|---|
@@ -183,7 +182,7 @@ claiming that the effective command has been inspected.
 
 EXP-01 is ready on the reviewed worktree. Its exact code write set is disjoint
 from ARG-01, so those foundations can proceed in parallel if wiki edits are
-serialized. Preserve the current uncommitted baseline instead of resetting it.
+serialized. The committed baseline includes the completed root-resolution refactor.
 
 The feature phases consume accepted ARG-02 named binding behavior so each
 new field ships with correct CLI precedence. This sequencing avoids releasing

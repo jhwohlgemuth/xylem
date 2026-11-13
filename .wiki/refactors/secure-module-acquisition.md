@@ -1,11 +1,11 @@
 ---
 type: Plan
-title: "Harden remote module acquisition"
-description: "Qualify the landed acquisition contracts across OCI, Git, cancellation, and supported platforms."
-difficulty: high
+title: "Qualify acquisition on Windows"
+description: "Complete native Windows acquisition qualification and record the accepted dependency audit."
+difficulty: low
 impact: critical
 package: [xylem-lib, xylem-cli]
-tags: [security, downloads, git, oci, checksum, offline, supply-chain]
+tags: [security, acquisition, windows, validation]
 status: waiting-on-validation
 execution: phased
 phase_budget_hours: 5
@@ -13,134 +13,55 @@ phase_budget_hours: 5
 
 # Goal
 
-Finish qualification of the landed remote acquisition path. Prove the OCI and
-Git transports, cancellation, cache publication, and platform behavior against
-the existing fail-closed policy before retiring the plan.
+Qualify the landed acquisition contracts on native Windows, preserving the
+existing verified cache, transport policy, cancellation, and containment rules.
 
 # Current evidence
 
-The acquisition and CI changes were committed at `de0bd89` on 2026-10-19 and
-rechecked on 2026-10-30 against clean committed tree `292aa49`.
-SEC-01 and SEC-02 were rechecked against that revision on 2026-10-19. SEC-03
-HTTPS qualification was committed at `1f5ed65` on 2026-10-19. SEC-04 and
-SEC-05 Linux qualification and SEC-06 macOS qualification are recorded in
-[`security/acquisition-platform-evidence.md`](../../security/acquisition-platform-evidence.md).
+Reviewed on 2026-11-13 at clean baseline `e3f0e09` using acquisition code/tests,
+`Cargo.toml`, `Cargo.lock`, CI, and the
+[durable platform evidence](../../security/acquisition-platform-evidence.md).
+The full library suite passed again: 336 passed, two ignored.
 
-- Runtime integration landed on 2026-10-12: remote documents, binaries, and Git modules use immutable acquisition plans, bounded executors, verified cache entries, and durable provenance.
-- Existing tests cover policy and identity validation, bounded HTTP responses, offline cache behavior, cache corruption, SSH environment isolation, and escaping Git symlinks.
-- Concurrent acquisition of the same immutable identity now has a focused HTTP/cache publication test, and Git origin normalization has direct coverage.
-- Local OCI and Git acquisition qualification passes on macOS arm64 at
-  `938d8f1`. Linux amd64 and native arm64 acquisition CI each passed 33 tests
-  at `b1e9297`.
-- Xylem now pins published ACORN 0.5.1 at
-  `3e915697d214eda33e0d4c52f03fb09f27d9d3e4`; the lockfile resolves
-  `quick-xml` 0.41.0 and the advisory scan passes.
-- OCI module acquisition now accepts digest-pinned ORAS artifacts as file trees, applies the exact-host policy and existing staging/tree ceilings, and records the OCI manifest digest and extracted tree evidence. ORAS is a host runtime prerequisite.
-- ACORN CLI 0.5.1's local Docker runner path still assumes
-  `/var/run/docker.sock`. That release does not clear native Windows Docker
-  runner creation for SEC-07.
+- HTTP, Git, OCI, offline cache, bounded transport, concurrency, and containment
+  implementation is landed. Linux amd64/arm64 and macOS acceptance is preserved
+  in the durable platform evidence; their completed phase histories are pruned.
+- Xylem still pins ACORN libraries 0.5.1 at
+  `3e915697d214eda33e0d4c52f03fb09f27d9d3e4`; this is distinct from the runner
+  administration CLI release.
+- Published [ACORN v0.6.3](https://code.ornl.gov/research-enablement/acorn/-/releases/v0.6.3)
+  exists. Its [runner creation code](https://code.ornl.gov/research-enablement/acorn/-/blob/v0.6.3/crates/acorn-cli/src/commands/create/runner/mod.rs)
+  still mounts the POSIX Docker socket into a Linux-style runner; its
+  [executor socket implementation](https://code.ornl.gov/research-enablement/acorn/-/blob/v0.6.3/crates/acorn-lib/src/io/mod.rs)
+  explicitly assumes a Linux runner image. Windows-host remote Linux execution
+  is not evidence of native Windows-container runner support.
+- No native Windows acceptance appears in the repository. A suitable Windows
+  host and supported runner-creation release remain blockers. No Windows host
+  or new advisory audit was exercised during this review.
 
 # Project code boundaries
 
-- **Update:** acquisition implementation and qualification tests only where a
-  demonstrated gap requires repair; CI platform jobs and audit evidence.
-- **Create:** None for the remaining phases; Linux qualification evidence is
-  preserved in `security/acquisition-platform-evidence.md`.
-- **Delete:** None; the earlier advisory exceptions are already removed.
+- **Update:** `.gitlab-ci.yml` only for Windows qualification wiring and
+  `security/acquisition-platform-evidence.md` for results.
+- **Create:** native Windows runner registration and host configuration.
+- **Delete:** None.
 
 # Dependencies and ordering
 
-Builds on the existing typed-error, validated-planning, managed-run-root, and
-workflow-environment contracts. Coordinate with sandbox policy: acquisition
-owns source validation and materialization, while sandboxing owns the
-capability boundary for network, Git, credentials, and subprocess execution.
+A supported native Windows runner path and available Windows-container host
+precede SEC-07. Existing Linux/macOS acquisition behavior is an accepted
+baseline, not a dependency on a retired plan. Coordinate CI wiring with delivery
+owners. No Xylem dependency upgrade is implied by selecting a newer runner CLI;
+a required dependency or runtime repair gets its own bounded phase.
 
-# Remaining work
+# Acceptance and validation
 
-The committed implementation already plans and materializes remote documents,
-binaries, Git trees, and OCI trees with typed policy, verified cache identities,
-and durable evidence. The current ACORN 0.5.1 revision and `quick-xml` 0.41.0
-have cleared the prior advisory blocker. The local Git HTTPS fixture, both Linux
-architectures, and macOS arm64 are validated; Windows qualification remains.
-
-# Handoff
-
-- Accepted SEC-01/02 revision: `de0bd89`; registry policy, OCI extraction, cache
-  publication, manifests, and focused tests are committed there.
-- Validation run: `cargo test -p xylem-lib acquisition::tests --locked --offline`
-  passed on macOS arm64 on 2026-10-19 (32 passed, 0 failed). Registry challenge,
-  token realm, redirect, size, offline reuse, timeout, and concurrent OCI cache
-  cases passed.
-- Accepted SEC-03 revision: `1f5ed65`; `git.rs` now forces certificate
-  verification, and the local HTTPS fixture uses a test CA and dev-only
-  `rustls`. `cargo test -p xylem-lib acquisition::tests --locked --offline`
-  passed on macOS arm64 (33 passed, 0 failed).
-- SEC-04/05 were accepted on 2026-10-20 at `b1e9297`: the amd64 and native
-  arm64 acquisition jobs each passed 33 tests with Rust 1.98.0 and ORAS 1.3.4.
-  Runner names, image digests, version provenance, and job links are preserved
-  in the [durable platform evidence](../../security/acquisition-platform-evidence.md).
-- SEC-06 was accepted on 2026-10-20 at `938d8f1`: the macOS arm64 acquisition
-  suite passed 33 tests with no skips. The host, tool versions, command, and
-  result are in the [durable platform evidence](../../security/acquisition-platform-evidence.md).
-- Remaining work: qualify Windows and complete the dependency audit under
-  SEC-07.
-- Next action: wait for a published ACORN release that can create a native
-  Windows Docker runner, then register the Xylem project runner and execute
-  SEC-07 on an available Windows host.
-
-# Validation
-
-Qualify the platform matrix. Existing Git, OCI, HTTP, offline, cache-integrity,
-and dry-run tests remain regression gates. A failure that cannot fit its phase
-becomes a separate bounded repair phase.
-
-## Worktree evidence, 2026-10-19
-
-- OCI registry requests verify the pinned manifest and each blob before local
-  ORAS extraction. Bearer realms and redirects are checked against the exact
-  host allowlist; cross-origin redirects do not receive registry authorization.
-  Tests cover permitted and denied destinations, malformed file layers, size
-  limits, offline reuse, ORAS timeout, and concurrent cache publication.
-- Git smart HTTP and SSH fixtures cover pinned commits, origin checks,
-  isolation from inherited Git and SSH settings, tree limits, escaping
-  symlinks, executable permissions, redirect denial, timeouts, cleanup, and
-  concurrent cache publication. A local HTTPS fixture now exercises a pinned
-  commit through verified TLS with an isolated test CA; the focused acquisition
-  suite passes with 33 tests on macOS arm64. SEC-03 is accepted at `1f5ed65`.
-- macOS arm64: `cargo test -p xylem-lib --lib --offline --quiet` passed with
-  290 passed and 2 ignored; the focused acquisition suite passed with 32 tests.
-- Linux x86_64: the focused acquisition suite passed with 32 tests in a Rust
-  1.99 container using ORAS 1.3.4 and OpenSSH. The first Rust 1.96 attempt
-  exposed that pinned ACORN crates require Rust 1.98, so the workspace minimum
-  was corrected to 1.98.
-- GitLab acquisition jobs are configured for Linux x86_64 and native arm64;
-  both ran in main pipeline
-  [1034428](https://code.ornl.gov/research-enablement/xylem/-/pipelines/1034428)
-  at `87bea9e` but stopped before tests: the shared CI image has Rust 1.96,
-  while Xylem and pinned ACORN crates require 1.98. The amd64 job
-  [4448171](https://code.ornl.gov/research-enablement/xylem/-/jobs/4448171)
-  ran on RE Runner (oklahoma) and verified ORAS 1.3.4; the arm64 job
-  [4448172](https://code.ornl.gov/research-enablement/xylem/-/jobs/4448172)
-  hit the same compiler gate. The arm64 qualification was still pending at
-  that revision; Windows remains SEC-07.
-- The subsequent pipeline
-  [1034462](https://code.ornl.gov/research-enablement/xylem/-/pipelines/1034462)
-  passed both acquisition jobs at `b1e9297` with Rust 1.98.0, ORAS 1.3.4,
-  and 33 passing tests per architecture. SEC-04 and SEC-05 are accepted; the
-  image digest and Rust version evidence is recorded outside this plan.
-- The macOS 26.7.1 arm64 host passed all 33 acquisition tests at `938d8f1`
-  using Rust 1.99.0 and ORAS 1.3.4+Homebrew. SEC-06 is accepted.
-
-# Acceptance criteria
-
-- OCI registry authorization and any token-service or redirect host respect the
-  effective host policy; ORAS output, staging, timeout, and cancellation remain
-  bounded, and interrupted work leaves no published cache entry.
-- Git HTTPS and permitted SSH cover pinned identity, origin, credential and
-  implicit-fetch denial, resource limits, cancellation, and cleanup.
-- Same-identity concurrent acquisition and containment/permissions behavior
-  pass on the supported platform matrix, with the accepted ACORN feature tree
-  and advisory audit recorded.
+- Windows tests cover HTTP/Git/OCI, offline/cache integrity, concurrent immutable
+  publication, cancellation, containment, and permissions where supported.
+- Record host, runtime, CLI, toolchain, source revision, commands, skips, and
+  results in the durable platform evidence. A skipped required platform case
+  is an unresolved acceptance gap.
+- Record `cargo tree -e features` and `cargo audit` against the accepted lockfile.
 
 # Execution phases
 
@@ -148,15 +69,9 @@ becomes a separate bounded repair phase.
 
 - Status: blocked
 - Budget: 5 active hours maximum
-- Prerequisites: a published ACORN release with native Windows Docker runner support, and a local Windows machine with Docker configured for Windows containers
-- Exact write set: Windows runner, `Cargo.toml`, `Cargo.lock`, `deny.toml`
+- Prerequisites: a released native Windows Docker runner-creation path and an available Windows host configured for Windows containers; ACORN v0.6.3 does not yet establish that support.
+- Exact write set: native Windows runner host and GitLab Xylem project runner registration, `.gitlab-ci.yml`, `security/acquisition-platform-evidence.md`; this plan, `.wiki/refactors/index.md`, `.wiki/index.md`, `.wiki/plan-network.md`, `.wiki/parallel-execution.md` for reconciliation.
 - Primary integration lock: acquisition platform matrix
-- Outcome: Windows acquisition tests pass and the accepted ACORN feature tree and advisory audit are recorded.
-- Runner command, to run on the Windows machine after the release gate clears:
-
-  ```powershell
-  acorn create runner --no-config --project 15383 --repo code.ornl.gov --description "Xylem Windows Docker" --name xylem-windows-docker --tags windows --runtime docker
-  ```
-
-- Focused validation: Windows acquisition job, `cargo tree -e features`, and `cargo audit` against the accepted lockfile.
-- Handoff: Preserve platform and audit results outside `.wiki`, then retire this plan and its index, network, and lane entries.
+- Outcome: Windows acquisition qualification and the accepted dependency audit have durable evidence.
+- Focused validation: native Windows acquisition tests/job, `cargo tree -e features`, and `cargo audit`; verify the selected released CLI's runner help before registering it.
+- Handoff: Preserve platform and audit results outside `.wiki`, then retire this plan and its index/network/lane entries. Any defect requiring implementation or dependency changes becomes a separate bounded repair phase.

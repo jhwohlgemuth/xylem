@@ -8,5 +8,5 @@
 
 ## Waiting on validation
 
-- [Homebrew release activation](homebrew-export.md) - Complete validation on the assigned Mac runner, require both platform jobs, and verify installation from the merged formula.
+- [Homebrew platform validation](homebrew-export.md) - v1.0.7 is published; qualify macOS, require both platform jobs, and verify clean consumer installs/upgrades.
 - [A/P/O memory-aware scheduling](memory-aware-scheduling.md) - Run the credentialed expanded holdout gate before enabling concurrent admission for the pinned A/P/O workflow.

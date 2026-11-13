@@ -1,7 +1,7 @@
 ---
 type: Plan
-title: "Activate the Homebrew release export"
-description: "Finish macOS validation, require both tap jobs, and verify installation from the v1.0.3 release."
+title: "Require Homebrew platform validation"
+description: "Qualify macOS and require both tap jobs after the v1.0.7 publication, then verify consumer installation and upgrade."
 difficulty: low
 impact: high
 package: [workspace, xylem-cli]
@@ -13,102 +13,94 @@ phase_budget_hours: 5
 
 # Goal
 
-Activate the implemented Homebrew publication path and verify that macOS and
-Linux users can install and upgrade Xylem through the official tap.
+Require successful Linux and macOS Homebrew validation for future tap changes
+and finish consumer install/upgrade qualification of the published formula.
 
 # Current evidence
 
-Local release configuration and live tap project rechecked on 2026-10-30
-against Xylem `292aa49` and tap merge request !2.
+Reviewed on 2026-11-13 at clean Xylem baseline `e3f0e09`, including release CI,
+formula generator/tests, tap template, installation/release docs, and live
+read-only GitLab API results.
 
-- Formula generation, tag-only tap merge-request creation, tap CI, offline formula testing, and upgrade coverage are implemented.
-- The immutable v1.0.0 archive cannot compile with Homebrew Rust 1.98 because it locks `ethnum` 1.5.2. The published v1.0.3 archive locks the compatible `ethnum` 1.5.3 release.
-- The v1.0.3 release pipeline published both crates and opened tap merge request `!2`. Its Linux validation job passes.
-- The v1.0.3 formula passes `brew style`, `brew audit --strict`, a macOS source install with Homebrew Rust 1.98.1, and `brew test`.
-- Tap [merge request !2](https://code.ornl.gov/research-enablement/homebrew-xylem/-/merge_requests/2)
-  is open and mergeable at commit
-  `94ac912432d61472276792f27e38967389fc2451`.
-  [Pipeline 1017726](https://code.ornl.gov/research-enablement/homebrew-xylem/-/pipelines/1017726)
-  reports success because Linux passed and macOS is allowed to fail. The
-  `RE Runner (macbook)` group runner remains active and online; all three
-  assigned macOS retries, including the most recent
-  [job 4396906](https://code.ornl.gov/research-enablement/homebrew-xylem/-/jobs/4396906),
-  were canceled. A successful
-  macOS validation job and required two-platform checks remain.
+- [Tap merge request !5](https://code.ornl.gov/research-enablement/homebrew-xylem/-/merge_requests/5)
+  published v1.0.7 and merged at `3de3d8e16489132b2e1e55a745f3d66227d232fe`.
+  The [main formula](https://code.ornl.gov/research-enablement/homebrew-xylem/-/blob/main/Formula/xylem.rb)
+  selects the immutable `xylem-cli-1.0.7.crate` archive with its SHA-256.
+  Obsolete v1.0.3/!2 activation and merge tasks are removed.
+- [Pipeline 1054610](https://code.ornl.gov/research-enablement/homebrew-xylem/-/pipelines/1054610)
+  passed its [Linux job 4539890](https://code.ornl.gov/research-enablement/homebrew-xylem/-/jobs/4539890).
+  Its [macOS job 4539891](https://code.ornl.gov/research-enablement/homebrew-xylem/-/jobs/4539891)
+  remains manual with `allow_failure: true`; pipeline success does not qualify macOS.
+- Both `scripts/homebrew/tap.gitlab-ci.yml` and live tap `main` retain those
+  optional macOS settings. Runner 54626 (`RE Runner (macbook)`) was online and
+  idle at review time; recheck availability before execution.
+- Formula generation, release prerequisites, and tag-only publication are
+  implemented; all seven `xtask` tests passed in this review. `README.md`
+  already publishes the tap/install commands;
+  `CONTRIBUTING.md` and `scripts/homebrew/README.md` describe release operation.
+  Do not recreate this completed documentation work.
+- Clean consumer installs/upgrades on both platforms and credential-setting
+  qualification were not repeated. Protected/scoped publisher settings must
+  be verified without reading or retaining secret values.
 
 # Project code boundaries
 
-- **Update:** `README.md`, `CONTRIBUTING.md`, and release documentation after the first successful publication.
-- **Create:** required merge checks in the tap project settings; no new runner is needed.
-- **Delete:** None.
+- **Update:** `scripts/homebrew/tap.gitlab-ci.yml`, tap `.gitlab-ci.yml`, tap
+  merge-check settings, and `scripts/homebrew/README.md` with validation evidence.
+- **Create:** a tap CI-hardening merge request against current `main`.
+- **Delete:** optional macOS validation settings after BRW-01 passes.
 
 # Dependencies and ordering
 
-The immutable v1.0.3 tag and artifacts were produced from the release workflow. The tap merge request must pass both platform jobs before merge. Update the public installation documentation with the verified command after activation.
-
-# Recommendation
-
-1. Diagnose the canceled macOS job and rerun validation on the assigned Mac runner.
-2. Require both platform jobs and review and merge the generated formula after they pass.
-3. Verify fresh installation and upgrade on clean Linux and macOS Homebrew environments.
-4. Publish the tested tap command and operational recovery steps.
-
-## Retry and require macOS validation
-
-Diagnose the canceled macOS job and retry validation on the already-online
-`RE Runner (macbook)`. Do not use a prior job ID as the retry target because
-each retry creates a new job.
-
-After the runner has completed a job successfully, remove `when: manual` and
-`allow_failure: true` from `homebrew-macos` in
-`scripts/homebrew/tap.gitlab-ci.yml` and from the tap merge request's
-`.gitlab-ci.yml`. Require the resulting pipeline before merge.
-
-# Validation
-
-- Confirm the protected credential is unavailable to branch and merge-request pipelines.
-- Confirm an incomplete or failed release cannot open or update the tap merge request.
-- Install from the rendered formula in clean macOS and Linux Homebrew environments and run the formula test offline.
-- Upgrade from the previous formula version and verify that `brew upgrade xylem` selects the new immutable release.
+BRW-01 validates the current published formula on the online Mac runner.
+BRW-02 makes both jobs required through a new CI change; the release formula
+has already merged. BRW-03 records clean consumer behavior and only updates
+existing installation guidance if verification reveals a correction.
 
 # Acceptance criteria
 
-- A documented `brew install <tap>/xylem` command installs the tagged Xylem release on every declared Homebrew platform.
-- Audit, style, install, and formula tests are required before the tap change can merge.
-- The v1.0.3 tap update passes both platform jobs and merges through review.
-- The publication credential is protected and scoped only to the tap update operation.
+- Style, audit, source installation/upgrade, and offline formula tests pass on
+  both declared Homebrew platforms for the selected immutable formula.
+- Both platform jobs are required for subsequent tap merges, including the
+  generated template so the next release cannot restore optional macOS checks.
+- Protected/scoped publisher credential and tag-only access are verified using
+  setting metadata, never secret values.
+- Clean consumer install/upgrade results and recovery steps are documented.
 
 # Execution phases
 
 ## BRW-01 — Complete macOS tap validation
 
-- Status: ready
+- Status: waiting-on-validation
 - Budget: 5 active hours maximum
-- Prerequisites: the assigned `RE Runner (macbook)` remains online and merge request !2 still targets the intended immutable release
-- Exact write set: tap merge request !2 validation job, `RE Runner (macbook)` host
+- Prerequisites: confirm runner 54626 availability and pin the current formula commit; create an equivalent validation pipeline if the merged MR job cannot run.
+- Exact write set: tap project 22654 macOS validation job/pipeline and `RE Runner (macbook)` host; `scripts/homebrew/README.md` for sanitized evidence.
 - Primary integration lock: tap validation
-- Outcome: Diagnose the canceled jobs and obtain a successful macOS formula validation on the assigned runner.
-- Focused validation: tap `homebrew-macos` job passes style, audit, source install, upgrade, and `brew test` on the pinned formula.
-- Handoff: Record the new job URL and runner result; remove BRW-01 when macOS validation passes.
+- Outcome: Current formula passes macOS style, audit, source install, upgrade, and offline test.
+- Focused validation: run the macOS formula-validation script against the pinned v1.0.7 formula or a newer explicitly recorded immutable release; record job URL, commit, and tool versions.
+- Handoff: Preserve successful evidence, prune BRW-01, and make BRW-02 ready. Failures outside validation get a bounded repair phase.
 
-## BRW-02 — Require both tap jobs and merge the verified formula
+## BRW-02 — Require both platform jobs for future tap merges
 
 - Status: planned
 - Budget: 5 active hours maximum
-- Prerequisites: BRW-01 and a fresh check that tap merge request !2 still targets the intended immutable release
-- Exact write set: `scripts/homebrew/tap.gitlab-ci.yml`, tap-project `.gitlab-ci.yml`, tap merge request !2
+- Prerequisites: BRW-01 and tap-project maintenance access.
+- Exact write set: `scripts/homebrew/tap.gitlab-ci.yml`, tap-project `.gitlab-ci.yml`, tap merge-check settings and a new CI-hardening merge request, publisher credential metadata, `scripts/homebrew/README.md`.
 - Primary integration lock: Homebrew tap delivery
-- Outcome: Linux and macOS validation are required, pass on the same formula, and the reviewed tap change merges.
-- Focused validation: GitLab CI lint and the tap merge-request pipeline with both platform jobs passing.
-- Handoff: Record the merged commit and pipeline; remove BRW-02 after merge.
+- Outcome: Linux/macOS checks pass and become required on the same formula; the generated template agrees with tap main. Publisher credential protection/scope is verified without exposing values.
+- Focused validation: GitLab CI lint, both required jobs, merge-check metadata, tag-only publisher rules and protected credential metadata.
+- Handoff: Record the CI-hardening commit/pipeline and settings evidence, then prune BRW-02. Do not reopen or recreate the merged release update.
 
-## BRW-03 — Verify installation and publish the command
+## BRW-03 — Verify clean consumer installation and upgrade
 
-- Status: planned
+- Status: waiting-on-validation
 - Budget: 5 active hours maximum
-- Prerequisites: BRW-02 and clean Linux and macOS Homebrew environments
-- Exact write set: `README.md`, `CONTRIBUTING.md`, `scripts/homebrew/README.md`
+- Prerequisites: BRW-02 and clean Linux/macOS Homebrew environments.
+- Exact write set: clean Linux/macOS Homebrew validation environments, `scripts/homebrew/README.md`; `README.md` and `CONTRIBUTING.md` only for corrections demonstrated by validation.
 - Primary integration lock: release documentation
-- Outcome: Fresh install and upgrade use the merged tap formula, and the verified command and recovery steps are documented.
-- Focused validation: `brew install`, `brew test`, and `brew upgrade` on each declared platform.
-- Handoff: Record tested platforms and commands in release documentation, then retire this plan and its index, network, and lane entries.
+- Outcome: Published tap install and upgrade work on both platforms, with durable commands, versions, and recovery evidence.
+- Focused validation: `brew install`, `brew test`, and `brew upgrade` against the merged formula on each declared platform.
+- Handoff: Preserve results in release documentation and retire the plan when all acceptance criteria pass.
+
+Every phase also owns this plan, `.wiki/features/index.md`, `.wiki/index.md`,
+`.wiki/plan-network.md`, and `.wiki/parallel-execution.md` for serialized lifecycle reconciliation.
