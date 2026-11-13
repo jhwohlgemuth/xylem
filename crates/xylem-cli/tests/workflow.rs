@@ -9,7 +9,11 @@
 use acorn_core::time::UnitOfTime;
 use acorn_schema::hardware::Memory;
 use std::fs::copy;
+#[cfg(unix)]
+use std::fs::symlink_metadata;
 use std::fs::{create_dir_all, read, read_dir, read_to_string, remove_dir_all, remove_file, write};
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -2502,6 +2506,87 @@ fn test_runs_fixture_modules_in_order_with_interpolated_environment() {
         let second = logs.find("XYLEM_E2E_TWO_OK").expect("second fixture module should succeed");
         assert!(first < second, "fixture modules ran out of order with {threads} threads:\n{logs}");
     }
+}
+#[cfg(unix)]
+#[test]
+fn test_runs_repository_root_python_with_installed_pixi_envs() {
+    let root = std::env::temp_dir().join(format!("xylem-root-pixi-cli-{}", std::process::id()));
+    let repository = root.join("repository");
+    create_dir_all(repository.join(".pixi/envs/default/lib")).expect("installed environment");
+    create_dir_all(repository.join("data")).expect("data directory");
+    create_dir_all(repository.join("lib")).expect("source directory");
+    for (path, contents) in [
+        (".gitignore", "data/\n.pixi/\n"),
+        (".pixi/config.toml", "run-post-link-scripts = 'insecure'\n"),
+        (".pixi/envs/default/lib/installed", "installed package"),
+        ("data/input.txt", "workflow data"),
+        ("pixi.lock", "version: 6\n"),
+        ("pixi.toml", "[workspace]\nname = 'probe'\n"),
+        ("pyproject.toml", "[project]\nname = 'probe'\n"),
+    ] {
+        write(repository.join(path), contents).expect("repository file");
+    }
+    symlink("missing", repository.join(".pixi/envs/default/lib/broken")).expect("broken installed link");
+    write(
+        repository.join("lib/run.py"),
+        r#"import os
+from pathlib import Path
+assert not Path('.pixi/envs').exists()
+for name in ['pyproject.toml', 'pixi.toml', 'pixi.lock', '.pixi/config.toml']:
+    assert Path(name).is_file(), name
+data = Path('data/input.txt')
+assert data.read_text() == 'workflow data'
+data.write_text('isolated change')
+output = Path(os.environ['_XYLEM_OUTPUT_DIRECTORY'])
+output.mkdir(parents=True, exist_ok=True)
+(output / 'result.txt').write_text('repository root succeeded')
+"#,
+    )
+    .expect("Python module");
+    let configuration = repository.join(".xylem.json");
+    write(
+        &configuration,
+        serde_json::to_vec(&serde_json::json!({
+            "modules": [{
+                "name": "Validation",
+                "programmingLanguage": "generic",
+                "template": {"arguments": ["lib/run.py"], "command": "python3"},
+                "type": "script",
+                "uri": "file:."
+            }],
+            "requirements": ["python3"]
+        }))
+        .expect("serialize configuration"),
+    )
+    .expect("write configuration");
+    let output = xylem_command()
+        .current_dir(&repository)
+        .args(["run", "--offline", "--no-progress", "--reporter", "json", "--artifact-output"])
+        .arg(root.join("artifacts"))
+        .arg("--report-output")
+        .arg(root.join("reports"))
+        .output()
+        .expect("run repository-root workflow");
+    assert!(
+        output.status.success(),
+        "workflow failed: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        read_to_string(root.join("artifacts/result.txt")).expect("workflow result"),
+        "repository root succeeded"
+    );
+    assert_eq!(read_to_string(repository.join("data/input.txt")).expect("original data"), "workflow data");
+    assert!(repository.join(".pixi/envs/default/lib/installed").is_file());
+    assert!(symlink_metadata(repository.join(".pixi/envs/default/lib/broken"))
+        .expect("original link")
+        .file_type()
+        .is_symlink());
+    let report = native_report(&root.join("reports"));
+    assert_eq!(report.inputs[0].state, xylem_lib::journal::ExecutionState::Succeeded);
+    assert_eq!(report.inputs[0].modules[0].state, xylem_lib::journal::ExecutionState::Succeeded);
+    remove_dir_all(root).expect("cleanup fixture");
 }
 #[test]
 fn test_sandbox_activation_is_explicit_and_fail_closed() {

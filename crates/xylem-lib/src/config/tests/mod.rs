@@ -15,11 +15,15 @@ use acorn_core::time::{Seconds, UnitOfTime};
 use acorn_schema::validation::Validate;
 use alloc::collections::BTreeSet;
 use sha2::{Digest, Sha256};
-use std::fs::{create_dir_all, read_dir, remove_dir_all, remove_file, write};
+#[cfg(unix)]
+use std::fs::symlink_metadata;
+use std::fs::{create_dir_all, read_dir, read_to_string, remove_dir_all, remove_file, write};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 use std::sync::Mutex;
 use std::thread;
 
@@ -1619,6 +1623,68 @@ fn test_preparation_keeps_supported_managers_input_local() {
     );
     workspace.close().expect("close manager workspace");
     let _ = remove_dir_all(root);
+}
+#[test]
+fn test_preparation_omits_installed_pixi_envs_on_host_and_sandbox() {
+    let root = std::env::temp_dir().join(format!("xylem-pixi-materialization-{}", std::process::id()));
+    let source = root.join("source");
+    create_dir_all(source.join(".pixi/envs/default/lib")).expect("installed environment");
+    create_dir_all(source.join("data")).expect("data directory");
+    let files = [
+        (".gitignore", "data/\n.pixi/\n"),
+        (".pixi/config.toml", "run-post-link-scripts = 'insecure'\n"),
+        ("data/input.txt", "input data\n"),
+        ("pixi.lock", "version: 6\n"),
+        ("pixi.toml", "[workspace]\nname = 'probe'\n"),
+        ("pyproject.toml", "[project]\nname = 'probe'\n"),
+        ("run.py", "print('probe')\n"),
+    ];
+    for (path, contents) in files {
+        write(source.join(path), contents).expect("source file");
+    }
+    write(source.join(".pixi/envs/default/lib/installed"), "installed package").expect("installed package");
+    #[cfg(unix)]
+    symlink("missing", source.join(".pixi/envs/default/lib/broken")).expect("broken installed link");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "name": "probe",
+            "programmingLanguage": "generic",
+            "template": {"arguments": ["run.py"], "command": "python3"},
+            "type": "script",
+            "uri": format!("file:{}", source.display())
+        }],
+        "requirements": []
+    }))
+    .expect("generic module configuration");
+    let workspace = RunWorkspace::create(&root.join("workspaces"), "run").expect("run workspace");
+    let host = workspace.input(0).expect("host input");
+    let sandbox = workspace.input(1).expect("sandbox input");
+    let selected = BTreeSet::from([0]);
+    let host_prepared = config
+        .clone()
+        .prepare_modules_selected_in_workspace(&selected, None, &host)
+        .expect("host preparation");
+    let sandbox_prepared = config
+        .materialize_modules_selected_in_workspace(&selected, None, &sandbox)
+        .expect("sandbox materialization");
+    for (prepared, input) in [(&host_prepared, &host), (&sandbox_prepared, &sandbox)] {
+        let path = &prepared.options.as_ref().expect("prepared options").workspace_modules[&0];
+        assert!(path.starts_with(input.modules()));
+        assert!(!path.join(".pixi/envs").exists());
+        for (relative, contents) in files {
+            assert_eq!(read_to_string(path.join(relative)).expect("copied source file"), contents);
+        }
+        write(path.join("data/input.txt"), "workspace-only edit").expect("modify isolated data");
+    }
+    assert_eq!(read_to_string(source.join("data/input.txt")).expect("original data"), "input data\n");
+    assert!(source.join(".pixi/envs/default/lib/installed").is_file());
+    #[cfg(unix)]
+    assert!(symlink_metadata(source.join(".pixi/envs/default/lib/broken"))
+        .expect("original link")
+        .file_type()
+        .is_symlink());
+    workspace.close().expect("close workspace");
+    remove_dir_all(root).expect("cleanup fixture");
 }
 #[test]
 fn test_recorded_workflow_preserves_cancellation_state() {

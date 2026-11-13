@@ -57,6 +57,14 @@ A local module MUST use a `file:` URI. Relative paths resolve from the directory
 where Xylem is launched, so workflows intended for repository-root execution
 SHOULD use paths such as `file:./modules/example`.
 
+Module sources are copied into isolated workspaces for host and sandbox
+preparation. These copies omit installed `.pixi/envs/` entries, including in
+nested projects, before traversing directories or resolving their symlinks.
+This also applies to generic script modules using `file:.`. Source files,
+datasets, `pyproject.toml`, `pixi.toml`, `pixi.lock`, and `.pixi/config.toml`
+remain available. Xylem does not apply `.gitignore` rules to these copies.
+Broken, escaping, or cyclic symlinks in included content are still rejected.
+
 ```text
 example/
 ├── template.json       # optional command interface

@@ -10,6 +10,8 @@ pub const GITLAB_DEFAULT_IMAGE: &str = "savannah.ornl.gov/research-enablement/ac
 pub const MINIFORGE_SHA256: &str = "281b0ac7d550802efc81af633225a5e6116d29ae72f3ab4eae7168c3931a4c05";
 /// Miniforge release used by GitLab exports.
 pub const MINIFORGE_VERSION: &str = "26.7.2-0";
+/// Path suffixes omitted from module source copies before traversal or symlink resolution.
+pub(crate) const MODULE_SOURCE_EXCLUSIONS: [&str; 1] = [".pixi/envs"];
 /// Organization name.
 pub const ORGANIZATION: &str = "ornl";
 /// SHA-256 digest of the Linux x86_64 Pixi binary used by GitLab exports.

@@ -20,6 +20,7 @@
 //! ```
 extern crate alloc;
 
+use crate::util::constants::app::MODULE_SOURCE_EXCLUSIONS;
 use acorn_host::fs::{FsError, SafePath};
 use alloc::collections::BTreeSet;
 use core::fmt;
@@ -283,12 +284,18 @@ fn copy_entry(
                                                 entries
                                             })
                                             .and_then(|entries| {
-                                                entries.into_iter().try_for_each(|entry| {
-                                                    let relative = destination.as_path().join(entry.file_name());
-                                                    SafePath::new(&relative)
-                                                        .map_err(|source| WorkspaceError::Path { path: relative, source })
-                                                        .and_then(|child| copy_entry(source_root, &entry.path(), destination_root, &child, &next))
-                                                })
+                                                entries
+                                                    .into_iter()
+                                                    .filter(|entry| {
+                                                        let path = entry.path();
+                                                        !MODULE_SOURCE_EXCLUSIONS.iter().any(|excluded| path.ends_with(excluded))
+                                                    })
+                                                    .try_for_each(|entry| {
+                                                        let relative = destination.as_path().join(entry.file_name());
+                                                        SafePath::new(&relative)
+                                                            .map_err(|source| WorkspaceError::Path { path: relative, source })
+                                                            .and_then(|child| copy_entry(source_root, &entry.path(), destination_root, &child, &next))
+                                                    })
                                             })
                                     })
                             }
@@ -321,6 +328,9 @@ fn io_error(action: &'static str, path: &Path, source: io::Error) -> WorkspaceEr
     }
 }
 /// Copy a local file or directory beneath an owned workspace root.
+/// ### Note
+/// Directory copies omit installed `.pixi/envs` entries, including in nested projects, before inspecting their contents or resolving their symlinks.
+/// Other source files, including Pixi manifests, lockfiles, configuration, and Git-ignored data, are copied.
 pub fn materialize(source: &Path, destination_root: &Path, destination: &SafePath) -> Result<PathBuf, WorkspaceError> {
     canonicalize(source)
         .map_err(|source_error| io_error("canonicalize materialization source", source, source_error))

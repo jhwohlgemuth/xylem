@@ -132,6 +132,44 @@ fn retained_workspace_survives_owner_drop() {
     assert!(path.is_dir());
     remove_dir_all(parent).expect("cleanup");
 }
+#[cfg(unix)]
+#[test]
+fn test_materialization_excludes_pixi_envs_before_resolving_links() {
+    let root = temporary("pixi-envs-link");
+    let source = root.join("source");
+    create_dir_all(source.join(".pixi")).expect("Pixi directory");
+    symlink("missing", source.join(".pixi/envs")).expect("broken environment link");
+    write(source.join(".pixi/config.toml"), b"[repodata-config]\n").expect("Pixi configuration");
+    let relative = SafePath::new("destination").expect("safe destination");
+    let destination = materialize(&source, &root, &relative).expect("exclude environment link");
+    assert!(symlink_metadata(destination.join(".pixi/envs")).is_err());
+    assert_eq!(
+        read(destination.join(".pixi/config.toml")).expect("copied configuration"),
+        b"[repodata-config]\n"
+    );
+    assert!(symlink_metadata(source.join(".pixi/envs"))
+        .expect("original link")
+        .file_type()
+        .is_symlink());
+    remove_dir_all(root).expect("cleanup");
+}
+#[cfg(unix)]
+#[test]
+fn test_materialization_excludes_pixi_envs_in_nested_projects() {
+    let root = temporary("nested-pixi-envs");
+    let source = root.join("source");
+    create_dir_all(source.join("nested/.pixi/envs/default/lib")).expect("installed environment");
+    symlink("missing", source.join("nested/.pixi/envs/default/lib/broken")).expect("broken installed link");
+    write(source.join("nested/pixi.toml"), b"[workspace]\n").expect("nested manifest");
+    let relative = SafePath::new("destination").expect("safe destination");
+    let destination = materialize(&source, &root, &relative).expect("exclude nested environment");
+    assert!(!destination.join("nested/.pixi/envs").exists());
+    assert_eq!(
+        read(destination.join("nested/pixi.toml")).expect("copied nested manifest"),
+        b"[workspace]\n"
+    );
+    remove_dir_all(root).expect("cleanup");
+}
 #[test]
 fn workspace_creates_isolated_input_layout() {
     let parent = temporary("layout");

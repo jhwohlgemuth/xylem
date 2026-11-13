@@ -33,6 +33,15 @@ zero or more inputs, shared variables, ordered modules, and execution options.
 Relative `file:` module paths resolve from the directory where Xylem is
 launched. Modules execute in array order for each active input.
 
+Module source copies exclude installed `.pixi/envs/` directories by default,
+including those in nested projects. Xylem skips these entries before descending
+into them or resolving symlinks, for both host and sandbox preparation and for
+generic script modules such as `uri: "file:."`. Source, datasets, `pyproject.toml`,
+`pixi.toml`, `pixi.lock`, and `.pixi/config.toml` are preserved in the isolated
+workspace. `.gitignore` rules are not applied, so ignored datasets remain
+available. Included content retains the usual checks against broken, escaping,
+and cyclic symlinks. The original Pixi environment is left untouched.
+
 ## Opt-in sandboxing
 
 Sandboxing is disabled by default. Omitting `sandbox`, or setting it to
