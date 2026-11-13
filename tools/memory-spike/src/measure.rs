@@ -129,7 +129,7 @@ fn write_subject_config(source: &Path, destination: &Path, artifact_root: &Path,
         .and_then(|mut configuration| {
             let artifact_root = artifact_root.display().to_string();
             let output = match concurrent {
-                | true => format!("{artifact_root}/{{{{ PARENT_DIRECTORY }}}}"),
+                | true => format!("{artifact_root}/{{{{ INPUT_BASENAME }}}}"),
                 | false => artifact_root.clone(),
             };
             configuration
@@ -684,15 +684,15 @@ mod tests {
 
         let config: Value = serde_json::from_str(&read_to_string(&destination).expect("read concurrent config")).expect("parse concurrent config");
         assert_eq!(config["output"], "/work/artifacts");
-        assert_eq!(config["variables"]["OUTPUT_DIRECTORY"], "/work/artifacts/{{ PARENT_DIRECTORY }}");
+        assert_eq!(config["variables"]["OUTPUT_DIRECTORY"], "/work/artifacts/{{ INPUT_BASENAME }}");
         assert_eq!(config["modules"][0]["variables"]["EXISTING"], "value");
         assert_eq!(
             config["modules"][0]["variables"]["OUTPUT_DIRECTORY"],
-            "/work/artifacts/{{ PARENT_DIRECTORY }}"
+            "/work/artifacts/{{ INPUT_BASENAME }}"
         );
         assert_eq!(
             config["modules"][1]["variables"]["OUTPUT_DIRECTORY"],
-            "/work/artifacts/{{ PARENT_DIRECTORY }}"
+            "/work/artifacts/{{ INPUT_BASENAME }}"
         );
         remove_dir_all(root).expect("remove config test directory");
     }

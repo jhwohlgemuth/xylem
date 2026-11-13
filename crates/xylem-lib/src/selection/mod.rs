@@ -5,6 +5,7 @@ use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
 mod cel;
+mod roots;
 
 trait ScriptingEngine {
     /// Interpreter-owned representation of a checked script.
@@ -195,11 +196,11 @@ pub struct SelectionLimits {
     pub script: Memory,
     /// Maximum traversal depth beneath a root.
     pub traversal_depth: usize,
-    /// Maximum scalar memory in one configured variable.
+    /// Maximum scalar memory in one configured variable or expanded root string.
     pub variable_scalar: Memory,
-    /// Maximum configured variable depth.
+    /// Maximum configured variable depth or root variable-reference depth.
     pub variable_depth: usize,
-    /// Maximum configured variable nodes.
+    /// Maximum configured variable nodes or substitutions across roots.
     pub variable_nodes: usize,
     /// Maximum visited directory entries.
     pub visited_entries: usize,
@@ -211,7 +212,7 @@ pub struct SelectionOptions {
     /// Whether discovery descends beneath immediate root children.
     #[serde(default)]
     pub recursive: bool,
-    /// Ordered local search roots.
+    /// Ordered local search roots, supporting workflow variable placeholders.
     pub roots: Vec<String>,
 }
 /// One configured selection request.
@@ -226,11 +227,17 @@ pub struct SelectionRequest {
     pub script: String,
 }
 impl InputSelection {
-    /// Resolve this selection request relative to its declaring configuration.
+    /// Expand workflow variables in roots, then resolve inputs relative to the declaring configuration.
+    ///
+    /// Root expansion does not modify the typed variable bindings supplied to CEL.
+    /// Unknown references, cycles, and expansion limit violations fail before discovery.
     pub fn resolve(&self, variables: Option<&Map<String, Value>>, configuration_path: &Path) -> Result<ResolvedInputs, SelectionError> {
         match self.select.engine {
             | SelectionEngine::Cel => cel::resolve(&self.select, variables, configuration_path),
         }
+    }
+    pub(crate) fn resolved_options(&self, variables: Option<&Map<String, Value>>) -> Result<SelectionOptions, SelectionError> {
+        SelectionOptions::resolve(&self.select, variables, &SelectionLimits::default())
     }
 }
 impl ResolvedInputs {

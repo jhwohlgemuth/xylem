@@ -2,6 +2,8 @@
 
 ## Planned
 
+- [CLI variable overrides and positional workflow arguments](cli-variable-arguments.md) - Ship repeatable named overrides first, followed by config-declared positional binding; ARG-01 is ready.
+- [Configuration variable expansion](configuration-variable-expansion.md) - Close five reviewed gaps across inputs, outputs, sources, templates, and environments; EXP-01 is ready, with field phases following ARG-02.
 - [Kubernetes workflow execution backend](kubernetes-workflow-backend.md) - Qualify operator gates, then add a reconnectable Job and versioned worker contract in bounded phases.
 
 ## Waiting on validation

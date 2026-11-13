@@ -38,10 +38,8 @@ fn resolve_with_limits(
     configuration_path: &Path,
     limits: SelectionLimits,
 ) -> Result<Vec<Option<String>>, SelectionError> {
-    input
-        .select
-        .validate(&limits)
-        .and_then(|()| Inventory::discover(&input.select.options, configuration_path, &limits))
+    SelectionOptions::resolve(&input.select, variables, &limits)
+        .and_then(|options| Inventory::discover(&options, configuration_path, &limits))
         .and_then(|inventory| {
             let variables = variables.cloned().unwrap_or_default();
             compile_with_limits(&input.select.script, &inventory, &variables, &limits)
@@ -809,4 +807,106 @@ fn script_result_order_is_preserved() {
         ]
     );
     remove_dir_all(fixture).expect("remove fixture");
+}
+#[test]
+fn test_root_variables_bound_expansion_before_allocating_large_paths() {
+    let variables = serde_json::json!({ "DATA": "x".repeat(512) });
+    let limits = SelectionLimits {
+        variable_scalar: Memory::kb(1.0),
+        ..SelectionLimits::default()
+    };
+    let request = selection("{{DATA}}{{DATA}}{{DATA}}", false, "[]");
+    assert_limit(
+        SelectionOptions::resolve(&request.select, variables.as_object(), &limits).expect_err("bound expanded root"),
+        "root_expansion_bytes",
+    );
+    let limits = SelectionLimits {
+        variable_nodes: 2,
+        ..SelectionLimits::default()
+    };
+    assert_limit(
+        SelectionOptions::resolve(&request.select, variables.as_object(), &limits).expect_err("bound substitutions"),
+        "root_expansion_substitutions",
+    );
+    let limits = SelectionLimits {
+        variable_depth: 1,
+        ..SelectionLimits::default()
+    };
+    let variables = serde_json::json!({ "DATA": "{{NEXT}}", "NEXT": "directory" });
+    assert_limit(
+        SelectionOptions::resolve(&request.select, variables.as_object(), &limits).expect_err("bound recursive expansion"),
+        "root_expansion_depth",
+    );
+}
+#[test]
+fn test_root_variables_expand_recursively_before_discovery() {
+    let fixture = root("root-variables");
+    let inputs = fixture.join("data with spaces/2026");
+    create_dir_all(&inputs).expect("create inputs");
+    write(inputs.join("scene.tif"), "data").expect("write input");
+    let variables = serde_json::json!({
+        "BASE": "data with spaces", "DATA": "{{ BASE }}/{{ YEAR }}", "YEAR": 2026, "UNUSED": "{{ UNUSED }}"
+    });
+    let request = selection(
+        "{{ DATA }}",
+        false,
+        "variables.DATA == '{{ BASE }}/{{ YEAR }}' ? items.map(item, item.path) : []",
+    );
+    let resolved = request
+        .resolve(variables.as_object(), &fixture.join("config.json"))
+        .expect("expand roots");
+    let canonical = canonicalize(&inputs).expect("canonical root");
+    assert_eq!(resolved.values, [Some(canonical.join("scene.tif").display().to_string())]);
+    match resolved.source {
+        | InputSource::Selection { options, .. } => assert_eq!(options.roots, [canonical.display().to_string()]),
+        | other => panic!("unexpected source: {other:?}"),
+    }
+    let absolute = serde_json::json!({ "DATA": inputs });
+    assert_eq!(
+        selection("{{ DATA }}", false, "items.map(item, item.path)")
+            .resolve(absolute.as_object(), &fixture.join("config.json"))
+            .expect("absolute root")
+            .values,
+        [Some(canonical.join("scene.tif").display().to_string())]
+    );
+    remove_dir_all(fixture).expect("remove fixture");
+}
+#[cfg(unix)]
+#[test]
+fn test_root_variables_preserve_symlink_rejection() {
+    let fixture = root("root-variable-symlink");
+    create_dir_all(fixture.join("inputs")).expect("create inputs");
+    symlink(fixture.join("inputs"), fixture.join("link")).expect("create root link");
+    let variables = serde_json::json!({ "DATA": "link" });
+    let error = selection("{{ DATA }}", false, "[]")
+        .resolve(variables.as_object(), &fixture.join("config.json"))
+        .expect_err("reject expanded symlink");
+    assert!(error.to_string().contains("must not be a symlink"));
+    remove_dir_all(fixture).expect("remove fixture");
+}
+#[test]
+fn test_root_variables_reject_unresolved_cycles_and_non_scalar_values_before_io() {
+    for variables in [
+        serde_json::json!({}),
+        serde_json::json!({ "DATA": "{{ MISSING }}" }),
+        serde_json::json!({ "DATA": "{{ DATA }}" }),
+        serde_json::json!({ "DATA": "{{ OTHER }}", "OTHER": "{{ DATA }}" }),
+        serde_json::json!({ "DATA": [] }),
+        serde_json::json!({ "DATA": {} }),
+        serde_json::json!({ "DATA": null }),
+        serde_json::json!({ "DATA": "" }),
+        serde_json::json!({ "DATA": "\u{0000}" }),
+    ] {
+        let error = selection("{{ DATA }}", false, "[]")
+            .resolve(variables.as_object(), Path::new("missing/config.json"))
+            .expect_err("invalid root must fail before filesystem discovery");
+        assert!(matches!(&error, SelectionError::Request(_)), "{error}");
+        assert!(error.to_string().contains("options.roots[0]"), "{error}");
+    }
+    for root in ["{{ INPUT }}", "{{ INPUT_BASENAME }}", "{{ HOME }}", "{{ DATA", "{{ }}"] {
+        let error = selection(root, false, "[]")
+            .resolve(None, Path::new("missing/config.json"))
+            .expect_err("unavailable binding");
+        assert!(matches!(error, SelectionError::Request(_)));
+    }
 }

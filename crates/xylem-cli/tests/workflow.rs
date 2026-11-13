@@ -95,7 +95,7 @@ fn native_sandbox_policy(
                 "PYTHONDONTWRITEBYTECODE",
                 "_XYLEM_INPUT",
                 "_XYLEM_MODULE_LIST",
-                "_XYLEM_PARENT_DIRECTORY"
+                "_XYLEM_INPUT_BASENAME"
             ]
         },
         "lifecycle": { "retention": retention, "stale_after_seconds": stale_after_seconds },
@@ -529,11 +529,14 @@ fn test_dry_run_resolves_cel_selection_relative_to_configuration() {
         r#"requirements: []
 modules: []
 output: artifacts
+variables:
+  BASE: inputs
+  SCENES: "{{ BASE }}"
 input:
   select:
     engine: cel
     options:
-      roots: [inputs]
+      roots: ["{{ SCENES }}"]
       recursive: false
     script: |-
       items
@@ -2506,6 +2509,81 @@ fn test_runs_fixture_modules_in_order_with_interpolated_environment() {
         let second = logs.find("XYLEM_E2E_TWO_OK").expect("second fixture module should succeed");
         assert!(first < second, "fixture modules ran out of order with {threads} threads:\n{logs}");
     }
+}
+#[cfg(unix)]
+#[test]
+fn test_runs_input_basename_in_templates_and_environment() {
+    let root = std::env::temp_dir().join(format!("xylem-input-basename-cli-{}", std::process::id()));
+    let module = root.join("module");
+    let artifacts = root.join("artifacts");
+    let data = root.join("basin range");
+    create_dir_all(&module).expect("create module");
+    create_dir_all(&artifacts).expect("create artifacts");
+    create_dir_all(&data).expect("create input directory");
+    write(data.join("elevation.tif"), "input").expect("create file input");
+    write(
+        module.join("check.sh"),
+        r#"set -eu
+expected=$(basename "$_XYLEM_INPUT")
+test "$1" = "$expected"
+test "$_XYLEM_INPUT_BASENAME" = "$expected"
+printf '%s\n' "$1" >> "$_XYLEM_OUTPUT_DIRECTORY/results.txt"
+"#,
+    )
+    .expect("write input basename probe");
+    let configuration = root.join("workflow.json");
+    write(
+        &configuration,
+        serde_json::to_vec(&serde_json::json!({
+            "input": { "select": {
+                "engine": "cel", "options": { "roots": ["{{ DATA_PARENT }}"], "recursive": true },
+                "script": "items.filter(item, item.name == 'basin range' || item.name == 'elevation.tif').map(item, item.path)"
+            } },
+            "variables": { "DATA_PARENT": root },
+            "modules": [{
+                "name": "probe",
+                "programmingLanguage": "generic",
+                "template": { "command": "sh", "arguments": ["check.sh", "{{ INPUT_BASENAME }}"] },
+                "type": "script",
+                "uri": format!("file:{}", module.display())
+            }],
+            "output": artifacts,
+            "requirements": ["sh"]
+        }))
+        .expect("serialize configuration"),
+    )
+    .expect("write configuration");
+    let preview = xylem_command()
+        .arg("run")
+        .arg(&configuration)
+        .args(["--dry-run", "--reporter", "json"])
+        .output()
+        .expect("preview input basenamees");
+    assert!(preview.status.success(), "{}", String::from_utf8_lossy(&preview.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&preview.stdout).expect("dry-run plan");
+    for (index, expected) in ["basin range", "elevation.tif"].iter().enumerate() {
+        let module = &plan["modules"][index];
+        assert_eq!(module["variables"]["_XYLEM_INPUT_BASENAME"], *expected);
+        assert_eq!(module["command"]["arguments"], serde_json::json!(["check.sh", expected]));
+    }
+    let output = xylem_command()
+        .arg("run")
+        .arg(&configuration)
+        .args(["--threads", "1", "--no-progress", "--reporter", "json", "--report-output"])
+        .arg(root.join("reports"))
+        .output()
+        .expect("run input basenamees");
+    assert!(
+        output.status.success(),
+        "workflow failed: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        read_to_string(artifacts.join("results.txt")).expect("recorded basenames"),
+        "basin range\nelevation.tif\n"
+    );
+    remove_dir_all(root).expect("remove input basename fixture");
 }
 #[cfg(unix)]
 #[test]

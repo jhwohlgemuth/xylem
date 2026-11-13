@@ -19,7 +19,7 @@ This directory is the authoritative home for Xylem implementation plans. It foll
 ## Portfolio review
 
 Rechecked on 2026-11-01 against baseline `fcf4df3`, current schemas, focused
-tests, retained measurement, and platform evidence. The portfolio contains 5
+tests, retained measurement, and platform evidence. The portfolio now contains 7
 executable plans, all using five-hour phases. External Windows-runner, tap,
 A/P/O rollout,
 cluster, storage, image, corpus, and credential claims remain explicit
@@ -32,8 +32,21 @@ Rootless BuildKit delivery evidence was added on 2026-11-04 against baseline
 `7aa9ef8` and failed job 4503475. Four affected jobs are temporarily skipped
 until a dedicated runner passes the bounded qualification plan.
 
+CLI variable argument planning was added on 2026-11-13 against `1c4a75e`.
+ARG-01 is ready without external prerequisites; named overrides precede
+config-declared positional bindings. This addition rechecked configuration
+and CLI evidence, not the external readiness claims of the older plans below.
+
+Configuration expansion planning was added on 2026-11-13 against the same
+HEAD plus the uncommitted basename cutover and selection-root expansion.
+It records five reviewed behavior gaps and eleven bounded phases. EXP-01 is
+ready; field phases require named invocation bindings from ARG-02. Existing
+external readiness claims below remain historical, not freshly qualified.
+
 | Plan | Quality | Impact | Remaining difficulty | Readiness | Assessment |
 |---|---:|---:|---:|---|---|
+| [CLI variable arguments](features/cli-variable-arguments.md) | Not scored | High | Medium | Ready | ARG-01 adds validated run-wide bindings; ARG-02 ships `--var`, then ARG-03/04 add ordered config declarations and positional invocation. |
+| [Configuration variable expansion](features/configuration-variable-expansion.md) | Not scored | High | High | Foundation ready | EXP-01 extracts bounded interpolation; after ARG-02, resolve input/output paths, source URIs, templates, and environments before their owning validation/preparation steps. |
 | [Rootless BuildKit runner](refactors/rootless-buildkit-runner.md) | 5/5 | High | Medium | Planned | Four rootless BuildKit jobs are skipped after generic runner `kronk` blocked RootlessKit startup. Provision a dedicated non-privileged runner with a narrow seccomp profile before phased re-enablement. |
 | [Secure module acquisition](refactors/secure-module-acquisition.md) | 5/5 | Critical | Low | Blocked on Windows runner support | SEC-01 through SEC-06 are accepted. Published ACORN CLI 0.5.1 still assumes a POSIX Docker socket for a local container runner, so SEC-07 awaits a native Windows-capable release and host. |
 | [Homebrew release activation](features/homebrew-export.md) | 5/5 | High | Low | Ready | Tap merge request !2 remains open and mergeable at the intended commit. Its Linux job passes; three macOS retries remain canceled on the online assigned runner. |
@@ -46,14 +59,21 @@ and durable run storage. New runtime work must preserve those contracts.
 
 ## Recommended execution order
 
-1. Start RBK-01 when runner administration access and an amd64 host maintenance
+1. Start ARG-01 and EXP-01 with disjoint code ownership and serialized wiki
+   edits, then ARG-02 for named CLI overrides and early root binding.
+2. Prioritize EXP-02/03 input/output consistency, then EXP-04/05 sources,
+   EXP-06/07 executable/template selection, and EXP-08/09/10 environments.
+   ARG-03/04 positional binding can proceed where exact write sets are disjoint;
+   otherwise serialize shared configuration, CLI, tests, and docs. Finish with
+   EXP-11 combined qualification. Coordinate these files with K8S work.
+3. Start RBK-01 when runner administration access and an amd64 host maintenance
    window are available; keep all four rootless BuildKit jobs skipped until
    their owning validation phases pass.
-2. Start SEC-07 after a published ACORN release and Windows host support
+4. Start SEC-07 after a published ACORN release and Windows host support
    native Docker runner creation.
-3. Start BRW-01 on the assigned online Mac runner. Run APO-01 only
+5. Start BRW-01 on the assigned online Mac runner. Run APO-01 only
    after the A/P/O rollout decision, corpus access, and credentials arrive.
-4. Start K8S-01 when the operator gates are available; runtime phases consume
+6. Start K8S-01 when the operator gates are available; runtime phases consume
    the accepted immutable context and v15/v14 schema contracts.
 
 ## Planning gaps

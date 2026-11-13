@@ -34,7 +34,7 @@
       "uri": "file:///workload/modules/module-a",
       "variables": {
         "METHOD": "boa_reflectance",
-        "OUTPUT_DIRECTORY": "{{ OUTPUT_ROOT }}/{{ PARENT_DIRECTORY }}",
+        "OUTPUT_DIRECTORY": "{{ OUTPUT_ROOT }}/{{ INPUT_BASENAME }}",
         "PROFILE": "urban"
       },
       "completion": {
@@ -64,7 +64,7 @@
       "uri": "file:///workload/modules/module-p",
       "variables": {
         "METHOD": "nn_diffuse",
-        "OUTPUT_DIRECTORY": "{{ OUTPUT_ROOT }}/{{ PARENT_DIRECTORY }}",
+        "OUTPUT_DIRECTORY": "{{ OUTPUT_ROOT }}/{{ INPUT_BASENAME }}",
         "SOURCE_DIRECTORY": "{{ OUTPUT_DIRECTORY }}"
       },
       "completion": {

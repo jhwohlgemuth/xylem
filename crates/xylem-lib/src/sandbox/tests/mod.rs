@@ -994,6 +994,28 @@ fn test_sandbox_session_open_respects_optional_policy() {
         .is_none());
 }
 #[test]
+fn test_selection_root_variables_are_checked_before_discovery() {
+    let directory = root("root-variables");
+    create_dir_all(directory.join("inputs")).expect("create allowed root");
+    create_dir_all(directory.join("outside")).expect("create denied root");
+    let policy_path = directory.join("policy.json");
+    write(&policy_path, policy("json")).expect("write policy");
+    let policy = EffectiveSandboxPolicy::read(&policy_path).expect("read policy");
+    for (value, allowed) in [("inputs", true), ("outside", false), ("{{ MISSING }}", false)] {
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "input": { "select": { "engine": "cel", "options": { "roots": ["{{ DATA }}"] }, "script": "items.map(item, item.path)" } },
+            "modules": [], "requirements": [], "variables": { "DATA": value }
+        }))
+        .expect("selection config");
+        let result = policy.validate_input_discovery(&config, &directory.join("config.json"), None);
+        assert_eq!(result.is_ok(), allowed, "expanded root {value}: {result:?}");
+        assert!(policy
+            .validate_input_discovery(&config, &directory.join("config.json"), Some(&["explicit".to_string()]))
+            .is_ok());
+    }
+    remove_dir_all(directory).expect("remove fixture");
+}
+#[test]
 fn test_successful_inputs_merge_and_publish_atomically() {
     let root = root("artifact-publish");
     create_dir_all(&root).expect("create artifact root");

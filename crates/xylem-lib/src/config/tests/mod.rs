@@ -981,10 +981,10 @@ fn test_context_variables_apply_precedence_and_derived_values() {
     assert_eq!(variables["BASE"], "workflow");
     assert_eq!(variables["COMPOSED"], "workflow:module:run-id");
     assert_eq!(variables["INPUT"], "/data/repeat.tif");
+    assert_eq!(variables["INPUT_BASENAME"], "repeat.tif");
     assert_eq!(variables["LAYER"], "module");
     assert_eq!(variables["MODULE_LIST"], "probe_module");
     assert_eq!(variables["OUTPUT_DIRECTORY"], root.join("cli-output").display().to_string());
-    assert_eq!(variables["PARENT_DIRECTORY"], "repeat.tif");
     assert_eq!(variables["RUN_ID"], "run-id");
     assert_eq!(variables["WORK_DIRECTORY"], workflow.workspace().root().display().to_string());
     let repeated = context
@@ -1000,7 +1000,9 @@ fn test_context_variables_apply_precedence_and_derived_values() {
     });
     assert_eq!(environment["_XYLEM_COMPOSED"], "workflow:module:run-id");
     assert_eq!(environment["_XYLEM_INPUT"], "/data/repeat.tif");
+    assert_eq!(environment["_XYLEM_INPUT_BASENAME"], "repeat.tif");
     assert_eq!(repeated_environment["_XYLEM_INPUT"], "/data/other.tif");
+    assert_eq!(repeated_environment["_XYLEM_INPUT_BASENAME"], "other.tif");
     assert!(!environment.contains_key("COMPOSED"));
     assert_eq!(context.batch().map(InputBatch::get), Some(2));
     assert_eq!(context.failure_policy(), FailurePolicy::Continue);
@@ -1046,6 +1048,17 @@ fn test_context_variables_reject_non_unicode_paths() {
 }
 #[test]
 fn test_context_variables_reject_reserved_names() {
+    for value in [
+        serde_json::json!({ "modules": [], "requirements": [], "variables": { "INPUT_BASENAME": "forged" } }),
+        serde_json::json!({
+            "modules": [{ "name": "probe", "type": "script", "uri": "file:.", "variables": { "INPUT_BASENAME": "forged" } }],
+            "requirements": []
+        }),
+    ] {
+        let config: Config = serde_json::from_value(value).expect("reserved basename fixture");
+        let error = config.validate().expect_err("input basename must be reserved");
+        assert!(error.to_string().contains("variables.INPUT_BASENAME"));
+    }
     let workflow: Config = serde_json::from_value(serde_json::json!({
         "modules": [],
         "requirements": [],
@@ -1093,7 +1106,7 @@ fn test_contexts_isolate_repeated_and_zero_inputs() {
     assert_eq!(first.variables(&config, None).expect("first variables")["INPUT"], "same");
     let zero_variables = zero.variables(&config, None).expect("zero-input variables");
     assert!(!zero_variables.contains_key("INPUT"));
-    assert!(!zero_variables.contains_key("PARENT_DIRECTORY"));
+    assert!(!zero_variables.contains_key("INPUT_BASENAME"));
     assert_eq!(zero_variables["MODULE_LIST"], "");
     assert_eq!(zero_variables["RUN_ID"], "run-id");
     drop((first, second, zero));
@@ -1176,6 +1189,32 @@ fn test_failure_policy_defaults_and_unknown_values() {
     assert!(parse_json_configuration(r#"{"requirements":[],"modules":[],"options":{"failure_policy":"unknown"}}"#).is_err());
     assert!(parse_jsonc_configuration(r#"{"requirements":[],"modules":[],"options":{"failure_policy":"unknown"}}"#).is_err());
     assert!(parse_yaml_configuration("requirements: []\nmodules: []\noptions:\n  failure_policy: unknown\n").is_err());
+}
+#[test]
+fn test_input_basename_uses_final_path_component() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "modules": [],
+        "requirements": [],
+        "variables": { "LABEL": "scene:{{ INPUT_BASENAME }}" }
+    }))
+    .expect("input basename fixture");
+    for (input, expected) in [
+        ("/data/basin_range", "basin_range"),
+        ("/data/basin_range/", "basin_range"),
+        ("/data/basin_range/elevation.tif", "elevation.tif"),
+        ("relative/name with spaces.tif", "name with spaces.tif"),
+        ("single", "single"),
+        ("/", "/"),
+        (".", "."),
+        ("..", ".."),
+        ("", ""),
+    ] {
+        let variables = config.module_environment(None, Some(input));
+        assert_eq!(variables["_XYLEM_INPUT_BASENAME"], expected, "basename for {input:?}");
+        assert_eq!(variables["_XYLEM_LABEL"], format!("scene:{expected}"));
+    }
+    let variables = config.module_environment(None, None);
+    assert!(!variables.contains_key("_XYLEM_INPUT_BASENAME"));
 }
 #[test]
 fn test_json_and_yaml_fixtures_deserialize_equally() {
@@ -1775,6 +1814,38 @@ fn test_sandbox_is_an_opt_in_boolean() {
     assert!(!disabled.sandbox);
     let enabled: Config = parse_yaml_configuration("requirements: []\nmodules: []\nsandbox: true\n").expect("configuration with enabled sandbox");
     assert!(enabled.sandbox);
+}
+#[test]
+fn test_selection_roots_expand_across_configuration_formats() {
+    let root = std::env::temp_dir().join(format!("xylem-root-formats-{}", std::process::id()));
+    create_dir_all(root.join("data")).expect("create input directory");
+    write(root.join("data/scene.tif"), "scene").expect("write input");
+    let value = serde_json::json!({
+        "input": { "select": { "engine": "cel", "options": { "roots": ["{{ DATA_ROOT }}"] }, "script": "items.map(item, item.path)" } },
+        "modules": [], "requirements": [], "variables": { "DATA_ROOT": "data" }
+    });
+    for extension in ["json", "jsonc", "yaml", "yml"] {
+        let path = root.join(format!("config.{extension}"));
+        let contents = match extension {
+            | "json" => serde_json::to_string(&value).expect("serialize JSON"),
+            | "jsonc" => format!(
+                "// selection root interpolation\n{}",
+                serde_json::to_string(&value).expect("serialize JSONC")
+            ),
+            | _ => serde_norway::to_string(&value).expect("serialize YAML"),
+        };
+        write(&path, contents).expect("write config");
+        let config = Config::try_from(path.as_path()).expect("read config");
+        let inputs = config.resolve_inputs(None, &path).expect("expand and discover inputs");
+        assert_eq!(
+            inputs.values,
+            [Some(
+                canonicalize(root.join("data/scene.tif")).expect("canonical input").display().to_string()
+            )],
+            "{extension}"
+        );
+    }
+    remove_dir_all(root).expect("remove fixture");
 }
 #[test]
 fn test_semantic_validation_collects_path_qualified_errors() {

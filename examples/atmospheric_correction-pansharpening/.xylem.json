@@ -37,7 +37,7 @@
             },
             "variables": {
                 "METHOD": "boa_reflectance",
-                "OUTPUT_DIRECTORY": "{{ OUTPUT_ROOT }}/{{ PARENT_DIRECTORY }}",
+                "OUTPUT_DIRECTORY": "{{ OUTPUT_ROOT }}/{{ INPUT_BASENAME }}",
                 "PROFILE": "urban"
             },
             "template": {
@@ -71,7 +71,7 @@
             },
             "variables": {
                 "METHOD": "nn_diffuse",
-                "OUTPUT_DIRECTORY": "{{ OUTPUT_ROOT }}/{{ PARENT_DIRECTORY }}",
+                "OUTPUT_DIRECTORY": "{{ OUTPUT_ROOT }}/{{ INPUT_BASENAME }}",
                 "SOURCE_DIRECTORY": "{{ OUTPUT_DIRECTORY }}"
             },
             "template": {

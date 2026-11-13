@@ -116,15 +116,15 @@ A module may declare the files that establish completion and an optional marker:
 
 ```yaml
 completion:
-  marker: "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/.xylem/module.json"
+  marker: "{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/.xylem/module.json"
   outputs:
-    - "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/*.tif"
+    - "{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/*.tif"
 ```
 
 When `marker` is omitted, Xylem places it in a `.xylem` directory beneath the
 literal directory prefix of the first output pattern and names it after the
 module in snake case. For example, the output pattern above defaults to
-`{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/.xylem/<module_name>.json`.
+`{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/.xylem/<module_name>.json`.
 
 Every output pattern must match at least one non-empty regular file, and the
 marker identity must match the module, resolved template, variables, input, and
@@ -209,7 +209,39 @@ Xylem reserves these values:
 | --- | --- | --- |
 | `MODULE_LIST` | Always | Comma-separated snake-case module names in execution order. |
 | `INPUT` | When an input is active | Current workflow input value. |
-| `PARENT_DIRECTORY` | When an input is active | Final path component of `INPUT`. |
+| `INPUT_BASENAME` | When an input is active | Final path component of `INPUT`, including the extension for file inputs. |
+
+For `/data/basin_range`, `INPUT_BASENAME` is `basin_range`; for
+`/data/basin_range/elevation.tif`, it is `elevation.tif`. Trailing directory
+separators do not change the basename. If the path has no final name (for
+example, `/`), the input value is used unchanged. `INPUT_BASENAME` is absent
+when there is no active input and may not be configured as a user variable.
+Configurations that previously defined `INPUT_BASENAME` must rename that
+user variable before upgrading.
+
+Use `{{ INPUT_BASENAME }}` in templates and `_XYLEM_INPUT_BASENAME` in child
+processes. This replaces `PARENT_DIRECTORY` and `_XYLEM_PARENT_DIRECTORY`
+without a compatibility alias; migrate existing references before upgrading.
+Completion identities include effective variables, so this change can cause
+an existing resumed module to run once after upgrading.
+Subsequent runs use the refreshed marker normally.
+
+`input.select.options.roots` also accepts `{{ WORKFLOW_VARIABLE }}` placeholders,
+including recursive references through workflow variables. String, number, and
+boolean values are supported. Expanded relative roots resolve from the declaring
+configuration directory. Expansion occurs before discovery and sandbox path
+authorization; existing local-directory and symlink restrictions still apply.
+Unknown variables, cycles, malformed placeholders, non-scalar referenced values,
+empty roots, and NUL bytes fail before discovery. Expansion is bounded to 32
+variable-reference levels, 10,000 substitutions across roots, and 1 MiB per
+expanded root or intermediate string.
+
+Root expansion reads only explicitly configured workflow variables. It does not
+read process environment variables, module variables, or input/run-derived
+built-ins. CEL still receives the original typed workflow `variables` map;
+`options.roots` contains the canonical expanded paths. The `recursive` option
+remains a literal boolean, and CEL scripts access values through `variables.NAME`
+rather than template substitution.
 
 ## 5. Python environments
 

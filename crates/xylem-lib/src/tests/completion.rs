@@ -96,6 +96,42 @@ fn test_fingerprint_is_stable_for_equivalent_encodings_and_tracks_inputs() {
     assert_ne!(identity, changed_declaration_identity);
 }
 #[test]
+fn test_input_basename_refreshes_legacy_completion_markers_then_resumes() {
+    let root = root("basename-cutover");
+    create_dir_all(&root).expect("create output root");
+    write(root.join("result.txt"), "complete").expect("write output");
+    let (module, mut variables) = fixture(&root);
+    variables.insert("_XYLEM_INPUT".to_string(), "/data/basin".to_string());
+    variables.insert("_XYLEM_PARENT_DIRECTORY".to_string(), "basin".to_string());
+    let legacy = CompletionPlan::inspect(&module, &variables, false, None)
+        .expect("inspect legacy variables")
+        .expect("completion plan");
+    legacy.write().expect("write legacy marker");
+    variables.remove("_XYLEM_PARENT_DIRECTORY");
+    variables.insert("_XYLEM_INPUT_BASENAME".to_string(), "basin".to_string());
+    let resumed = CompletionPlan::inspect(&module, &variables, true, None)
+        .expect("inspect after hard cutover")
+        .expect("completion plan");
+    assert_ne!(resumed.identity, legacy.identity);
+    assert_eq!(resumed.decision, CompletionDecision::Run);
+    resumed.write().expect("write refreshed marker");
+    let repeated = CompletionPlan::inspect(&module, &variables, true, None)
+        .expect("inspect refreshed marker")
+        .expect("completion plan");
+    assert_eq!(repeated.decision, CompletionDecision::SkipExisting);
+    variables.insert("_XYLEM_INPUT_BASENAME".to_string(), "different".to_string());
+    let different = CompletionPlan::inspect(&module, &variables, true, None)
+        .expect("inspect distinct value")
+        .expect("completion plan");
+    assert_eq!(different.decision, CompletionDecision::Run);
+    variables.insert("_XYLEM_INPUT".to_string(), "/data/different".to_string());
+    let changed_input = CompletionPlan::inspect(&module, &variables, true, None)
+        .expect("inspect changed input")
+        .expect("completion plan");
+    assert_eq!(changed_input.decision, CompletionDecision::Run);
+    remove_dir_all(root).expect("remove fixture");
+}
+#[test]
 fn test_missing_empty_and_stale_outputs_run() {
     let root = root("incomplete");
     create_dir_all(&root).expect("create output root");

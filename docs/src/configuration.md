@@ -300,12 +300,14 @@ A workflow can discover local files and directories beneath explicit roots and
 select inputs with a CEL expression:
 
 ```yaml
+variables:
+  DATA_ROOT: ./scenes
 input:
   select:
     engine: cel
     options:
       roots:
-        - ./scenes
+        - "{{ DATA_ROOT }}"
       recursive: true
     script: >-
       items
@@ -320,8 +322,19 @@ For readable multiline YAML expressions, `>-` folds ordinary line breaks into
 spaces and removes the final newline. Use `|-` when the expression's newline
 characters should be preserved; CEL accepts them as whitespace.
 
-Relative roots resolve from the declaring configuration's directory. Roots
-must be existing local directories and cannot be symlinks. Discovery never
+Roots expand `{{ NAME }}` placeholders from workflow `variables` before
+discovery. Variables can reference other workflow variables, for example
+`SCENES: "{{ DATA_ROOT }}/scenes"`; scalar strings, numbers, and booleans are
+supported. Relative expanded roots resolve from the declaring configuration's
+directory. Unknown references, cycles, malformed placeholders, arrays/maps/null,
+empty roots, and NUL bytes fail before discovery. Expansion is limited to 32
+reference levels, 10,000 substitutions across roots, and 1 MiB per expanded
+root or intermediate string. Module variables, process environment values, and
+input-derived built-ins such as `INPUT_BASENAME` are unavailable here. Sandbox
+policy checks the expanded paths before discovery. `recursive` remains a literal
+boolean.
+
+Roots must be existing local directories and cannot be symlinks. Discovery never
 follows symlinks, does not read file contents, and skips symlinks and special
 files. Candidates retain configured root order and are sorted by `/`-separated
 relative path within each root. Overlapping roots keep the first occurrence.
@@ -332,6 +345,9 @@ CEL receives only three immutable bindings:
 - `options`, containing canonical `roots` and the effective `recursive` value;
 - `variables`, the configured workflow variables without reading the process
   environment.
+
+Root interpolation does not rewrite the CEL `variables` map or substitute text
+into the script. Use `variables.NAME` inside CEL expressions.
 
 Each item provides `index`, `path`, `relative_path`, `name`, `extension`,
 `kind`, `size`, and `depth`. JSON/YAML null, boolean, number, string, list, and
@@ -413,13 +429,30 @@ Workflow variables are available to every module. Module variables override
 workflow values. The top-level `output` field supplies `OUTPUT_DIRECTORY` when
 the workflow has not defined it; a module may override that default. Xylem then
 supplies reserved values such as `MODULE_LIST`, `INPUT`, and
-`PARENT_DIRECTORY`. Placeholders use `{{ VARIABLE_NAME }}` syntax.
+`INPUT_BASENAME`. Placeholders use `{{ VARIABLE_NAME }}` syntax.
+
+`INPUT_BASENAME` is the final path component of the active input:
+`/data/basin_range` gives `basin_range`, while
+`/data/basin_range/elevation.tif` gives `elevation.tif`. Trailing directory
+separators are ignored; inputs without a final name, such as `/`, are returned
+unchanged. `INPUT_BASENAME` is reserved and absent when no input is active.
+Rename any existing
+user-defined `INPUT_BASENAME` variable before upgrading.
 
 Resolved values are passed to child processes with an `_XYLEM_` prefix. For
 example, `GREETING` is available as `_XYLEM_GREETING`. Resolution is local to
 each input and module command: Xylem does not write resolved values into its
 own process environment, so concurrently active inputs cannot overwrite one
 another's variables.
+
+Prefer `{{ INPUT_BASENAME }}` in templates and `_XYLEM_INPUT_BASENAME` in
+scripts. `PARENT_DIRECTORY` and `_XYLEM_PARENT_DIRECTORY` have been removed;
+update existing references to the new names. Sandbox scripts need
+`_XYLEM_INPUT_BASENAME` in
+the operator policy's `environment.allow` list to read the new environment
+variable; existing allowlists are not changed automatically. Completion
+identities include effective variables, so existing resumed modules may run
+once after upgrading and then resume normally with refreshed markers.
 
 ## Options
 

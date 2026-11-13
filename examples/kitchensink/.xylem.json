@@ -37,12 +37,12 @@
                     "--message",
                     "{{ MESSAGE }}",
                     "--output",
-                    "../output/{{ PARENT_DIRECTORY }}/mamba.txt"
+                    "../output/{{ INPUT_BASENAME }}/mamba.txt"
                 ]
             },
             "completion": {
                 "outputs": [
-                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/mamba.txt"
+                    "{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/mamba.txt"
                 ]
             }
         },
@@ -61,14 +61,14 @@
                     "-m",
                     "lib.run",
                     "--input",
-                    "../output/{{ PARENT_DIRECTORY }}/mamba.txt",
+                    "../output/{{ INPUT_BASENAME }}/mamba.txt",
                     "--output",
-                    "../output/{{ PARENT_DIRECTORY }}/pixi.txt"
+                    "../output/{{ INPUT_BASENAME }}/pixi.txt"
                 ]
             },
             "completion": {
                 "outputs": [
-                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/pixi.txt"
+                    "{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/pixi.txt"
                 ]
             }
         },
@@ -80,7 +80,7 @@
             "template": "template.json",
             "completion": {
                 "outputs": [
-                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/script.txt"
+                    "{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/script.txt"
                 ]
             }
         },
@@ -91,13 +91,13 @@
             "template": {
                 "command": "./module",
                 "arguments": [
-                    "../output/{{ PARENT_DIRECTORY }}/script.txt",
-                    "../output/{{ PARENT_DIRECTORY }}/final.txt"
+                    "../output/{{ INPUT_BASENAME }}/script.txt",
+                    "../output/{{ INPUT_BASENAME }}/final.txt"
                 ]
             },
             "completion": {
                 "outputs": [
-                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/final.txt"
+                    "{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/final.txt"
                 ]
             }
         },
@@ -110,13 +110,13 @@
                 "command": "sh",
                 "arguments": [
                     "run.sh",
-                    "../output/{{ PARENT_DIRECTORY }}/final.txt",
-                    "../output/{{ PARENT_DIRECTORY }}/oci.txt"
+                    "../output/{{ INPUT_BASENAME }}/final.txt",
+                    "../output/{{ INPUT_BASENAME }}/oci.txt"
                 ]
             },
             "completion": {
                 "outputs": [
-                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/oci.txt"
+                    "{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/oci.txt"
                 ]
             }
         },
@@ -144,13 +144,13 @@
                 "command": "sh",
                 "arguments": [
                     "/workspace/xylem/examples/kitchensink/docker/run.sh",
-                    "/workspace/xylem/examples/kitchensink/output/{{ PARENT_DIRECTORY }}/oci.txt",
-                    "/workspace/xylem/examples/kitchensink/output/{{ PARENT_DIRECTORY }}/podman.txt"
+                    "/workspace/xylem/examples/kitchensink/output/{{ INPUT_BASENAME }}/oci.txt",
+                    "/workspace/xylem/examples/kitchensink/output/{{ INPUT_BASENAME }}/podman.txt"
                 ]
             },
             "completion": {
                 "outputs": [
-                    "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/podman.txt"
+                    "{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/podman.txt"
                 ]
             }
         }

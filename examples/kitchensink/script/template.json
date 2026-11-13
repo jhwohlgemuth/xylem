@@ -2,7 +2,7 @@
     "command": "sh",
     "arguments": [
         "lib/run.sh",
-        "../output/{{ PARENT_DIRECTORY }}/pixi.txt",
-        "../output/{{ PARENT_DIRECTORY }}/script.txt"
+        "../output/{{ INPUT_BASENAME }}/pixi.txt",
+        "../output/{{ INPUT_BASENAME }}/script.txt"
     ]
 }

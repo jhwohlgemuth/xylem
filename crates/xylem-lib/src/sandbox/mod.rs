@@ -721,14 +721,19 @@ impl EffectiveSandboxPolicy {
                 }
                 | Some(InputAttribute::Select(selection)) => {
                     let base = configuration_path.parent().unwrap_or_else(|| Path::new("."));
-                    selection.select.options.roots.iter().try_for_each(|root| {
-                        let path = Path::new(root);
-                        let path = match path.is_absolute() {
-                            | true => path.to_path_buf(),
-                            | false => base.join(path),
-                        };
-                        validate_granted_path(&path, &self.policy.paths.input_roots, "input selection root").map(|_| ())
-                    })
+                    selection
+                        .resolved_options(config.variables.as_ref())
+                        .map_err(|why| SandboxError::Validation(why.to_string()))
+                        .and_then(|options| {
+                            options.roots.iter().try_for_each(|root| {
+                                let path = Path::new(root);
+                                let path = match path.is_absolute() {
+                                    | true => path.to_path_buf(),
+                                    | false => base.join(path),
+                                };
+                                validate_granted_path(&path, &self.policy.paths.input_roots, "input selection root").map(|_| ())
+                            })
+                        })
                 }
                 | Some(InputAttribute::List(_)) | None => Ok(()),
             },

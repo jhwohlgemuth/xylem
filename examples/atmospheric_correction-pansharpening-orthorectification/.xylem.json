@@ -19,8 +19,8 @@
             "programmingLanguage": "python",
             "uri": "file:///path/to/module-a",
             "completion": {
-                "marker": "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/.xylem/module-a.json",
-                "outputs": ["{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/*_MODA.tif"]
+                "marker": "{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/.xylem/module-a.json",
+                "outputs": ["{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/*_MODA.tif"]
             },
             "variables": {
                 "METHOD": "boa_reflectance",
@@ -52,8 +52,8 @@
             "programmingLanguage": "python",
             "uri": "file:///path/to/module-p",
             "completion": {
-                "marker": "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/.xylem/module-p.json",
-                "outputs": ["{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/*_MODA_MODP.tif"]
+                "marker": "{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/.xylem/module-p.json",
+                "outputs": ["{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/*_MODA_MODP.tif"]
             },
             "variables": {
                 "SOURCE_DIRECTORY": "{{ OUTPUT_DIRECTORY }}",
@@ -85,8 +85,8 @@
             "programmingLanguage": "python",
             "uri": "file:///path/to/module-o",
             "completion": {
-                "marker": "{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/.xylem/module-o.json",
-                "outputs": ["{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/*_MODA_MODP_MODO.tif"]
+                "marker": "{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/.xylem/module-o.json",
+                "outputs": ["{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/*_MODA_MODP_MODO.tif"]
             },
             "variables": {
                 "SOURCE_DIRECTORY": "{{ OUTPUT_DIRECTORY }}"

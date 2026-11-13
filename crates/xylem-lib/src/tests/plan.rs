@@ -19,8 +19,8 @@ fn config(output: &str) -> Config {
         "requirements": [],
         "modules": [{
             "completion": {
-                "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/{{ PARENT_DIRECTORY }}.json",
-                "outputs": ["{{ OUTPUT_DIRECTORY }}/{{ PARENT_DIRECTORY }}/*.txt"]
+                "marker": "{{ OUTPUT_DIRECTORY }}/.xylem/{{ INPUT_BASENAME }}.json",
+                "outputs": ["{{ OUTPUT_DIRECTORY }}/{{ INPUT_BASENAME }}/*.txt"]
             },
             "name": "probe",
             "programmingLanguage": "generic",

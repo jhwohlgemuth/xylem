@@ -1,8 +1,8 @@
 extern crate alloc;
 
 use super::{
-    InputSource, ResolvedInputs, ResolvedSelectionOptions, ScriptingEngine, ScriptingEngineMetadata, SelectionError, SelectionItem, SelectionLimits,
-    SelectionOptions, SelectionRequest,
+    roots, InputSource, ResolvedInputs, ResolvedSelectionOptions, ScriptingEngine, ScriptingEngineMetadata, SelectionError, SelectionItem,
+    SelectionLimits, SelectionOptions, SelectionRequest,
 };
 use acorn_schema::hardware::Memory;
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -844,6 +844,20 @@ impl Inventory {
         ])
     }
 }
+impl SelectionOptions {
+    pub(super) fn resolve(
+        request: &SelectionRequest,
+        variables: Option<&Map<String, Value>>,
+        limits: &SelectionLimits,
+    ) -> Result<Self, SelectionError> {
+        let empty = Map::new();
+        let variables = variables.unwrap_or(&empty);
+        request
+            .validate(limits)
+            .and_then(|()| validate_variable_bindings(variables, limits))
+            .and_then(|()| roots::expand(&request.options, variables, limits))
+    }
+}
 impl Validate<&SelectionLimits> for SelectionRequest {
     fn validate(&self, limits: &SelectionLimits) -> Result<(), SelectionError> {
         match (self.options.roots.is_empty(), self.script.trim().is_empty()) {
@@ -1056,9 +1070,8 @@ pub(super) fn resolve(
     configuration_path: &Path,
 ) -> Result<ResolvedInputs, SelectionError> {
     let limits = SelectionLimits::default();
-    request
-        .validate(&limits)
-        .and_then(|()| Inventory::discover(&request.options, configuration_path, &limits))
+    SelectionOptions::resolve(request, variables, &limits)
+        .and_then(|options| Inventory::discover(&options, configuration_path, &limits))
         .and_then(|inventory| {
             let variables = variables.cloned().unwrap_or_default();
             Cel.compile(&request.script, &inventory, &variables, &limits)

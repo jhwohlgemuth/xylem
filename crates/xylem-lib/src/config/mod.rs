@@ -45,7 +45,7 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 mod validation;
-const RESERVED_VARIABLES: [&str; 5] = ["INPUT", "MODULE_LIST", "PARENT_DIRECTORY", "RUN_ID", "WORK_DIRECTORY"];
+const RESERVED_VARIABLES: [&str; 5] = ["INPUT", "INPUT_BASENAME", "MODULE_LIST", "RUN_ID", "WORK_DIRECTORY"];
 /// Executes one resolved module command for an orchestration adapter.
 pub trait ModuleExecutor: Send + Sync {
     /// Execute a script for the stable input and module positions, applying the validated module timeout to the managed process when one is present.
@@ -1801,8 +1801,8 @@ impl VariableLookup {
     fn with_input(self, input: Option<&str>) -> Self {
         match input {
             | Some(input) => {
-                let parent = Path::new(input).file_name().and_then(|name| name.to_str()).unwrap_or(input).to_string();
-                self.with_value("INPUT", input).with_value("PARENT_DIRECTORY", parent)
+                let basename = Path::new(input).file_name().and_then(|name| name.to_str()).unwrap_or(input);
+                self.with_value("INPUT", input).with_value("INPUT_BASENAME", basename)
             }
             | None => self,
         }
