@@ -1368,10 +1368,13 @@ fn test_local_source_interpolation_uses_module_scope_and_invocation_precedence()
         | other => panic!("expected script: {other:?}"),
     }
     let remote = VariableOverrides::parse(&["SOURCE=https://example.invalid/repo".to_string()]).expect("remote binding");
-    assert!(matches!(
-        selected.resolve_with_policy_and_bindings(&config_path, &policy, &cache, true, &remote),
-        Err(ConfigurationModuleError::Interpolation(_))
-    ));
+    let resolved = selected
+        .resolve_with_policy_and_bindings(&config_path, &policy, &cache, true, &remote)
+        .expect("resolve remote invocation source");
+    match &resolved.modules[0].module_type {
+        | ModuleType::Script { uri, .. } => assert_eq!(<&str>::from(uri), "https://example.invalid/repo"),
+        | other => panic!("expected script: {other:?}"),
+    }
     remove_dir_all(root).expect("remove fixture");
 }
 #[test]
@@ -2018,6 +2021,163 @@ fn test_semantic_validation_collects_path_qualified_errors() {
     assert!(error
         .to_string()
         .contains("modules[0].template.command: template command must not be empty"));
+}
+#[test]
+fn test_source_interpolation_accepts_pinned_git_and_oci_wrapper_forms() {
+    let root = std::env::temp_dir().join(format!("xylem-source-remote-forms-{}", std::process::id()));
+    let cache = AcquisitionCache::new(root.join("cache"));
+    let git: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "variables": {"HOST": "example.org"},
+        "modules": [{
+            "name": "git", "type": "configuration",
+            "uri": {"scheme": "https", "uri": "https://{{HOST}}/workflow.git", "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+        }]
+    }))
+    .expect("parse Git wrapper");
+    let policy = acquisition_policy(Some(&["example.org".to_string()]), false, false);
+    let error = git
+        .resolve_with_policy(Path::new("config.json"), &policy, &cache, true)
+        .expect_err("uncached Git source remains unavailable in dry run");
+    assert!(matches!(error, ConfigurationModuleError::RemoteDryRun { .. }), "{error}");
+    assert!(error.to_string().contains("https://example.org/workflow.git"));
+    let archive = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/oci-local/module/bundle.tar");
+    let oci: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "variables": {
+            "SOURCE": format!("oci-layout:{}@sha256:98970c614c6c50785f7fc7b220e2b966249e95d6705f60cbc9b451923a74f805", archive.display())
+        },
+        "modules": [{"name": "oci", "type": "configuration", "uri": "{{SOURCE}}"}]
+    }))
+    .expect("parse OCI wrapper");
+    let error = oci
+        .resolve_with_policy(Path::new("config.json"), &policy, &cache, true)
+        .expect_err("uncached OCI source remains unavailable in dry run");
+    assert!(matches!(error, ConfigurationModuleError::RemoteDryRun { .. }), "{error}");
+    assert!(error.to_string().contains("oci-layout:"));
+}
+#[test]
+fn test_source_interpolation_denies_effective_host_and_offline_request() {
+    if let Some(listener) = bind_local_server() {
+        let address = listener.local_addr().expect("server address");
+        let root = std::env::temp_dir().join(format!("xylem-source-denied-{}", std::process::id()));
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "requirements": [], "variables": {"SOURCE": format!("http://{address}/child.json")},
+            "modules": [{
+                "checksum": format!("sha256:{}", "a".repeat(64)),
+                "name": "child", "type": "configuration", "uri": "{{SOURCE}}"
+            }]
+        }))
+        .expect("parse configuration");
+        let cache = AcquisitionCache::new(root.join("cache"));
+        let denied = acquisition_policy(Some(&["allowed.example".to_string()]), true, false);
+        let error = config
+            .clone()
+            .resolve_with_policy(Path::new("config.json"), &denied, &cache, false)
+            .expect_err("final host must be denied");
+        assert!(matches!(error, ConfigurationModuleError::Remote { .. }), "{error}");
+        let offline = acquisition_policy(Some(&[address.to_string()]), true, true);
+        let error = config
+            .resolve_with_policy(Path::new("config.json"), &offline, &cache, false)
+            .expect_err("offline source must not be fetched");
+        assert!(matches!(error, ConfigurationModuleError::Remote { .. }), "{error}");
+        listener.set_nonblocking(true).expect("nonblocking server");
+        assert_eq!(listener.accept().expect_err("no request expected").kind(), std::io::ErrorKind::WouldBlock);
+    }
+}
+#[test]
+fn test_source_interpolation_detects_effective_nested_cycle() {
+    let root = std::env::temp_dir().join(format!("xylem-source-cycle-{}", std::process::id()));
+    create_dir_all(&root).expect("create fixture");
+    let parent = root.join("config.json");
+    let child = root.join("child.json");
+    write(
+        &child,
+        r#"{"requirements":[],"modules":[{"name":"again","type":"configuration","uri":"{{CHILD}}"}]}"#,
+    )
+    .expect("write child");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "variables": {"CHILD": "file:./child.json"},
+        "modules": [{"name": "outer", "type": "configuration", "uri": "{{CHILD}}"}]
+    }))
+    .expect("parse configuration");
+    let error = config.resolve(&parent).expect_err("effective child source repeats");
+    assert!(matches!(error, ConfigurationModuleError::Cycle { .. }), "{error}");
+    remove_dir_all(root).expect("remove fixture");
+}
+#[test]
+fn test_source_interpolation_rejects_unknown_before_http_request() {
+    if let Some(listener) = bind_local_server() {
+        let address = listener.local_addr().expect("server address");
+        let root = std::env::temp_dir().join(format!("xylem-source-unknown-{}", std::process::id()));
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "requirements": [], "modules": [{
+                "checksum": format!("sha256:{}", "a".repeat(64)),
+                "name": "child", "type": "configuration",
+                "uri": format!("http://{address}/{{{{MISSING}}}}.json")
+            }]
+        }))
+        .expect("parse configuration");
+        assert!(config.validate().is_ok(), "defer URI validation until expansion");
+        let policy = acquisition_policy(Some(&[address.to_string()]), true, false);
+        let cache = AcquisitionCache::new(root.join("cache"));
+        let error = config
+            .resolve_with_policy(Path::new("config.json"), &policy, &cache, false)
+            .expect_err("unknown binding must fail before acquisition");
+        assert!(matches!(error, ConfigurationModuleError::Interpolation(_)), "{error}");
+        assert!(error.to_string().contains("modules.child.uri"));
+        listener.set_nonblocking(true).expect("nonblocking server");
+        assert_eq!(listener.accept().expect_err("no request expected").kind(), std::io::ErrorKind::WouldBlock);
+    }
+}
+#[test]
+fn test_source_interpolation_resolves_http_wrapper_and_remote_leaf_with_invocation_precedence() {
+    if let Some(listener) = bind_local_server() {
+        let address = listener.local_addr().expect("server address");
+        let root = std::env::temp_dir().join(format!("xylem-source-http-{}", std::process::id()));
+        create_dir_all(&root).expect("create fixture");
+        let child = serde_json::json!({
+            "requirements": [], "variables": {"HOST": "child.example"},
+            "modules": [{
+                "name": "leaf", "type": "script",
+                "uri": {"scheme": "https", "uri": "https://{{HOST}}/module", "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+                "template": {"command": "true", "arguments": []}
+            }]
+        })
+        .to_string();
+        let root_config: Config = serde_json::from_value(serde_json::json!({
+            "requirements": [],
+            "variables": {"SOURCE": format!("http://{address}/child.json"), "HOST": "parent.example"},
+            "modules": [{
+                "checksum": checksum(&child), "name": "outer", "type": "configuration",
+                "uri": "{{SOURCE}}", "variables": {"HOST": "wrapper.example"}
+            }]
+        }))
+        .expect("parse configuration");
+        assert!(root_config.validate().is_ok(), "authored source may contain bindings");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept child request");
+            let mut request = [0_u8; 1024];
+            let count = stream.read(&mut request).expect("read request");
+            assert!(String::from_utf8_lossy(&request[..count]).starts_with("GET /child.json "));
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{child}",
+                child.len()
+            );
+            stream.write_all(response.as_bytes()).expect("write child response");
+        });
+        let policy = acquisition_policy(Some(&[address.to_string(), "final.example".to_string()]), true, false);
+        let cache = AcquisitionCache::new(root.join("cache"));
+        let bindings = VariableOverrides::parse(&["HOST=final.example".to_string()]).expect("invocation binding");
+        let resolved = root_config
+            .resolve_with_policy_and_bindings(Path::new("config.json"), &policy, &cache, false, &bindings)
+            .expect("resolve effective sources");
+        server.join().expect("server completed");
+        assert_eq!(resolved.modules[0].module_path, vec!["outer", "leaf"]);
+        match &resolved.modules[0].module_type {
+            | ModuleType::Script { uri, .. } => assert_eq!(<&str>::from(uri), "https://final.example/module"),
+            | other => panic!("expected remote script: {other:?}"),
+        }
+        remove_dir_all(root).expect("remove fixture");
+    }
 }
 #[test]
 fn test_structural_interpolation_across_configuration_formats() {

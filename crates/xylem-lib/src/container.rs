@@ -2,6 +2,7 @@
 extern crate alloc;
 
 use crate::config::Config;
+use crate::error::{ModuleLoadError, TemplateError};
 use crate::script::{managed_container_name, ContainerCleanup, ContainerEnvironment, ContainerRuntime, ContainerStartup, Script};
 use acorn_cmd::args;
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -25,7 +26,10 @@ struct ActiveContainer {
 }
 /// Failure while resolving or managing a container.
 #[derive(Debug)]
-pub struct ContainerError(String);
+pub struct ContainerError {
+    message: String,
+    module_load: Option<ModuleLoadError>,
+}
 /// Final lifecycle disposition for journaling and reporting.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct ContainerFinish {
@@ -70,7 +74,7 @@ impl Config {
             .filter(|(index, _)| selected.contains(index))
             .try_fold(BTreeMap::new(), |mut declarations, (_, module)| {
                 Script::from_module(module.clone(), Some(root.to_path_buf()))
-                    .map_err(|error| ContainerError::new(error.to_string()))
+                    .map_err(ContainerError::from_module_load)
                     .and_then(|script| match script.command.container {
                         | None => Ok(declarations),
                         | Some(container) => {
@@ -144,13 +148,36 @@ impl ContainerEnvironment {
 }
 impl ContainerError {
     fn new(message: impl Into<String>) -> Self {
-        Self(message.into())
+        Self {
+            message: message.into(),
+            module_load: None,
+        }
+    }
+    fn from_module_load(source: ModuleLoadError) -> Self {
+        Self {
+            message: source.to_string(),
+            module_load: Some(source),
+        }
+    }
+    /// Whether a loaded template command has an invalid static binding.
+    pub fn is_invalid_configuration(&self) -> bool {
+        matches!(
+            self.module_load.as_ref(),
+            Some(ModuleLoadError::Template {
+                source: TemplateError::Interpolation { .. },
+                ..
+            })
+        )
     }
 }
-impl core::error::Error for ContainerError {}
+impl core::error::Error for ContainerError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        self.module_load.as_ref().map(|source| source as &(dyn core::error::Error + 'static))
+    }
+}
 impl fmt::Display for ContainerError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
+        self.message.fmt(formatter)
     }
 }
 impl ContainerLifecycle {

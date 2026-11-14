@@ -301,14 +301,15 @@ impl Validate for Module {
                         validation_error("positive", "module timeout must be greater than zero"),
                     );
                 }
-                if !interpolated_local_uri(uri) {
+                if !interpolated_uri(uri) {
                     if let Err(error) = rules::url(uri.into()) {
                         report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, or SSH"));
                     }
                 }
                 let parsed_uri = ModuleUri::from(uri);
-                let unsupported_remote = parsed_uri.is_oci()
-                    || matches!(parsed_uri, ModuleUri::Url(value) if !matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS));
+                let unsupported_remote = !interpolated_uri(uri)
+                    && (parsed_uri.is_oci()
+                        || matches!(parsed_uri, ModuleUri::Url(value) if !matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS)));
                 if unsupported_remote {
                     report.add("uri", validation_error("scheme", "remote binary URI must use HTTP or HTTPS"));
                 }
@@ -325,13 +326,20 @@ impl Validate for Module {
                         validation_error("unsupported", "configuration modules do not execute and cannot declare a timeout"),
                     );
                 }
-                if !matches!(ModuleUri::from(uri), ModuleUri::Oci(ref value) if value.starts_with("oci-layout:")) {
+                if !interpolated_uri(uri) && !matches!(ModuleUri::from(uri), ModuleUri::Oci(ref value) if value.starts_with("oci-layout:")) {
                     if let Err(error) = rules::url(uri.into()) {
                         report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, SSH, OCI, or OCI layout"));
                     }
                 }
                 let remote_document = matches!(ModuleUri::from(uri), ModuleUri::Url(ref value) if matches!(Scheme::from(value.scheme().as_str()), Scheme::HTTP | Scheme::HTTPS) && Config::is_remote_document(&value.to_string()));
                 match (ModuleUri::from(uri), checksum) {
+                    | _ if interpolated_uri(uri) => {
+                        if let Some(value) = checksum {
+                            if let Err(error) = digest(value) {
+                                report.add("checksum", error);
+                            }
+                        }
+                    }
                     | (ModuleUri::File(_), Some(_)) => report.add(
                         "checksum",
                         validation_error("unsupported", "local configuration modules do not accept checksum"),
@@ -375,7 +383,7 @@ impl Validate for Module {
                         validation_error("positive", "module timeout must be greater than zero"),
                     );
                 }
-                if !interpolated_local_uri(uri) && !matches!(ModuleUri::from(uri), ModuleUri::Oci(ref value) if value.starts_with("oci-layout:")) {
+                if !interpolated_uri(uri) && !matches!(ModuleUri::from(uri), ModuleUri::Oci(ref value) if value.starts_with("oci-layout:")) {
                     if let Err(error) = rules::url(uri.into()) {
                         report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, SSH, OCI, or OCI layout"));
                     }
@@ -457,13 +465,9 @@ impl Validate for VariableLookup {
         report.finish()
     }
 }
-fn interpolated_local_uri(location: &Location) -> bool {
-    match location {
-        | Location::Simple(uri) => uri.contains("{{") && (uri.starts_with("file:") || uri.starts_with("{{")),
-        | Location::Detailed { scheme, uri, .. } => {
-            *scheme == Scheme::File && uri.contains("{{") && (uri.starts_with("file:") || uri.starts_with("{{"))
-        }
-    }
+fn interpolated_uri(location: &Location) -> bool {
+    let uri = <&str>::from(location);
+    uri.contains("{{") || uri.contains("}}")
 }
 fn validation_error(code: &str, message: impl Into<String>) -> ValidationError {
     ValidationError::new(code).with_message(message)

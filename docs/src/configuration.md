@@ -496,7 +496,9 @@ once after upgrading and then resume normally with refreshed markers.
 |---|---|---|
 | `input` directory, list elements, selected `--input` elements | Workflow and invocation | Discovery, deduplication, input identity |
 | `output` / `artifacts` | Workflow and invocation | Path normalization, artifact policy, output defaults |
-| Local leaf module `uri` | Workflow, wrapper, child, module, then invocation | Source validation, rebasing, acquisition |
+| Leaf module `uri` | Workflow, wrapper, child, module, then invocation | Source validation, rebasing, acquisition |
+| Nested configuration `uri` | Parent workflow, wrapper, then invocation | Cycle identity, source loading, acquisition |
+| Loaded `template.command` | Workflow, wrapper, child, module, then invocation | Command validation and launch |
 
 Configured input directories, input list elements, and selected `--input`
 elements accept workflow-variable placeholders. Xylem expands them before
@@ -504,15 +506,27 @@ directory discovery and duplicate removal, so the plan and command receive
 the same input value. `--input` still replaces configured input selection.
 Configured `output` and its `artifacts` alias expand before relative-path
 normalization; `--artifact-output` remains a literal path and bypasses unused
-configured output. Local script and binary module `file:` URI text accepts
-module variables and invocation bindings before source validation. Remote and
-nested configuration URI interpolation is not yet supported.
+configured output. Local and remote script and binary URI text accepts module
+variables and invocation bindings before source validation. Configuration
+wrapper URI text uses the variables available at its declaring node, including
+wrapper and invocation bindings. Xylem expands it before cycle checks, remote
+policy checks, and cache lookup. Child variables cannot select the source of
+the child itself. The effective URI still needs the existing checksum, revision,
+host, and scheme permissions.
+
+An inline template command or a command loaded from a template file also
+expands from static module bindings. The result is one executable name or path;
+spaces do not split it into shell words, and template arguments retain their
+existing boundaries. `INPUT` and run-derived values are unavailable when
+selecting the executable. A dry run reports the effective command for inline
+templates. For an external template that has not been materialized, the plan
+continues to report only `template_source`.
 
 These fields resolve recursively from string, number, or Boolean bindings
 with the same 32-level, 10,000-substitution, and 1 MiB limits as selection
 roots. Unknown names, cycles, non-scalar values, malformed placeholders, and
-NUL bytes are errors. Input and output use workflow bindings; local leaf URIs
-also use module bindings. Input/run-derived values such as `INPUT` and `RUN_ID`
+NUL bytes are errors. Input and output use workflow bindings; source URIs and
+loaded template commands also use their declaring module bindings. Input/run-derived values such as `INPUT` and `RUN_ID`
 are unavailable during structural resolution. Run the combined local example
 with `xylem run crates/xylem-cli/examples/configuration-variables.json --dry-run`.
 

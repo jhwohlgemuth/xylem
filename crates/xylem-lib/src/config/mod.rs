@@ -348,7 +348,7 @@ pub struct Rule {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct VariableLookup(HashMap<String, String>);
 impl Config {
-    fn expand_local_location(location: &mut Location, variables: Option<&Map<String, Value>>, field: &str) -> Result<(), ConfigurationModuleError> {
+    fn expand_location(location: &mut Location, variables: Option<&Map<String, Value>>, field: &str) -> Result<(), ConfigurationModuleError> {
         let authored = <&str>::from(&*location);
         match authored.contains("{{") || authored.contains("}}") {
             | false => Ok(()),
@@ -357,17 +357,22 @@ impl Config {
                 .and_then(|effective| {
                     let parsed = Location::Simple(effective.clone());
                     match ModuleUri::from(&parsed) {
-                        | ModuleUri::File(path) if !path.as_os_str().is_empty() => {
+                        | ModuleUri::File(path) if path.as_os_str().is_empty() => Err(ConfigurationInterpolationError {
+                            field: field.to_string(),
+                            reason: "module URI must not resolve to an empty file path".to_string(),
+                        }
+                        .into()),
+                        | ModuleUri::Unknown(_) => Err(ConfigurationInterpolationError {
+                            field: field.to_string(),
+                            reason: "module URI must resolve to a supported location".to_string(),
+                        }
+                        .into()),
+                        | ModuleUri::File(_) | ModuleUri::Url(_) | ModuleUri::Oci(_) => {
                             match location {
                                 | Location::Simple(uri) | Location::Detailed { uri, .. } => *uri = effective,
                             }
                             Ok(())
                         }
-                        | _ => Err(ConfigurationInterpolationError {
-                            field: field.to_string(),
-                            reason: "local module URI must resolve to a file location".to_string(),
-                        }
-                        .into()),
                     }
                 }),
         }
@@ -467,6 +472,16 @@ impl Config {
             .into_hash_map();
         debug!("=> {} Environment variables: {:#?}", Label::using(), envs.dimmed());
         envs
+    }
+    pub(crate) fn static_module_variables(&self, module: &Module) -> Option<Map<String, Value>> {
+        let mut variables = Self::merge(self.variables.as_ref(), module.variables.as_ref(), None);
+        if let Some(output) = self.output.as_ref() {
+            variables
+                .get_or_insert_default()
+                .entry("OUTPUT_DIRECTORY".to_string())
+                .or_insert_with(|| Value::String(output.clone()));
+        }
+        variables
     }
     /// Get inputs from input attribute for concurrent workflow execution
     ///
@@ -1167,6 +1182,10 @@ impl Config {
     ) -> Result<(Self, ConfigurationSource), ConfigurationModuleError> {
         let uri = location.uri().unwrap_or_else(|| <&str>::from(location).to_string());
         match ModuleUri::from(location) {
+            | ModuleUri::File(_) | ModuleUri::Oci(_) if checksum.is_some() => Err(ConfigurationModuleError::Source {
+                module: module.to_string(),
+                uri,
+            }),
             | ModuleUri::File(path) => match source.path() {
                 | Some(parent) => {
                     let child = match path.is_absolute() {
@@ -1190,7 +1209,7 @@ impl Config {
                 let scheme = Scheme::from(value.scheme().as_str());
                 let direct_document = matches!(scheme, Scheme::HTTP | Scheme::HTTPS) && Self::is_remote_document(&uri);
                 match (policy, cache, direct_document, Self::revision(location), checksum) {
-                    | (None, _, _, _, _) | (_, None, _, _, _) => Err(ConfigurationModuleError::Source {
+                    | (None, _, _, _, _) | (_, None, _, _, _) | (Some(_), Some(_), false, _, Some(_)) => Err(ConfigurationModuleError::Source {
                         module: module.to_string(),
                         uri,
                     }),
@@ -1384,7 +1403,7 @@ impl Config {
                     .try_fold(
                         (Vec::new(), self.requirements.clone(), self.acquisitions.clone()),
                         |(mut modules, mut requirements, mut acquisitions), module| match module.module_type {
-                            | ModuleType::Configuration { checksum, uri } => {
+                            | ModuleType::Configuration { checksum, mut uri } => {
                                 let nested_path = path.iter().cloned().chain(once(module.name.clone())).collect::<Vec<_>>();
                                 match (module.template.is_some(), module.completion.is_some()) {
                                     | (true, _) => Err(ConfigurationModuleError::Wrapper {
@@ -1395,20 +1414,33 @@ impl Config {
                                         module: nested_path.join("::"),
                                         field: "completion",
                                     }),
-                                    | (false, false) => match Self::identity(&uri, &source).filter(|identity| ancestors.contains(identity)) {
-                                        | Some(location) => Err(ConfigurationModuleError::Cycle {
-                                            path: nested_path.clone(),
-                                            location,
-                                        }),
-                                        | None => Self::load(
-                                            &uri,
-                                            checksum.as_deref(),
-                                            &source,
-                                            dry_run,
-                                            &nested_path.join("::"),
-                                            policy.as_ref(),
-                                            cache.as_ref(),
-                                        ),
+                                    | (false, false) => {
+                                        let mut module_variables = Self::merge(variables.as_ref(), module.variables.as_ref(), None);
+                                        bindings.apply_values(&mut module_variables);
+                                        if let Some(output) = output.as_ref() {
+                                            module_variables
+                                                .get_or_insert_default()
+                                                .entry("OUTPUT_DIRECTORY".to_string())
+                                                .or_insert_with(|| Value::String(output.clone()));
+                                        }
+                                        let field = format!("modules.{}.uri", nested_path.join("::"));
+                                        Self::expand_location(&mut uri, module_variables.as_ref(), &field).and_then(|()| {
+                                            match Self::identity(&uri, &source).filter(|identity| ancestors.contains(identity)) {
+                                                | Some(location) => Err(ConfigurationModuleError::Cycle {
+                                                    path: nested_path.clone(),
+                                                    location,
+                                                }),
+                                                | None => Self::load(
+                                                    &uri,
+                                                    checksum.as_deref(),
+                                                    &source,
+                                                    dry_run,
+                                                    &nested_path.join("::"),
+                                                    policy.as_ref(),
+                                                    cache.as_ref(),
+                                                ),
+                                            }
+                                        })
                                     }
                                     .and_then(|(child, child_source)| {
                                         let child_offline = offline || child.options.as_ref().and_then(|options| options.offline).unwrap_or_default();
@@ -1472,7 +1504,7 @@ impl Config {
                                 };
                                 let expanded = location.map_or(Ok(()), |location| {
                                     let field = format!("modules.{}.uri", path.iter().chain(once(&module.name)).cloned().collect::<Vec<_>>().join("::"));
-                                    Self::expand_local_location(location, module_variables.as_ref(), &field)
+                                    Self::expand_location(location, module_variables.as_ref(), &field)
                                 });
                                 expanded.and_then(|()| {
                                 if let Some(source) = source.path() {

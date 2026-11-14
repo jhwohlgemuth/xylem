@@ -1,5 +1,6 @@
 use crate::acquisition::{AcquisitionEvidence, AcquisitionPolicy};
 use crate::completion::Completion;
+use crate::config::{interpolation, ConfigurationInterpolationError};
 use crate::error::{ModuleLoadError, ProcessError, TemplateError};
 use crate::util::constants::{RE_HANDLEBARS, RE_TEMPLATE_SPACES};
 use acorn_cmd::{args, parse_sh, CommandError, CommandSpec, ExecutionOptions, ExecutionResult, OutputStream};
@@ -672,6 +673,26 @@ impl Script {
         self.arguments = expanded;
         self
     }
+    pub(crate) fn expand_command_from(mut self, variables: Option<&Map<String, Value>>, field: String) -> Result<Self, TemplateError> {
+        let authored = self.command.name.as_str();
+        let interpolated = authored.contains("{{") || authored.contains("}}");
+        interpolation::expand(authored, variables, field.clone())
+            .and_then(|command| {
+                if interpolated && command.trim().is_empty() {
+                    Err(ConfigurationInterpolationError {
+                        field,
+                        reason: "expanded executable must not be empty".to_string(),
+                    })
+                } else {
+                    Ok(command)
+                }
+            })
+            .map(|command| {
+                self.command.name = command;
+                self
+            })
+            .map_err(|source| TemplateError::Interpolation { source })
+    }
     /// TODO: Factor out root argument?
     /// Create a script from a Module.
     ///
@@ -690,70 +711,82 @@ impl Script {
             | ModuleType::Binary { uri, .. } | ModuleType::Script { uri, .. } => Ok(uri),
             | ModuleType::Configuration { .. } => Err(ModuleLoadError::InvalidType { module: module.name.clone() }),
         };
-        module_uri.and_then(|module_uri| {
-            module_working_directory(module_uri.into(), root.as_ref())
-                .ok_or_else(|| ModuleLoadError::InvalidUri {
-                    module: module.name.clone(),
-                    uri: module_uri.uri().unwrap_or_else(|| <&str>::from(module_uri).to_string()),
-                })
-                .and_then(|working_dir| {
-                    let default_template_path = PathBuf::from(&working_dir).join(DEFAULT_FILENAME);
-                    match &module.template {
-                        | Some(attribute) => match attribute {
-                            | TemplateAttribute::Path(value) => match PathBuf::from(&working_dir).join(value).try_exists() {
-                                | Ok(true) => {
-                                    let path = PathBuf::from(&working_dir).join(value);
-                                    debug!(module = module.name, path = %path.display(), "=> {} Template file", Label::using());
-                                    Script::from_path(path).map_err(|source| ModuleLoadError::Template {
+        module_uri
+            .and_then(|module_uri| {
+                module_working_directory(module_uri.into(), root.as_ref())
+                    .ok_or_else(|| ModuleLoadError::InvalidUri {
+                        module: module.name.clone(),
+                        uri: module_uri.uri().unwrap_or_else(|| <&str>::from(module_uri).to_string()),
+                    })
+                    .and_then(|working_dir| {
+                        let default_template_path = PathBuf::from(&working_dir).join(DEFAULT_FILENAME);
+                        match &module.template {
+                            | Some(attribute) => match attribute {
+                                | TemplateAttribute::Path(value) => match PathBuf::from(&working_dir).join(value).try_exists() {
+                                    | Ok(true) => {
+                                        let path = PathBuf::from(&working_dir).join(value);
+                                        debug!(module = module.name, path = %path.display(), "=> {} Template file", Label::using());
+                                        Script::from_path(path).map_err(|source| ModuleLoadError::Template {
+                                            module: module.name.clone(),
+                                            source,
+                                        })
+                                    }
+                                    | Ok(false) => {
+                                        let path = PathBuf::from(&working_dir).join(value);
+                                        warn!(module = module.name, "=> {} {}", Label::not_found(), path.display());
+                                        warn!(module = module.name, "=> {} Default template file path", Label::using());
+                                        Script::from_path(default_template_path).map_err(|source| ModuleLoadError::Template {
+                                            module: module.name.clone(),
+                                            source,
+                                        })
+                                    }
+                                    | Err(source) => Err(ModuleLoadError::Inspect {
+                                        module: module.name.clone(),
+                                        path: PathBuf::from(&working_dir).join(value),
+                                        source,
+                                    }),
+                                },
+                                | TemplateAttribute::Template(value) => {
+                                    debug!(module = module.name, "=> {} Template attribute", Label::using());
+                                    Script::from_template(value.as_ref().clone()).map_err(|source| ModuleLoadError::Template {
                                         module: module.name.clone(),
                                         source,
                                     })
                                 }
-                                | Ok(false) => {
-                                    let path = PathBuf::from(&working_dir).join(value);
-                                    warn!(module = module.name, "=> {} {}", Label::not_found(), path.display());
+                            },
+                            | None => match default_template_path.try_exists() {
+                                | Ok(true) => {
                                     warn!(module = module.name, "=> {} Default template file path", Label::using());
                                     Script::from_path(default_template_path).map_err(|source| ModuleLoadError::Template {
                                         module: module.name.clone(),
                                         source,
                                     })
                                 }
+                                | Ok(false) => {
+                                    warn!(module = module.name, "=> {} {}", Label::not_found(), default_template_path.display());
+                                    warn!(module = module.name, "=> {} Default Python script", Label::using());
+                                    Ok(Script::python_default())
+                                }
                                 | Err(source) => Err(ModuleLoadError::Inspect {
                                     module: module.name.clone(),
-                                    path: PathBuf::from(&working_dir).join(value),
+                                    path: default_template_path,
                                     source,
                                 }),
                             },
-                            | TemplateAttribute::Template(value) => {
-                                debug!(module = module.name, "=> {} Template attribute", Label::using());
-                                Script::from_template(value.as_ref().clone()).map_err(|source| ModuleLoadError::Template {
-                                    module: module.name.clone(),
-                                    source,
-                                })
-                            }
-                        },
-                        | None => match default_template_path.try_exists() {
-                            | Ok(true) => {
-                                warn!(module = module.name, "=> {} Default template file path", Label::using());
-                                Script::from_path(default_template_path).map_err(|source| ModuleLoadError::Template {
-                                    module: module.name.clone(),
-                                    source,
-                                })
-                            }
-                            | Ok(false) => {
-                                warn!(module = module.name, "=> {} {}", Label::not_found(), default_template_path.display());
-                                warn!(module = module.name, "=> {} Default Python script", Label::using());
-                                Ok(Script::python_default())
-                            }
-                            | Err(source) => Err(ModuleLoadError::Inspect {
-                                module: module.name.clone(),
-                                path: default_template_path,
-                                source,
-                            }),
-                        },
-                    }
-                })
-        })
+                        }
+                    })
+            })
+            .and_then(|script| {
+                script
+                    .expand_command_from(
+                        module.variables.as_ref(),
+                        format!("modules.{}.template.command", module.module_path.join("::")),
+                    )
+                    .map_err(|source| ModuleLoadError::Template {
+                        module: module.name.clone(),
+                        source,
+                    })
+            })
     }
     /// Create a script from a template JSON file in [ScriptTemplate] format.
     ///

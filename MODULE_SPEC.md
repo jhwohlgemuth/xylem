@@ -37,7 +37,7 @@ The fields have these meanings:
 | --- | --- | --- |
 | `name` | Yes | Human-readable module name. Xylem converts it to snake case in `MODULE_LIST`. |
 | `type` | Yes | `script`, `binary`, or the reusable workflow wrapper `configuration`. |
-| `uri` | Yes | A scalar local `file:` URI or a structured remote location with `scheme`, `uri`, and an immutable Git `revision` where applicable. |
+| `uri` | Yes | A scalar local or remote URI, or a structured remote location with `scheme`, `uri`, and an immutable Git `revision` where applicable. URI text may contain static variable placeholders. |
 | `programmingLanguage` | No | `python` or `generic` in version 1.0. Omission selects generic behavior; the JSON aliases `language` and `programming_language` are also accepted. |
 | `description` | No | Human-readable purpose. |
 | `variables` | No | Module-scoped scalar variables. These override workflow variables. |
@@ -262,10 +262,20 @@ Plain configured input directories and list elements, plus selected `--input`
 elements, expand from workflow bindings before discovery and deduplication.
 Workflow `output` or `artifacts` expands before normalization and before its
 default is offered as `OUTPUT_DIRECTORY`; a literal `--artifact-output` takes
-precedence. Local leaf script and binary `file:` URI text expands from module
-bindings before validation and rebasing. Invocation bindings override
-workflow, wrapper, child, and module defaults for these fields. Remote and
-nested configuration URI interpolation remains unsupported.
+precedence. Local and remote leaf URI text expands from module bindings before
+validation, rebasing, and acquisition planning. A configuration wrapper URI
+expands from its declaring parent and wrapper bindings before cycle detection,
+policy checks, or cache lookup; values declared inside the unloaded child
+cannot select that child. Invocation bindings override workflow, wrapper,
+child, and module defaults. The effective remote source retains the existing
+host, scheme, checksum, revision, and immutable-cache requirements.
+
+An inline or loaded external `template.command` expands from static module
+bindings before command validation and launch. The result is one executable
+name or path, even when it contains spaces; argument boundaries are unchanged.
+Input- and run-derived built-ins cannot select an executable. A dry-run plan
+shows the effective inline command. For an unavailable external template it
+continues to show `template_source` without loading the command.
 
 Structural interpolation uses the bounded root syntax and rejects unknown or
 cyclic names, non-scalar values, malformed placeholders, and NUL. It does not

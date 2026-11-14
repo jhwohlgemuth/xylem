@@ -51,7 +51,11 @@ pub(super) fn dispatch_inputs(context: DispatchContext<'_>) -> Result<DispatchRe
                 .journal
                 .transition_container(container.index, ContainerState::Failed, Some(&why.to_string()));
         });
-        RunFailure::new(exitcode::UNAVAILABLE, format!("prepare containers — {why}"))
+        let exit_code = match why.is_invalid_configuration() {
+            | true => exitcode::DATAERR,
+            | false => exitcode::UNAVAILABLE,
+        };
+        RunFailure::new(exit_code, format!("prepare containers — {why}"))
     });
     lifecycle.and_then(|lifecycle| {
         context.journal_containers.iter().for_each(|container| {

@@ -450,7 +450,7 @@ impl From<InputAttribute> for InputSource {
     }
 }
 impl Module {
-    fn command(&self, variables: &BTreeMap<String, String>) -> Result<PlannedCommand, TemplateError> {
+    fn command(&self, config: &Config, variables: &BTreeMap<String, String>) -> Result<PlannedCommand, TemplateError> {
         let uri = match &self.module_type {
             | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri, .. } | ModuleType::Script { uri, .. } => uri,
         };
@@ -458,7 +458,14 @@ impl Module {
         match &self.template {
             | Some(TemplateAttribute::Template(template)) => {
                 let variables = variables.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+                let static_variables = config.static_module_variables(self);
                 Script::from_template(template.as_ref().clone())
+                    .and_then(|script| {
+                        script.expand_command_from(
+                            static_variables.as_ref(),
+                            format!("modules.{}.template.command", self.module_path.join("::")),
+                        )
+                    })
                     .map(|script| script.expand_arguments_from(variables))
                     .map(|script| PlannedCommand {
                         arguments: script.arguments,
@@ -525,7 +532,7 @@ impl Module {
                     | false => Ok("would_run"),
                 };
                 decision.and_then(|decision| {
-                    self.command(&variables).map_err(PlanError::from).map(|command| {
+                    self.command(config, &variables).map_err(PlanError::from).map(|command| {
                         let completion = resolved.map(|resolved| PlannedCompletion {
                             marker: resolved.marker.display().to_string(),
                             outputs: resolved.outputs.iter().map(|output| output.display().to_string()).collect(),

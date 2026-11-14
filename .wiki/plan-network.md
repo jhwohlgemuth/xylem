@@ -5,7 +5,7 @@ execution: coordination
 
 # Plan dependency network
 
-Rechecked on 2026-11-13 at clean `9f85428` with named and positional bindings
+Rechecked on 2026-11-13 at baseline `53ede7d` with named and positional bindings
 committed. Arrows denote a
 required contract or gate, not whole-plan serialization. Execution-plan v15,
 run-summary v14, immutable contexts, cancellation, verified acquisition,
@@ -16,10 +16,9 @@ accepted baselines. External evidence scope and remaining uncertainty are in
 ## Delivery paths
 
 ```text
-accepted shared interpolation + input/output/local source expansion -> EXP-05 (remote/nested sources), EXP-06 (command)
-EXP-06 -> EXP-07 (template paths) -> EXP-08 (virtual environments)
+accepted source URI and loaded-command expansion -> EXP-07 (template paths) -> EXP-08 (virtual environments)
 EXP-07 -> EXP-09 (containers) -> EXP-10 (mounts)
-EXP-05 + EXP-08 + EXP-10 -> EXP-11 (combined qualification)
+EXP-08 + EXP-10 -> EXP-11 (combined qualification)
 execution-plan v15 + run-summary v14 + immutable contexts -> K8S-03 onward
 operator demand + cluster/PVC/image path -> K8S-01 -> K8S-02 onward
 assigned Mac runner -> successful macOS job BRW-01 -> BRW-02 -> BRW-03
@@ -35,10 +34,9 @@ are not queued dependencies of Kubernetes worker/schema work.
 ## Direct dependency edges
 
 - [Configuration expansion](features/configuration-variable-expansion.md)
-  continues with ready EXP-05 and EXP-06. Accepted local-source behavior
-  threads immutable invocation bindings through nested resolution. Separate
-  branches in the graph still serialize
-  overlapping code, tests, and docs. Accepted acquisition
+  continues with ready EXP-07. Accepted source URI behavior threads immutable
+  invocation bindings through nested resolution. Separate branches in the
+  graph still serialize overlapping code, tests, and docs. Accepted acquisition
   protections are prerequisites; SEC-07 Windows qualification is not a blocker.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) owns
   only remaining Windows qualification and audit; accepted platform evidence
@@ -60,13 +58,13 @@ are not queued dependencies of Kubernetes worker/schema work.
 | Boundary | Phase owners | Coordination rule |
 |---|---|---|
 | Manifests and `Cargo.lock` | K8S-02 | One dependency owner at a time; inspect feature tree and audit the accepted lockfile. |
-| `crates/xylem-lib/src/config/` | EXP-05 through EXP-11, K8S-04 | One configuration owner at a time; preserve batching, memory, resume, source nesting, and sandbox opt-in. |
-| Script, container, and template preparation | EXP-06 through EXP-10 | Resolve static fields before validation and preparation; reserve overlapping configuration, plan, and sandbox files too. |
+| `crates/xylem-lib/src/config/` | EXP-07 through EXP-11, K8S-04 | One configuration owner at a time; preserve batching, memory, resume, source nesting, and sandbox opt-in. |
+| Script, container, and template preparation | EXP-07 through EXP-10 | Resolve static fields before validation and preparation; reserve overlapping configuration, plan, and sandbox files too. |
 | `crates/xylem-lib/src/execution.rs` and `commands/run/dispatch.rs` | K8S-03 | Preserve ordered fixed and memory-aware admission. |
 | Plan, journal, run store, projection, telemetry, reporter, and TUI | K8S-08 | Allocate schema revisions serially and update durable readers and views together. |
 | CLI roots and `commands/run/` | EXP-11, K8S-03/09/10/11/14 | One CLI integration owner at a time; preserve exit mapping and dry-run purity. |
 | Delivery files and release images | SEC-07, RBK-02/03, BRW-02, K8S-15/16/17/18 | Serialize CI/release wiring; RBK-01 owns only the dedicated external runner. |
-| User documentation and examples | EXP-05 through EXP-11, BRW-01/02/03, K8S-19 | Serialize shared files; document only accepted behavior and tested commands. |
+| User documentation and examples | EXP-07 through EXP-11, BRW-01/02/03, K8S-19 | Serialize shared files; document only accepted behavior and tested commands. |
 
 EXP tests touch existing plan/completion projections without allocating a new
 schema version. A discovered schema change needs a separate bounded phase and

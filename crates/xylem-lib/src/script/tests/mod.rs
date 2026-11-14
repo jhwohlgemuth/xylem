@@ -7,15 +7,17 @@
 )]
 #[cfg(unix)]
 use crate::error::ProcessError;
+use crate::error::{ModuleLoadError, TemplateError};
 use crate::script::{
     add_dot_slash, get_conda_environment_list, get_conda_environment_name, get_mamba_environment_list, Command, ContainerEnvironment,
-    ContainerStartup, Instruction, Script, ScriptTemplate, VirtualEnvironment, VirtualEnvironmentManager,
+    ContainerStartup, Instruction, Module, Script, ScriptTemplate, VirtualEnvironment, VirtualEnvironmentManager,
 };
 #[cfg(unix)]
 use acorn_cmd::{CancellationToken, CaptureLimits, CommandError, ExecutionOptions, OutputStream, ProcessTermination};
 #[cfg(unix)]
 use core::time::Duration;
 use std::ffi::OsString;
+use std::fs::{create_dir_all, remove_dir_all, write};
 #[cfg(unix)]
 use std::io;
 use std::path::{Path, PathBuf};
@@ -36,6 +38,58 @@ fn test_add_dot_slash() {
     assert_eq!(add_dot_slash(PathBuf::from("./foo")), PathBuf::from("./foo"));
     assert_eq!(add_dot_slash(PathBuf::from("foo/bar")), PathBuf::from("./foo/bar"));
     assert_eq!(add_dot_slash(PathBuf::from("foo/bar.json")), PathBuf::from("./foo/bar.json"));
+}
+#[test]
+fn test_command_interpolation_expands_loaded_and_inline_templates_without_changing_arguments() {
+    let root = std::env::temp_dir().join(format!("xylem-command-template-{}", std::process::id()));
+    create_dir_all(&root).expect("create module directory");
+    write(
+        root.join("template.json"),
+        r#"{"command":"{{ PROGRAM }}","arguments":["two words", "", "{{INPUT}}"]}"#,
+    )
+    .expect("write external template");
+    let values = serde_json::json!({"PROGRAM": "{{ALIAS}}", "ALIAS": "path with spaces/tool"});
+    let external: Module = serde_json::from_value(serde_json::json!({
+        "name": "external", "type": "script", "uri": format!("file:{}", root.display()),
+        "variables": values, "template": "template.json"
+    }))
+    .expect("parse external module");
+    let loaded = Script::from_module(external, None).expect("load and expand external command");
+    assert_eq!(loaded.command.name, "path with spaces/tool");
+    assert_eq!(loaded.arguments, ["two words", "", "{{INPUT}}"]);
+    let inline: Module = serde_json::from_value(serde_json::json!({
+        "name": "inline", "type": "script", "uri": format!("file:{}", root.display()),
+        "variables": {"PROGRAM": "path with spaces/tool"},
+        "template": {"command": "{{PROGRAM}}", "arguments": ["two words", ""]}
+    }))
+    .expect("parse inline module");
+    let loaded = Script::from_module(inline, None).expect("load and expand inline command");
+    assert_eq!(loaded.command.name, "path with spaces/tool");
+    assert_eq!(loaded.arguments, ["two words", ""]);
+    remove_dir_all(root).expect("remove module directory");
+}
+#[test]
+fn test_command_interpolation_rejects_unavailable_input_before_launch() {
+    let root = std::env::temp_dir().join(format!("xylem-command-missing-{}", std::process::id()));
+    create_dir_all(&root).expect("create module directory");
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "missing", "type": "script", "uri": format!("file:{}", root.display()),
+        "template": {"command": "{{INPUT}}", "arguments": []}
+    }))
+    .expect("parse module");
+    let error = Script::from_module(module, None).expect_err("input is unavailable to static command expansion");
+    assert!(
+        matches!(
+            error,
+            ModuleLoadError::Template {
+                source: TemplateError::Interpolation { .. },
+                ..
+            }
+        ),
+        "{error}"
+    );
+    assert!(error.to_string().contains("modules.missing.template.command"));
+    remove_dir_all(root).expect("remove module directory");
 }
 #[test]
 fn test_conda_and_mamba_use_input_owned_prefixes() {

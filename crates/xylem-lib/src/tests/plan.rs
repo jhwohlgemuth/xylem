@@ -72,6 +72,31 @@ fn test_cli_inputs_override_configuration_and_duplicates_keep_first_occurrence()
     );
 }
 #[test]
+fn test_command_interpolation_uses_static_workflow_and_module_bindings_in_plan() {
+    let mut config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "variables": {"PROGRAM": "workflow-tool"},
+        "modules": [{
+            "name": "probe", "type": "script", "uri": "file:./probe",
+            "variables": {"PROGRAM": "module-tool"},
+            "template": {"command": "{{PROGRAM}}", "arguments": ["two words", ""]}
+        }]
+    }))
+    .expect("parse command configuration");
+    let inputs = [Some("input-a".to_string())];
+    let plan = ExecutionPlan::build(&config, "config.json".to_string(), &inputs, false).expect("plan module command");
+    assert_eq!(plan.modules[0].command.program.as_deref(), Some("module-tool"));
+    assert_eq!(plan.modules[0].command.arguments, ["two words", ""]);
+    config.modules[0].variables = None;
+    let plan = ExecutionPlan::build(&config, "config.json".to_string(), &inputs, false).expect("plan workflow command");
+    assert_eq!(plan.modules[0].command.program.as_deref(), Some("workflow-tool"));
+    if let Some(crate::script::TemplateAttribute::Template(template)) = &mut config.modules[0].template {
+        template.command = "{{INPUT}}".to_string();
+    }
+    let error = ExecutionPlan::build(&config, "config.json".to_string(), &inputs, false).expect_err("input cannot select executable");
+    assert!(matches!(error, PlanError::Template(_)), "{error}");
+    assert!(error.to_string().contains("modules.probe.template.command"));
+}
+#[test]
 fn test_directory_inputs_are_sorted_deterministically() {
     let root = std::env::temp_dir().join(format!("xylem-plan-inputs-{}", std::process::id()));
     create_dir_all(&root).expect("create input root");

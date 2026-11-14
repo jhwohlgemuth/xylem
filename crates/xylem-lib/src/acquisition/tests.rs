@@ -11,6 +11,7 @@ use super::oci_registry::validate_manifest_bytes;
 use super::policy::normalize_origin;
 use super::util::sha256;
 use super::*;
+use crate::config::Config;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
@@ -86,7 +87,7 @@ fn git_fixture(root: &Path) -> String {
     run(&["-C", work.to_str().expect("work path"), "config", "user.email", "fixture@example.invalid"]);
     std::fs::write(work.join("run.sh"), b"#!/bin/sh\nexit 0\n").expect("write Git fixture file");
     std::fs::set_permissions(work.join("run.sh"), std::fs::Permissions::from_mode(0o755)).expect("mark Git fixture script executable");
-    std::fs::write(work.join("config.json"), b"{}\n").expect("write second Git fixture file");
+    std::fs::write(work.join("config.json"), b"{\"requirements\":[],\"modules\":[]}\n").expect("write second Git fixture file");
     symlink("run.sh", work.join("run-link")).expect("create contained Git fixture symlink");
     run(&["-C", work.to_str().expect("work path"), "add", "run.sh", "run-link", "config.json"]);
     run(&["-C", work.to_str().expect("work path"), "commit", "--quiet", "-m", "fixture"]);
@@ -893,6 +894,36 @@ fn test_pinned_git_http_acquisition_is_verified_and_reused_offline() {
 }
 #[cfg(unix)]
 #[test]
+fn test_source_interpolation_pinned_git_wrapper_uses_verified_offline_cache() {
+    let root = TestDirectory::create("interpolated-git-wrapper");
+    let commit = git_fixture(&root.0);
+    let (url, finished, server) = serve_git_http(root.0.clone());
+    let host = Url::parse(&url).expect("Git URL");
+    let hosts = vec![format!("{}:{}", host.host_str().expect("Git host"), host.port().expect("Git port"))];
+    let online = policy(&hosts, true, false);
+    let cache = AcquisitionCache::new(root.0.join("cache"));
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "variables": {"SOURCE": url},
+        "modules": [{
+            "name": "child", "type": "configuration",
+            "uri": {"scheme": "http", "uri": "{{SOURCE}}", "revision": commit}
+        }]
+    }))
+    .expect("parse interpolated Git wrapper");
+    let first = config
+        .clone()
+        .resolve_with_policy(&root.0.join("workflow.json"), &online, &cache, false)
+        .expect("fetch and verify effective Git source");
+    finished.store(true, Ordering::Release);
+    assert!(server.join().expect("join Git HTTP server") >= 2);
+    assert_eq!(first.acquisitions[0].cache, AcquisitionCacheStatus::Miss);
+    let second = config
+        .resolve_with_policy(&root.0.join("workflow.json"), &policy(&hosts, true, true), &cache, false)
+        .expect("reuse effective Git source offline");
+    assert_eq!(second.acquisitions[0].cache, AcquisitionCacheStatus::Hit);
+}
+#[cfg(unix)]
+#[test]
 fn test_pinned_git_https_fetch_uses_verified_tls_and_commit() {
     let root = TestDirectory::create("git-https-fixture");
     let commit = git_fixture(&root.0);
@@ -1211,6 +1242,32 @@ fn test_local_oci_archive_is_verified_and_reused_offline() {
         .expect("reuse local OCI archive offline");
     assert_eq!(second.evidence.cache, AcquisitionCacheStatus::Hit);
     assert_eq!(first.path, second.path);
+}
+#[test]
+fn test_source_interpolation_oci_leaf_uses_verified_offline_cache() {
+    let root = TestDirectory::create("interpolated-oci-leaf");
+    let archive = std::fs::canonicalize(local_oci_archive()).expect("canonical OCI fixture");
+    let source = format!("oci-layout:{}@{OCI_FIXTURE_DIGEST}", archive.display());
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "variables": {"SOURCE": source},
+        "modules": [{"name": "leaf", "type": "script", "uri": "{{SOURCE}}"}]
+    }))
+    .expect("parse interpolated OCI leaf");
+    let online = policy(&[], false, false);
+    let cache = AcquisitionCache::new(root.0.join("cache"));
+    let resolved = config
+        .resolve_with_policy(&root.0.join("workflow.json"), &online, &cache, false)
+        .expect("resolve effective OCI source");
+    let plan = resolved.modules[0].acquisition_plan(&online).expect("plan effective OCI source");
+    let first = AcquisitionExecutor::new(online, cache.clone())
+        .execute(&plan)
+        .expect("verify effective OCI source");
+    assert_eq!(first.evidence.cache, AcquisitionCacheStatus::Miss);
+    assert!(first.path.join("run.sh").is_file());
+    let second = AcquisitionExecutor::new(policy(&[], false, true), cache)
+        .execute(&plan)
+        .expect("reuse verified OCI source offline");
+    assert_eq!(second.evidence.cache, AcquisitionCacheStatus::Hit);
 }
 #[test]
 fn test_local_oci_archive_plan_rejects_unsafe_sources() {

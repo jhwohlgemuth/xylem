@@ -27,24 +27,26 @@ config-declared positional invocation are accepted behavior to preserve.
 
 ## Current evidence and review findings
 
-Rechecked on 2026-11-13 after EXP-01 through EXP-04 implementation at baseline
-`9f85428` (v1.0.8). The shared bounded core now serves selection roots and
-structural fields. Plain inputs, workflow output, and local leaf module URIs
-expand before discovery, normalization, and source validation respectively.
-`VariableOverrides` is carried through nested resolution so child/module
-defaults cannot shadow invocation bindings. The four-argument
-`Config::resolve_with_policy` remains available; the CLI uses
-`resolve_with_policy_and_bindings` for invocation overrides. The combined CLI example and
-actual execution pass; the xylem-lib suite passed 348 tests with two ignored,
-the workflow CLI suite passed 48 with three ignored, and focused Clippy passed.
-The example dry run shows matching effective input, output, and local source.
+Rechecked on 2026-11-13 after EXP-05 and EXP-06 implementation on baseline
+`53ede7d` (v1.0.8). The bounded core now expands plain inputs, workflow
+output, local and remote leaf URIs, and nested configuration URIs before their
+owning discovery, policy, cache, and cycle checks. Invocation bindings remain
+available through nested resolution. Loaded inline and external template
+commands expand from static module bindings; the dry-run plan reports the
+effective inline command. Source tests cover verified HTTP, pinned Git, and
+local OCI acquisition; offline cache reuse; effective-host denial; unknown
+names before requests; and effective nested cycles. Command tests cover module
+precedence, external loading, spaced executable paths, argv boundaries, and
+CLI plan/execution agreement. An invalid external command retains its typed
+error through container preflight and exits as CLI data error before launch.
+The xylem-lib suite passed 358 tests with two ignored; the workflow CLI suite
+passed 49 with three ignored. Focused Clippy and rustdoc passed.
 No serialized plan or summary shape changed.
 
 | Review priority | Remaining gap | Repository evidence | Observable consequence |
 |---|---|---|---|
-| 1 | Remote and nested configuration source `uri` | `Config::resolve_at` still loads wrappers without URI interpolation; local leaf resolution explicitly rejects a selected non-file URI. | Remote and nested source selection still uses authored text. EXP-05 must expand before policy, cache identity, and cycle checks. |
-| 2 | Template filename and `template.command` | `Script::from_module` loads the authored filename; `Script::expand_arguments_from` changes arguments only. | A variable-selected template filename can fall through to the default template, and executable names remain authored. |
-| 3 | Container and virtual-environment settings | `Config::container_declarations`, `ContainerEnvironment::create_managed`, and `Module::resolve_virtual_environment` consume literal settings. | Image names, mount paths, logical container names, startup arguments, and environment names cannot reliably share configured variables. |
+| 1 | Template filename | `Script::from_module` still loads the authored filename. | A variable-selected filename can fall through to the default template. |
+| 2 | Container and virtual-environment settings | `Config::container_declarations`, `ContainerEnvironment::create_managed`, and `Module::resolve_virtual_environment` consume literal settings. | Image names, mount paths, logical container names, startup arguments, and environment names cannot reliably share configured variables. |
 
 The review concerns public configuration behavior in the Rust library and its
 CLI adapter. These are follow-up interface gaps, not newly introduced Rust
@@ -179,15 +181,13 @@ claiming that the effective command has been inspected.
 
 ## Dependencies, execution order, and parallel work
 
-EXP-01 through EXP-04 are implemented. The remaining source phase, EXP-05,
-uses the accepted binding-aware resolver and shared interpolation core.
-EXP-05 and EXP-06 are ready on the local worktree. Recommended order:
-EXP-05, EXP-06, EXP-07, then EXP-08, EXP-09, EXP-10. EXP-11 qualifies the
+EXP-01 through EXP-06 are implemented. EXP-07 is ready on the local worktree.
+Recommended order: EXP-07, then EXP-08, EXP-09, EXP-10. EXP-11 qualifies the
 combined behavior.
 
 Configuration and CLI phases serialize with K8S owners of the same
-files. Source phases reserve acquisition tests, but do not require SEC-07's
-Windows qualification or a dependency update. Command/environment/container
+files. Completed source phases did not require SEC-07's Windows qualification
+or a dependency update. Command/environment/container
 phases share `script/mod.rs` and must not run concurrently. External runner
 and measurement work can continue with disjoint files. User docs and wiki
 metadata are shared integration surfaces even with different primary locks.
@@ -206,13 +206,10 @@ Update:
 - `crates/xylem-lib/src/script/mod.rs`
 - `crates/xylem-lib/src/script/tests/mod.rs`
 - `crates/xylem-lib/src/container.rs`
-- `crates/xylem-lib/src/acquisition/tests.rs`
 - `crates/xylem-lib/src/sandbox/mod.rs`
 - `crates/xylem-lib/src/sandbox/tests/mod.rs`
 - `crates/xylem-lib/src/tests/plan.rs`
 - `crates/xylem-lib/src/tests/completion.rs`
-- `crates/xylem-cli/src/commands/run/preparation.rs`
-- `crates/xylem-cli/src/commands/run/tests/mod.rs`
 - `crates/xylem-cli/src/commands/export.rs`
 - `crates/xylem-cli/examples/configuration-variables.json`
 - `crates/xylem-cli/tests/workflow.rs`
@@ -260,33 +257,11 @@ requires new fields, stop and add a bounded schema phase with Run state ownershi
 
 # Execution phases
 
-## EXP-05 — Resolve remote and nested sources before security checks
-
-- Status: ready
-- Budget: 5 active hours maximum
-- Prerequisites: local fixture server/process capabilities available for deterministic acquisition tests.
-- Exact write set: `crates/xylem-lib/src/config/interpolation.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/validation.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-lib/src/acquisition/tests.rs`, `crates/xylem-lib/src/tests/plan.rs`, `crates/xylem-cli/tests/workflow.rs`; User documentation and Planning reconciliation sets.
-- Primary integration lock: Configuration
-- Outcome: Supported remote leaf and configuration-wrapper URI text expands before loading, policy enforcement, cache identity, or cycle detection. Parent/wrapper bindings select child sources; child-local declarations cannot bootstrap their own location. Existing acquisition implementations remain responsible for transport and verification.
-- Focused validation: New `source_interpolation` tests against local HTTP/Git/OCI fixtures: denied final hosts/schemes, zero requests on unresolved variables, offline cache identity, immutable verification, nested cycles/depth, and override precedence across wrappers.
-- Handoff: Record supported source forms and verified security boundaries; prune after passing. Transport defects outside these files require a separate repair phase rather than expanding this phase.
-
-## EXP-06 — Expand executable names in loaded templates
-
-- Status: ready
-- Budget: 5 active hours maximum
-- Prerequisites: reserve command preparation and plan files.
-- Exact write set: `crates/xylem-lib/src/config/interpolation.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/script/tests/mod.rs`, `crates/xylem-lib/src/plan.rs`, `crates/xylem-lib/src/tests/plan.rs`, `crates/xylem-cli/tests/workflow.rs`; User documentation and Planning reconciliation sets.
-- Primary integration lock: Command preparation
-- Outcome: Inline and available external-template executable names expand from module/invocation bindings before validation and launch. Preserve one executable value and existing argument boundaries; reject input/run-derived placeholders in this static field. Keep external dry-run availability limitations explicit.
-- Focused validation: New `command_interpolation` tests for inline/external templates, module precedence, named override, spaces in executable paths, unknown names before spawn, and dry-run/runtime agreement without shell interpretation.
-- Handoff: Ship command-name support with matching docs/tests, prune the phase, and expose the loaded-template resolution operation for subsequent template/environment phases.
-
 ## EXP-07 — Expand template filenames before loading
 
-- Status: planned
+- Status: ready
 - Budget: 5 active hours maximum
-- Prerequisites: EXP-06 accepted; reserve command preparation and sandbox template-validation files.
+- Prerequisites: reserve command preparation and sandbox template-validation files.
 - Exact write set: `crates/xylem-lib/src/config/interpolation.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/script/tests/mod.rs`, `crates/xylem-lib/src/sandbox/mod.rs`, `crates/xylem-lib/src/sandbox/tests/mod.rs`, `crates/xylem-lib/src/plan.rs`, `crates/xylem-cli/tests/workflow.rs`; User documentation and Planning reconciliation sets.
 - Primary integration lock: Command preparation
 - Outcome: String-valued template filenames expand consistently for discovery, environment detection, sandbox validation, and execution. Missing explicitly interpolated filenames fail; existing literal fallback remains unchanged. Reapply existing path/containment rules to the final filename.
@@ -330,7 +305,7 @@ requires new fields, stop and add a bounded schema phase with Run state ownershi
 
 - Status: planned
 - Budget: 5 active hours maximum
-- Prerequisites: EXP-05, EXP-08, and EXP-10 accepted; serialize final checks after all implementation work stabilizes.
+- Prerequisites: EXP-08 and EXP-10 accepted; serialize final checks after all implementation work stabilizes.
 - Exact write set: `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-lib/src/tests/plan.rs`, `crates/xylem-lib/src/tests/completion.rs`, `crates/xylem-cli/src/commands/export.rs`, `crates/xylem-cli/tests/workflow.rs`, `crates/xylem-cli/tests/export.rs`, `crates/xylem-cli/examples/configuration-variables.json`, `ARCHITECTURE.md`; User documentation and Planning reconciliation sets.
 - Primary integration lock: CLI
 - Outcome: One executable configuration demonstrates combined inputs/output/source/template behavior with named and positional invocation bindings. Export check/generation validates effective configuration through the same shared resolution contract while keeping its existing command interface. No product feature is deferred from a prior phase to make that phase coherent.

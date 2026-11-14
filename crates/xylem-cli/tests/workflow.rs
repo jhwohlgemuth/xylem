@@ -263,6 +263,85 @@ fn test_cli_arguments_bind_and_preserve_usage_boundaries() {
     assert_eq!(output.status.code(), Some(65));
     remove_dir_all(root).expect("remove arguments fixture");
 }
+#[cfg(unix)]
+#[test]
+fn test_cli_command_interpolation_matches_plan_and_execution_with_spaced_executable() {
+    let root = std::env::temp_dir().join(format!("xylem-cli-command-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    create_dir_all(&root).expect("create fixture");
+    let executable = root.join("tool with spaces");
+    write(&executable, "#!/bin/sh\nprintf '%s|%s' \"$1\" \"$2\" > \"$3\"\n").expect("write executable");
+    let mut permissions = executable.metadata().expect("inspect executable").permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&executable, permissions).expect("make executable runnable");
+    let result = root.join("result.txt");
+    let config = root.join("workflow.json");
+    let mut workflow = serde_json::json!({
+        "requirements": [], "variables": {"PROGRAM": "missing-workflow-tool"},
+        "modules": [{
+            "name": "probe", "type": "script", "programmingLanguage": "generic",
+            "uri": format!("file:{}", root.display()),
+            "variables": {"PROGRAM": "missing-module-tool"},
+            "template": {"command": "{{PROGRAM}}", "arguments": ["two words", "", result.display().to_string()]}
+        }]
+    });
+    write(&config, serde_json::to_vec(&workflow).expect("serialize workflow")).expect("write workflow");
+    let path = config.to_str().expect("configuration path");
+    let binding = format!("PROGRAM={}", executable.display());
+    let preview = xylem_command()
+        .args(["run", path, "--dry-run", "--reporter", "json", "--var", &binding])
+        .output()
+        .expect("preview command");
+    assert!(preview.status.success(), "{}", String::from_utf8_lossy(&preview.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&preview.stdout).expect("plan JSON");
+    assert_eq!(plan["modules"][0]["command"]["program"], executable.display().to_string());
+    assert_eq!(plan["modules"][0]["command"]["arguments"][0], "two words");
+    assert_eq!(plan["modules"][0]["command"]["arguments"][1], "");
+    let execution = xylem_command()
+        .args(["run", path, "--no-progress", "--var", &binding])
+        .output()
+        .expect("execute command");
+    assert!(execution.status.success(), "{}", String::from_utf8_lossy(&execution.stderr));
+    assert_eq!(read_to_string(&result).expect("read result"), "two words|");
+    remove_file(&result).expect("clear result");
+    write(
+        root.join("template.json"),
+        serde_json::json!({"command": "{{PROGRAM}}", "arguments": ["two words", "", result.display().to_string()]}).to_string(),
+    )
+    .expect("write external template");
+    workflow["modules"][0]["template"] = serde_json::json!("template.json");
+    write(&config, serde_json::to_vec(&workflow).expect("serialize external workflow")).expect("write external workflow");
+    let external = xylem_command()
+        .args(["run", path, "--no-progress", "--var", &binding])
+        .output()
+        .expect("execute external command");
+    assert!(external.status.success(), "{}", String::from_utf8_lossy(&external.stderr));
+    assert_eq!(read_to_string(&result).expect("read external result"), "two words|");
+    remove_file(&result).expect("clear external result");
+    write(root.join("template.json"), r#"{"command":"{{INPUT}}","arguments":[]}"#).expect("write invalid external template");
+    let invalid_external = xylem_command()
+        .args(["run", path, "--no-progress", "--var", &binding])
+        .output()
+        .expect("reject external input-derived command");
+    assert_eq!(
+        invalid_external.status.code(),
+        Some(65),
+        "{}",
+        String::from_utf8_lossy(&invalid_external.stderr)
+    );
+    assert!(String::from_utf8_lossy(&invalid_external.stderr).contains("modules.probe.template.command"));
+    assert!(!result.exists(), "invalid external command must not run");
+    workflow["modules"][0]["template"] = serde_json::json!({"command": "{{INPUT}}", "arguments": []});
+    write(&config, serde_json::to_vec(&workflow).expect("serialize invalid workflow")).expect("write invalid workflow");
+    let invalid = xylem_command()
+        .args(["run", path, "--dry-run", "--reporter", "json", "--var", &binding])
+        .output()
+        .expect("reject input-derived command");
+    assert_eq!(invalid.status.code(), Some(65), "{}", String::from_utf8_lossy(&invalid.stderr));
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("modules.probe.template.command"));
+    assert!(!result.exists(), "invalid executable must not run");
+    remove_dir_all(root).expect("remove fixture");
+}
 #[test]
 fn test_cli_structural_interpolation_agrees_across_plan_fields() {
     let root = std::env::temp_dir().join(format!("xylem-cli-structural-{}", std::process::id()));

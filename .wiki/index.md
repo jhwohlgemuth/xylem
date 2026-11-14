@@ -47,15 +47,15 @@ The CLI variable argument plan was subsequently implemented and retired after
 the xylem-lib and xylem-cli suites, generated help, Clippy, rustdoc, and the
 executable example passed. **6 executable plans remain.** Root interpolation
 and the basename cutover remain baselines for the broader expansion plan.
-The expansion plan was rechecked at baseline `9f85428` (v1.0.8): EXP-01 through
-EXP-04 now implement the shared resolver, inputs, output, and local sources.
-The changed-worktree library and workflow CLI suites, combined example, and
-focused Clippy pass. The earlier portfolio-wide counts above describe the
-initial review, not this worktree.
+The expansion plan was rechecked on baseline `53ede7d` (v1.0.8): EXP-01 through
+EXP-06 implement the shared resolver, inputs, output, local/remote/nested source
+URIs, and loaded template commands. The changed-worktree library and CLI
+suites, focused Clippy, and rustdoc pass. The earlier portfolio-wide counts
+above describe the initial review, not this worktree.
 
 | Recommended lane | Plan | Impact / remaining difficulty | Status and next action | Blockers / evidence |
 |---|---|---|---|---|
-| 1 | [Configuration expansion](features/configuration-variable-expansion.md) | High / high | Ready: EXP-05 remote/nested sources and EXP-06 template commands. | Shared core, input, output, and local leaf source phases are implemented. Serialize shared files. |
+| 1 | [Configuration expansion](features/configuration-variable-expansion.md) | High / high | Ready: EXP-07 template filenames. | Source URI and command phases are implemented. Serialize shared files. |
 | 2, parallel validation | [Homebrew platform validation](features/homebrew-export.md) | High / low | Waiting on validation: BRW-01 macOS, BRW-02 required checks, BRW-03 clean consumers. | v1.0.7 already merged in [MR !5](https://code.ornl.gov/research-enablement/homebrew-xylem/-/merge_requests/5); Linux passed, macOS manual/optional. Mac runner online at review; credential-setting and clean-consumer evidence outstanding. |
 | Conditional delivery lane | [Rootless BuildKit runner](refactors/rootless-buildkit-runner.md) | High / medium | Blocked: qualify dedicated runner in RBK-01, then re-enable builds/publishers. | All four jobs remain unconditionally skipped. Host policy, administration access, and maintenance window unqualified. |
 | Conditional platform lane | [Windows acquisition](refactors/secure-module-acquisition.md) | Critical / low | Blocked: SEC-07 native Windows qualification and audit. | ACORN libraries remain pinned at 0.5.1; published CLI 0.6.3 still assumes the POSIX runner socket. Native host/support evidence missing. |
@@ -64,9 +64,9 @@ initial review, not this worktree.
 
 ## Recommended execution order
 
-1. Start EXP-05 for remote/nested sources or EXP-06 for template commands;
-   serialize overlapping configuration, CLI, test, and documentation files.
-   Finish environment fields and combined acceptance in EXP-11.
+1. Start EXP-07 for template filenames; serialize overlapping configuration,
+   script, CLI, test, and documentation files. Finish environment fields and
+   combined acceptance in EXP-11.
 3. Run BRW-01 in parallel with disjoint repository work, then require both
    platform checks through a new tap CI change and verify clean consumers.
    The already-merged release update is not an outstanding task.

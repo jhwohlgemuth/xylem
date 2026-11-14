@@ -1,4 +1,5 @@
 //! Owned errors returned by reusable Xylem operations
+use crate::config::ConfigurationInterpolationError;
 use acorn_cmd::{CommandError, ExecutionContext, ExecutionResult};
 use core::fmt;
 use std::io;
@@ -55,6 +56,8 @@ pub enum PyProjectError {
 pub enum TemplateError {
     /// Shell-format arguments could not be parsed.
     Arguments { source: io::Error },
+    /// A loaded template executable could not be expanded from static bindings.
+    Interpolation { source: ConfigurationInterpolationError },
     /// The template is not valid JSON.
     Parse { path: PathBuf, source: serde_json::Error },
     /// The template could not be read.
@@ -186,6 +189,7 @@ impl core::error::Error for TemplateError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             | Self::Arguments { source } | Self::Read { source, .. } => Some(source),
+            | Self::Interpolation { source } => Some(source),
             | Self::Parse { source, .. } => Some(source),
         }
     }
@@ -194,6 +198,7 @@ impl fmt::Display for TemplateError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             | Self::Arguments { source } => write!(formatter, "parse shell-format module template arguments: {source}"),
+            | Self::Interpolation { source } => write!(formatter, "expand module template command: {source}"),
             | Self::Parse { path, source } => write!(formatter, "parse module template {}: {source}", path.display()),
             | Self::Read { path, source } => write!(formatter, "read module template {}: {source}", path.display()),
         }
