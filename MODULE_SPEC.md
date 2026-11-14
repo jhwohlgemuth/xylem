@@ -258,6 +258,20 @@ built-ins. CEL still receives the original typed workflow `variables` map;
 remains a literal boolean, and CEL scripts access values through `variables.NAME`
 rather than template substitution.
 
+Plain configured input directories and list elements, plus selected `--input`
+elements, expand from workflow bindings before discovery and deduplication.
+Workflow `output` or `artifacts` expands before normalization and before its
+default is offered as `OUTPUT_DIRECTORY`; a literal `--artifact-output` takes
+precedence. Local leaf script and binary `file:` URI text expands from module
+bindings before validation and rebasing. Invocation bindings override
+workflow, wrapper, child, and module defaults for these fields. Remote and
+nested configuration URI interpolation remains unsupported.
+
+Structural interpolation uses the bounded root syntax and rejects unknown or
+cyclic names, non-scalar values, malformed placeholders, and NUL. It does not
+read the process environment or input/run-derived built-ins. The selected
+effective value is used for planning and execution.
+
 ## 5. Python environments
 
 ### Pixi

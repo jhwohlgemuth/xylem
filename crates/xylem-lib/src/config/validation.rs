@@ -7,6 +7,7 @@ use crate::memory::{MemoryEstimator, MemoryEstimatorError};
 use crate::remote::RemotePolicy;
 use acorn_core::time::UnitOfTime;
 use acorn_core::validation::{digest, ValidationError};
+use acorn_core::Location;
 use acorn_schema::validation::{report_of, rules, Validate, ValidationReport};
 use core::mem;
 use glob::Pattern;
@@ -300,8 +301,10 @@ impl Validate for Module {
                         validation_error("positive", "module timeout must be greater than zero"),
                     );
                 }
-                if let Err(error) = rules::url(uri.into()) {
-                    report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, or SSH"));
+                if !interpolated_local_uri(uri) {
+                    if let Err(error) = rules::url(uri.into()) {
+                        report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, or SSH"));
+                    }
                 }
                 let parsed_uri = ModuleUri::from(uri);
                 let unsupported_remote = parsed_uri.is_oci()
@@ -372,7 +375,7 @@ impl Validate for Module {
                         validation_error("positive", "module timeout must be greater than zero"),
                     );
                 }
-                if !matches!(ModuleUri::from(uri), ModuleUri::Oci(ref value) if value.starts_with("oci-layout:")) {
+                if !interpolated_local_uri(uri) && !matches!(ModuleUri::from(uri), ModuleUri::Oci(ref value) if value.starts_with("oci-layout:")) {
                     if let Err(error) = rules::url(uri.into()) {
                         report.add("uri", error.with_message("URI must use file, HTTP, HTTPS, SSH, OCI, or OCI layout"));
                     }
@@ -452,6 +455,14 @@ impl Validate for VariableLookup {
                 report.add(name, validation_error("reserved", "reserved variable cannot be configured"));
             });
         report.finish()
+    }
+}
+fn interpolated_local_uri(location: &Location) -> bool {
+    match location {
+        | Location::Simple(uri) => uri.contains("{{") && (uri.starts_with("file:") || uri.starts_with("{{")),
+        | Location::Detailed { scheme, uri, .. } => {
+            *scheme == Scheme::File && uri.contains("{{") && (uri.starts_with("file:") || uri.starts_with("{{"))
+        }
     }
 }
 fn validation_error(code: &str, message: impl Into<String>) -> ValidationError {

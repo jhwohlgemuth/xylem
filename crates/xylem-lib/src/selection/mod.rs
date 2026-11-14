@@ -5,7 +5,6 @@ use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
 mod cel;
-mod roots;
 
 trait ScriptingEngine {
     /// Interpreter-owned representation of a checked script.

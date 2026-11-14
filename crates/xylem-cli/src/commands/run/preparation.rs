@@ -170,7 +170,19 @@ fn prepare_config_with_output(
                     RunFailure::new(code, why.to_string())
                 })
                 .and_then(|bindings| {
-                    configure_preview(bindings.apply_root(preview), request, artifact_output.as_deref())
+                    let mut preview = bindings.apply_root(preview);
+                    let output = match artifact_output.as_ref() {
+                        | Some(_) => Ok(None),
+                        | None => preview.expanded_output(),
+                    };
+                    output
+                        .map_err(|why| RunFailure::new(exitcode::DATAERR, why.to_string()))
+                        .and_then(|output| {
+                            if let Some(output) = output {
+                                preview.output = Some(output);
+                            }
+                            configure_preview(preview, request, artifact_output.as_deref())
+                        })
                         .and_then(|mut preview| {
                             match (request.artifact_output.is_some(), preview.output.as_ref()) {
                                 | (false, Some(output)) if Path::new(output).is_relative() => config_path
@@ -219,38 +231,39 @@ fn prepare_config_with_output(
                                         .map(|cache| (policy, cache))
                                 })
                                 .and_then(|(policy, cache)| {
-                                    let owned = match dry_run {
-                                        | true => Ok((None, None)),
-                                        | false => {
-                                            let id = nanoid::nanoid!(10, &nanoid::alphabet::SAFE);
-                                            let parent = env::temp_dir().join(EnvironmentValue::PREFIX).join("workspaces");
-                                            RunWorkspace::create(&parent, &id)
-                                                .map(|workspace| (Some(id), Some(workspace)))
-                                                .map_err(|why| RunFailure::new(exitcode::CANTCREAT, why.to_string()))
-                                        }
-                                    };
-                                    owned.and_then(|(id, workspace)| {
-                                        preview
-                                            .resolve_with_policy(&config_path, &policy, &cache, dry_run)
-                                            .map_err(|why| {
-                                                let exit_code = match why.is_availability() {
-                                                    | true => exitcode::UNAVAILABLE,
-                                                    | false => exitcode::DATAERR,
-                                                };
-                                                RunFailure::new(exit_code, why.to_string())
+                                    preview
+                                        .resolve_with_policy_and_bindings(&config_path, &policy, &cache, dry_run, &bindings)
+                                        .map_err(|why| {
+                                            let exit_code = match why.is_availability() {
+                                                | true => exitcode::UNAVAILABLE,
+                                                | false => exitcode::DATAERR,
+                                            };
+                                            RunFailure::new(exit_code, why.to_string())
+                                        })
+                                        .map(|resolved| bindings.apply_resolved(resolved))
+                                        .and_then(|mut resolved| {
+                                            artifact_output
+                                                .as_ref()
+                                                .map_or(Ok(()), |output| apply_resolved_artifact_output(&mut resolved, output))
+                                                .map(|()| resolved)
+                                        })
+                                        .and_then(|resolved| {
+                                            let owned = match dry_run {
+                                                | true => Ok((None, None)),
+                                                | false => {
+                                                    let id = nanoid::nanoid!(10, &nanoid::alphabet::SAFE);
+                                                    let parent = env::temp_dir().join(EnvironmentValue::PREFIX).join("workspaces");
+                                                    RunWorkspace::create(&parent, &id)
+                                                        .map(|workspace| (Some(id), Some(workspace)))
+                                                        .map_err(|why| RunFailure::new(exitcode::CANTCREAT, why.to_string()))
+                                                }
+                                            };
+                                            owned.map(|(id, workspace)| ResolvedRun {
+                                                config: resolved,
+                                                id,
+                                                workspace,
                                             })
-                                            .map(|resolved| bindings.apply_resolved(resolved))
-                                            .and_then(|mut resolved| {
-                                                artifact_output
-                                                    .as_ref()
-                                                    .map_or(Ok(()), |output| apply_resolved_artifact_output(&mut resolved, output))
-                                                    .map(|()| ResolvedRun {
-                                                        config: resolved,
-                                                        id,
-                                                        workspace,
-                                                    })
-                                            })
-                                    })
+                                        })
                                 })
                         })
                 })

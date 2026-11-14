@@ -45,6 +45,7 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 mod arguments;
+pub(crate) mod interpolation;
 mod overrides;
 mod validation;
 pub use arguments::WorkflowArgumentsError;
@@ -97,6 +98,9 @@ pub enum ConfigReadError {
 /// Failure while resolving nested configuration modules.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigurationModuleError {
+    /// A module URI contains an invalid structural interpolation.
+    #[error("{0}")]
+    Interpolation(#[from] ConfigurationInterpolationError),
     /// A configuration module exceeds the supported nesting depth.
     #[error("configuration module nesting exceeds 16 levels at {}", path.join("::"))]
     Depth { path: Vec<String> },
@@ -279,6 +283,15 @@ pub struct ConfigOptions {
     #[serde(skip, default)]
     pub workspace_modules: BTreeMap<usize, PathBuf>,
 }
+/// A structural workflow field could not be expanded from its configured bindings.
+#[derive(Debug, thiserror::Error)]
+#[error("{field}: {reason}")]
+pub struct ConfigurationInterpolationError {
+    /// Configuration field or indexed element that failed.
+    pub field: String,
+    /// Expansion failure without exposing binding values.
+    pub reason: String,
+}
 /// Module-agnostic fixed-point estimator configuration.
 #[derive(Builder, Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[builder(start_fn(name = init))]
@@ -335,6 +348,51 @@ pub struct Rule {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct VariableLookup(HashMap<String, String>);
 impl Config {
+    fn expand_local_location(location: &mut Location, variables: Option<&Map<String, Value>>, field: &str) -> Result<(), ConfigurationModuleError> {
+        let authored = <&str>::from(&*location);
+        match authored.contains("{{") || authored.contains("}}") {
+            | false => Ok(()),
+            | true => interpolation::expand(authored, variables, field.to_string())
+                .map_err(ConfigurationModuleError::from)
+                .and_then(|effective| {
+                    let parsed = Location::Simple(effective.clone());
+                    match ModuleUri::from(&parsed) {
+                        | ModuleUri::File(path) if !path.as_os_str().is_empty() => {
+                            match location {
+                                | Location::Simple(uri) | Location::Detailed { uri, .. } => *uri = effective,
+                            }
+                            Ok(())
+                        }
+                        | _ => Err(ConfigurationInterpolationError {
+                            field: field.to_string(),
+                            reason: "local module URI must resolve to a file location".to_string(),
+                        }
+                        .into()),
+                    }
+                }),
+        }
+    }
+    /// Expand the configured artifact output path using workflow bindings.
+    ///
+    /// Call before normalizing paths or resolving modules.
+    /// A caller-supplied artifact output may instead replace this field without expanding it.
+    pub fn expanded_output(&self) -> Result<Option<String>, ConfigurationInterpolationError> {
+        self.output
+            .as_ref()
+            .map(|output| {
+                interpolation::expand(output, self.variables.as_ref(), "output".to_string()).and_then(|value| {
+                    if value.trim().is_empty() {
+                        Err(ConfigurationInterpolationError {
+                            field: "output".to_string(),
+                            reason: "expanded output must not be empty".to_string(),
+                        })
+                    } else {
+                        Ok(value)
+                    }
+                })
+            })
+            .transpose()
+    }
     /// Resolve local configuration modules into their executable leaf modules.
     pub fn resolve(self, source: &Path) -> Result<Self, ConfigurationModuleError> {
         let source = canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
@@ -349,17 +407,30 @@ impl Config {
             None,
             None,
             None,
+            &VariableOverrides::default(),
         )
     }
     /// Resolve local and remote configuration modules before planning.
     ///
     /// Remote documents and repositories are loaded only from verified immutable cache entries.
+    /// Use [`Self::resolve_with_policy_and_bindings`] when an invocation supplies overrides.
     pub fn resolve_with_policy(
+        self,
+        source: &Path,
+        policy: &AcquisitionPolicy,
+        cache: &AcquisitionCache,
+        dry_run: bool,
+    ) -> Result<Self, ConfigurationModuleError> {
+        self.resolve_with_policy_and_bindings(source, policy, cache, dry_run, &VariableOverrides::default())
+    }
+    /// Resolve modules while retaining invocation bindings through nested configurations.
+    pub fn resolve_with_policy_and_bindings(
         mut self,
         source: &Path,
         policy: &AcquisitionPolicy,
         cache: &AcquisitionCache,
         dry_run: bool,
+        bindings: &VariableOverrides,
     ) -> Result<Self, ConfigurationModuleError> {
         let offline = policy.offline();
         let options = self.options.take().unwrap_or_else(|| ConfigOptions::init().build());
@@ -382,6 +453,7 @@ impl Config {
             None,
             None,
             Some(cache.clone()),
+            bindings,
         )
     }
     pub(crate) fn module_environment(&self, module: Option<&Module>, input: Option<&str>) -> HashMap<String, String> {
@@ -1294,6 +1366,7 @@ impl Config {
         inherited_variables: Option<Map<String, Value>>,
         inherited_output: Option<String>,
         cache: Option<AcquisitionCache>,
+        bindings: &VariableOverrides,
     ) -> Result<Self, ConfigurationModuleError> {
         match depth > 16 {
             | true => Err(ConfigurationModuleError::Depth { path }),
@@ -1303,7 +1376,8 @@ impl Config {
                     return Err(ConfigurationModuleError::Cycle { path, location: identity });
                 }
                 let ancestors = ancestors.into_iter().chain(once(identity)).collect::<Vec<_>>();
-                let variables = Self::merge(inherited_variables.as_ref(), self.variables.as_ref(), None);
+                let mut variables = Self::merge(inherited_variables.as_ref(), self.variables.as_ref(), None);
+                bindings.apply_values(&mut variables);
                 let output = self.output.clone().or(inherited_output);
                 self.modules
                     .into_iter()
@@ -1366,6 +1440,7 @@ impl Config {
                                                 inherited,
                                                 output.clone(),
                                                 cache.clone(),
+                                                bindings,
                                             )
                                         })
                                     })
@@ -1383,6 +1458,23 @@ impl Config {
                             }
                             | module_type => {
                                 let mut module = Module { module_type, ..module };
+                                let mut module_variables = Self::merge(variables.as_ref(), module.variables.as_ref(), None);
+                                bindings.apply_values(&mut module_variables);
+                                if let Some(output) = output.as_ref() {
+                                    module_variables
+                                        .get_or_insert_default()
+                                        .entry("OUTPUT_DIRECTORY".to_string())
+                                        .or_insert_with(|| Value::String(output.clone()));
+                                }
+                                let location = match &mut module.module_type {
+                                    | ModuleType::Binary { uri, .. } | ModuleType::Script { uri, .. } => Some(uri),
+                                    | ModuleType::Configuration { .. } => None,
+                                };
+                                let expanded = location.map_or(Ok(()), |location| {
+                                    let field = format!("modules.{}.uri", path.iter().chain(once(&module.name)).cloned().collect::<Vec<_>>().join("::"));
+                                    Self::expand_local_location(location, module_variables.as_ref(), &field)
+                                });
+                                expanded.and_then(|()| {
                                 if let Some(source) = source.path() {
                                     if matches!(
                                         &module.module_type,
@@ -1400,16 +1492,10 @@ impl Config {
                                     }
                                     module.module_path = path.iter().chain(once(&module.name)).cloned().collect();
                                     module.acquisition_policy = policy.clone();
-                                    module.variables = Self::merge(variables.as_ref(), module.variables.as_ref(), None);
-                                    if let Some(output) = output.as_ref() {
-                                        module
-                                            .variables
-                                            .get_or_insert_default()
-                                            .entry("OUTPUT_DIRECTORY".to_string())
-                                            .or_insert_with(|| Value::String(output.clone()));
-                                    }
+                                    module.variables = module_variables;
                                     modules.push(module);
                                     (modules, requirements, acquisitions)
+                                })
                                 })
                             }
                         },

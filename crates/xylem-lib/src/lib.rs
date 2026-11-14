@@ -20,6 +20,7 @@ pub mod container;
 pub mod error;
 pub mod execution;
 pub mod gpu;
+mod interpolation;
 #[allow(missing_docs)]
 pub mod journal;
 pub mod memory;

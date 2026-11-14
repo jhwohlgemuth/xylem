@@ -7,6 +7,7 @@
 )]
 extern crate alloc;
 
+use crate::interpolation::{Expansion, InterpolationError};
 use crate::remote::{redact_url, RemotePolicy};
 use crate::script::*;
 use crate::*;
@@ -641,6 +642,38 @@ fn test_string_template_handlebars() {
         StringTemplate::new("FOO {{ BAR }} BAZ {{ BIN }}").remove_spaces().value,
         "FOO {{BAR}} BAZ {{BIN}}"
     );
+}
+#[test]
+fn test_structural_interpolation_preserves_bindings_and_scalar_types() {
+    let variables = serde_json::json!({"BASE": "data", "DIR": "{{ BASE }}/tiles", "YEAR": 2026, "READY": true});
+    let before = variables.clone();
+    let mut expansion = Expansion::new(variables.as_object().expect("bindings"), 32, 10_000, 1_048_576);
+    assert_eq!(expansion.expand("{{DIR}}/{{YEAR}}/{{READY}}").expect("expand"), "data/tiles/2026/true");
+    assert_eq!(variables, before);
+}
+#[test]
+fn test_structural_interpolation_rejects_cycles_and_limits() {
+    let variables = serde_json::json!({"A": "{{B}}", "B": "{{A}}"});
+    let mut expansion = Expansion::new(variables.as_object().expect("bindings"), 32, 10_000, 1_048_576);
+    assert!(matches!(expansion.expand("{{A}}"), Err(InterpolationError::Invalid(_))));
+    let mut expansion = Expansion::new(variables.as_object().expect("bindings"), 1, 10_000, 1_048_576);
+    assert!(matches!(
+        expansion.expand("{{A}}"),
+        Err(InterpolationError::Limit { resource: "depth", .. })
+    ));
+    let mut expansion = Expansion::new(variables.as_object().expect("bindings"), 32, 1, 1_048_576);
+    assert!(matches!(
+        expansion.expand("{{A}}"),
+        Err(InterpolationError::Limit {
+            resource: "substitutions",
+            ..
+        })
+    ));
+    let mut expansion = Expansion::new(variables.as_object().expect("bindings"), 32, 10_000, 2);
+    assert!(matches!(
+        expansion.expand("abc"),
+        Err(InterpolationError::Limit { resource: "bytes", .. })
+    ));
 }
 #[test]
 fn test_to_string() {

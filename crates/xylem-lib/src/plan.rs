@@ -3,7 +3,7 @@ extern crate alloc;
 
 use crate::acquisition::{AcquisitionError, AcquisitionPlan};
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
-use crate::config::{Config, ConfigOptions, FailurePolicy, InputAttribute, MemoryEstimatorOptions, MemoryOptions};
+use crate::config::{Config, ConfigOptions, ConfigurationInterpolationError, FailurePolicy, InputAttribute, MemoryEstimatorOptions, MemoryOptions};
 use crate::error::TemplateError;
 use crate::execution::{ExecutionLimits, InputBatch};
 use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
@@ -25,6 +25,8 @@ use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 use tracing::debug;
 
+/// Fully validated acquisition intent required before a module can execute.
+pub type PlannedAcquisition = AcquisitionPlan;
 /// Memory behavior represented by an execution plan.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,6 +45,8 @@ pub enum PlanError {
     Completion(CompletionError),
     /// Input discovery could not produce a deterministic input set.
     Input(String),
+    /// A structural input field could not be interpolated.
+    Interpolation(ConfigurationInterpolationError),
     /// A planned reservation exceeds the configured budget.
     MemoryAdmission(MemoryAdmissionError),
     /// A reservation could not be calculated safely.
@@ -57,12 +61,6 @@ pub enum PlanError {
     Template(TemplateError),
     /// Semantic configuration validation failed.
     Validation(ValidationReport),
-}
-impl PlanError {
-    /// Whether planning failed because an otherwise valid remote source is unavailable under policy.
-    pub fn is_availability(&self) -> bool {
-        matches!(self, Self::Acquisition(error) if !matches!(error, AcquisitionError::Identity { .. }))
-    }
 }
 /// Versioned dry-run plan rendered without mutating the host.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -94,24 +92,6 @@ pub struct ExecutionPlan {
     /// Execution-plan schema version.
     pub schema_version: u32,
 }
-/// Planned input admission without executing or creating workspaces.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct PlannedAdmission {
-    /// Configured maximum number of active inputs.
-    pub batch: Option<InputBatch>,
-    /// Effective ceiling when the caller supplies its thread limit.
-    pub effective_ceiling: Option<usize>,
-    /// Input positions in admission order.
-    pub input_indices: Vec<usize>,
-}
-/// Stable identity for an input-local execution context.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct PlannedContext {
-    /// Configured input position, including the zero-input case.
-    pub input_index: usize,
-    /// Workspace allocation policy rather than a disposable path.
-    pub workspace: &'static str,
-}
 /// Configuration identity embedded in an execution plan.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlanConfiguration {
@@ -124,8 +104,16 @@ pub struct PlanConfiguration {
     /// Optional configured workflow version.
     pub version: Option<String>,
 }
-/// Fully validated acquisition intent required before a module can execute.
-pub type PlannedAcquisition = AcquisitionPlan;
+/// Planned input admission without executing or creating workspaces.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PlannedAdmission {
+    /// Configured maximum number of active inputs.
+    pub batch: Option<InputBatch>,
+    /// Effective ceiling when the caller supplies its thread limit.
+    pub effective_ceiling: Option<usize>,
+    /// Input positions in admission order.
+    pub input_indices: Vec<usize>,
+}
 /// Bounded whole-run artifact publication intent.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct PlannedArtifactPublication {
@@ -179,6 +167,14 @@ pub struct PlannedContainer {
     pub startup_timeout_seconds: u64,
     /// Startup strategy for a managed container, or null for an external container.
     pub startup: Option<ContainerStartup>,
+}
+/// Stable identity for an input-local execution context.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PlannedContext {
+    /// Configured input position, including the zero-input case.
+    pub input_index: usize,
+    /// Workspace allocation policy rather than a disposable path.
+    pub workspace: &'static str,
 }
 /// GPU monitoring selected for a planned run.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -270,27 +266,35 @@ impl Config {
     /// Resolve inputs and retain deterministic source provenance for planning.
     pub fn resolve_inputs(&self, cli_inputs: Option<&[String]>, configuration_path: &Path) -> Result<ResolvedInputs, PlanError> {
         match cli_inputs.filter(|values| !values.is_empty()) {
-            | Some(values) => Ok(ResolvedInputs::configured(InputSource::Cli, normalize_inputs(values.to_vec()))),
+            | Some(values) => crate::config::interpolation::expand_values(values, self.variables.as_ref(), "--input")
+                .map_err(PlanError::Interpolation)
+                .map(|values| ResolvedInputs::configured(InputSource::Cli, normalize_inputs(values))),
             | None => match &self.input {
-                | Some(InputAttribute::List(values)) => Ok(ResolvedInputs::configured(InputSource::List, normalize_inputs(values.clone()))),
-                | Some(InputAttribute::Path(value)) => read_dir(value)
-                    .map_err(|error| PlanError::Input(format!("inspect input directory {value}: {error}")))
-                    .and_then(|entries| {
-                        entries
-                            .map(|entry| {
-                                entry
-                                    .map_err(|error| PlanError::Input(format!("inspect input directory entry in {value}: {error}")))
-                                    .and_then(|entry| {
-                                        entry.path().into_os_string().into_string().map_err(|path| {
-                                            PlanError::Input(format!("input directory entry is not valid UTF-8: {}", path.to_string_lossy()))
-                                        })
+                | Some(InputAttribute::List(values)) => crate::config::interpolation::expand_values(values, self.variables.as_ref(), "input")
+                    .map_err(PlanError::Interpolation)
+                    .map(|values| ResolvedInputs::configured(InputSource::List, normalize_inputs(values))),
+                | Some(InputAttribute::Path(value)) => crate::config::interpolation::expand(value, self.variables.as_ref(), "input".to_string())
+                    .map_err(PlanError::Interpolation)
+                    .and_then(|value| {
+                        read_dir(&value)
+                            .map_err(|error| PlanError::Input(format!("inspect input directory {value}: {error}")))
+                            .and_then(|entries| {
+                                entries
+                                    .map(|entry| {
+                                        entry
+                                            .map_err(|error| PlanError::Input(format!("inspect input directory entry in {value}: {error}")))
+                                            .and_then(|entry| {
+                                                entry.path().into_os_string().into_string().map_err(|path| {
+                                                    PlanError::Input(format!("input directory entry is not valid UTF-8: {}", path.to_string_lossy()))
+                                                })
+                                            })
                                     })
+                                    .collect::<Result<Vec<_>, _>>()
                             })
-                            .collect::<Result<Vec<_>, _>>()
-                    })
-                    .map(|mut values| {
-                        values.sort();
-                        ResolvedInputs::configured(InputSource::Directory, normalize_inputs(values))
+                            .map(|mut values| {
+                                values.sort();
+                                ResolvedInputs::configured(InputSource::Directory, normalize_inputs(values))
+                            })
                     }),
                 | Some(InputAttribute::Select(selection)) => selection.resolve(self.variables.as_ref(), configuration_path).map_err(PlanError::from),
                 | None => Ok(ResolvedInputs::configured(InputSource::None, vec![None])),
@@ -545,12 +549,19 @@ impl Module {
             })
     }
 }
+impl PlanError {
+    /// Whether planning failed because an otherwise valid remote source is unavailable under policy.
+    pub fn is_availability(&self) -> bool {
+        matches!(self, Self::Acquisition(error) if !matches!(error, AcquisitionError::Identity { .. }))
+    }
+}
 impl core::error::Error for PlanError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             | Self::Acquisition(error) => Some(error),
             | Self::Completion(error) => Some(error),
             | Self::Input(_) | Self::Sandbox(_) => None,
+            | Self::Interpolation(error) => Some(error),
             | Self::MemoryAdmission(error) => Some(error),
             | Self::MemoryCalculation(error) => Some(error),
             | Self::MemoryEstimator(error) => Some(error),
@@ -566,6 +577,7 @@ impl fmt::Display for PlanError {
             | Self::Acquisition(error) => error.fmt(formatter),
             | Self::Completion(error) => error.fmt(formatter),
             | Self::Input(error) | Self::Sandbox(error) => formatter.write_str(error),
+            | Self::Interpolation(error) => error.fmt(formatter),
             | Self::MemoryAdmission(error) => error.fmt(formatter),
             | Self::MemoryCalculation(error) => error.fmt(formatter),
             | Self::MemoryEstimator(error) => error.fmt(formatter),

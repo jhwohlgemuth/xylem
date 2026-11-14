@@ -490,6 +490,32 @@ variable; existing allowlists are not changed automatically. Completion
 identities include effective variables, so existing resumed modules may run
 once after upgrading and then resume normally with refreshed markers.
 
+### Structural fields
+
+| Field | Binding scope | Resolved before |
+|---|---|---|
+| `input` directory, list elements, selected `--input` elements | Workflow and invocation | Discovery, deduplication, input identity |
+| `output` / `artifacts` | Workflow and invocation | Path normalization, artifact policy, output defaults |
+| Local leaf module `uri` | Workflow, wrapper, child, module, then invocation | Source validation, rebasing, acquisition |
+
+Configured input directories, input list elements, and selected `--input`
+elements accept workflow-variable placeholders. Xylem expands them before
+directory discovery and duplicate removal, so the plan and command receive
+the same input value. `--input` still replaces configured input selection.
+Configured `output` and its `artifacts` alias expand before relative-path
+normalization; `--artifact-output` remains a literal path and bypasses unused
+configured output. Local script and binary module `file:` URI text accepts
+module variables and invocation bindings before source validation. Remote and
+nested configuration URI interpolation is not yet supported.
+
+These fields resolve recursively from string, number, or Boolean bindings
+with the same 32-level, 10,000-substitution, and 1 MiB limits as selection
+roots. Unknown names, cycles, non-scalar values, malformed placeholders, and
+NUL bytes are errors. Input and output use workflow bindings; local leaf URIs
+also use module bindings. Input/run-derived values such as `INPUT` and `RUN_ID`
+are unavailable during structural resolution. Run the combined local example
+with `xylem run crates/xylem-cli/examples/configuration-variables.json --dry-run`.
+
 ## Options
 
 Configuration options include `acquisition_limits`, `allowed`, `batch`,

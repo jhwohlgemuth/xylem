@@ -716,9 +716,9 @@ impl EffectiveSandboxPolicy {
         match cli_inputs.filter(|values| !values.is_empty()) {
             | Some(_) => Ok(()),
             | None => match &config.input {
-                | Some(InputAttribute::Path(path)) => {
-                    validate_granted_path(Path::new(path), &self.policy.paths.input_roots, "input directory").map(|_| ())
-                }
+                | Some(InputAttribute::Path(path)) => crate::config::interpolation::expand(path, config.variables.as_ref(), "input".to_string())
+                    .map_err(|why| SandboxError::Validation(why.to_string()))
+                    .and_then(|path| validate_granted_path(Path::new(&path), &self.policy.paths.input_roots, "input directory").map(|_| ())),
                 | Some(InputAttribute::Select(selection)) => {
                     let base = configuration_path.parent().unwrap_or_else(|| Path::new("."));
                     selection

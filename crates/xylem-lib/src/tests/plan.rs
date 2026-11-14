@@ -155,64 +155,6 @@ fn test_execution_plan_contains_resolved_output_command_and_acquisition() {
     assert!(!output.exists());
 }
 #[test]
-fn test_execution_plan_records_policy_context_timeout_and_admission() {
-    let config: Config = serde_json::from_value(serde_json::json!({
-        "input": ["a", "b"],
-        "modules": [{"name": "probe", "type": "script", "uri": "file:./probe", "timeout_seconds": 7}],
-        "options": {"batch": 2, "failure_policy": "continue"},
-        "requirements": []
-    }))
-    .expect("policy plan configuration");
-    let inputs = [Some("a".to_string()), Some("b".to_string())];
-    let resolved = crate::selection::ResolvedInputs::configured(InputSource::List, inputs.to_vec());
-    let limits = ExecutionLimits::try_from(4).expect("positive thread limit");
-    let plan =
-        ExecutionPlan::build_resolved_with_limits(&config, "config.json".to_string(), &resolved, false, Some(limits)).expect("build policy plan");
-    let value = serde_json::to_value(&plan).expect("serialize policy plan");
-    assert_eq!(value["schema_version"], 15);
-    assert_eq!(value["failure_policy"], "continue");
-    assert_eq!(value["admission"]["batch"], 2);
-    assert_eq!(value["admission"]["effective_ceiling"], 2);
-    assert_eq!(value["admission"]["input_indices"], serde_json::json!([0, 1]));
-    assert_eq!(value["contexts"][0], serde_json::json!({"input_index": 0, "workspace": "input_local"}));
-    assert_eq!(value["contexts"][1], serde_json::json!({"input_index": 1, "workspace": "input_local"}));
-    assert_eq!(value["modules"][0]["timeout_seconds"], 7);
-    assert_eq!(value["modules"][1]["timeout_seconds"], 7);
-    assert!(!value.to_string().contains("xylem/workspaces"));
-}
-#[test]
-fn test_execution_plan_preserves_shell_argument_boundaries() {
-    let config: Config = serde_json::from_value(serde_json::json!({
-        "requirements": [],
-        "modules": [{
-            "name": "probe",
-            "template": {"arguments": "--label \"two words\" '' escaped\\ value", "command": "probe"},
-            "type": "script",
-            "uri": "file:./probe"
-        }]
-    }))
-    .expect("shell plan configuration");
-    let first = ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect("build shell plan");
-    let second = ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect("rebuild shell plan");
-    assert_eq!(first, second);
-    assert_eq!(first.modules[0].command.arguments, ["--label", "two words", "", "escaped value"]);
-}
-#[test]
-fn test_execution_plan_rejects_malformed_shell_arguments() {
-    let config: Config = serde_json::from_value(serde_json::json!({
-        "requirements": [],
-        "modules": [{
-            "name": "probe",
-            "template": {"arguments": "'unterminated", "command": "probe"},
-            "type": "script",
-            "uri": "file:./probe"
-        }]
-    }))
-    .expect("malformed shell plan configuration");
-    let error = ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect_err("malformed shell arguments should fail planning");
-    assert!(matches!(error, PlanError::Template(_)));
-}
-#[test]
 fn test_execution_plan_falls_back_for_the_whole_run_when_one_input_is_out_of_range() {
     let root = std::env::temp_dir().join(format!("xylem-memory-range-plan-{}", std::process::id()));
     create_dir_all(&root).expect("create memory range plan directory");
@@ -257,6 +199,49 @@ fn test_execution_plan_falls_back_for_the_whole_run_when_one_input_is_out_of_ran
     remove_dir_all(root).expect("remove memory range plan directory");
 }
 #[test]
+fn test_execution_plan_preserves_shell_argument_boundaries() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{
+            "name": "probe",
+            "template": {"arguments": "--label \"two words\" '' escaped\\ value", "command": "probe"},
+            "type": "script",
+            "uri": "file:./probe"
+        }]
+    }))
+    .expect("shell plan configuration");
+    let first = ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect("build shell plan");
+    let second = ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect("rebuild shell plan");
+    assert_eq!(first, second);
+    assert_eq!(first.modules[0].command.arguments, ["--label", "two words", "", "escaped value"]);
+}
+#[test]
+fn test_execution_plan_records_policy_context_timeout_and_admission() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "input": ["a", "b"],
+        "modules": [{"name": "probe", "type": "script", "uri": "file:./probe", "timeout_seconds": 7}],
+        "options": {"batch": 2, "failure_policy": "continue"},
+        "requirements": []
+    }))
+    .expect("policy plan configuration");
+    let inputs = [Some("a".to_string()), Some("b".to_string())];
+    let resolved = crate::selection::ResolvedInputs::configured(InputSource::List, inputs.to_vec());
+    let limits = ExecutionLimits::try_from(4).expect("positive thread limit");
+    let plan =
+        ExecutionPlan::build_resolved_with_limits(&config, "config.json".to_string(), &resolved, false, Some(limits)).expect("build policy plan");
+    let value = serde_json::to_value(&plan).expect("serialize policy plan");
+    assert_eq!(value["schema_version"], 15);
+    assert_eq!(value["failure_policy"], "continue");
+    assert_eq!(value["admission"]["batch"], 2);
+    assert_eq!(value["admission"]["effective_ceiling"], 2);
+    assert_eq!(value["admission"]["input_indices"], serde_json::json!([0, 1]));
+    assert_eq!(value["contexts"][0], serde_json::json!({"input_index": 0, "workspace": "input_local"}));
+    assert_eq!(value["contexts"][1], serde_json::json!({"input_index": 1, "workspace": "input_local"}));
+    assert_eq!(value["modules"][0]["timeout_seconds"], 7);
+    assert_eq!(value["modules"][1]["timeout_seconds"], 7);
+    assert!(!value.to_string().contains("xylem/workspaces"));
+}
+#[test]
 fn test_execution_plan_rejects_a_reservation_larger_than_the_budget() {
     let root = std::env::temp_dir().join(format!("xylem-memory-budget-plan-{}", std::process::id()));
     create_dir_all(&root).expect("create memory budget plan directory");
@@ -286,6 +271,21 @@ fn test_execution_plan_rejects_a_reservation_larger_than_the_budget() {
         result.expect_err("oversized reservation must fail").to_string(),
         "input 0 requires 3072 memory bytes, exceeding the 2048-byte budget"
     );
+}
+#[test]
+fn test_execution_plan_rejects_malformed_shell_arguments() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [],
+        "modules": [{
+            "name": "probe",
+            "template": {"arguments": "'unterminated", "command": "probe"},
+            "type": "script",
+            "uri": "file:./probe"
+        }]
+    }))
+    .expect("malformed shell plan configuration");
+    let error = ExecutionPlan::build(&config, "config.json".to_string(), &[None], false).expect_err("malformed shell arguments should fail planning");
+    assert!(matches!(error, PlanError::Template(_)));
 }
 #[test]
 fn test_execution_plan_reports_container_startup_strategies() {
@@ -460,6 +460,44 @@ fn test_execution_plan_uses_memory_aware_reservations() {
     assert_eq!(evidence.inputs[0].safety_reserve.as_ref().and_then(Memory::checked_bytes), Some(0));
     assert_eq!(evidence.inputs[0].reservation.as_ref().and_then(Memory::checked_bytes), Some(3 * 1024));
     remove_dir_all(root).expect("remove memory plan directory");
+}
+#[test]
+fn test_input_interpolation_resolves_before_deduplication_and_discovery() {
+    let root = std::env::temp_dir().join(format!("xylem-input-interpolation-{}", std::process::id()));
+    create_dir_all(&root).expect("create root");
+    write(root.join("one"), "one").expect("write input");
+    let mut config = config("/tmp/xylem-plan-output");
+    config.variables = serde_json::json!({"ROOT": root.display().to_string(), "FILE": "one"})
+        .as_object()
+        .cloned();
+    config.input = Some(InputAttribute::Path("{{ROOT}}".to_string()));
+    assert_eq!(
+        config
+            .resolve_inputs(None, std::path::Path::new("."))
+            .expect("discover expanded directory")
+            .values,
+        [Some(root.join("one").display().to_string())]
+    );
+    config.input = Some(InputAttribute::List(vec!["{{FILE}}".to_string(), "one".to_string()]));
+    assert_eq!(
+        config
+            .resolve_inputs(None, std::path::Path::new("."))
+            .expect("deduplicate expanded list")
+            .values,
+        [Some("one".to_string())]
+    );
+    assert_eq!(
+        config
+            .resolve_inputs(Some(&["{{FILE}}".to_string(), "one".to_string()]), std::path::Path::new("."))
+            .expect("deduplicate expanded CLI input")
+            .values,
+        [Some("one".to_string())]
+    );
+    let error = config
+        .resolve_inputs(Some(&["{{MISSING}}".to_string()]), std::path::Path::new("."))
+        .expect_err("unknown binding");
+    assert!(error.to_string().contains("--input[0]"));
+    remove_dir_all(root).expect("remove root");
 }
 #[cfg(target_os = "linux")]
 #[test]

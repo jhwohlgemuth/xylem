@@ -63,6 +63,9 @@ impl VariableOverrides {
         self.0.extend(named.0.iter().map(|(name, value)| (name.clone(), value.clone())));
         self
     }
+    pub(super) fn apply_values(&self, values: &mut Option<Map<String, Value>>) {
+        apply_values(values, &self.0);
+    }
 }
 fn apply_values(target: &mut Option<Map<String, Value>>, overrides: &BTreeMap<String, String>) {
     if !overrides.is_empty() {

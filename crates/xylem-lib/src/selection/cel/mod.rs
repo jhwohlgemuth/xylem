@@ -1,8 +1,8 @@
 extern crate alloc;
 
 use super::{
-    roots, InputSource, ResolvedInputs, ResolvedSelectionOptions, ScriptingEngine, ScriptingEngineMetadata, SelectionError, SelectionItem,
-    SelectionLimits, SelectionOptions, SelectionRequest,
+    InputSource, ResolvedInputs, ResolvedSelectionOptions, ScriptingEngine, ScriptingEngineMetadata, SelectionError, SelectionItem, SelectionLimits,
+    SelectionOptions, SelectionRequest,
 };
 use acorn_schema::hardware::Memory;
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -855,7 +855,7 @@ impl SelectionOptions {
         request
             .validate(limits)
             .and_then(|()| validate_variable_bindings(variables, limits))
-            .and_then(|()| roots::expand(&request.options, variables, limits))
+            .and_then(|()| expand_roots(&request.options, variables, limits))
     }
 }
 impl Validate<&SelectionLimits> for SelectionRequest {
@@ -911,6 +911,50 @@ fn evaluate(
             program.execute(&context).map_err(|error| SelectionError::Evaluation(error.to_string()))
         })
         .and_then(|result| normalize_result(result, &inventory.items, limits))
+}
+fn expand_roots(options: &SelectionOptions, variables: &Map<String, Value>, limits: &SelectionLimits) -> Result<SelectionOptions, SelectionError> {
+    let mut expansion = crate::interpolation::Expansion::new(
+        variables,
+        limits.variable_depth,
+        limits.variable_nodes,
+        limits.variable_scalar.checked_bytes().unwrap_or_default(),
+    );
+    options
+        .roots
+        .iter()
+        .enumerate()
+        .map(|(index, root)| {
+            expansion
+                .expand(root)
+                .map_err(|error| match error {
+                    | crate::interpolation::InterpolationError::Invalid(reason) => {
+                        SelectionError::Request(format!("options.roots[{index}]: {reason}"))
+                    }
+                    | crate::interpolation::InterpolationError::Limit { resource, actual, limit } => SelectionError::Limit {
+                        resource: match resource {
+                            | "bytes" => "root_expansion_bytes",
+                            | "depth" => "root_expansion_depth",
+                            | _ => "root_expansion_substitutions",
+                        },
+                        actual,
+                        limit,
+                    },
+                })
+                .and_then(|expanded| {
+                    if expanded.trim().is_empty() || expanded.contains('\0') || expanded.contains("{{") {
+                        Err(SelectionError::Request(format!(
+                            "options.roots[{index}]: expanded root must be nonempty and contain no NUL or unresolved placeholder"
+                        )))
+                    } else {
+                        Ok(expanded)
+                    }
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(|roots| SelectionOptions {
+            recursive: options.recursive,
+            roots,
+        })
 }
 fn hash_field(hasher: &mut Sha256, value: &[u8]) {
     hasher.update((value.len() as u64).to_be_bytes());

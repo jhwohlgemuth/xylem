@@ -1,0 +1,23 @@
+{
+  "arguments": ["DATASET"],
+  "input": ["{{ DATASET }}"],
+  "output": "{{ OUTPUT_ROOT }}/artifacts",
+  "requirements": [],
+  "variables": {
+    "DATASET": "sample",
+    "MODULE_SOURCE": "./crates/xylem-cli/examples",
+    "OUTPUT_ROOT": "./example-output"
+  },
+  "modules": [
+    {
+      "name": "show-input",
+      "type": "script",
+      "programmingLanguage": "generic",
+      "uri": "file:{{ MODULE_SOURCE }}",
+      "template": {
+        "command": "printf",
+        "arguments": ["Input: {{ INPUT }}\\n"]
+      }
+    }
+  ]
+}

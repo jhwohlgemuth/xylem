@@ -1294,6 +1294,117 @@ fn test_local_oci_archive_preparation_executes_from_input_local_tree() {
     remove_dir_all(root).expect("remove OCI host fixture");
 }
 #[test]
+fn test_local_source_interpolation_retains_bindings_through_nested_workflow() {
+    let root = std::env::temp_dir().join(format!("xylem-nested-source-interpolation-{}", std::process::id()));
+    create_dir_all(&root).expect("create fixture");
+    let parent = root.join("parent.json");
+    let child = root.join("child.json");
+    write(
+        &parent,
+        r#"{"requirements":[],"variables":{"SOURCE":"./parent"},"modules":[{"name":"child","type":"configuration","uri":"file:./child.json"}]}"#,
+    )
+    .expect("write parent");
+    write(
+        &child,
+        r#"{"requirements":[],"variables":{"SOURCE":"./child"},"modules":[{"name":"leaf","type":"script","uri":"file:{{SOURCE}}"}]}"#,
+    )
+    .expect("write child");
+    let bindings = VariableOverrides::parse(&["SOURCE=./invoked".to_string()]).expect("binding");
+    let policy = acquisition_policy(None, false, true);
+    let cache = AcquisitionCache::new(root.join("cache"));
+    let resolved = Config::read(parent.clone())
+        .expect("read parent")
+        .resolve_with_policy_and_bindings(&parent, &policy, &cache, true, &bindings)
+        .expect("resolve nested leaf");
+    match &resolved.modules[0].module_type {
+        | ModuleType::Script { uri, .. } => assert!(<&str>::from(uri).ends_with("/invoked"), "{uri}"),
+        | other => panic!("expected script: {other:?}"),
+    }
+    remove_dir_all(root).expect("remove fixture");
+}
+#[test]
+fn test_local_source_interpolation_uses_module_scope_and_invocation_precedence() {
+    let root = std::env::temp_dir().join(format!("xylem-local-source-interpolation-{}", std::process::id()));
+    create_dir_all(&root).expect("create fixture");
+    let config_path = root.join("config.json");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "modules": [{
+            "name": "probe", "type": "script", "uri": "file:{{SOURCE}}",
+            "variables": {"SOURCE": "./module-default"},
+            "template": {"command": "true", "arguments": []}
+        }], "variables": {"SOURCE": "./workflow-default"}
+    }))
+    .expect("source fixture");
+    let local = config.clone().resolve(&config_path).expect("resolve module value");
+    match &local.modules[0].module_type {
+        | ModuleType::Script { uri, .. } => assert_eq!(<&str>::from(uri), "file:./module-default"),
+        | other => panic!("expected script: {other:?}"),
+    }
+    let bindings = VariableOverrides::parse(&["SOURCE=./invoked".to_string()]).expect("binding");
+    let policy = acquisition_policy(None, false, true);
+    let cache = AcquisitionCache::new(root.join("cache"));
+    let resolved = config
+        .resolve_with_policy_and_bindings(&config_path, &policy, &cache, true, &bindings)
+        .expect("resolve invocation source");
+    match &resolved.modules[0].module_type {
+        | ModuleType::Script { uri, .. } => assert_eq!(<&str>::from(uri), "file:./invoked"),
+        | other => panic!("expected script: {other:?}"),
+    }
+    let invalid: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "modules": [{"name": "broken", "type": "script", "uri": "file:{{MISSING}}"}]
+    }))
+    .expect("invalid source fixture");
+    let error = invalid.resolve(&config_path).expect_err("missing source binding");
+    assert!(error.to_string().contains("modules.broken.uri"));
+    let selected: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "variables": {"SOURCE": "file:./selected"},
+        "modules": [{"name": "selected", "type": "script", "uri": "{{SOURCE}}"}]
+    }))
+    .expect("selected source fixture");
+    assert!(selected.validate().is_ok());
+    let resolved = selected.clone().resolve(&config_path).expect("resolve entire URI");
+    match &resolved.modules[0].module_type {
+        | ModuleType::Script { uri, .. } => assert_eq!(<&str>::from(uri), "file:./selected"),
+        | other => panic!("expected script: {other:?}"),
+    }
+    let remote = VariableOverrides::parse(&["SOURCE=https://example.invalid/repo".to_string()]).expect("remote binding");
+    assert!(matches!(
+        selected.resolve_with_policy_and_bindings(&config_path, &policy, &cache, true, &remote),
+        Err(ConfigurationModuleError::Interpolation(_))
+    ));
+    remove_dir_all(root).expect("remove fixture");
+}
+#[test]
+fn test_local_source_interpolation_uses_output_directory_default() {
+    let root = std::env::temp_dir().join(format!("xylem-source-output-default-{}", std::process::id()));
+    create_dir_all(&root).expect("create fixture");
+    let path = root.join("workflow.json");
+    let output = root.join("artifacts");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "output": output.display().to_string(),
+        "requirements": [],
+        "modules": [{"name": "probe", "type": "script", "uri": "file:{{OUTPUT_DIRECTORY}}"}]
+    }))
+    .expect("output-derived source fixture");
+    let resolved = config.clone().resolve(&path).expect("resolve output-derived local source");
+    match &resolved.modules[0].module_type {
+        | ModuleType::Script { uri, .. } => assert_eq!(<&str>::from(uri), format!("file:{}", output.display())),
+        | other => panic!("expected script: {other:?}"),
+    }
+    assert_eq!(
+        resolved.modules[0].variables.as_ref().expect("effective variables")["OUTPUT_DIRECTORY"],
+        output.display().to_string()
+    );
+    let mut explicit = config;
+    explicit.modules[0].variables = serde_json::json!({"OUTPUT_DIRECTORY": "./explicit"}).as_object().cloned();
+    let resolved = explicit.resolve(&path).expect("resolve explicit module output");
+    match &resolved.modules[0].module_type {
+        | ModuleType::Script { uri, .. } => assert_eq!(<&str>::from(uri), "file:./explicit"),
+        | other => panic!("expected script: {other:?}"),
+    }
+    remove_dir_all(root).expect("remove fixture");
+}
+#[test]
 fn test_managed_container_keep_alive_round_trips_and_validates() {
     let document = serde_json::json!({
         "requirements": [],
@@ -1575,6 +1686,25 @@ fn test_non_local_environment_managers_are_rejected() {
     .expect("configuration should deserialize before semantic validation");
     let error = config.validate().expect_err("shared Poetry environment should be rejected");
     assert!(error.iter().any(|issue| issue.path == "modules[0].template.environment.manager"));
+}
+#[test]
+fn test_output_interpolation_uses_workflow_values() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "modules": [], "output": "{{ROOT}}/artifacts",
+        "variables": {"ROOT": "{{BASE}}", "BASE": "outputs"}
+    }))
+    .expect("output fixture");
+    assert_eq!(config.expanded_output().expect("expand output").as_deref(), Some("outputs/artifacts"));
+    let bindings = VariableOverrides::parse(&["BASE=override".to_string()]).expect("binding");
+    assert_eq!(
+        bindings.apply_root(config).expanded_output().expect("expand override").as_deref(),
+        Some("override/artifacts")
+    );
+    let empty: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "modules": [], "output": "{{EMPTY}}", "variables": {"EMPTY": ""}
+    }))
+    .expect("empty output fixture");
+    assert!(empty.expanded_output().expect_err("reject empty output").to_string().contains("output"));
 }
 #[test]
 fn test_preparation_and_execution_emit_progress_updates() {
@@ -1888,6 +2018,32 @@ fn test_semantic_validation_collects_path_qualified_errors() {
     assert!(error
         .to_string()
         .contains("modules[0].template.command: template command must not be empty"));
+}
+#[test]
+fn test_structural_interpolation_across_configuration_formats() {
+    let root = std::env::temp_dir().join(format!("xylem-structural-formats-{}", std::process::id()));
+    create_dir_all(&root).expect("create fixture");
+    for extension in ["json", "jsonc", "yaml", "yml"] {
+        let path = root.join(format!("workflow.{extension}"));
+        let content = match extension {
+            | "json" | "jsonc" => r#"{"artifacts":"{{ROOT}}/artifacts","input":["{{ITEM}}"],"requirements":[],"variables":{"ROOT":"out","ITEM":"sample","SOURCE":"."},"modules":[{"name":"probe","type":"script","uri":{"scheme":"file","uri":"file:{{SOURCE}}"}}]}"#,
+            | _ => "artifacts: '{{ROOT}}/artifacts'\ninput: ['{{ITEM}}']\nrequirements: []\nvariables: {ROOT: out, ITEM: sample, SOURCE: .}\nmodules:\n  - name: probe\n    type: script\n    uri: {scheme: file, uri: 'file:{{SOURCE}}'}\n",
+        };
+        write(&path, content).expect("write fixture");
+        let config = Config::read(path.clone()).expect("read fixture");
+        assert!(
+            config.validate().is_ok(),
+            "validate templated local source in {extension}: {:?}",
+            config.validate()
+        );
+        assert_eq!(config.expanded_output().expect("expand output").as_deref(), Some("out/artifacts"));
+        let resolved = config.resolve(&path).expect("resolve source");
+        match &resolved.modules[0].module_type {
+            | ModuleType::Script { uri, .. } => assert_eq!(<&str>::from(uri), "file:."),
+            | other => panic!("expected script: {other:?}"),
+        }
+    }
+    remove_dir_all(root).expect("remove fixture");
 }
 #[test]
 fn test_type_specific_module_fields_are_rejected_in_json_and_yaml() {

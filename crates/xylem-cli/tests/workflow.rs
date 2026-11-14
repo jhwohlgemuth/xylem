@@ -192,7 +192,6 @@ fn xylem_command() -> assert_cmd::Command {
     );
     command
 }
-
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_cli_arguments_bind_and_preserve_usage_boundaries() {
@@ -264,6 +263,79 @@ fn test_cli_arguments_bind_and_preserve_usage_boundaries() {
     assert_eq!(output.status.code(), Some(65));
     remove_dir_all(root).expect("remove arguments fixture");
 }
+#[test]
+fn test_cli_structural_interpolation_agrees_across_plan_fields() {
+    let root = std::env::temp_dir().join(format!("xylem-cli-structural-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    create_dir_all(&root).expect("create fixture");
+    let config = root.join("workflow.json");
+    let workflow = serde_json::json!({
+        "arguments": ["INPUT_PATH"],
+        "input": ["{{INPUT_PATH}}"],
+        "output": "{{OUTPUT_ROOT}}/artifacts",
+        "requirements": [],
+        "variables": {"INPUT_PATH": "default", "OUTPUT_ROOT": "out", "SOURCE": root.display().to_string()},
+        "modules": [{
+            "name": "probe", "type": "script", "programmingLanguage": "generic",
+            "uri": "file:{{SOURCE}}",
+            "template": {"command": "true", "arguments": ["{{INPUT}}"]}
+        }]
+    });
+    write(&config, serde_json::to_vec(&workflow).expect("serialize workflow")).expect("write workflow");
+    let output = xylem_command()
+        .args([
+            "run",
+            config.to_str().expect("config path"),
+            "--dry-run",
+            "--reporter",
+            "json",
+            "--var",
+            "INPUT_PATH=named",
+            "--",
+            "positional",
+        ])
+        .output()
+        .expect("run preview");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("plan JSON");
+    assert_eq!(plan["inputs"]["values"][0], "named");
+    assert_eq!(plan["modules"][0]["input"], "named");
+    assert_eq!(plan["modules"][0]["acquisition"]["source"]["path"], root.display().to_string());
+    assert_eq!(plan["configuration"]["output"], root.join("out/artifacts").display().to_string());
+    let execution = xylem_command()
+        .args([
+            "run",
+            config.to_str().expect("config path"),
+            "--no-progress",
+            "--var",
+            "INPUT_PATH=named",
+            "--",
+            "positional",
+        ])
+        .output()
+        .expect("execute workflow");
+    assert!(execution.status.success(), "{}", String::from_utf8_lossy(&execution.stderr));
+    let mut invalid_output = workflow;
+    invalid_output["output"] = serde_json::json!("{{MISSING}}");
+    write(&config, serde_json::to_vec(&invalid_output).expect("serialize invalid output")).expect("write invalid output");
+    let overridden = xylem_command()
+        .args([
+            "run",
+            config.to_str().expect("config path"),
+            "--dry-run",
+            "--reporter",
+            "json",
+            "--artifact-output",
+            root.join("override").to_str().expect("override path"),
+        ])
+        .output()
+        .expect("run overridden preview");
+    assert!(overridden.status.success(), "{}", String::from_utf8_lossy(&overridden.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&overridden.stdout).expect("overridden plan");
+    assert_eq!(plan["configuration"]["output"], root.join("override").display().to_string());
+    remove_dir_all(root).expect("remove fixture");
+}
+
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_cli_variable_override_matches_plan_and_execution() {
