@@ -499,6 +499,8 @@ once after upgrading and then resume normally with refreshed markers.
 | Leaf module `uri` | Workflow, wrapper, child, module, then invocation | Source validation, rebasing, acquisition |
 | Nested configuration `uri` | Parent workflow, wrapper, then invocation | Cycle identity, source loading, acquisition |
 | Loaded `template.command` | Workflow, wrapper, child, module, then invocation | Command validation and launch |
+| String-valued `template` path | Workflow, wrapper, child, module, then invocation | Template discovery, environment detection, sandbox containment, loading |
+| Declared template environment name | Workflow, wrapper, child, module, then invocation | Environment preparation and launch |
 
 Configured input directories, input list elements, and selected `--input`
 elements accept workflow-variable placeholders. Xylem expands them before
@@ -521,6 +523,18 @@ existing boundaries. `INPUT` and run-derived values are unavailable when
 selecting the executable. A dry run reports the effective command for inline
 templates. For an external template that has not been materialized, the plan
 continues to report only `template_source`.
+
+The string-valued `template` path expands the same way before the template
+file is selected. An explicitly interpolated filename that does not exist
+fails instead of falling back to the default template; declarations without
+placeholders keep that fallback. The dry-run plan reports the effective
+filename in `template_source`, and the expanded filename still passes the
+existing containment and symlink checks.
+
+A template's declared environment name expands from the same bindings before
+environment preparation and launch for Pixi, Conda, and Mamba. Detected
+environments and Xylem-managed input-local prefixes keep their behavior, and
+an expanded name must not be empty.
 
 These fields resolve recursively from string, number, or Boolean bindings
 with the same 32-level, 10,000-substitution, and 1 MiB limits as selection

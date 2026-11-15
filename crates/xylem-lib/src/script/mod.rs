@@ -504,17 +504,35 @@ impl EnvironmentValue {
     }
 }
 impl Module {
+    /// Expand a configured template filename from static module bindings.
+    ///
+    /// Returns the effective filename and whether the authored value contained
+    /// a placeholder, so callers can keep the literal default-template fallback
+    /// while failing for explicitly interpolated files that do not exist.
+    pub(crate) fn expand_template_filename(&self, value: &str) -> Result<(String, bool), TemplateError> {
+        let field = format!("modules.{}.template.path", self.module_path.join("::"));
+        match value.contains("{{") {
+            | false => Ok((value.to_string(), false)),
+            | true => interpolation::expand(value, self.variables.as_ref(), field)
+                .map_err(|source| TemplateError::Interpolation { source })
+                .map(|expanded| (expanded, true)),
+        }
+    }
     /// Resolve the module's explicitly configured or auto-detected virtual environment.
     pub fn resolve_virtual_environment(&self, working_dir: &str) -> Result<Option<VirtualEnvironment>, TemplateError> {
+        let field = format!("modules.{}.template.environment.name", self.module_path.join("::"));
         match &self.template {
-            | Some(TemplateAttribute::Path(value)) => {
-                let template_path = PathBuf::from(working_dir).join(value);
-                match template_path.is_file() {
-                    | true => ScriptTemplate::from_path(template_path).map(|template| template.virtual_environment),
-                    | false => Ok(None),
-                }
-            }
-            | Some(TemplateAttribute::Template(value)) => Ok(value.virtual_environment.clone()),
+            | Some(TemplateAttribute::Path(value)) => self
+                .expand_template_filename(value)
+                .and_then(|(expanded, _)| {
+                    let template_path = PathBuf::from(working_dir).join(&expanded);
+                    match template_path.is_file() {
+                        | true => ScriptTemplate::from_path(template_path).map(|template| template.virtual_environment),
+                        | false => Ok(None),
+                    }
+                })
+                .and_then(|environment| expand_environment_name(environment, self.variables.as_ref(), field)),
+            | Some(TemplateAttribute::Template(value)) => expand_environment_name(value.virtual_environment.clone(), self.variables.as_ref(), field),
             | None => ScriptTemplate::resolve_python_virtual_environment(PathBuf::from(working_dir)),
         }
     }
@@ -722,30 +740,46 @@ impl Script {
                         let default_template_path = PathBuf::from(&working_dir).join(DEFAULT_FILENAME);
                         match &module.template {
                             | Some(attribute) => match attribute {
-                                | TemplateAttribute::Path(value) => match PathBuf::from(&working_dir).join(value).try_exists() {
-                                    | Ok(true) => {
-                                        let path = PathBuf::from(&working_dir).join(value);
-                                        debug!(module = module.name, path = %path.display(), "=> {} Template file", Label::using());
-                                        Script::from_path(path).map_err(|source| ModuleLoadError::Template {
-                                            module: module.name.clone(),
-                                            source,
-                                        })
-                                    }
-                                    | Ok(false) => {
-                                        let path = PathBuf::from(&working_dir).join(value);
-                                        warn!(module = module.name, "=> {} {}", Label::not_found(), path.display());
-                                        warn!(module = module.name, "=> {} Default template file path", Label::using());
-                                        Script::from_path(default_template_path).map_err(|source| ModuleLoadError::Template {
-                                            module: module.name.clone(),
-                                            source,
-                                        })
-                                    }
-                                    | Err(source) => Err(ModuleLoadError::Inspect {
+                                | TemplateAttribute::Path(value) => module
+                                    .expand_template_filename(value)
+                                    .map_err(|source| ModuleLoadError::Template {
                                         module: module.name.clone(),
-                                        path: PathBuf::from(&working_dir).join(value),
                                         source,
+                                    })
+                                    .and_then(|(expanded, interpolated)| {
+                                        let path = PathBuf::from(&working_dir).join(&expanded);
+                                        match interpolated {
+                                            | true => {
+                                                debug!(module = module.name, path = %path.display(), "=> {} Template file", Label::using());
+                                                Script::from_path(path).map_err(|source| ModuleLoadError::Template {
+                                                    module: module.name.clone(),
+                                                    source,
+                                                })
+                                            }
+                                            | false => match path.try_exists() {
+                                                | Ok(true) => {
+                                                    debug!(module = module.name, path = %path.display(), "=> {} Template file", Label::using());
+                                                    Script::from_path(path).map_err(|source| ModuleLoadError::Template {
+                                                        module: module.name.clone(),
+                                                        source,
+                                                    })
+                                                }
+                                                | Ok(false) => {
+                                                    warn!(module = module.name, "=> {} {}", Label::not_found(), path.display());
+                                                    warn!(module = module.name, "=> {} Default template file path", Label::using());
+                                                    Script::from_path(default_template_path).map_err(|source| ModuleLoadError::Template {
+                                                        module: module.name.clone(),
+                                                        source,
+                                                    })
+                                                }
+                                                | Err(source) => Err(ModuleLoadError::Inspect {
+                                                    module: module.name.clone(),
+                                                    path,
+                                                    source,
+                                                }),
+                                            },
+                                        }
                                     }),
-                                },
                                 | TemplateAttribute::Template(value) => {
                                     debug!(module = module.name, "=> {} Template attribute", Label::using());
                                     Script::from_template(value.as_ref().clone()).map_err(|source| ModuleLoadError::Template {
@@ -782,6 +816,12 @@ impl Script {
                         module.variables.as_ref(),
                         format!("modules.{}.template.command", module.module_path.join("::")),
                     )
+                    .and_then(|script| {
+                        let field = format!("modules.{}.template.environment.name", module.module_path.join("::"));
+                        let environment = script.command.virtual_environment.clone();
+                        expand_environment_name(environment, module.variables.as_ref(), field)
+                            .map(|environment| script.with_virtual_environment(environment))
+                    })
                     .map_err(|source| ModuleLoadError::Template {
                         module: module.name.clone(),
                         source,
@@ -1255,6 +1295,32 @@ impl VirtualEnvironment {
             },
             | false => environment,
         })
+    }
+}
+/// Expand a declared virtual-environment name from static module bindings.
+///
+/// Detected environments and Xylem-owned paths keep their behavior; only the
+/// declared name is interpolated. An expanded name must not be empty.
+fn expand_environment_name(
+    environment: Option<VirtualEnvironment>,
+    variables: Option<&Map<String, Value>>,
+    field: String,
+) -> Result<Option<VirtualEnvironment>, TemplateError> {
+    match environment {
+        | None => Ok(None),
+        | Some(value) => match value.name.contains("{{") {
+            | false => Ok(Some(value)),
+            | true => interpolation::expand(&value.name, variables, field.clone())
+                .and_then(|expanded| match expanded.is_empty() {
+                    | true => Err(ConfigurationInterpolationError {
+                        field,
+                        reason: "expanded environment name must not be empty".to_string(),
+                    }),
+                    | false => Ok(expanded),
+                })
+                .map_err(|source| TemplateError::Interpolation { source })
+                .map(|name| Some(VirtualEnvironment { name, ..value })),
+        },
     }
 }
 impl VirtualEnvironmentManager {

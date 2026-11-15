@@ -92,6 +92,201 @@ fn test_command_interpolation_rejects_unavailable_input_before_launch() {
     remove_dir_all(root).expect("remove module directory");
 }
 #[test]
+fn test_template_path_interpolation_selects_alternate_file_and_expands_loaded_command() {
+    let root = std::env::temp_dir().join(format!("xylem-template-path-{}", std::process::id()));
+    create_dir_all(&root).expect("create module directory");
+    write(root.join("template.json"), r#"{"command":"default-tool","arguments":[]}"#).expect("write default template");
+    write(root.join("alternate.json"), r#"{"command":"{{ TOOL }}","arguments":["two words"]}"#).expect("write alternate template");
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "variables": {"TEMPLATE": "alternate.json", "TOOL": "alternate-tool"},
+        "template": "{{ TEMPLATE }}"
+    }))
+    .expect("parse module");
+    let loaded = Script::from_module(module, None).expect("load selected template");
+    assert_eq!(loaded.command.name, "alternate-tool");
+    assert_eq!(loaded.arguments, ["two words"]);
+    remove_dir_all(root).expect("remove module directory");
+}
+#[test]
+fn test_template_path_interpolation_fails_for_missing_expanded_file_without_fallback() {
+    let root = std::env::temp_dir().join(format!("xylem-template-path-missing-{}", std::process::id()));
+    create_dir_all(&root).expect("create module directory");
+    write(root.join("template.json"), r#"{"command":"default-tool","arguments":[]}"#).expect("write default template");
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "variables": {"TEMPLATE": "absent.json"},
+        "template": "{{ TEMPLATE }}"
+    }))
+    .expect("parse module");
+    let error = Script::from_module(module, None).expect_err("missing expanded template must fail");
+    let ModuleLoadError::Template {
+        source: TemplateError::Read { path, .. },
+        ..
+    } = &error
+    else {
+        panic!("expected template read error: {error}")
+    };
+    assert_eq!(path.file_name().and_then(|name| name.to_str()), Some("absent.json"));
+    assert!(error.to_string().contains("absent.json"), "{error}");
+    remove_dir_all(root).expect("remove module directory");
+}
+#[test]
+fn test_template_path_interpolation_preserves_literal_fallback() {
+    let root = std::env::temp_dir().join(format!("xylem-template-path-literal-{}", std::process::id()));
+    create_dir_all(&root).expect("create module directory");
+    write(root.join("template.json"), r#"{"command":"default-tool","arguments":[]}"#).expect("write default template");
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "template": "absent-literal.json"
+    }))
+    .expect("parse module");
+    let loaded = Script::from_module(module, None).expect("fall back to default template");
+    assert_eq!(loaded.command.name, "default-tool");
+    remove_dir_all(root).expect("remove module directory");
+}
+#[test]
+fn test_template_path_interpolation_rejects_unknown_variable_before_load() {
+    let root = std::env::temp_dir().join(format!("xylem-template-path-unknown-{}", std::process::id()));
+    create_dir_all(&root).expect("create module directory");
+    write(root.join("template.json"), r#"{"command":"default-tool","arguments":[]}"#).expect("write default template");
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "template": "{{ MISSING }}"
+    }))
+    .expect("parse module");
+    let error = Script::from_module(module, None).expect_err("unknown template variable must fail");
+    assert!(
+        matches!(
+            error,
+            ModuleLoadError::Template {
+                source: TemplateError::Interpolation { .. },
+                ..
+            }
+        ),
+        "{error}"
+    );
+    assert!(error.to_string().contains("modules.probe.template.path"));
+    remove_dir_all(root).expect("remove module directory");
+}
+#[test]
+fn test_template_path_interpolation_detects_environment_from_expanded_file() {
+    let root = std::env::temp_dir().join(format!("xylem-template-path-environment-{}", std::process::id()));
+    create_dir_all(&root).expect("create module directory");
+    write(
+        root.join("alternate.json"),
+        r#"{"command":"python","arguments":[],"environment":{"name":"base","manager":"conda"}}"#,
+    )
+    .expect("write alternate template");
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "variables": {"TEMPLATE": "alternate.json"},
+        "template": "{{ TEMPLATE }}"
+    }))
+    .expect("parse module");
+    let environment = module
+        .resolve_virtual_environment(&root.display().to_string())
+        .expect("detect environment")
+        .expect("declared environment");
+    assert_eq!(environment.name, "base");
+    assert!(environment.manager.is_conda());
+    remove_dir_all(root).expect("remove module directory");
+}
+#[test]
+fn test_environment_interpolation_expands_pixi_preparation_and_launch() {
+    let root = std::env::temp_dir().join(format!("xylem-environment-pixi-{}", std::process::id()));
+    create_dir_all(&root).expect("create pixi fixture");
+    write(root.join("pixi.toml"), "[project]\nname = \"probe\"\n").expect("write pixi manifest");
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "variables": {"ENV_NAME": "pixi-env"},
+        "template": {"command": "python", "arguments": ["-V"], "environment": {"name": "{{ ENV_NAME }}", "manager": "pixi"}}
+    }))
+    .expect("parse module");
+    let loaded = Script::from_module(module.clone(), None).expect("load expanded environment");
+    assert_eq!(loaded.to_string(), "pixi run --environment pixi-env python -V");
+    let environment = module
+        .resolve_virtual_environment(&root.display().to_string())
+        .expect("resolve environment")
+        .expect("declared environment");
+    assert_eq!(environment.name, "pixi-env");
+    let creation = Script::maybe_create_virtual_environment(root.to_string_lossy().into_owned(), Some(environment))
+        .expect("inspect Pixi environment")
+        .expect("Pixi manifest should produce an install command");
+    assert_eq!(creation.to_string(), "pixi install --environment pixi-env");
+    remove_dir_all(root).expect("remove pixi fixture");
+}
+#[test]
+fn test_environment_interpolation_expands_external_template_environment() {
+    let root = std::env::temp_dir().join(format!("xylem-environment-external-{}", std::process::id()));
+    create_dir_all(&root).expect("create external fixture");
+    write(
+        root.join("template.json"),
+        r#"{"command":"python","arguments":["-V"],"environment":{"name":"{{ ENV_NAME }}","manager":"conda"}}"#,
+    )
+    .expect("write external template");
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "variables": {"ENV_NAME": "conda-env"},
+        "template": "template.json"
+    }))
+    .expect("parse module");
+    let loaded = Script::from_module(module.clone(), None).expect("load external environment");
+    assert_eq!(loaded.to_string(), "conda run --name conda-env --no-capture-output python -V");
+    let environment = module
+        .resolve_virtual_environment(&root.display().to_string())
+        .expect("resolve environment")
+        .expect("declared environment");
+    assert_eq!(environment.name, "conda-env");
+    let prefix = std::env::temp_dir().join(format!("xylem-environment-prefix-external-{}", std::process::id()));
+    let input_local = VirtualEnvironment::input_local(Some(environment), Some(prefix.clone())).expect("input-local environment");
+    let script = loaded.with_virtual_environment(Some(input_local));
+    assert_eq!(
+        script.to_string(),
+        format!("conda run --prefix {} --no-capture-output python -V", prefix.display())
+    );
+    remove_dir_all(root).expect("remove external fixture");
+}
+#[test]
+fn test_environment_interpolation_rejects_missing_and_empty_names_before_preparation() {
+    let root = std::env::temp_dir().join(format!("xylem-environment-invalid-{}", std::process::id()));
+    create_dir_all(&root).expect("create environment fixture");
+    write(root.join("pixi.toml"), "[project]\nname = \"probe\"\n").expect("write pixi manifest");
+    let missing: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "template": {"command": "python", "arguments": [], "environment": {"name": "{{ MISSING }}", "manager": "pixi"}}
+    }))
+    .expect("parse missing module");
+    let error = missing
+        .resolve_virtual_environment(&root.display().to_string())
+        .expect_err("missing environment binding");
+    assert!(matches!(error, TemplateError::Interpolation { .. }), "{error}");
+    assert!(error.to_string().contains("modules.probe.template.environment.name"));
+    let from_module = Script::from_module(missing, None).expect_err("missing environment binding at load");
+    assert!(from_module.to_string().contains("modules.probe.template.environment.name"));
+    let empty: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "variables": {"ENV_NAME": ""},
+        "template": {"command": "python", "arguments": [], "environment": {"name": "{{ ENV_NAME }}", "manager": "pixi"}}
+    }))
+    .expect("parse empty module");
+    let error = empty
+        .resolve_virtual_environment(&root.display().to_string())
+        .expect_err("empty environment name");
+    assert!(error.to_string().contains("expanded environment name must not be empty"), "{error}");
+    let detected: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display())
+    }))
+    .expect("parse detected module");
+    let environment = detected
+        .resolve_virtual_environment(&root.display().to_string())
+        .expect("detect environment")
+        .expect("detected Pixi environment");
+    assert_eq!(environment.name, "default");
+    assert!(environment.manager.is_pixi());
+    remove_dir_all(root).expect("remove environment fixture");
+}
+#[test]
 fn test_conda_and_mamba_use_input_owned_prefixes() {
     let prefix = std::env::temp_dir().join(format!("xylem-environment-prefix-{}", std::process::id()));
     let prefix_string = prefix.to_string_lossy().into_owned();

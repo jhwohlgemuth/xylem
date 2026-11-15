@@ -2206,6 +2206,44 @@ fn test_structural_interpolation_across_configuration_formats() {
     remove_dir_all(root).expect("remove fixture");
 }
 #[test]
+fn test_environment_interpolation_uses_module_scope_and_invocation_precedence() {
+    let root = std::env::temp_dir().join(format!("xylem-environment-precedence-{}", std::process::id()));
+    create_dir_all(&root).expect("create fixture");
+    let config_path = root.join("config.json");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "variables": {"ENV_NAME": "workflow-env"}, "modules": [{
+            "name": "probe", "type": "script", "uri": "file:.",
+            "variables": {"ENV_NAME": "module-env"},
+            "template": {"command": "true", "arguments": [], "environment": {"name": "{{ ENV_NAME }}", "manager": "pixi"}}
+        }]
+    }))
+    .expect("environment fixture");
+    let resolved = config.clone().resolve(&config_path).expect("resolve module environment");
+    let loaded = Script::from_module(resolved.modules[0].clone(), None).expect("load expanded environment");
+    let declared = loaded.command.virtual_environment.as_ref().expect("declared environment");
+    assert_eq!(declared.name, "module-env");
+    let bindings = VariableOverrides::parse(&["ENV_NAME=invoked-env".to_string()]).expect("binding");
+    let policy = acquisition_policy(None, false, true);
+    let cache = AcquisitionCache::new(root.join("cache"));
+    let resolved = config
+        .resolve_with_policy_and_bindings(&config_path, &policy, &cache, true, &bindings)
+        .expect("resolve invoked environment");
+    let loaded = Script::from_module(resolved.modules[0].clone(), None).expect("load invoked environment");
+    let declared = loaded.command.virtual_environment.as_ref().expect("invoked environment");
+    assert_eq!(declared.name, "invoked-env");
+    let missing: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "modules": [{
+            "name": "broken", "type": "script", "uri": "file:.",
+            "template": {"command": "true", "arguments": [], "environment": {"name": "{{ MISSING }}", "manager": "pixi"}}
+        }]
+    }))
+    .expect("missing environment fixture");
+    let resolved = missing.resolve(&config_path).expect("resolve unresolved name");
+    let error = Script::from_module(resolved.modules[0].clone(), None).expect_err("missing environment binding");
+    assert!(error.to_string().contains("modules.broken.template.environment.name"), "{error}");
+    remove_dir_all(root).expect("remove fixture");
+}
+#[test]
 fn test_type_specific_module_fields_are_rejected_in_json_and_yaml() {
     for (json, yaml) in [
         (

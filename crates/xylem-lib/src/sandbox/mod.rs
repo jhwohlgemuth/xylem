@@ -1775,7 +1775,15 @@ fn validate_mount_tree(root: &Path, role: &str) -> Result<(), SandboxError> {
 fn validate_template_path(module: &Module, module_source: &Path) -> Result<(), SandboxError> {
     match &module.template {
         | Some(TemplateAttribute::Path(path)) => {
-            validate_granted_path(&module_source.join(path), &[module_source.to_path_buf()], "module template").map(|_| ())
+            let field = format!("modules.{}.template.path", module.module_path.join("::"));
+            let filename = match path.contains("{{") {
+                | false => Ok(path.clone()),
+                | true => crate::config::interpolation::expand(path, module.variables.as_ref(), field)
+                    .map_err(|why| SandboxError::Validation(format!("module {} template path: {why}", module.name))),
+            };
+            filename
+                .and_then(|expanded| validate_granted_path(&module_source.join(&expanded), &[module_source.to_path_buf()], "module template"))
+                .map(|_| ())
         }
         | Some(TemplateAttribute::Template(_)) | None => Ok(()),
     }

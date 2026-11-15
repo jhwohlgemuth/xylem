@@ -27,26 +27,38 @@ config-declared positional invocation are accepted behavior to preserve.
 
 ## Current evidence and review findings
 
-Rechecked on 2026-11-13 after EXP-05 and EXP-06 implementation on baseline
-`53ede7d` (v1.0.8). The bounded core now expands plain inputs, workflow
+Rechecked on 2026-11-14 after EXP-07 and EXP-08 implementation on baseline
+`43221df` (v1.0.8). The bounded core now expands plain inputs, workflow
 output, local and remote leaf URIs, and nested configuration URIs before their
 owning discovery, policy, cache, and cycle checks. Invocation bindings remain
 available through nested resolution. Loaded inline and external template
 commands expand from static module bindings; the dry-run plan reports the
-effective inline command. Source tests cover verified HTTP, pinned Git, and
-local OCI acquisition; offline cache reuse; effective-host denial; unknown
-names before requests; and effective nested cycles. Command tests cover module
-precedence, external loading, spaced executable paths, argv boundaries, and
-CLI plan/execution agreement. An invalid external command retains its typed
-error through container preflight and exits as CLI data error before launch.
-The xylem-lib suite passed 358 tests with two ignored; the workflow CLI suite
-passed 49 with three ignored. Focused Clippy and rustdoc passed.
+effective inline command. String-valued template filenames expand before
+discovery, environment detection, sandbox containment checks, and loading; an
+explicitly interpolated filename that does not exist fails instead of falling
+back to the default template, while literal declarations keep that fallback,
+and the dry-run plan reports the effective filename in `template_source`.
+Declared virtual-environment names expand before Pixi, Conda, and Mamba
+preparation and launch from the same static module scope; detected
+environments and Xylem-owned input-local prefixes keep their behavior.
+Source tests cover verified HTTP, pinned Git, and local OCI acquisition;
+offline cache reuse; effective-host denial; unknown names before requests; and
+effective nested cycles. Command, template-path, and environment tests cover
+module precedence, external loading, spaced executable paths, argv boundaries,
+and CLI plan/execution agreement; template-path tests cover alternate
+selection, missing expanded files, unchanged literal fallback, and sandbox
+containment and symlink rejection on expanded filenames; environment tests
+cover Pixi and Conda preparation and launch arguments, missing and empty names
+before preparation, detection defaults, input-local prefixes, and recorded
+fake-manager invocation. An invalid external command retains its typed error
+through container preflight and exits as a CLI data error before launch. The
+xylem-lib suite passed 368 tests with two ignored; the workflow CLI suite
+passed 51 with three ignored. Focused Clippy and rustdoc passed.
 No serialized plan or summary shape changed.
 
 | Review priority | Remaining gap | Repository evidence | Observable consequence |
 |---|---|---|---|
-| 1 | Template filename | `Script::from_module` still loads the authored filename. | A variable-selected filename can fall through to the default template. |
-| 2 | Container and virtual-environment settings | `Config::container_declarations`, `ContainerEnvironment::create_managed`, and `Module::resolve_virtual_environment` consume literal settings. | Image names, mount paths, logical container names, startup arguments, and environment names cannot reliably share configured variables. |
+| 1 | Container and mount settings | `Config::container_declarations` and `ContainerEnvironment` declarations consume literal image, name, startup-argument, and mount settings. | Image names, mount paths, logical container names, and startup arguments cannot reliably share configured variables. |
 
 The review concerns public configuration behavior in the Rust library and its
 CLI adapter. These are follow-up interface gaps, not newly introduced Rust
@@ -181,9 +193,9 @@ claiming that the effective command has been inspected.
 
 ## Dependencies, execution order, and parallel work
 
-EXP-01 through EXP-06 are implemented. EXP-07 is ready on the local worktree.
-Recommended order: EXP-07, then EXP-08, EXP-09, EXP-10. EXP-11 qualifies the
-combined behavior.
+EXP-01 through EXP-08 are implemented. EXP-09 is ready on the local worktree.
+Recommended order: EXP-09, then EXP-10. EXP-11 qualifies the combined
+behavior.
 
 Configuration and CLI phases serialize with K8S owners of the same
 files. Completed source phases did not require SEC-07's Windows qualification
@@ -257,33 +269,11 @@ requires new fields, stop and add a bounded schema phase with Run state ownershi
 
 # Execution phases
 
-## EXP-07 — Expand template filenames before loading
+## EXP-09 — Expand container identity and startup settings
 
 - Status: ready
 - Budget: 5 active hours maximum
-- Prerequisites: reserve command preparation and sandbox template-validation files.
-- Exact write set: `crates/xylem-lib/src/config/interpolation.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/script/tests/mod.rs`, `crates/xylem-lib/src/sandbox/mod.rs`, `crates/xylem-lib/src/sandbox/tests/mod.rs`, `crates/xylem-lib/src/plan.rs`, `crates/xylem-cli/tests/workflow.rs`; User documentation and Planning reconciliation sets.
-- Primary integration lock: Command preparation
-- Outcome: String-valued template filenames expand consistently for discovery, environment detection, sandbox validation, and execution. Missing explicitly interpolated filenames fail; existing literal fallback remains unchanged. Reapply existing path/containment rules to the final filename.
-- Focused validation: New `template_path_interpolation` tests for alternate templates, module overrides, missing expanded files, unchanged literal fallback, symlink/containment cases, and external-template command expansion after selection.
-- Handoff: Record filename behavior and error contract, prune the phase, and make environment/container consumers eligible.
-
-## EXP-08 — Expand virtual-environment names without changing isolation
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: EXP-07 accepted; command preparation files released by their previous owner.
-- Exact write set: `crates/xylem-lib/src/config/interpolation.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/script/tests/mod.rs`, `crates/xylem-cli/tests/workflow.rs`; User documentation and Planning reconciliation sets.
-- Primary integration lock: Command preparation
-- Outcome: Explicit virtual-environment names expand before preparation and invocation for supported managers. Detection defaults and Xylem-owned environment paths retain their behavior; templates and invocation bindings use the same static module scope.
-- Focused validation: New `environment_interpolation` tests with recording/fake manager commands for Pixi and Conda/Mamba name arguments, missing variables before installation, and distinct input-local prefixes. No dependency downloads or mutation of installed user environments.
-- Handoff: Document verified managers and any live-manager limitations; prune after the deterministic preparation/launch contract passes.
-
-## EXP-09 — Expand container identity and startup settings
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: EXP-07 accepted; reserve command preparation, container declaration, and plan files.
+- Prerequisites: reserve command preparation, container declaration, and plan files.
 - Exact write set: `crates/xylem-lib/src/config/interpolation.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/validation.rs`, `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/script/tests/mod.rs`, `crates/xylem-lib/src/container.rs`, `crates/xylem-lib/src/plan.rs`, `crates/xylem-lib/src/tests/plan.rs`, `crates/xylem-cli/tests/workflow.rs`; User documentation and Planning reconciliation sets.
 - Primary integration lock: Command preparation
 - Outcome: Container image/logical name/startup-command elements expand before declaration comparison, validation, owned naming, and creation. Preserve runtime/context literals, external-container ownership, startup strategy, and cleanup behavior. Operator sandbox workload identities remain unchanged.
@@ -305,7 +295,7 @@ requires new fields, stop and add a bounded schema phase with Run state ownershi
 
 - Status: planned
 - Budget: 5 active hours maximum
-- Prerequisites: EXP-08 and EXP-10 accepted; serialize final checks after all implementation work stabilizes.
+- Prerequisites: EXP-10 accepted; serialize final checks after all implementation work stabilizes.
 - Exact write set: `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-lib/src/tests/plan.rs`, `crates/xylem-lib/src/tests/completion.rs`, `crates/xylem-cli/src/commands/export.rs`, `crates/xylem-cli/tests/workflow.rs`, `crates/xylem-cli/tests/export.rs`, `crates/xylem-cli/examples/configuration-variables.json`, `ARCHITECTURE.md`; User documentation and Planning reconciliation sets.
 - Primary integration lock: CLI
 - Outcome: One executable configuration demonstrates combined inputs/output/source/template behavior with named and positional invocation bindings. Export check/generation validates effective configuration through the same shared resolution contract while keeping its existing command interface. No product feature is deferred from a prior phase to make that phase coherent.

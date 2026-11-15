@@ -474,14 +474,22 @@ impl Module {
                         working_directory,
                     })
             }
-            | Some(TemplateAttribute::Path(path)) => Ok(PlannedCommand {
-                arguments: Vec::new(),
-                program: None,
-                template_source: working_directory
-                    .as_ref()
-                    .map(|directory| PathBuf::from(directory).join(path).display().to_string()),
-                working_directory,
-            }),
+            | Some(TemplateAttribute::Path(path)) => {
+                let field = format!("modules.{}.template.path", self.module_path.join("::"));
+                let filename = match path.contains("{{") {
+                    | false => Ok(path.clone()),
+                    | true => crate::config::interpolation::expand(path, config.static_module_variables(self).as_ref(), field)
+                        .map_err(|source| TemplateError::Interpolation { source }),
+                };
+                filename.map(|expanded| PlannedCommand {
+                    arguments: Vec::new(),
+                    program: None,
+                    template_source: working_directory
+                        .as_ref()
+                        .map(|directory| PathBuf::from(directory).join(&expanded).display().to_string()),
+                    working_directory,
+                })
+            }
             | None => Ok(PlannedCommand {
                 arguments: Vec::new(),
                 program: None,

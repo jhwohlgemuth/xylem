@@ -277,6 +277,20 @@ Input- and run-derived built-ins cannot select an executable. A dry-run plan
 shows the effective inline command. For an unavailable external template it
 continues to show `template_source` without loading the command.
 
+A string-valued `template` path expands from the same static module bindings
+before the template file is discovered, environment-detected, sandbox-checked,
+or loaded. An explicitly interpolated filename that does not exist fails
+instead of falling back to the default template; declarations without
+placeholders keep that fallback. The dry-run plan reports the effective
+filename in `template_source`. The expanded filename still passes the existing
+path and containment rules.
+
+A declared virtual-environment `name` in an inline or loaded template also
+expands from static module bindings before environment preparation and launch.
+Pixi, Conda, and Mamba receive the expanded name. Detected environments and
+Xylem-owned input-local prefixes keep their behavior, and an expanded name
+must not be empty.
+
 Structural interpolation uses the bounded root syntax and rejects unknown or
 cyclic names, non-scalar values, malformed placeholders, and NUL. It does not
 read the process environment or input/run-derived built-ins. The selected

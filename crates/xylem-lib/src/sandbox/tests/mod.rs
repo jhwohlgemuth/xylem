@@ -608,6 +608,38 @@ fn test_invocation_rejects_symlinks_inside_mounted_trees() {
     assert!(error.to_string().contains("is a symlink"));
     remove_dir_all(directory).expect("remove policy fixture directory");
 }
+#[cfg(unix)]
+#[test]
+fn test_template_path_interpolation_reauthorizes_expanded_filename_in_sandbox() {
+    use std::os::unix::fs::symlink;
+
+    let directory = root("template-path-interpolation");
+    let modules = directory.join("modules");
+    create_dir_all(&modules).expect("create module fixture directory");
+    write(modules.join("inside.json"), r#"{"command":"true","arguments":[]}"#).expect("write inside template");
+    write(directory.join("outside.json"), r#"{"command":"true","arguments":[]}"#).expect("write outside template");
+    symlink("/etc/passwd", modules.join("escape.json")).expect("create template symlink fixture");
+    let template = |name: &str| {
+        serde_json::from_value::<Module>(serde_json::json!({
+            "name": "probe", "type": "script", "uri": format!("file:{}", modules.display()),
+            "variables": {"NAME": name}, "template": "{{ NAME }}"
+        }))
+        .expect("parse module fixture")
+    };
+    validate_template_path(&template("inside.json"), &modules).expect("expanded template inside module roots");
+    let escape = validate_template_path(&template("../outside.json"), &modules).expect_err("escaped template must fail");
+    assert!(escape.to_string().contains("outside the operator policy roots"), "{escape}");
+    let symlinked = validate_template_path(&template("escape.json"), &modules).expect_err("symlinked template must fail");
+    assert!(symlinked.to_string().contains("is a symlink"), "{symlinked}");
+    let unresolved: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", modules.display()),
+        "template": "{{ MISSING }}"
+    }))
+    .expect("parse unresolved module fixture");
+    let unresolved = validate_template_path(&unresolved, &modules).expect_err("unknown template variable must fail");
+    assert!(unresolved.to_string().contains("modules.probe.template.path"), "{unresolved}");
+    remove_dir_all(directory).expect("remove template path fixture directory");
+}
 #[test]
 fn test_isolation_classes_are_ordered_by_strength() {
     assert!(IsolationClass::Process < IsolationClass::SharedKernel);
