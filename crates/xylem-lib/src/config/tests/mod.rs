@@ -805,6 +805,50 @@ fn test_configuration_version_must_be_semantic() {
     }
 }
 #[test]
+fn test_container_interpolation_uses_module_scope_and_invocation_precedence() {
+    let root = std::env::temp_dir().join(format!("xylem-container-precedence-{}", std::process::id()));
+    create_dir_all(&root).expect("create fixture");
+    let config_path = root.join("config.json");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "variables": {"IMAGE": "workflow-image:1"},
+        "modules": [{
+            "name": "probe", "type": "script", "uri": "file:.",
+            "variables": {"IMAGE": "module-image:1", "NAME": "worker"},
+            "template": {"command": "true", "arguments": [], "container": {
+                "name": "{{ NAME }}", "create": true, "image": "{{ IMAGE }}", "runtime": "docker"
+            }}
+        }]
+    }))
+    .expect("container fixture");
+    let resolved = config.clone().resolve(&config_path).expect("resolve module container");
+    let loaded = Script::from_module(resolved.modules[0].clone(), None).expect("load module container");
+    let container = loaded.command.container.as_ref().expect("declared container");
+    assert_eq!(container.name, "worker");
+    assert_eq!(container.image.as_deref(), Some("module-image:1"));
+    let bindings = VariableOverrides::parse(&["IMAGE=invoked-image:1".to_string()]).expect("binding");
+    let policy = acquisition_policy(None, false, true);
+    let cache = AcquisitionCache::new(root.join("cache"));
+    let resolved = config
+        .resolve_with_policy_and_bindings(&config_path, &policy, &cache, true, &bindings)
+        .expect("resolve invoked container");
+    let loaded = Script::from_module(resolved.modules[0].clone(), None).expect("load invoked container");
+    let container = loaded.command.container.as_ref().expect("invoked container");
+    assert_eq!(container.image.as_deref(), Some("invoked-image:1"));
+    let missing: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "modules": [{
+            "name": "broken", "type": "script", "uri": "file:.",
+            "template": {"command": "true", "arguments": [], "container": {
+                "name": "worker", "create": true, "image": "{{ MISSING }}", "runtime": "docker"
+            }}
+        }]
+    }))
+    .expect("missing container fixture");
+    let resolved = missing.resolve(&config_path).expect("resolve unresolved image");
+    let error = Script::from_module(resolved.modules[0].clone(), None).expect_err("missing image binding");
+    assert!(error.to_string().contains("modules.broken.template.container.image"), "{error}");
+    remove_dir_all(root).expect("remove fixture");
+}
+#[test]
 fn test_context_variables_apply_precedence_and_derived_values() {
     let root = std::env::temp_dir().join(format!("xylem-context-precedence-{}", std::process::id()));
     let _ = remove_dir_all(&root);
@@ -980,6 +1024,44 @@ fn test_contexts_isolate_repeated_and_zero_inputs() {
     drop((first, second, zero));
     context.close().expect("close run context");
     let _ = remove_dir_all(root);
+}
+#[test]
+fn test_environment_interpolation_uses_module_scope_and_invocation_precedence() {
+    let root = std::env::temp_dir().join(format!("xylem-environment-precedence-{}", std::process::id()));
+    create_dir_all(&root).expect("create fixture");
+    let config_path = root.join("config.json");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "variables": {"ENV_NAME": "workflow-env"}, "modules": [{
+            "name": "probe", "type": "script", "uri": "file:.",
+            "variables": {"ENV_NAME": "module-env"},
+            "template": {"command": "true", "arguments": [], "environment": {"name": "{{ ENV_NAME }}", "manager": "pixi"}}
+        }]
+    }))
+    .expect("environment fixture");
+    let resolved = config.clone().resolve(&config_path).expect("resolve module environment");
+    let loaded = Script::from_module(resolved.modules[0].clone(), None).expect("load expanded environment");
+    let declared = loaded.command.virtual_environment.as_ref().expect("declared environment");
+    assert_eq!(declared.name, "module-env");
+    let bindings = VariableOverrides::parse(&["ENV_NAME=invoked-env".to_string()]).expect("binding");
+    let policy = acquisition_policy(None, false, true);
+    let cache = AcquisitionCache::new(root.join("cache"));
+    let resolved = config
+        .resolve_with_policy_and_bindings(&config_path, &policy, &cache, true, &bindings)
+        .expect("resolve invoked environment");
+    let loaded = Script::from_module(resolved.modules[0].clone(), None).expect("load invoked environment");
+    let declared = loaded.command.virtual_environment.as_ref().expect("invoked environment");
+    assert_eq!(declared.name, "invoked-env");
+    let missing: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "modules": [{
+            "name": "broken", "type": "script", "uri": "file:.",
+            "template": {"command": "true", "arguments": [], "environment": {"name": "{{ MISSING }}", "manager": "pixi"}}
+        }]
+    }))
+    .expect("missing environment fixture");
+    let resolved = missing.resolve(&config_path).expect("resolve unresolved name");
+    let error = Script::from_module(resolved.modules[0].clone(), None).expect_err("missing environment binding");
+    assert!(error.to_string().contains("modules.broken.template.environment.name"), "{error}");
+    remove_dir_all(root).expect("remove fixture");
 }
 #[test]
 fn test_every_example_configuration_passes_semantic_validation() {
@@ -1671,6 +1753,81 @@ fn test_module_timeout_validation_is_type_qualified() {
     .is_err());
 }
 #[test]
+fn test_mount_interpolation_expands_inline_mounts_before_rebasing() {
+    let root = std::env::temp_dir().join(format!("xylem-mount-inline-{}", std::process::id()));
+    create_dir_all(&root).expect("create inline mount fixture");
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "variables": {"DATA": "shared", "TARGET": "/work"},
+        "modules": [{
+            "name": "probe", "type": "script", "uri": "file:.",
+            "template": {"command": "true", "arguments": [], "container": {
+                "name": "worker", "create": true, "image": "alpine:3.22", "runtime": "docker",
+                "mounts": [{"source": "{{ DATA }}/in", "target": "{{ TARGET }}"}]
+            }}
+        }]
+    }))
+    .expect("inline mount fixture");
+    assert!(config.validate().is_ok(), "authored mount placeholders defer structural checks");
+    let resolved = config.clone().resolve(&root.join("config.json")).expect("resolve inline mounts");
+    let Some(crate::script::TemplateAttribute::Template(template)) = &resolved.modules[0].template else {
+        panic!("expected inline template");
+    };
+    let container = template.container.as_ref().expect("declared container");
+    let mount = container.mounts.first().expect("declared mount");
+    assert_eq!(mount.source, root.join("shared/in").display().to_string());
+    assert_eq!(mount.target, "/work");
+    let mut invalid = config;
+    if let Some(variables) = invalid.variables.as_mut() {
+        variables.insert("TARGET".to_string(), serde_json::Value::String("relative".to_string()));
+    }
+    let resolved = invalid.resolve(&root.join("config.json")).expect("resolve relative target");
+    let error = resolved.validate().expect_err("expanded target must satisfy mount rules");
+    assert!(error.to_string().contains("mounts[0].target"), "{error}");
+    remove_dir_all(root).expect("remove inline mount fixture");
+}
+#[test]
+fn test_mount_interpolation_expands_nested_declared_mounts() {
+    let root = std::env::temp_dir().join(format!("xylem-mount-nested-{}", std::process::id()));
+    let child = root.join("child");
+    create_dir_all(&child).expect("create nested mount fixture");
+    let root_config = root.join("config.json");
+    write(
+        &root_config,
+        serde_json::json!({"requirements": [], "modules": [{"name": "wrapper", "type": "configuration", "uri": "file:child/config.json"}]})
+            .to_string(),
+    )
+    .expect("write root configuration");
+    write(
+        child.join("config.json"),
+        serde_json::json!({
+            "requirements": [], "variables": {"DATA": "child-data", "TARGET": "/work"},
+            "modules": [{
+                "name": "leaf", "type": "script", "uri": "file:.",
+                "template": {"command": "true", "arguments": [], "container": {
+                    "name": "worker", "create": true, "image": "alpine:3.22", "runtime": "docker",
+                    "mounts": [{"source": "{{ DATA }}/in", "target": "{{ TARGET }}"}]
+                }}
+            }]
+        })
+        .to_string(),
+    )
+    .expect("write child configuration");
+    let resolved = Config::read(root_config.clone())
+        .expect("read root configuration")
+        .resolve(&root_config)
+        .expect("resolve nested mounts");
+    let Some(crate::script::TemplateAttribute::Template(template)) = &resolved.modules[0].template else {
+        panic!("expected inline template");
+    };
+    let container = template.container.as_ref().expect("declared container");
+    let mount = container.mounts.first().expect("declared mount");
+    assert_eq!(resolved.modules[0].module_path, vec!["wrapper", "leaf"]);
+    let base = std::fs::canonicalize(&child).expect("canonicalize child configuration");
+    assert_eq!(mount.source, base.join("child-data/in").display().to_string());
+    assert_eq!(mount.target, "/work");
+    remove_dir_all(root).expect("remove nested mount fixture");
+}
+#[test]
 fn test_non_local_environment_managers_are_rejected() {
     let config: Config = serde_json::from_value(serde_json::json!({
         "modules": [{
@@ -2204,163 +2361,6 @@ fn test_structural_interpolation_across_configuration_formats() {
         }
     }
     remove_dir_all(root).expect("remove fixture");
-}
-#[test]
-fn test_environment_interpolation_uses_module_scope_and_invocation_precedence() {
-    let root = std::env::temp_dir().join(format!("xylem-environment-precedence-{}", std::process::id()));
-    create_dir_all(&root).expect("create fixture");
-    let config_path = root.join("config.json");
-    let config: Config = serde_json::from_value(serde_json::json!({
-        "requirements": [], "variables": {"ENV_NAME": "workflow-env"}, "modules": [{
-            "name": "probe", "type": "script", "uri": "file:.",
-            "variables": {"ENV_NAME": "module-env"},
-            "template": {"command": "true", "arguments": [], "environment": {"name": "{{ ENV_NAME }}", "manager": "pixi"}}
-        }]
-    }))
-    .expect("environment fixture");
-    let resolved = config.clone().resolve(&config_path).expect("resolve module environment");
-    let loaded = Script::from_module(resolved.modules[0].clone(), None).expect("load expanded environment");
-    let declared = loaded.command.virtual_environment.as_ref().expect("declared environment");
-    assert_eq!(declared.name, "module-env");
-    let bindings = VariableOverrides::parse(&["ENV_NAME=invoked-env".to_string()]).expect("binding");
-    let policy = acquisition_policy(None, false, true);
-    let cache = AcquisitionCache::new(root.join("cache"));
-    let resolved = config
-        .resolve_with_policy_and_bindings(&config_path, &policy, &cache, true, &bindings)
-        .expect("resolve invoked environment");
-    let loaded = Script::from_module(resolved.modules[0].clone(), None).expect("load invoked environment");
-    let declared = loaded.command.virtual_environment.as_ref().expect("invoked environment");
-    assert_eq!(declared.name, "invoked-env");
-    let missing: Config = serde_json::from_value(serde_json::json!({
-        "requirements": [], "modules": [{
-            "name": "broken", "type": "script", "uri": "file:.",
-            "template": {"command": "true", "arguments": [], "environment": {"name": "{{ MISSING }}", "manager": "pixi"}}
-        }]
-    }))
-    .expect("missing environment fixture");
-    let resolved = missing.resolve(&config_path).expect("resolve unresolved name");
-    let error = Script::from_module(resolved.modules[0].clone(), None).expect_err("missing environment binding");
-    assert!(error.to_string().contains("modules.broken.template.environment.name"), "{error}");
-    remove_dir_all(root).expect("remove fixture");
-}
-#[test]
-fn test_container_interpolation_uses_module_scope_and_invocation_precedence() {
-    let root = std::env::temp_dir().join(format!("xylem-container-precedence-{}", std::process::id()));
-    create_dir_all(&root).expect("create fixture");
-    let config_path = root.join("config.json");
-    let config: Config = serde_json::from_value(serde_json::json!({
-        "requirements": [], "variables": {"IMAGE": "workflow-image:1"},
-        "modules": [{
-            "name": "probe", "type": "script", "uri": "file:.",
-            "variables": {"IMAGE": "module-image:1", "NAME": "worker"},
-            "template": {"command": "true", "arguments": [], "container": {
-                "name": "{{ NAME }}", "create": true, "image": "{{ IMAGE }}", "runtime": "docker"
-            }}
-        }]
-    }))
-    .expect("container fixture");
-    let resolved = config.clone().resolve(&config_path).expect("resolve module container");
-    let loaded = Script::from_module(resolved.modules[0].clone(), None).expect("load module container");
-    let container = loaded.command.container.as_ref().expect("declared container");
-    assert_eq!(container.name, "worker");
-    assert_eq!(container.image.as_deref(), Some("module-image:1"));
-    let bindings = VariableOverrides::parse(&["IMAGE=invoked-image:1".to_string()]).expect("binding");
-    let policy = acquisition_policy(None, false, true);
-    let cache = AcquisitionCache::new(root.join("cache"));
-    let resolved = config
-        .resolve_with_policy_and_bindings(&config_path, &policy, &cache, true, &bindings)
-        .expect("resolve invoked container");
-    let loaded = Script::from_module(resolved.modules[0].clone(), None).expect("load invoked container");
-    let container = loaded.command.container.as_ref().expect("invoked container");
-    assert_eq!(container.image.as_deref(), Some("invoked-image:1"));
-    let missing: Config = serde_json::from_value(serde_json::json!({
-        "requirements": [], "modules": [{
-            "name": "broken", "type": "script", "uri": "file:.",
-            "template": {"command": "true", "arguments": [], "container": {
-                "name": "worker", "create": true, "image": "{{ MISSING }}", "runtime": "docker"
-            }}
-        }]
-    }))
-    .expect("missing container fixture");
-    let resolved = missing.resolve(&config_path).expect("resolve unresolved image");
-    let error = Script::from_module(resolved.modules[0].clone(), None).expect_err("missing image binding");
-    assert!(error.to_string().contains("modules.broken.template.container.image"), "{error}");
-    remove_dir_all(root).expect("remove fixture");
-}
-#[test]
-fn test_mount_interpolation_expands_inline_mounts_before_rebasing() {
-    let root = std::env::temp_dir().join(format!("xylem-mount-inline-{}", std::process::id()));
-    create_dir_all(&root).expect("create inline mount fixture");
-    let config: Config = serde_json::from_value(serde_json::json!({
-        "requirements": [], "variables": {"DATA": "shared", "TARGET": "/work"},
-        "modules": [{
-            "name": "probe", "type": "script", "uri": "file:.",
-            "template": {"command": "true", "arguments": [], "container": {
-                "name": "worker", "create": true, "image": "alpine:3.22", "runtime": "docker",
-                "mounts": [{"source": "{{ DATA }}/in", "target": "{{ TARGET }}"}]
-            }}
-        }]
-    }))
-    .expect("inline mount fixture");
-    assert!(config.validate().is_ok(), "authored mount placeholders defer structural checks");
-    let resolved = config.clone().resolve(&root.join("config.json")).expect("resolve inline mounts");
-    let Some(crate::script::TemplateAttribute::Template(template)) = &resolved.modules[0].template else {
-        panic!("expected inline template");
-    };
-    let container = template.container.as_ref().expect("declared container");
-    let mount = container.mounts.first().expect("declared mount");
-    assert_eq!(mount.source, root.join("shared/in").display().to_string());
-    assert_eq!(mount.target, "/work");
-    let mut invalid = config;
-    if let Some(variables) = invalid.variables.as_mut() {
-        variables.insert("TARGET".to_string(), serde_json::Value::String("relative".to_string()));
-    }
-    let resolved = invalid.resolve(&root.join("config.json")).expect("resolve relative target");
-    let error = resolved.validate().expect_err("expanded target must satisfy mount rules");
-    assert!(error.to_string().contains("mounts[0].target"), "{error}");
-    remove_dir_all(root).expect("remove inline mount fixture");
-}
-#[test]
-fn test_mount_interpolation_expands_nested_declared_mounts() {
-    let root = std::env::temp_dir().join(format!("xylem-mount-nested-{}", std::process::id()));
-    let child = root.join("child");
-    create_dir_all(&child).expect("create nested mount fixture");
-    let root_config = root.join("config.json");
-    write(
-        &root_config,
-        serde_json::json!({"requirements": [], "modules": [{"name": "wrapper", "type": "configuration", "uri": "file:child/config.json"}]})
-            .to_string(),
-    )
-    .expect("write root configuration");
-    write(
-        child.join("config.json"),
-        serde_json::json!({
-            "requirements": [], "variables": {"DATA": "child-data", "TARGET": "/work"},
-            "modules": [{
-                "name": "leaf", "type": "script", "uri": "file:.",
-                "template": {"command": "true", "arguments": [], "container": {
-                    "name": "worker", "create": true, "image": "alpine:3.22", "runtime": "docker",
-                    "mounts": [{"source": "{{ DATA }}/in", "target": "{{ TARGET }}"}]
-                }}
-            }]
-        })
-        .to_string(),
-    )
-    .expect("write child configuration");
-    let resolved = Config::read(root_config.clone())
-        .expect("read root configuration")
-        .resolve(&root_config)
-        .expect("resolve nested mounts");
-    let Some(crate::script::TemplateAttribute::Template(template)) = &resolved.modules[0].template else {
-        panic!("expected inline template");
-    };
-    let container = template.container.as_ref().expect("declared container");
-    let mount = container.mounts.first().expect("declared mount");
-    assert_eq!(resolved.modules[0].module_path, vec!["wrapper", "leaf"]);
-    let base = std::fs::canonicalize(&child).expect("canonicalize child configuration");
-    assert_eq!(mount.source, base.join("child-data/in").display().to_string());
-    assert_eq!(mount.target, "/work");
-    remove_dir_all(root).expect("remove nested mount fixture");
 }
 #[test]
 fn test_type_specific_module_fields_are_rejected_in_json_and_yaml() {

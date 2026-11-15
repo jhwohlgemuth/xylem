@@ -344,226 +344,6 @@ fn test_cli_command_interpolation_matches_plan_and_execution_with_spaced_executa
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
-fn test_cli_template_path_interpolation_matches_plan_and_execution() {
-    let root = std::env::temp_dir().join(format!("xylem-cli-template-path-{}", std::process::id()));
-    let _ = remove_dir_all(&root);
-    create_dir_all(&root).expect("create fixture");
-    let result = root.join("result.txt");
-    let marker = |value: &str| {
-        serde_json::json!({"command": "sh", "arguments": [
-            "-c", format!("printf {value} > \"$1\""), "sh", result.display().to_string()
-        ]})
-        .to_string()
-    };
-    write(root.join("template.json"), marker("default")).expect("write default template");
-    write(root.join("alternate.json"), marker("alternate")).expect("write alternate template");
-    let config = root.join("workflow.json");
-    write(
-        &config,
-        serde_json::json!({
-            "requirements": [],
-            "variables": {},
-            "modules": [{
-                "name": "probe", "type": "script", "programmingLanguage": "generic",
-                "uri": format!("file:{}", root.display()),
-                "template": "{{ TEMPLATE }}"
-            }]
-        })
-        .to_string(),
-    )
-    .expect("write workflow");
-    let path = config.to_str().expect("config path");
-    let preview = xylem_command()
-        .args(["run", path, "--dry-run", "--reporter", "json", "--var", "TEMPLATE=alternate.json"])
-        .output()
-        .expect("preview template selection");
-    assert!(preview.status.success(), "{}", String::from_utf8_lossy(&preview.stderr));
-    let plan: serde_json::Value = serde_json::from_slice(&preview.stdout).expect("plan JSON");
-    let reported = plan["modules"][0]["command"]["template_source"].as_str().expect("template source");
-    assert!(reported.ends_with("alternate.json"), "{reported}");
-    let execution = xylem_command()
-        .args(["run", path, "--no-progress", "--var", "TEMPLATE=alternate.json"])
-        .output()
-        .expect("execute selected template");
-    assert!(execution.status.success(), "{}", String::from_utf8_lossy(&execution.stderr));
-    assert_eq!(read_to_string(&result).expect("read result"), "alternate");
-    remove_file(&result).expect("clear result");
-    let missing = xylem_command()
-        .args(["run", path, "--no-progress", "--var", "TEMPLATE=absent.json"])
-        .output()
-        .expect("reject missing expanded template");
-    assert!(!missing.status.success(), "{}", String::from_utf8_lossy(&missing.stderr));
-    assert!(String::from_utf8_lossy(&missing.stderr).contains("absent.json"));
-    assert!(!result.exists(), "missing expanded template must not run");
-    let unknown = xylem_command()
-        .args(["run", path, "--dry-run", "--reporter", "json", "--var", "OTHER=value"])
-        .output()
-        .expect("reject unknown template variable");
-    assert_eq!(unknown.status.code(), Some(65), "{}", String::from_utf8_lossy(&unknown.stderr));
-    assert!(String::from_utf8_lossy(&unknown.stderr).contains("modules.probe.template.path"));
-    let literal = root.join("literal.json");
-    write(
-        &literal,
-        serde_json::json!({
-            "requirements": [],
-            "modules": [{
-                "name": "probe", "type": "script", "programmingLanguage": "generic",
-                "uri": format!("file:{}", root.display()),
-                "template": "absent-literal.json"
-            }]
-        })
-        .to_string(),
-    )
-    .expect("write literal workflow");
-    let fallback = xylem_command()
-        .args(["run", literal.to_str().expect("literal path"), "--no-progress"])
-        .output()
-        .expect("execute literal fallback");
-    assert!(fallback.status.success(), "{}", String::from_utf8_lossy(&fallback.stderr));
-    assert_eq!(read_to_string(&result).expect("read fallback result"), "default");
-    remove_dir_all(root).expect("remove fixture");
-}
-#[cfg(not(target_os = "windows"))]
-#[test]
-fn test_cli_environment_interpolation_uses_recorded_manager() {
-    let root = std::env::temp_dir().join(format!("xylem-cli-environment-{}", std::process::id()));
-    let _ = remove_dir_all(&root);
-    create_dir_all(&root).expect("create fixture");
-    let bin = root.join("bin");
-    create_dir_all(&bin).expect("create fake manager bin");
-    let record = root.join("pixi-record.txt");
-    let fake = bin.join("pixi");
-    write(&fake, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" >> {}\n", record.display())).expect("write fake pixi");
-    let mut permissions = fake.metadata().expect("inspect fake pixi").permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(&fake, permissions).expect("make fake pixi runnable");
-    let config = root.join("workflow.json");
-    write(
-        &config,
-        serde_json::json!({
-            "requirements": [],
-            "modules": [{
-                "name": "probe", "type": "script", "programmingLanguage": "generic",
-                "uri": format!("file:{}", root.display()),
-                "template": {"command": "true", "arguments": [], "environment": {"name": "{{ ENV_NAME }}", "manager": "pixi"}}
-            }]
-        })
-        .to_string(),
-    )
-    .expect("write workflow");
-    let path = config.to_str().expect("config path");
-    let path_environment = format!("{}:{}", bin.display(), std::env::var("PATH").expect("host PATH"));
-    let record_environment = record.display().to_string();
-    let invoked = xylem_command()
-        .env("PATH", &path_environment)
-        .env("XYLEM_FAKE_PIXI_RECORD", &record_environment)
-        .args(["run", path, "--no-progress", "--var", "ENV_NAME=pixi-env"])
-        .output()
-        .expect("invoke expanded environment");
-    assert!(invoked.status.success(), "{}", String::from_utf8_lossy(&invoked.stderr));
-    assert_eq!(read_to_string(&record).expect("read record"), "run\n--environment\npixi-env\ntrue\n");
-    remove_file(&record).expect("clear record");
-    let missing = xylem_command()
-        .env("PATH", path_environment)
-        .env("XYLEM_FAKE_PIXI_RECORD", record_environment)
-        .args(["run", path, "--no-progress"])
-        .output()
-        .expect("reject missing environment binding");
-    assert_eq!(missing.status.code(), Some(65), "{}", String::from_utf8_lossy(&missing.stderr));
-    assert!(String::from_utf8_lossy(&missing.stderr).contains("modules.probe.template.environment.name"));
-    assert!(!record.exists(), "missing environment binding must not invoke the manager");
-    remove_dir_all(root).expect("remove fixture");
-}
-#[cfg(not(target_os = "windows"))]
-#[test]
-fn test_cli_container_interpolation_matches_plan_and_runtime() {
-    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("CLI crate should be inside the workspace");
-    let test_root = std::env::temp_dir().join(format!("xylem-container-interpolation-{}", std::process::id()));
-    let _ = remove_dir_all(&test_root);
-    create_dir_all(&test_root).expect("create container interpolation fixture");
-    let config = test_root.join("workflow.json");
-    write(
-        &config,
-        serde_json::json!({
-            "requirements": [],
-            "modules": [{
-                "name": "managed", "type": "script", "programmingLanguage": "generic",
-                "uri": format!("file:{}", test_root.display()),
-                "template": {
-                    "command": "true",
-                    "arguments": [],
-                    "container": {
-                        "name": "{{ NAME }}",
-                        "create": true,
-                        "image": "{{ IMAGE }}",
-                        "runtime": "docker",
-                        "keep_alive": true,
-                        "startup_timeout_seconds": 1
-                    }
-                }
-            }]
-        })
-        .to_string(),
-    )
-    .expect("write container interpolation workflow");
-    let path = config.to_str().expect("UTF-8 configuration path");
-    let preview = xylem_command()
-        .current_dir(workspace)
-        .args([
-            "run",
-            path,
-            "--dry-run",
-            "--reporter",
-            "json",
-            "--var",
-            "NAME=worker",
-            "--var",
-            "IMAGE=alpine:3.22",
-        ])
-        .output()
-        .expect("run container dry-run plan");
-    assert!(preview.status.success(), "{}", String::from_utf8_lossy(&preview.stderr));
-    let plan: serde_json::Value = serde_json::from_slice(&preview.stdout).expect("valid dry-run plan");
-    assert_eq!(plan["containers"][0]["action"], "would_create");
-    assert_eq!(plan["containers"][0]["name"], "worker");
-    assert_eq!(plan["containers"][0]["image"], "alpine:3.22");
-    assert_eq!(plan["containers"][0]["startup"], "keep_alive");
-    let (_, log) = write_fake_docker(&test_root);
-    let runtime_path =
-        std::env::join_paths(core::iter::once(test_root.clone()).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())))
-            .expect("construct fake runtime PATH");
-    let execution = xylem_command()
-        .current_dir(workspace)
-        .env("PATH", &runtime_path)
-        .env("XYLEM_FAKE_DOCKER_LOG", &log)
-        .args([
-            "--no-progress",
-            "run",
-            path,
-            "--offline",
-            "--var",
-            "NAME=worker",
-            "--var",
-            "IMAGE=alpine:3.22",
-        ])
-        .output()
-        .expect("run expanded container workflow");
-    assert!(execution.status.success(), "{}", String::from_utf8_lossy(&execution.stderr));
-    let invocations = read_to_string(&log).expect("read runtime log");
-    assert!(
-        invocations
-            .lines()
-            .any(|line| line.contains("--label gov.ornl.xylem.logical-name=worker") && line.ends_with("--pull=never alpine:3.22 sleep infinity")),
-        "{invocations}"
-    );
-    assert!(invocations.lines().any(|line| line.starts_with("exec ")), "{invocations}");
-    remove_dir_all(test_root).expect("remove container interpolation fixture");
-}
-#[cfg(not(target_os = "windows"))]
-#[test]
 fn test_cli_container_interpolation_collides_and_rejects_invalid_bindings_before_runtime() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -663,6 +443,145 @@ fn test_cli_container_interpolation_collides_and_rejects_invalid_bindings_before
     );
     assert!(!log.exists(), "invalid binding must not invoke the runtime");
     remove_dir_all(test_root).expect("remove container collision fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_cli_container_interpolation_matches_plan_and_runtime() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!("xylem-container-interpolation-{}", std::process::id()));
+    let _ = remove_dir_all(&test_root);
+    create_dir_all(&test_root).expect("create container interpolation fixture");
+    let config = test_root.join("workflow.json");
+    write(
+        &config,
+        serde_json::json!({
+            "requirements": [],
+            "modules": [{
+                "name": "managed", "type": "script", "programmingLanguage": "generic",
+                "uri": format!("file:{}", test_root.display()),
+                "template": {
+                    "command": "true",
+                    "arguments": [],
+                    "container": {
+                        "name": "{{ NAME }}",
+                        "create": true,
+                        "image": "{{ IMAGE }}",
+                        "runtime": "docker",
+                        "keep_alive": true,
+                        "startup_timeout_seconds": 1
+                    }
+                }
+            }]
+        })
+        .to_string(),
+    )
+    .expect("write container interpolation workflow");
+    let path = config.to_str().expect("UTF-8 configuration path");
+    let preview = xylem_command()
+        .current_dir(workspace)
+        .args([
+            "run",
+            path,
+            "--dry-run",
+            "--reporter",
+            "json",
+            "--var",
+            "NAME=worker",
+            "--var",
+            "IMAGE=alpine:3.22",
+        ])
+        .output()
+        .expect("run container dry-run plan");
+    assert!(preview.status.success(), "{}", String::from_utf8_lossy(&preview.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&preview.stdout).expect("valid dry-run plan");
+    assert_eq!(plan["containers"][0]["action"], "would_create");
+    assert_eq!(plan["containers"][0]["name"], "worker");
+    assert_eq!(plan["containers"][0]["image"], "alpine:3.22");
+    assert_eq!(plan["containers"][0]["startup"], "keep_alive");
+    let (_, log) = write_fake_docker(&test_root);
+    let runtime_path =
+        std::env::join_paths(core::iter::once(test_root.clone()).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())))
+            .expect("construct fake runtime PATH");
+    let execution = xylem_command()
+        .current_dir(workspace)
+        .env("PATH", &runtime_path)
+        .env("XYLEM_FAKE_DOCKER_LOG", &log)
+        .args([
+            "--no-progress",
+            "run",
+            path,
+            "--offline",
+            "--var",
+            "NAME=worker",
+            "--var",
+            "IMAGE=alpine:3.22",
+        ])
+        .output()
+        .expect("run expanded container workflow");
+    assert!(execution.status.success(), "{}", String::from_utf8_lossy(&execution.stderr));
+    let invocations = read_to_string(&log).expect("read runtime log");
+    assert!(
+        invocations
+            .lines()
+            .any(|line| line.contains("--label gov.ornl.xylem.logical-name=worker") && line.ends_with("--pull=never alpine:3.22 sleep infinity")),
+        "{invocations}"
+    );
+    assert!(invocations.lines().any(|line| line.starts_with("exec ")), "{invocations}");
+    remove_dir_all(test_root).expect("remove container interpolation fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_cli_environment_interpolation_uses_recorded_manager() {
+    let root = std::env::temp_dir().join(format!("xylem-cli-environment-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    create_dir_all(&root).expect("create fixture");
+    let bin = root.join("bin");
+    create_dir_all(&bin).expect("create fake manager bin");
+    let record = root.join("pixi-record.txt");
+    let fake = bin.join("pixi");
+    write(&fake, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" >> {}\n", record.display())).expect("write fake pixi");
+    let mut permissions = fake.metadata().expect("inspect fake pixi").permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&fake, permissions).expect("make fake pixi runnable");
+    let config = root.join("workflow.json");
+    write(
+        &config,
+        serde_json::json!({
+            "requirements": [],
+            "modules": [{
+                "name": "probe", "type": "script", "programmingLanguage": "generic",
+                "uri": format!("file:{}", root.display()),
+                "template": {"command": "true", "arguments": [], "environment": {"name": "{{ ENV_NAME }}", "manager": "pixi"}}
+            }]
+        })
+        .to_string(),
+    )
+    .expect("write workflow");
+    let path = config.to_str().expect("config path");
+    let path_environment = format!("{}:{}", bin.display(), std::env::var("PATH").expect("host PATH"));
+    let record_environment = record.display().to_string();
+    let invoked = xylem_command()
+        .env("PATH", &path_environment)
+        .env("XYLEM_FAKE_PIXI_RECORD", &record_environment)
+        .args(["run", path, "--no-progress", "--var", "ENV_NAME=pixi-env"])
+        .output()
+        .expect("invoke expanded environment");
+    assert!(invoked.status.success(), "{}", String::from_utf8_lossy(&invoked.stderr));
+    assert_eq!(read_to_string(&record).expect("read record"), "run\n--environment\npixi-env\ntrue\n");
+    remove_file(&record).expect("clear record");
+    let missing = xylem_command()
+        .env("PATH", path_environment)
+        .env("XYLEM_FAKE_PIXI_RECORD", record_environment)
+        .args(["run", path, "--no-progress"])
+        .output()
+        .expect("reject missing environment binding");
+    assert_eq!(missing.status.code(), Some(65), "{}", String::from_utf8_lossy(&missing.stderr));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("modules.probe.template.environment.name"));
+    assert!(!record.exists(), "missing environment binding must not invoke the manager");
+    remove_dir_all(root).expect("remove fixture");
 }
 #[cfg(not(target_os = "windows"))]
 #[test]
@@ -960,6 +879,87 @@ fn test_cli_structural_interpolation_agrees_across_plan_fields() {
     remove_dir_all(root).expect("remove fixture");
 }
 
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_cli_template_path_interpolation_matches_plan_and_execution() {
+    let root = std::env::temp_dir().join(format!("xylem-cli-template-path-{}", std::process::id()));
+    let _ = remove_dir_all(&root);
+    create_dir_all(&root).expect("create fixture");
+    let result = root.join("result.txt");
+    let marker = |value: &str| {
+        serde_json::json!({"command": "sh", "arguments": [
+            "-c", format!("printf {value} > \"$1\""), "sh", result.display().to_string()
+        ]})
+        .to_string()
+    };
+    write(root.join("template.json"), marker("default")).expect("write default template");
+    write(root.join("alternate.json"), marker("alternate")).expect("write alternate template");
+    let config = root.join("workflow.json");
+    write(
+        &config,
+        serde_json::json!({
+            "requirements": [],
+            "variables": {},
+            "modules": [{
+                "name": "probe", "type": "script", "programmingLanguage": "generic",
+                "uri": format!("file:{}", root.display()),
+                "template": "{{ TEMPLATE }}"
+            }]
+        })
+        .to_string(),
+    )
+    .expect("write workflow");
+    let path = config.to_str().expect("config path");
+    let preview = xylem_command()
+        .args(["run", path, "--dry-run", "--reporter", "json", "--var", "TEMPLATE=alternate.json"])
+        .output()
+        .expect("preview template selection");
+    assert!(preview.status.success(), "{}", String::from_utf8_lossy(&preview.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&preview.stdout).expect("plan JSON");
+    let reported = plan["modules"][0]["command"]["template_source"].as_str().expect("template source");
+    assert!(reported.ends_with("alternate.json"), "{reported}");
+    let execution = xylem_command()
+        .args(["run", path, "--no-progress", "--var", "TEMPLATE=alternate.json"])
+        .output()
+        .expect("execute selected template");
+    assert!(execution.status.success(), "{}", String::from_utf8_lossy(&execution.stderr));
+    assert_eq!(read_to_string(&result).expect("read result"), "alternate");
+    remove_file(&result).expect("clear result");
+    let missing = xylem_command()
+        .args(["run", path, "--no-progress", "--var", "TEMPLATE=absent.json"])
+        .output()
+        .expect("reject missing expanded template");
+    assert!(!missing.status.success(), "{}", String::from_utf8_lossy(&missing.stderr));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("absent.json"));
+    assert!(!result.exists(), "missing expanded template must not run");
+    let unknown = xylem_command()
+        .args(["run", path, "--dry-run", "--reporter", "json", "--var", "OTHER=value"])
+        .output()
+        .expect("reject unknown template variable");
+    assert_eq!(unknown.status.code(), Some(65), "{}", String::from_utf8_lossy(&unknown.stderr));
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("modules.probe.template.path"));
+    let literal = root.join("literal.json");
+    write(
+        &literal,
+        serde_json::json!({
+            "requirements": [],
+            "modules": [{
+                "name": "probe", "type": "script", "programmingLanguage": "generic",
+                "uri": format!("file:{}", root.display()),
+                "template": "absent-literal.json"
+            }]
+        })
+        .to_string(),
+    )
+    .expect("write literal workflow");
+    let fallback = xylem_command()
+        .args(["run", literal.to_str().expect("literal path"), "--no-progress"])
+        .output()
+        .expect("execute literal fallback");
+    assert!(fallback.status.success(), "{}", String::from_utf8_lossy(&fallback.stderr));
+    assert_eq!(read_to_string(&result).expect("read fallback result"), "default");
+    remove_dir_all(root).expect("remove fixture");
+}
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn test_cli_variable_override_matches_plan_and_execution() {

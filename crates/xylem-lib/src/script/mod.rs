@@ -1379,95 +1379,6 @@ impl VirtualEnvironment {
         })
     }
 }
-/// Expand a declared virtual-environment name from static module bindings.
-///
-/// Detected environments and Xylem-owned paths keep their behavior; only the
-/// declared name is interpolated. An expanded name must not be empty.
-fn expand_environment_name(
-    environment: Option<VirtualEnvironment>,
-    variables: Option<&Map<String, Value>>,
-    field: String,
-) -> Result<Option<VirtualEnvironment>, TemplateError> {
-    match environment {
-        | None => Ok(None),
-        | Some(value) => match value.name.contains("{{") {
-            | false => Ok(Some(value)),
-            | true => interpolation::expand(&value.name, variables, field.clone())
-                .and_then(|expanded| match expanded.is_empty() {
-                    | true => Err(ConfigurationInterpolationError {
-                        field,
-                        reason: "expanded environment name must not be empty".to_string(),
-                    }),
-                    | false => Ok(expanded),
-                })
-                .map_err(|source| TemplateError::Interpolation { source })
-                .map(|name| Some(VirtualEnvironment { name, ..value })),
-        },
-    }
-}
-/// Expand declared container identity and startup elements from static module bindings.
-///
-/// Runtime, context, cleanup policy, keep-alive, timeout, and mount fields stay
-/// literal. An expanded logical name or image must not be empty, and startup
-/// argument elements keep the existing argv rules.
-fn expand_container_environment(
-    container: Option<ContainerEnvironment>,
-    variables: Option<&Map<String, Value>>,
-    field: String,
-) -> Result<Option<ContainerEnvironment>, TemplateError> {
-    match container {
-        | None => Ok(None),
-        | Some(value) => {
-            let name = match value.name.contains("{{") {
-                | false => Ok(value.name.clone()),
-                | true => {
-                    interpolation::expand(&value.name, variables, format!("{field}.name")).and_then(|expanded| match expanded.trim().is_empty() {
-                        | true => Err(ConfigurationInterpolationError {
-                            field: format!("{field}.name"),
-                            reason: "expanded container name must not be empty".to_string(),
-                        }),
-                        | false => Ok(expanded),
-                    })
-                }
-            };
-            let image = match value.image.as_deref() {
-                | None => Ok(None),
-                | Some(image) => match image.contains("{{") {
-                    | false => Ok(value.image.clone()),
-                    | true => {
-                        interpolation::expand(image, variables, format!("{field}.image")).and_then(|expanded| match expanded.trim().is_empty() {
-                            | true => Err(ConfigurationInterpolationError {
-                                field: format!("{field}.image"),
-                                reason: "expanded container image must not be empty".to_string(),
-                            }),
-                            | false => Ok(Some(expanded)),
-                        })
-                    }
-                },
-            };
-            let command = value.command.as_deref().map_or_else(
-                || Ok(None),
-                |command| interpolation::expand_values(command, variables, &format!("{field}.command")).map(Some),
-            );
-            name.and_then(|name| image.map(|image| (name, image)))
-                .and_then(|(name, image)| command.map(|command| (name, image, command)))
-                .map_err(|source| TemplateError::Interpolation { source })
-                .map(|(name, image, command)| {
-                    Some(ContainerEnvironment {
-                        name,
-                        image,
-                        command,
-                        ..value
-                    })
-                })
-        }
-    }
-}
-impl VirtualEnvironmentManager {
-    pub(crate) fn supports_sandbox(&self) -> bool {
-        self.is_conda() || self.is_mamba() || self.is_pixi()
-    }
-}
 impl From<&str> for VirtualEnvironmentManager {
     fn from(value: &str) -> Self {
         match value {
@@ -1479,6 +1390,11 @@ impl From<&str> for VirtualEnvironmentManager {
             | "venv" => Self::Virtualenv,
             | _ => Self::Unknown,
         }
+    }
+}
+impl VirtualEnvironmentManager {
+    pub(crate) fn supports_sandbox(&self) -> bool {
+        self.is_conda() || self.is_mamba() || self.is_pixi()
     }
 }
 /// Add forward slash to end of folder path
@@ -1548,6 +1464,90 @@ fn default_container_runtime() -> ContainerRuntime {
 }
 fn default_true() -> bool {
     true
+}
+/// Expand declared container identity and startup elements from static module bindings.
+///
+/// Runtime, context, cleanup policy, keep-alive, timeout, and mount fields stay
+/// literal. An expanded logical name or image must not be empty, and startup
+/// argument elements keep the existing argv rules.
+fn expand_container_environment(
+    container: Option<ContainerEnvironment>,
+    variables: Option<&Map<String, Value>>,
+    field: String,
+) -> Result<Option<ContainerEnvironment>, TemplateError> {
+    match container {
+        | None => Ok(None),
+        | Some(value) => {
+            let name = match value.name.contains("{{") {
+                | false => Ok(value.name.clone()),
+                | true => {
+                    interpolation::expand(&value.name, variables, format!("{field}.name")).and_then(|expanded| match expanded.trim().is_empty() {
+                        | true => Err(ConfigurationInterpolationError {
+                            field: format!("{field}.name"),
+                            reason: "expanded container name must not be empty".to_string(),
+                        }),
+                        | false => Ok(expanded),
+                    })
+                }
+            };
+            let image = match value.image.as_deref() {
+                | None => Ok(None),
+                | Some(image) => match image.contains("{{") {
+                    | false => Ok(value.image.clone()),
+                    | true => {
+                        interpolation::expand(image, variables, format!("{field}.image")).and_then(|expanded| match expanded.trim().is_empty() {
+                            | true => Err(ConfigurationInterpolationError {
+                                field: format!("{field}.image"),
+                                reason: "expanded container image must not be empty".to_string(),
+                            }),
+                            | false => Ok(Some(expanded)),
+                        })
+                    }
+                },
+            };
+            let command = value.command.as_deref().map_or_else(
+                || Ok(None),
+                |command| interpolation::expand_values(command, variables, &format!("{field}.command")).map(Some),
+            );
+            name.and_then(|name| image.map(|image| (name, image)))
+                .and_then(|(name, image)| command.map(|command| (name, image, command)))
+                .map_err(|source| TemplateError::Interpolation { source })
+                .map(|(name, image, command)| {
+                    Some(ContainerEnvironment {
+                        name,
+                        image,
+                        command,
+                        ..value
+                    })
+                })
+        }
+    }
+}
+/// Expand a declared virtual-environment name from static module bindings.
+///
+/// Detected environments and Xylem-owned paths keep their behavior; only the
+/// declared name is interpolated. An expanded name must not be empty.
+fn expand_environment_name(
+    environment: Option<VirtualEnvironment>,
+    variables: Option<&Map<String, Value>>,
+    field: String,
+) -> Result<Option<VirtualEnvironment>, TemplateError> {
+    match environment {
+        | None => Ok(None),
+        | Some(value) => match value.name.contains("{{") {
+            | false => Ok(Some(value)),
+            | true => interpolation::expand(&value.name, variables, field.clone())
+                .and_then(|expanded| match expanded.is_empty() {
+                    | true => Err(ConfigurationInterpolationError {
+                        field,
+                        reason: "expanded environment name must not be empty".to_string(),
+                    }),
+                    | false => Ok(expanded),
+                })
+                .map_err(|source| TemplateError::Interpolation { source })
+                .map(|name| Some(VirtualEnvironment { name, ..value })),
+        },
+    }
 }
 fn find_pixi_manifest(path: PathBuf) -> Option<PathBuf> {
     let pixi_toml = path.join("pixi.toml");

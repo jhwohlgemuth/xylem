@@ -566,12 +566,6 @@ impl Module {
             })
     }
 }
-impl PlanError {
-    /// Whether planning failed because an otherwise valid remote source is unavailable under policy.
-    pub fn is_availability(&self) -> bool {
-        matches!(self, Self::Acquisition(error) if !matches!(error, AcquisitionError::Identity { .. }))
-    }
-}
 impl core::error::Error for PlanError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
@@ -642,6 +636,12 @@ impl From<TemplateError> for PlanError {
 impl From<ValidationReport> for PlanError {
     fn from(error: ValidationReport) -> Self {
         Self::Validation(error)
+    }
+}
+impl PlanError {
+    /// Whether planning failed because an otherwise valid remote source is unavailable under policy.
+    pub fn is_availability(&self) -> bool {
+        matches!(self, Self::Acquisition(error) if !matches!(error, AcquisitionError::Identity { .. }))
     }
 }
 impl PlannedContainer {
