@@ -11,7 +11,7 @@ mod openshell;
 mod reconcile;
 
 use self::artifact::ArtifactManager;
-use crate::config::{Config, InputAttribute};
+use crate::config::{interpolation, Config, InputAttribute};
 use crate::error::ProcessError;
 use crate::remote::RemotePolicy;
 use crate::script::{Module, ModuleLanguage, ModuleType, ModuleUri, Script, TemplateAttribute};
@@ -1778,7 +1778,7 @@ fn validate_template_path(module: &Module, module_source: &Path) -> Result<(), S
             let field = format!("modules.{}.template.path", module.module_path.join("::"));
             let filename = match path.contains("{{") {
                 | false => Ok(path.clone()),
-                | true => crate::config::interpolation::expand(path, module.variables.as_ref(), field)
+                | true => interpolation::expand(path, module.variables.as_ref(), field)
                     .map_err(|why| SandboxError::Validation(format!("module {} template path: {why}", module.name))),
             };
             filename

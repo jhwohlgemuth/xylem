@@ -208,29 +208,30 @@ impl Validate for ContainerEnvironment {
                             validation_error("path", "mount source must be nonempty and must not contain commas"),
                         );
                     }
-                    if interpolated(&mount.target) {
-                        return;
-                    }
+                    let interpolated_target = interpolated(&mount.target);
                     let target = Path::new(&mount.target);
-                    let invalid_target = !target.is_absolute()
-                        || mount.target == "/"
-                        || mount.target.contains(',')
-                        || target.components().any(|component| matches!(component, Component::ParentDir))
-                        || target.components().collect::<PathBuf>() != target;
+                    let invalid_target = !interpolated_target
+                        && (!target.is_absolute()
+                            || mount.target == "/"
+                            || mount.target.contains(',')
+                            || target.components().any(|component| matches!(component, Component::ParentDir))
+                            || target.components().collect::<PathBuf>() != target);
                     if invalid_target {
                         report.add(
                             format!("{path}.target"),
                             validation_error("path", "mount target must be an absolute, normalized non-root path without commas"),
                         );
-                    } else if targets.iter().any(|existing| {
-                        let existing = Path::new(existing);
-                        target.starts_with(existing) || existing.starts_with(target)
-                    }) {
+                    } else if !interpolated_target
+                        && targets.iter().any(|existing| {
+                            let existing = Path::new(existing);
+                            target.starts_with(existing) || existing.starts_with(target)
+                        })
+                    {
                         report.add(
                             format!("{path}.target"),
                             validation_error("nonoverlapping", "mount targets must not overlap"),
                         );
-                    } else {
+                    } else if !interpolated_target {
                         targets.insert(mount.target.as_str());
                     }
                 });

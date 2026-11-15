@@ -3,7 +3,9 @@ extern crate alloc;
 
 use crate::acquisition::{AcquisitionError, AcquisitionPlan};
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
-use crate::config::{Config, ConfigOptions, ConfigurationInterpolationError, FailurePolicy, InputAttribute, MemoryEstimatorOptions, MemoryOptions};
+use crate::config::{
+    interpolation, Config, ConfigOptions, ConfigurationInterpolationError, FailurePolicy, InputAttribute, MemoryEstimatorOptions, MemoryOptions,
+};
 use crate::error::{ModuleLoadError, TemplateError};
 use crate::execution::{ExecutionLimits, InputBatch};
 use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
@@ -480,7 +482,7 @@ impl Module {
                 let field = format!("modules.{}.template.path", self.module_path.join("::"));
                 let filename = match path.contains("{{") {
                     | false => Ok(path.clone()),
-                    | true => crate::config::interpolation::expand(path, config.static_module_variables(self).as_ref(), field)
+                    | true => interpolation::expand(path, config.static_module_variables(self).as_ref(), field)
                         .map_err(|source| TemplateError::Interpolation { source }),
                 };
                 filename.map(|expanded| PlannedCommand {
