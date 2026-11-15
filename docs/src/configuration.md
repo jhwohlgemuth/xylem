@@ -501,6 +501,8 @@ once after upgrading and then resume normally with refreshed markers.
 | Loaded `template.command` | Workflow, wrapper, child, module, then invocation | Command validation and launch |
 | String-valued `template` path | Workflow, wrapper, child, module, then invocation | Template discovery, environment detection, sandbox containment, loading |
 | Declared template environment name | Workflow, wrapper, child, module, then invocation | Environment preparation and launch |
+| Container `image`, logical `name`, startup `command` elements | Workflow, wrapper, child, module, then invocation | Declaration deduplication and conflicts, validation, owned naming, creation |
+| Container mount `source` and `target` | Workflow, wrapper, child, module, then invocation | Declaring-file rebasing, source canonicalization, mount validation |
 
 Configured input directories, input list elements, and selected `--input`
 elements accept workflow-variable placeholders. Xylem expands them before
@@ -535,6 +537,23 @@ A template's declared environment name expands from the same bindings before
 environment preparation and launch for Pixi, Conda, and Mamba. Detected
 environments and Xylem-managed input-local prefixes keep their behavior, and
 an expanded name must not be empty.
+
+A managed container's `image`, logical `name`, and each startup `command`
+element expand from static module bindings before Xylem compares, deduplicates,
+and names declarations and before it creates the container. The runtime,
+context, cleanup policy, keep-alive, and timeout fields stay literal, and an
+expanded name or image must not be empty. Declarations that collide only after
+expansion go through the existing conflict checks, and an invalid binding
+fails before any runtime invocation. Dry-run plans report the expanded
+identity, so planned and runtime containers agree.
+
+Container mount `source` and `target` fields expand from the same bindings
+before the source is rebased against its declaring configuration or template
+file and canonicalized, and before mount validation. An absolute expanded
+source keeps its own base instead of being joined to the declaring file,
+`read_only` settings stay literal, and an expanded target must still satisfy
+the existing absolute, normalized, non-overlapping target rules. A nonexistent
+expanded source fails before any runtime invocation.
 
 These fields resolve recursively from string, number, or Boolean bindings
 with the same 32-level, 10,000-substitution, and 1 MiB limits as selection

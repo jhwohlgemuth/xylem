@@ -201,11 +201,15 @@ impl Validate for ContainerEnvironment {
                 let mut targets = BTreeSet::new();
                 self.mounts.iter().enumerate().for_each(|(index, mount)| {
                     let path = format!("mounts[{index}]");
-                    if mount.source.trim().is_empty() || mount.source.contains(',') {
+                    let interpolated = |value: &str| value.contains("{{") || value.contains("}}");
+                    if !interpolated(&mount.source) && (mount.source.trim().is_empty() || mount.source.contains(',')) {
                         report.add(
                             format!("{path}.source"),
                             validation_error("path", "mount source must be nonempty and must not contain commas"),
                         );
+                    }
+                    if interpolated(&mount.target) {
+                        return;
                     }
                     let target = Path::new(&mount.target);
                     let invalid_target = !target.is_absolute()

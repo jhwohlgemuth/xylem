@@ -4,7 +4,7 @@ extern crate alloc;
 use crate::acquisition::{AcquisitionError, AcquisitionPlan};
 use crate::completion::{CompletionDecision, CompletionError, CompletionPlan};
 use crate::config::{Config, ConfigOptions, ConfigurationInterpolationError, FailurePolicy, InputAttribute, MemoryEstimatorOptions, MemoryOptions};
-use crate::error::TemplateError;
+use crate::error::{ModuleLoadError, TemplateError};
 use crate::execution::{ExecutionLimits, InputBatch};
 use crate::gpu::GPU_SAMPLE_INTERVAL_MS;
 use crate::memory::{MemoryAdmissionError, MemoryCalculationError, MemoryEstimator, MemoryEstimatorError, PlannedMemoryInput};
@@ -382,59 +382,61 @@ impl ExecutionPlan {
                                         })
                                     })
                             })
-                            .map(|modules| Self {
-                                admission: PlannedAdmission {
-                                    batch: config.options.as_ref().and_then(|options| options.batch),
-                                    effective_ceiling: limits.map(|limits| {
-                                        config
-                                            .options
-                                            .as_ref()
-                                            .and_then(|options| options.batch)
-                                            .map_or_else(|| limits.threads(), |batch| batch.get().min(limits.threads()))
-                                    }),
-                                    input_indices: (0..inputs.values.len()).collect(),
-                                },
-                                artifacts: match (&config.output, sandbox.resources.as_ref()) {
-                                    | (Some(destination), Some(resources)) => Some(PlannedArtifactPublication {
-                                        bytes_per_input: Memory::kb(resources.artifact_bytes as f64 / 1024.0),
-                                        destination: destination.clone(),
-                                        entries_per_input: resources.artifact_files,
-                                        mode: "whole_run_atomic".to_string(),
-                                    }),
-                                    | _ => None,
-                                },
-                                containers: PlannedContainer::from_modules(config, &modules),
-                                contexts: (0..inputs.values.len())
-                                    .map(|input_index| PlannedContext {
-                                        input_index,
-                                        workspace: "input_local",
-                                    })
-                                    .collect(),
-                                configuration: PlanConfiguration {
-                                    id: config.id.clone(),
-                                    output: config.output.clone(),
-                                    path,
-                                    version: config.version.clone(),
-                                },
-                                gpu_monitoring: config
-                                    .options
-                                    .as_ref()
-                                    .and_then(|options| options.gpu_monitor)
-                                    .unwrap_or_default()
-                                    .then(|| PlannedGpuMonitoring {
-                                        interval: *GPU_SAMPLE_INTERVAL_MS,
-                                        source: "nvidia-smi".to_string(),
-                                    }),
-                                failure_policy: config
-                                    .options
-                                    .as_ref()
-                                    .map_or_else(FailurePolicy::default, |options| options.failure_policy),
-                                inputs: inputs.clone(),
-                                memory,
-                                modules,
-                                resume,
-                                sandbox,
-                                schema_version: 15,
+                            .and_then(|modules| {
+                                PlannedContainer::from_modules(config, &modules).map(|containers| Self {
+                                    admission: PlannedAdmission {
+                                        batch: config.options.as_ref().and_then(|options| options.batch),
+                                        effective_ceiling: limits.map(|limits| {
+                                            config
+                                                .options
+                                                .as_ref()
+                                                .and_then(|options| options.batch)
+                                                .map_or_else(|| limits.threads(), |batch| batch.get().min(limits.threads()))
+                                        }),
+                                        input_indices: (0..inputs.values.len()).collect(),
+                                    },
+                                    artifacts: match (&config.output, sandbox.resources.as_ref()) {
+                                        | (Some(destination), Some(resources)) => Some(PlannedArtifactPublication {
+                                            bytes_per_input: Memory::kb(resources.artifact_bytes as f64 / 1024.0),
+                                            destination: destination.clone(),
+                                            entries_per_input: resources.artifact_files,
+                                            mode: "whole_run_atomic".to_string(),
+                                        }),
+                                        | _ => None,
+                                    },
+                                    containers,
+                                    contexts: (0..inputs.values.len())
+                                        .map(|input_index| PlannedContext {
+                                            input_index,
+                                            workspace: "input_local",
+                                        })
+                                        .collect(),
+                                    configuration: PlanConfiguration {
+                                        id: config.id.clone(),
+                                        output: config.output.clone(),
+                                        path,
+                                        version: config.version.clone(),
+                                    },
+                                    gpu_monitoring: config
+                                        .options
+                                        .as_ref()
+                                        .and_then(|options| options.gpu_monitor)
+                                        .unwrap_or_default()
+                                        .then(|| PlannedGpuMonitoring {
+                                            interval: *GPU_SAMPLE_INTERVAL_MS,
+                                            source: "nvidia-smi".to_string(),
+                                        }),
+                                    failure_policy: config
+                                        .options
+                                        .as_ref()
+                                        .map_or_else(FailurePolicy::default, |options| options.failure_policy),
+                                    inputs: inputs.clone(),
+                                    memory,
+                                    modules,
+                                    resume,
+                                    sandbox,
+                                    schema_version: 15,
+                                })
                             })
                     })
             })
@@ -643,19 +645,35 @@ impl From<ValidationReport> for PlanError {
     }
 }
 impl PlannedContainer {
-    fn from_modules(config: &Config, modules: &[PlannedModule]) -> Vec<Self> {
-        modules
+    fn from_modules(config: &Config, modules: &[PlannedModule]) -> Result<Vec<Self>, PlanError> {
+        let declarations = modules
             .iter()
             .filter(|module| module.decision == "would_run")
             .map(|module| module.module_index)
             .filter_map(|module_index| {
                 config.modules.get(module_index).and_then(|module| {
-                    Script::from_module(module.clone(), None)
-                        .ok()
-                        .and_then(|script| script.command.container)
-                        .map(|container| (module_index, container))
+                    // Plans expand commands with static workflow and module
+                    // bindings; container identity must see the same scope.
+                    let mut module = module.clone();
+                    module.variables = config.static_module_variables(&module);
+                    match Script::from_module(module, None) {
+                        | Ok(script) => script.command.container.map(|container| Ok((module_index, container))),
+                        | Err(error) => match error {
+                            | ModuleLoadError::Template {
+                                source: TemplateError::Interpolation { source },
+                                ..
+                            } => Some(Err(source)),
+                            // Unavailable template content keeps the existing dry-run
+                            // limitation: the plan reports only what it can inspect.
+                            | _ => None,
+                        },
+                    }
                 })
             })
+            .collect::<Result<Vec<_>, ConfigurationInterpolationError>>()
+            .map_err(|source| PlanError::Template(TemplateError::Interpolation { source }))?;
+        Ok(declarations
+            .into_iter()
             .fold(
                 BTreeMap::<(ContainerRuntime, String), Self>::new(),
                 |mut planned, (module_index, container)| {
@@ -668,7 +686,7 @@ impl PlannedContainer {
                 },
             )
             .into_values()
-            .collect()
+            .collect())
     }
 }
 impl PlannedMemory {

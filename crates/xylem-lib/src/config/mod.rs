@@ -348,6 +348,18 @@ pub struct Rule {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct VariableLookup(HashMap<String, String>);
 impl Config {
+    fn expand_inline_container_mounts(
+        module: &mut Module,
+        variables: Option<&Map<String, Value>>,
+        field: String,
+    ) -> Result<(), ConfigurationModuleError> {
+        match module.template.as_mut() {
+            | Some(TemplateAttribute::Template(template)) => {
+                template.expand_container_mounts(variables, field).map_err(ConfigurationModuleError::from)
+            }
+            | _ => Ok(()),
+        }
+    }
     fn expand_location(location: &mut Location, variables: Option<&Map<String, Value>>, field: &str) -> Result<(), ConfigurationModuleError> {
         let authored = <&str>::from(&*location);
         match authored.contains("{{") || authored.contains("}}") {
@@ -1505,6 +1517,13 @@ impl Config {
                                 let expanded = location.map_or(Ok(()), |location| {
                                     let field = format!("modules.{}.uri", path.iter().chain(once(&module.name)).cloned().collect::<Vec<_>>().join("::"));
                                     Self::expand_location(location, module_variables.as_ref(), &field)
+                                })
+                                .and_then(|()| {
+                                    let field = format!(
+                                        "modules.{}.template.container",
+                                        path.iter().chain(once(&module.name)).cloned().collect::<Vec<_>>().join("::")
+                                    );
+                                    Self::expand_inline_container_mounts(&mut module, module_variables.as_ref(), field)
                                 });
                                 expanded.and_then(|()| {
                                 if let Some(source) = source.path() {

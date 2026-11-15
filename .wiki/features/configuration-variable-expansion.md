@@ -27,8 +27,8 @@ config-declared positional invocation are accepted behavior to preserve.
 
 ## Current evidence and review findings
 
-Rechecked on 2026-11-14 after EXP-07 and EXP-08 implementation on baseline
-`43221df` (v1.0.8). The bounded core now expands plain inputs, workflow
+Rechecked on 2026-11-14 after EXP-09 and EXP-10 implementation on baseline
+`5879f34` (v1.0.8). The bounded core now expands plain inputs, workflow
 output, local and remote leaf URIs, and nested configuration URIs before their
 owning discovery, policy, cache, and cycle checks. Invocation bindings remain
 available through nested resolution. Loaded inline and external template
@@ -36,29 +36,25 @@ commands expand from static module bindings; the dry-run plan reports the
 effective inline command. String-valued template filenames expand before
 discovery, environment detection, sandbox containment checks, and loading; an
 explicitly interpolated filename that does not exist fails instead of falling
-back to the default template, while literal declarations keep that fallback,
-and the dry-run plan reports the effective filename in `template_source`.
+back to the default template, while literal declarations keep that fallback.
 Declared virtual-environment names expand before Pixi, Conda, and Mamba
-preparation and launch from the same static module scope; detected
-environments and Xylem-owned input-local prefixes keep their behavior.
-Source tests cover verified HTTP, pinned Git, and local OCI acquisition;
-offline cache reuse; effective-host denial; unknown names before requests; and
-effective nested cycles. Command, template-path, and environment tests cover
-module precedence, external loading, spaced executable paths, argv boundaries,
-and CLI plan/execution agreement; template-path tests cover alternate
-selection, missing expanded files, unchanged literal fallback, and sandbox
-containment and symlink rejection on expanded filenames; environment tests
-cover Pixi and Conda preparation and launch arguments, missing and empty names
-before preparation, detection defaults, input-local prefixes, and recorded
-fake-manager invocation. An invalid external command retains its typed error
-through container preflight and exits as a CLI data error before launch. The
-xylem-lib suite passed 368 tests with two ignored; the workflow CLI suite
-passed 51 with three ignored. Focused Clippy and rustdoc passed.
-No serialized plan or summary shape changed.
+preparation and launch. Managed container image, logical name, and startup
+command elements expand before declaration deduplication, conflict checks,
+validation, owned-name generation, and creation; dry-run plans report the
+expanded identity and propagate invalid container bindings as planning
+failures. Container mount sources and targets expand before declaring-file
+rebasing and mount validation; authored placeholders defer the structural
+mount checks until the effective values are validated. All five review gaps
+are now closed. An invalid external command retains its typed error through
+container preflight and exits as a CLI data error before launch. The
+xylem-lib suite passed 378 tests with two ignored; the workflow CLI suite
+passed 55 with three ignored. Focused Clippy and rustdoc passed. No
+serialized plan or summary shape changed.
 
-| Review priority | Remaining gap | Repository evidence | Observable consequence |
-|---|---|---|---|
-| 1 | Container and mount settings | `Config::container_declarations` and `ContainerEnvironment` declarations consume literal image, name, startup-argument, and mount settings. | Image names, mount paths, logical container names, and startup arguments cannot reliably share configured variables. |
+The review's container-and-mount gap (the last of five) is complete: image
+names, mount paths, logical container names, and startup arguments share
+configured variables with the same static module scope and resolution
+boundaries as the other structural fields.
 
 The review concerns public configuration behavior in the Rust library and its
 CLI adapter. These are follow-up interface gaps, not newly introduced Rust
@@ -193,9 +189,8 @@ claiming that the effective command has been inspected.
 
 ## Dependencies, execution order, and parallel work
 
-EXP-01 through EXP-08 are implemented. EXP-09 is ready on the local worktree.
-Recommended order: EXP-09, then EXP-10. EXP-11 qualifies the combined
-behavior.
+EXP-01 through EXP-10 are implemented. EXP-11 qualifies the combined behavior
+and is the only remaining phase.
 
 Configuration and CLI phases serialize with K8S owners of the same
 files. Completed source phases did not require SEC-07's Windows qualification
@@ -269,33 +264,11 @@ requires new fields, stop and add a bounded schema phase with Run state ownershi
 
 # Execution phases
 
-## EXP-09 — Expand container identity and startup settings
+## EXP-11 — Qualify the complete field and invocation matrix
 
 - Status: ready
 - Budget: 5 active hours maximum
-- Prerequisites: reserve command preparation, container declaration, and plan files.
-- Exact write set: `crates/xylem-lib/src/config/interpolation.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/validation.rs`, `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/script/tests/mod.rs`, `crates/xylem-lib/src/container.rs`, `crates/xylem-lib/src/plan.rs`, `crates/xylem-lib/src/tests/plan.rs`, `crates/xylem-cli/tests/workflow.rs`; User documentation and Planning reconciliation sets.
-- Primary integration lock: Command preparation
-- Outcome: Container image/logical name/startup-command elements expand before declaration comparison, validation, owned naming, and creation. Preserve runtime/context literals, external-container ownership, startup strategy, and cleanup behavior. Operator sandbox workload identities remain unchanged.
-- Focused validation: New `container_interpolation` tests using fake runtimes for exact image/name/argv, collisions after expansion, conflicting declarations, keep-alive compatibility, no runtime call on invalid binding, and consistent planned/runtime values.
-- Handoff: Preserve the container scope and ownership contract in tests/docs; prune and enable EXP-10.
-
-## EXP-10 — Expand container mount paths before rebasing and validation
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: EXP-09 accepted; reserve the same command/container files serially.
-- Exact write set: `crates/xylem-lib/src/config/interpolation.rs`, `crates/xylem-lib/src/config/mod.rs`, `crates/xylem-lib/src/config/validation.rs`, `crates/xylem-lib/src/script/mod.rs`, `crates/xylem-lib/src/script/tests/mod.rs`, `crates/xylem-lib/src/container.rs`, `crates/xylem-lib/src/tests/plan.rs`, `crates/xylem-cli/tests/workflow.rs`; User documentation and Planning reconciliation sets.
-- Primary integration lock: Command preparation
-- Outcome: Source/target mount fields expand before their existing declaring-file rebasing and validation. Inline and external-template mount bases remain correct; retain target syntax, read-only settings, ownership, and runtime argument boundaries.
-- Focused validation: New `mount_interpolation` tests for relative/absolute sources, external/nested declarations, invalid/nonexistent sources, target rejection, spaces, conflict detection, and exact fake-runtime mounts. Re-run existing mount and container lifecycle tests.
-- Handoff: Document mount resolution order, prune the phase, and release the command/container lock.
-
-## EXP-11 — Qualify the complete field and invocation matrix
-
-- Status: planned
-- Budget: 5 active hours maximum
-- Prerequisites: EXP-10 accepted; serialize final checks after all implementation work stabilizes.
+- Prerequisites: serialize final checks after all implementation work stabilizes.
 - Exact write set: `crates/xylem-lib/src/config/tests/mod.rs`, `crates/xylem-lib/src/tests/plan.rs`, `crates/xylem-lib/src/tests/completion.rs`, `crates/xylem-cli/src/commands/export.rs`, `crates/xylem-cli/tests/workflow.rs`, `crates/xylem-cli/tests/export.rs`, `crates/xylem-cli/examples/configuration-variables.json`, `ARCHITECTURE.md`; User documentation and Planning reconciliation sets.
 - Primary integration lock: CLI
 - Outcome: One executable configuration demonstrates combined inputs/output/source/template behavior with named and positional invocation bindings. Export check/generation validates effective configuration through the same shared resolution contract while keeping its existing command interface. No product feature is deferred from a prior phase to make that phase coherent.

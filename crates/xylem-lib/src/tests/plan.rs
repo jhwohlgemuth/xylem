@@ -97,6 +97,33 @@ fn test_command_interpolation_uses_static_workflow_and_module_bindings_in_plan()
     assert!(error.to_string().contains("modules.probe.template.command"));
 }
 #[test]
+fn test_container_interpolation_expands_identity_in_plan_and_fails_deterministically() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "requirements": [], "variables": {"IMAGE": "registry.example/tool:1.0", "NAME": "worker"},
+        "modules": [{
+            "name": "probe", "type": "script", "uri": "file:./probe",
+            "template": {"command": "true", "arguments": [], "container": {
+                "name": "{{ NAME }}", "create": true, "image": "{{ IMAGE }}", "runtime": "docker", "keep_alive": true
+            }}
+        }]
+    }))
+    .expect("parse container configuration");
+    let inputs = [Some("input-a".to_string())];
+    let plan = ExecutionPlan::build(&config, "config.json".to_string(), &inputs, false).expect("plan container");
+    assert_eq!(plan.containers[0].name, "worker");
+    assert_eq!(plan.containers[0].image.as_deref(), Some("registry.example/tool:1.0"));
+    assert_eq!(plan.containers[0].startup, Some(ContainerStartup::KeepAlive));
+    let mut broken = config.clone();
+    if let Some(crate::script::TemplateAttribute::Template(template)) = &mut broken.modules[0].template {
+        if let Some(container) = &mut template.container {
+            container.image = Some("{{ MISSING }}".to_string());
+        }
+    }
+    let error = ExecutionPlan::build(&broken, "config.json".to_string(), &inputs, false).expect_err("invalid container binding must fail planning");
+    assert!(matches!(error, PlanError::Template(_)), "{error}");
+    assert!(error.to_string().contains("modules.probe.template.container.image"), "{error}");
+}
+#[test]
 fn test_directory_inputs_are_sorted_deterministically() {
     let root = std::env::temp_dir().join(format!("xylem-plan-inputs-{}", std::process::id()));
     create_dir_all(&root).expect("create input root");

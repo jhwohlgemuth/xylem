@@ -10,7 +10,7 @@ use crate::error::ProcessError;
 use crate::error::{ModuleLoadError, TemplateError};
 use crate::script::{
     add_dot_slash, get_conda_environment_list, get_conda_environment_name, get_mamba_environment_list, Command, ContainerEnvironment,
-    ContainerStartup, Instruction, Module, Script, ScriptTemplate, VirtualEnvironment, VirtualEnvironmentManager,
+    ContainerRuntime, ContainerStartup, Instruction, Module, Script, ScriptTemplate, VirtualEnvironment, VirtualEnvironmentManager,
 };
 #[cfg(unix)]
 use acorn_cmd::{CancellationToken, CaptureLimits, CommandError, ExecutionOptions, OutputStream, ProcessTermination};
@@ -310,6 +310,174 @@ fn test_conda_and_mamba_use_input_owned_prefixes() {
         script.with_virtual_environment(Some(mamba)).to_string(),
         format!("mamba run --prefix {prefix_string} python -V")
     );
+}
+#[test]
+fn test_container_interpolation_expands_identity_and_startup_arguments() {
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": "file:.",
+        "variables": {"IMAGE": "registry.example/tool:1.0", "NAME": "worker", "START": "serve", "PORT": "8080"},
+        "template": {"command": "true", "arguments": [], "container": {
+            "name": "{{ NAME }}", "create": true, "image": "{{ IMAGE }}", "runtime": "docker",
+            "command": ["{{ START }}", "--port", "{{ PORT }}"]
+        }}
+    }))
+    .expect("parse container module");
+    let loaded = Script::from_module(module, None).expect("load expanded container");
+    let container = loaded.command.container.as_ref().expect("declared container");
+    assert_eq!(container.name, "worker");
+    assert_eq!(container.image.as_deref(), Some("registry.example/tool:1.0"));
+    assert_eq!(
+        container.command,
+        Some(vec!["serve".to_string(), "--port".to_string(), "8080".to_string()])
+    );
+    assert_eq!(
+        container.resolved_startup(),
+        (
+            ContainerStartup::ExplicitCommand,
+            ["serve", "--port", "8080"].map(OsString::from).to_vec()
+        )
+    );
+}
+#[test]
+fn test_container_interpolation_expands_loaded_template_container() {
+    let root = std::env::temp_dir().join(format!("xylem-container-external-{}", std::process::id()));
+    create_dir_all(&root).expect("create container fixture");
+    write(
+        root.join("template.json"),
+        r#"{"command":"true","arguments":[],"container":{"name":"{{ NAME }}","create":true,"image":"{{ IMAGE }}","runtime":"docker"}}"#,
+    )
+    .expect("write external container template");
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "variables": {"IMAGE": "alpine:3.22", "NAME": "worker"},
+        "template": "template.json"
+    }))
+    .expect("parse container module");
+    let loaded = Script::from_module(module, None).expect("load external container");
+    let container = loaded.command.container.as_ref().expect("declared container");
+    assert_eq!(container.name, "worker");
+    assert_eq!(container.image.as_deref(), Some("alpine:3.22"));
+    remove_dir_all(root).expect("remove container fixture");
+}
+#[test]
+fn test_container_interpolation_rejects_missing_and_empty_identity() {
+    let missing: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": "file:.",
+        "variables": {"NAME": "worker"},
+        "template": {"command": "true", "arguments": [], "container": {
+            "name": "{{ NAME }}", "create": true, "image": "{{ MISSING }}", "runtime": "docker"
+        }}
+    }))
+    .expect("parse missing image module");
+    let error = Script::from_module(missing, None).expect_err("missing image binding");
+    assert!(
+        matches!(
+            error,
+            ModuleLoadError::Template {
+                source: TemplateError::Interpolation { .. },
+                ..
+            }
+        ),
+        "{error}"
+    );
+    assert!(error.to_string().contains("modules.probe.template.container.image"), "{error}");
+    for (variable, field) in [("IMAGE", "image"), ("NAME", "name")] {
+        let mut variables = serde_json::json!({"IMAGE": "alpine:3.22", "NAME": "worker"});
+        variables[variable] = serde_json::json!("");
+        let module: Module = serde_json::from_value(serde_json::json!({
+            "name": "probe", "type": "script", "uri": "file:.",
+            "variables": variables,
+            "template": {"command": "true", "arguments": [], "container": {
+                "name": "{{ NAME }}", "create": true, "image": "{{ IMAGE }}", "runtime": "docker"
+            }}
+        }))
+        .expect("parse empty identity module");
+        let error = Script::from_module(module, None).expect_err("empty expanded identity");
+        assert!(
+            error.to_string().contains(&format!("expanded container {field} must not be empty")),
+            "{error}"
+        );
+    }
+}
+#[test]
+fn test_container_interpolation_keeps_literal_and_untouched_fields() {
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": "file:.",
+        "variables": {"NAME": "invoked"},
+        "template": {"command": "true", "arguments": [], "container": {
+            "name": "worker", "create": true, "image": "alpine:3.22", "runtime": "podman",
+            "keep_alive": true, "startup_timeout_seconds": 5
+        }}
+    }))
+    .expect("parse literal container module");
+    let loaded = Script::from_module(module, None).expect("load literal container");
+    let container = loaded.command.container.as_ref().expect("declared container");
+    assert_eq!(container.name, "worker");
+    assert_eq!(container.image.as_deref(), Some("alpine:3.22"));
+    assert!(matches!(container.runtime, ContainerRuntime::Podman));
+    assert!(container.keep_alive);
+    assert_eq!(container.startup_timeout_seconds, Some(5));
+}
+#[test]
+fn test_mount_interpolation_expands_external_mounts_before_rebasing() {
+    let root = std::env::temp_dir().join(format!("xylem-mount-external-{}", std::process::id()));
+    create_dir_all(&root).expect("create mount fixture");
+    write(
+        root.join("template.json"),
+        r#"{"command":"true","arguments":[],"container":{"name":"worker","create":true,"image":"alpine:3.22","runtime":"docker","mounts":[{"source":"{{ DATA }}/shared","target":"/work/{{ NAME }}"}]}}"#,
+    )
+    .expect("write external mount template");
+    let relative: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "variables": {"DATA": "data", "NAME": "worker"},
+        "template": "template.json"
+    }))
+    .expect("parse relative mount module");
+    let loaded = Script::from_module(relative, None).expect("load expanded mounts");
+    let container = loaded.command.container.as_ref().expect("declared container");
+    let mount = container.mounts.first().expect("declared mount");
+    let base = std::fs::canonicalize(&root).expect("canonicalize fixture");
+    assert_eq!(mount.source, base.join("data/shared").display().to_string());
+    assert_eq!(mount.target, "/work/worker");
+    let absolute: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "variables": {"DATA": root.join("absolute").display().to_string(), "NAME": "worker"},
+        "template": "template.json"
+    }))
+    .expect("parse absolute mount module");
+    let loaded = Script::from_module(absolute, None).expect("load absolute mounts");
+    let container = loaded.command.container.as_ref().expect("declared container");
+    let mount = container.mounts.first().expect("declared mount");
+    assert_eq!(mount.source, root.join("absolute/shared").display().to_string());
+    remove_dir_all(root).expect("remove mount fixture");
+}
+#[test]
+fn test_mount_interpolation_rejects_missing_binding_before_rebasing() {
+    let root = std::env::temp_dir().join(format!("xylem-mount-missing-{}", std::process::id()));
+    create_dir_all(&root).expect("create mount fixture");
+    write(
+        root.join("template.json"),
+        r#"{"command":"true","arguments":[],"container":{"name":"worker","create":true,"image":"alpine:3.22","runtime":"docker","mounts":[{"source":"{{ MISSING }}/shared","target":"/work"}]}}"#,
+    )
+    .expect("write external mount template");
+    let module: Module = serde_json::from_value(serde_json::json!({
+        "name": "probe", "type": "script", "uri": format!("file:{}", root.display()),
+        "template": "template.json"
+    }))
+    .expect("parse mount module");
+    let error = Script::from_module(module, None).expect_err("missing mount binding");
+    assert!(
+        matches!(
+            error,
+            ModuleLoadError::Template {
+                source: TemplateError::Interpolation { .. },
+                ..
+            }
+        ),
+        "{error}"
+    );
+    assert!(error.to_string().contains("modules.probe.template.container.mounts[0].source"), "{error}");
+    remove_dir_all(root).expect("remove mount fixture");
 }
 #[test]
 fn test_container_startup_resolution() {

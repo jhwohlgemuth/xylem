@@ -474,6 +474,419 @@ fn test_cli_environment_interpolation_uses_recorded_manager() {
     assert!(!record.exists(), "missing environment binding must not invoke the manager");
     remove_dir_all(root).expect("remove fixture");
 }
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_cli_container_interpolation_matches_plan_and_runtime() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!("xylem-container-interpolation-{}", std::process::id()));
+    let _ = remove_dir_all(&test_root);
+    create_dir_all(&test_root).expect("create container interpolation fixture");
+    let config = test_root.join("workflow.json");
+    write(
+        &config,
+        serde_json::json!({
+            "requirements": [],
+            "modules": [{
+                "name": "managed", "type": "script", "programmingLanguage": "generic",
+                "uri": format!("file:{}", test_root.display()),
+                "template": {
+                    "command": "true",
+                    "arguments": [],
+                    "container": {
+                        "name": "{{ NAME }}",
+                        "create": true,
+                        "image": "{{ IMAGE }}",
+                        "runtime": "docker",
+                        "keep_alive": true,
+                        "startup_timeout_seconds": 1
+                    }
+                }
+            }]
+        })
+        .to_string(),
+    )
+    .expect("write container interpolation workflow");
+    let path = config.to_str().expect("UTF-8 configuration path");
+    let preview = xylem_command()
+        .current_dir(workspace)
+        .args([
+            "run",
+            path,
+            "--dry-run",
+            "--reporter",
+            "json",
+            "--var",
+            "NAME=worker",
+            "--var",
+            "IMAGE=alpine:3.22",
+        ])
+        .output()
+        .expect("run container dry-run plan");
+    assert!(preview.status.success(), "{}", String::from_utf8_lossy(&preview.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&preview.stdout).expect("valid dry-run plan");
+    assert_eq!(plan["containers"][0]["action"], "would_create");
+    assert_eq!(plan["containers"][0]["name"], "worker");
+    assert_eq!(plan["containers"][0]["image"], "alpine:3.22");
+    assert_eq!(plan["containers"][0]["startup"], "keep_alive");
+    let (_, log) = write_fake_docker(&test_root);
+    let runtime_path =
+        std::env::join_paths(core::iter::once(test_root.clone()).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())))
+            .expect("construct fake runtime PATH");
+    let execution = xylem_command()
+        .current_dir(workspace)
+        .env("PATH", &runtime_path)
+        .env("XYLEM_FAKE_DOCKER_LOG", &log)
+        .args([
+            "--no-progress",
+            "run",
+            path,
+            "--offline",
+            "--var",
+            "NAME=worker",
+            "--var",
+            "IMAGE=alpine:3.22",
+        ])
+        .output()
+        .expect("run expanded container workflow");
+    assert!(execution.status.success(), "{}", String::from_utf8_lossy(&execution.stderr));
+    let invocations = read_to_string(&log).expect("read runtime log");
+    assert!(
+        invocations
+            .lines()
+            .any(|line| line.contains("--label gov.ornl.xylem.logical-name=worker") && line.ends_with("--pull=never alpine:3.22 sleep infinity")),
+        "{invocations}"
+    );
+    assert!(invocations.lines().any(|line| line.starts_with("exec ")), "{invocations}");
+    remove_dir_all(test_root).expect("remove container interpolation fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_cli_container_interpolation_collides_and_rejects_invalid_bindings_before_runtime() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!("xylem-container-collisions-{}", std::process::id()));
+    let _ = remove_dir_all(&test_root);
+    create_dir_all(&test_root).expect("create container collision fixture");
+    let module = |name: &str, name_binding: &str, image: &str| {
+        serde_json::json!({
+            "name": name, "type": "script", "programmingLanguage": "generic",
+            "uri": format!("file:{}", test_root.display()),
+            "template": {
+                "command": "true",
+                "arguments": [],
+                "container": {
+                    "name": name_binding, "create": true, "image": image,
+                    "runtime": "docker", "keep_alive": true, "startup_timeout_seconds": 1
+                }
+            }
+        })
+    };
+    let collision = test_root.join("collision.json");
+    write(
+        &collision,
+        serde_json::json!({
+            "requirements": [],
+            "variables": {"A": "worker", "B": "worker"},
+            "modules": [
+                module("one", "{{ A }}", "alpine:3.22"),
+                module("two", "{{ B }}", "alpine:3.22")
+            ]
+        })
+        .to_string(),
+    )
+    .expect("write collision workflow");
+    let preview = xylem_command()
+        .current_dir(workspace)
+        .args(["run", collision.to_str().expect("collision path"), "--dry-run", "--reporter", "json"])
+        .output()
+        .expect("run collision dry-run plan");
+    assert!(preview.status.success(), "{}", String::from_utf8_lossy(&preview.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&preview.stdout).expect("valid collision plan");
+    assert_eq!(plan["containers"].as_array().map(Vec::len), Some(1));
+    assert_eq!(plan["containers"][0]["name"], "worker");
+    assert_eq!(plan["containers"][0]["module_indices"], serde_json::json!([0, 1]));
+    let (_, log) = write_fake_docker(&test_root);
+    let runtime_path =
+        std::env::join_paths(core::iter::once(test_root.clone()).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())))
+            .expect("construct fake runtime PATH");
+    let conflict = test_root.join("conflict.json");
+    write(
+        &conflict,
+        serde_json::json!({
+            "requirements": [],
+            "variables": {"A": "worker", "B": "worker"},
+            "modules": [
+                module("one", "{{ A }}", "alpine:3.22"),
+                module("two", "{{ B }}", "busybox:1.36")
+            ]
+        })
+        .to_string(),
+    )
+    .expect("write conflict workflow");
+    let execution = xylem_command()
+        .current_dir(workspace)
+        .env("PATH", &runtime_path)
+        .env("XYLEM_FAKE_DOCKER_LOG", &log)
+        .args(["--no-progress", "run", conflict.to_str().expect("conflict path"), "--offline"])
+        .output()
+        .expect("reject conflicting expanded declarations");
+    assert_eq!(execution.status.code(), Some(69), "{}", String::from_utf8_lossy(&execution.stderr));
+    assert!(
+        String::from_utf8_lossy(&execution.stderr).contains("conflicting container declarations for docker:worker"),
+        "{}",
+        String::from_utf8_lossy(&execution.stderr)
+    );
+    assert!(!log.exists(), "conflicting declarations must not invoke the runtime");
+    let invalid = test_root.join("invalid.json");
+    write(
+        &invalid,
+        serde_json::json!({"requirements": [], "modules": [module("probe", "worker", "{{ MISSING }}")]}).to_string(),
+    )
+    .expect("write invalid binding workflow");
+    let rejected = xylem_command()
+        .current_dir(workspace)
+        .env("PATH", &runtime_path)
+        .env("XYLEM_FAKE_DOCKER_LOG", &log)
+        .args(["--no-progress", "run", invalid.to_str().expect("invalid path"), "--offline"])
+        .output()
+        .expect("reject invalid container binding");
+    assert_eq!(rejected.status.code(), Some(65), "{}", String::from_utf8_lossy(&rejected.stderr));
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains("modules.probe.template.container.image"),
+        "{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+    assert!(!log.exists(), "invalid binding must not invoke the runtime");
+    remove_dir_all(test_root).expect("remove container collision fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_cli_mount_interpolation_matches_plan_and_runtime() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!("xylem-mount-runtime-{}", std::process::id()));
+    let _ = remove_dir_all(&test_root);
+    create_dir_all(&test_root).expect("create mount interpolation fixture");
+    let shared = test_root.join("shared dir");
+    create_dir_all(&shared).expect("create shared mount source");
+    let config = test_root.join("workflow.json");
+    write(
+        &config,
+        serde_json::json!({
+            "requirements": [],
+            "modules": [{
+                "name": "managed", "type": "script", "programmingLanguage": "generic",
+                "uri": format!("file:{}", test_root.display()),
+                "template": {
+                    "command": "true",
+                    "arguments": [],
+                    "container": {
+                        "name": "worker",
+                        "create": true,
+                        "image": "alpine:3.22",
+                        "runtime": "docker",
+                        "mounts": [{"source": "{{ DATA }}", "target": "{{ TARGET }}"}]
+                    }
+                }
+            }]
+        })
+        .to_string(),
+    )
+    .expect("write mount interpolation workflow");
+    let path = config.to_str().expect("UTF-8 configuration path");
+    let preview = xylem_command()
+        .current_dir(workspace)
+        .args([
+            "run",
+            path,
+            "--dry-run",
+            "--reporter",
+            "json",
+            "--var",
+            "DATA=shared dir",
+            "--var",
+            "TARGET=/work",
+        ])
+        .output()
+        .expect("run mount dry-run plan");
+    assert!(preview.status.success(), "{}", String::from_utf8_lossy(&preview.stderr));
+    let plan: serde_json::Value = serde_json::from_slice(&preview.stdout).expect("valid dry-run plan");
+    assert_eq!(
+        plan["containers"][0]["mounts"][0]["source"],
+        test_root.join("shared dir").display().to_string()
+    );
+    assert_eq!(plan["containers"][0]["mounts"][0]["target"], "/work");
+    let (_, log) = write_fake_docker(&test_root);
+    let runtime_path =
+        std::env::join_paths(core::iter::once(test_root.clone()).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())))
+            .expect("construct fake runtime PATH");
+    let execution = xylem_command()
+        .current_dir(workspace)
+        .env("PATH", &runtime_path)
+        .env("XYLEM_FAKE_DOCKER_LOG", &log)
+        .args([
+            "--no-progress",
+            "run",
+            path,
+            "--offline",
+            "--var",
+            "DATA=shared dir",
+            "--var",
+            "TARGET=/work",
+        ])
+        .output()
+        .expect("run expanded mount workflow");
+    assert!(execution.status.success(), "{}", String::from_utf8_lossy(&execution.stderr));
+    let canonical = std::fs::canonicalize(&shared).expect("canonicalize shared source");
+    let invocations = read_to_string(&log).expect("read runtime log");
+    assert!(
+        invocations
+            .lines()
+            .any(|line| line.contains(&format!("--mount type=bind,source={},target=/work", canonical.display()))),
+        "{invocations}"
+    );
+    remove_dir_all(test_root).expect("remove mount interpolation fixture");
+}
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_cli_mount_interpolation_rejects_bad_sources_targets_and_conflicts_before_runtime() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("CLI crate should be inside the workspace");
+    let test_root = std::env::temp_dir().join(format!("xylem-mount-rejection-{}", std::process::id()));
+    let _ = remove_dir_all(&test_root);
+    create_dir_all(&test_root).expect("create mount rejection fixture");
+    let module = |name: &str, target: &str| {
+        serde_json::json!({
+            "name": name, "type": "script", "programmingLanguage": "generic",
+            "uri": format!("file:{}", test_root.display()),
+            "template": {
+                "command": "true",
+                "arguments": [],
+                "container": {
+                    "name": "worker",
+                    "create": true,
+                    "image": "alpine:3.22",
+                    "runtime": "docker",
+                    "mounts": [{"source": "{{ DATA }}", "target": target}]
+                }
+            }
+        })
+    };
+    let (_, log) = write_fake_docker(&test_root);
+    let runtime_path =
+        std::env::join_paths(core::iter::once(test_root.clone()).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())))
+            .expect("construct fake runtime PATH");
+    let absent = test_root.join("absent.json");
+    write(
+        &absent,
+        serde_json::json!({"requirements": [], "modules": [module("probe", "/work")]}).to_string(),
+    )
+    .expect("write absent source workflow");
+    let execution = xylem_command()
+        .current_dir(workspace)
+        .env("PATH", &runtime_path)
+        .env("XYLEM_FAKE_DOCKER_LOG", &log)
+        .args([
+            "--no-progress",
+            "run",
+            absent.to_str().expect("absent path"),
+            "--offline",
+            "--var",
+            "DATA=missing-directory",
+        ])
+        .output()
+        .expect("reject nonexistent mount source");
+    assert_eq!(execution.status.code(), Some(69), "{}", String::from_utf8_lossy(&execution.stderr));
+    assert!(
+        String::from_utf8_lossy(&execution.stderr).contains("resolve mount source"),
+        "{}",
+        String::from_utf8_lossy(&execution.stderr)
+    );
+    assert!(!log.exists(), "nonexistent mount source must not invoke the runtime");
+    let relative = test_root.join("relative.json");
+    write(
+        &relative,
+        serde_json::json!({"requirements": [], "modules": [module("probe", "{{ TARGET }}")]}).to_string(),
+    )
+    .expect("write relative target workflow");
+    let preview = xylem_command()
+        .current_dir(workspace)
+        .args([
+            "run",
+            relative.to_str().expect("relative path"),
+            "--dry-run",
+            "--var",
+            "DATA=.",
+            "--var",
+            "TARGET=relative",
+        ])
+        .output()
+        .expect("reject invalid expanded mount target");
+    assert_eq!(preview.status.code(), Some(65), "{}", String::from_utf8_lossy(&preview.stderr));
+    assert!(
+        String::from_utf8_lossy(&preview.stderr).contains("mounts[0].target"),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
+    let conflict = test_root.join("conflict.json");
+    write(
+        &conflict,
+        serde_json::json!({
+            "requirements": [],
+            "modules": [
+                module("one", "/work"),
+                {
+                    "name": "two", "type": "script", "programmingLanguage": "generic",
+                    "uri": format!("file:{}", test_root.display()),
+                    "template": {
+                        "command": "true",
+                        "arguments": [],
+                        "container": {
+                            "name": "worker",
+                            "create": true,
+                            "image": "alpine:3.22",
+                            "runtime": "docker",
+                            "mounts": [{"source": "{{ DATA }}", "target": "/other"}]
+                        }
+                    }
+                }
+            ]
+        })
+        .to_string(),
+    )
+    .expect("write mount conflict workflow");
+    let execution = xylem_command()
+        .current_dir(workspace)
+        .env("PATH", &runtime_path)
+        .env("XYLEM_FAKE_DOCKER_LOG", &log)
+        .args([
+            "--no-progress",
+            "run",
+            conflict.to_str().expect("conflict path"),
+            "--offline",
+            "--var",
+            "DATA=.",
+        ])
+        .output()
+        .expect("reject conflicting expanded mounts");
+    assert_eq!(execution.status.code(), Some(69), "{}", String::from_utf8_lossy(&execution.stderr));
+    assert!(
+        String::from_utf8_lossy(&execution.stderr).contains("conflicting container declarations for docker:worker"),
+        "{}",
+        String::from_utf8_lossy(&execution.stderr)
+    );
+    assert!(!log.exists(), "conflicting mounts must not invoke the runtime");
+    remove_dir_all(test_root).expect("remove mount rejection fixture");
+}
 #[test]
 fn test_cli_structural_interpolation_agrees_across_plan_fields() {
     let root = std::env::temp_dir().join(format!("xylem-cli-structural-{}", std::process::id()));

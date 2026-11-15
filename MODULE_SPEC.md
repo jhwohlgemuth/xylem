@@ -291,6 +291,23 @@ Pixi, Conda, and Mamba receive the expanded name. Detected environments and
 Xylem-owned input-local prefixes keep their behavior, and an expanded name
 must not be empty.
 
+A managed container's `image`, logical `name`, and each startup `command`
+element expand from static module bindings before declaration comparison,
+validation, owned logical-name generation, and creation. Runtime, context,
+cleanup policy, keep-alive, and timeout fields stay literal, and an expanded
+name or image must not be empty. Two declarations that collide after
+expansion undergo the existing conflict checks, and an invalid binding fails
+before any runtime invocation. Dry-run plans report the expanded identity so
+planned and runtime values agree.
+
+Container mount `source` and `target` fields expand from the same static
+module bindings before the source is rebased against its declaring
+configuration or template file and before mount validation. An absolute
+expanded source keeps its own base, `read_only` settings stay literal, and an
+expanded target must still satisfy the existing absolute, normalized,
+non-overlapping target rules. Nonexistent expanded sources fail before any
+runtime invocation.
+
 Structural interpolation uses the bounded root syntax and rejects unknown or
 cyclic names, non-scalar values, malformed placeholders, and NUL. It does not
 read the process environment or input/run-derived built-ins. The selected

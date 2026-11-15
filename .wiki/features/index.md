@@ -2,7 +2,7 @@
 
 ## Planned
 
-- [Configuration variable expansion](configuration-variable-expansion.md) - Inputs, output, source URIs, loaded commands, template filenames, and environment names expand; EXP-09 container settings are next.
+- [Configuration variable expansion](configuration-variable-expansion.md) - Inputs, output, source URIs, loaded commands, template filenames, environment names, container identity, and mount paths expand; EXP-11 qualification remains.
 - [Kubernetes workflow execution backend](kubernetes-workflow-backend.md) - Qualify operator gates, then add a reconnectable Job and versioned worker contract in bounded phases.
 
 ## Waiting on validation

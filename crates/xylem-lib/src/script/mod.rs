@@ -738,6 +738,7 @@ impl Script {
                     })
                     .and_then(|working_dir| {
                         let default_template_path = PathBuf::from(&working_dir).join(DEFAULT_FILENAME);
+                        let container_field = format!("modules.{}.template.container", module.module_path.join("::"));
                         match &module.template {
                             | Some(attribute) => match attribute {
                                 | TemplateAttribute::Path(value) => module
@@ -751,25 +752,43 @@ impl Script {
                                         match interpolated {
                                             | true => {
                                                 debug!(module = module.name, path = %path.display(), "=> {} Template file", Label::using());
-                                                Script::from_path(path).map_err(|source| ModuleLoadError::Template {
-                                                    module: module.name.clone(),
-                                                    source,
-                                                })
+                                                ScriptTemplate::from_path_expanding_bindings(path, module.variables.as_ref(), container_field.clone())
+                                                    .and_then(Script::from_template)
+                                                    .map_err(|source| ModuleLoadError::Template {
+                                                        module: module.name.clone(),
+                                                        source,
+                                                    })
                                             }
                                             | false => match path.try_exists() {
                                                 | Ok(true) => {
                                                     debug!(module = module.name, path = %path.display(), "=> {} Template file", Label::using());
-                                                    Script::from_path(path).map_err(|source| ModuleLoadError::Template {
-                                                        module: module.name.clone(),
-                                                        source,
+                                                    ScriptTemplate::from_path_expanding_bindings(
+                                                        path,
+                                                        module.variables.as_ref(),
+                                                        container_field.clone(),
+                                                    )
+                                                    .and_then(Script::from_template)
+                                                    .map_err(|source| {
+                                                        ModuleLoadError::Template {
+                                                            module: module.name.clone(),
+                                                            source,
+                                                        }
                                                     })
                                                 }
                                                 | Ok(false) => {
                                                     warn!(module = module.name, "=> {} {}", Label::not_found(), path.display());
                                                     warn!(module = module.name, "=> {} Default template file path", Label::using());
-                                                    Script::from_path(default_template_path).map_err(|source| ModuleLoadError::Template {
-                                                        module: module.name.clone(),
-                                                        source,
+                                                    ScriptTemplate::from_path_expanding_bindings(
+                                                        default_template_path,
+                                                        module.variables.as_ref(),
+                                                        container_field.clone(),
+                                                    )
+                                                    .and_then(Script::from_template)
+                                                    .map_err(|source| {
+                                                        ModuleLoadError::Template {
+                                                            module: module.name.clone(),
+                                                            source,
+                                                        }
                                                     })
                                                 }
                                                 | Err(source) => Err(ModuleLoadError::Inspect {
@@ -791,7 +810,13 @@ impl Script {
                             | None => match default_template_path.try_exists() {
                                 | Ok(true) => {
                                     warn!(module = module.name, "=> {} Default template file path", Label::using());
-                                    Script::from_path(default_template_path).map_err(|source| ModuleLoadError::Template {
+                                    ScriptTemplate::from_path_expanding_bindings(
+                                        default_template_path,
+                                        module.variables.as_ref(),
+                                        container_field.clone(),
+                                    )
+                                    .and_then(Script::from_template)
+                                    .map_err(|source| ModuleLoadError::Template {
                                         module: module.name.clone(),
                                         source,
                                     })
@@ -821,6 +846,14 @@ impl Script {
                         let environment = script.command.virtual_environment.clone();
                         expand_environment_name(environment, module.variables.as_ref(), field)
                             .map(|environment| script.with_virtual_environment(environment))
+                    })
+                    .and_then(|mut script| {
+                        let field = format!("modules.{}.template.container", module.module_path.join("::"));
+                        let container = script.command.container.take();
+                        expand_container_environment(container, module.variables.as_ref(), field).map(|container| {
+                            script.command.container = container;
+                            script
+                        })
                     })
                     .map_err(|source| ModuleLoadError::Template {
                         module: module.name.clone(),
@@ -1149,15 +1182,64 @@ impl Script {
 }
 impl ScriptTemplate {
     pub fn from_path(path: PathBuf) -> Result<ScriptTemplate, TemplateError> {
+        Self::read_template(path.clone()).map(|mut template| {
+            template.absolutize_container_mounts(&path);
+            template
+        })
+    }
+    /// Load an external template while expanding declared container mount
+    /// fields from the module's static bindings before declaring-file
+    /// rebasing.
+    ///
+    /// Sources and targets expand before the template directory rebases
+    /// relative paths, so an absolute expanded source keeps its own base.
+    /// Read-only settings stay literal.
+    pub(crate) fn from_path_expanding_bindings(
+        path: PathBuf,
+        variables: Option<&Map<String, Value>>,
+        field: String,
+    ) -> Result<ScriptTemplate, TemplateError> {
+        Self::read_template(path.clone()).and_then(|mut template| {
+            template
+                .expand_container_mounts(variables, field)
+                .map_err(|source| TemplateError::Interpolation { source })
+                .map(|()| {
+                    template.absolutize_container_mounts(&path);
+                    template
+                })
+        })
+    }
+    fn read_template(path: PathBuf) -> Result<ScriptTemplate, TemplateError> {
         read_to_string(&path)
             .map_err(|source| TemplateError::Read { path: path.clone(), source })
-            .and_then(|content| {
-                serde_json::from_str::<ScriptTemplate>(&content)
-                    .map_err(|source| TemplateError::Parse { path: path.clone(), source })
-                    .map(|mut template| {
-                        template.absolutize_container_mounts(&path);
-                        template
+            .and_then(|content| serde_json::from_str::<ScriptTemplate>(&content).map_err(|source| TemplateError::Parse { path, source }))
+    }
+    /// Expand declared container mount sources and targets from static bindings.
+    pub(crate) fn expand_container_mounts(
+        &mut self,
+        variables: Option<&Map<String, Value>>,
+        field: String,
+    ) -> Result<(), ConfigurationInterpolationError> {
+        let container = match self.container.take() {
+            | None => return Ok(()),
+            | Some(container) => container,
+        };
+        container
+            .mounts
+            .into_iter()
+            .enumerate()
+            .try_fold(Vec::new(), |mut mounts, (index, mount)| {
+                interpolation::expand(&mount.source, variables, format!("{field}.mounts[{index}].source"))
+                    .and_then(|source| {
+                        interpolation::expand(&mount.target, variables, format!("{field}.mounts[{index}].target")).map(|target| (source, target))
                     })
+                    .map(|(source, target)| {
+                        mounts.push(ContainerMount { source, target, ..mount });
+                        mounts
+                    })
+            })
+            .map(|mounts| {
+                self.container = Some(ContainerEnvironment { mounts, ..container });
             })
     }
     pub(crate) fn absolutize_container_mounts(&mut self, source: &Path) {
@@ -1321,6 +1403,64 @@ fn expand_environment_name(
                 .map_err(|source| TemplateError::Interpolation { source })
                 .map(|name| Some(VirtualEnvironment { name, ..value })),
         },
+    }
+}
+/// Expand declared container identity and startup elements from static module bindings.
+///
+/// Runtime, context, cleanup policy, keep-alive, timeout, and mount fields stay
+/// literal. An expanded logical name or image must not be empty, and startup
+/// argument elements keep the existing argv rules.
+fn expand_container_environment(
+    container: Option<ContainerEnvironment>,
+    variables: Option<&Map<String, Value>>,
+    field: String,
+) -> Result<Option<ContainerEnvironment>, TemplateError> {
+    match container {
+        | None => Ok(None),
+        | Some(value) => {
+            let name = match value.name.contains("{{") {
+                | false => Ok(value.name.clone()),
+                | true => {
+                    interpolation::expand(&value.name, variables, format!("{field}.name")).and_then(|expanded| match expanded.trim().is_empty() {
+                        | true => Err(ConfigurationInterpolationError {
+                            field: format!("{field}.name"),
+                            reason: "expanded container name must not be empty".to_string(),
+                        }),
+                        | false => Ok(expanded),
+                    })
+                }
+            };
+            let image = match value.image.as_deref() {
+                | None => Ok(None),
+                | Some(image) => match image.contains("{{") {
+                    | false => Ok(value.image.clone()),
+                    | true => {
+                        interpolation::expand(image, variables, format!("{field}.image")).and_then(|expanded| match expanded.trim().is_empty() {
+                            | true => Err(ConfigurationInterpolationError {
+                                field: format!("{field}.image"),
+                                reason: "expanded container image must not be empty".to_string(),
+                            }),
+                            | false => Ok(Some(expanded)),
+                        })
+                    }
+                },
+            };
+            let command = value.command.as_deref().map_or_else(
+                || Ok(None),
+                |command| interpolation::expand_values(command, variables, &format!("{field}.command")).map(Some),
+            );
+            name.and_then(|name| image.map(|image| (name, image)))
+                .and_then(|(name, image)| command.map(|command| (name, image, command)))
+                .map_err(|source| TemplateError::Interpolation { source })
+                .map(|(name, image, command)| {
+                    Some(ContainerEnvironment {
+                        name,
+                        image,
+                        command,
+                        ..value
+                    })
+                })
+        }
     }
 }
 impl VirtualEnvironmentManager {
