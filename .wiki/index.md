@@ -45,20 +45,14 @@ into links to durable evidence; removed retired environment-plan dependencies
 from Kubernetes; replaced stale uncommitted-baseline and v13 schema claims.
 The CLI variable argument plan was subsequently implemented and retired after
 the xylem-lib and xylem-cli suites, generated help, Clippy, rustdoc, and the
-executable example passed. **6 executable plans remain.** Root interpolation
-and the basename cutover remain baselines for the broader expansion plan.
-The expansion plan was rechecked on 2026-11-14: EXP-01 through EXP-10
-implement the shared resolver, inputs, output, local/remote/nested source
-URIs, loaded template commands, template filenames, virtual-environment
-names, container identity and startup settings, and mount paths. The
-changed-worktree library and CLI suites, focused Clippy, and rustdoc pass.
-The earlier portfolio-wide counts above describe the initial review, not this
-worktree.
+executable example passed. The related configuration-expansion plan was also
+implemented and retired after its combined example, export, four-format,
+resume, library, CLI, TUI, format, Clippy, and rustdoc qualification passed.
+**5 executable plans remain.**
 
 | Recommended lane | Plan | Impact / remaining difficulty | Status and next action | Blockers / evidence |
 |---|---|---|---|---|
-| 1 | [Configuration expansion](features/configuration-variable-expansion.md) | High / high | Ready: EXP-11 combined qualification. | Source, template, environment, container, and mount phases are implemented. Serialize shared files. |
-| 2, parallel validation | [Homebrew platform validation](features/homebrew-export.md) | High / low | Waiting on validation: BRW-01 macOS, BRW-02 required checks, BRW-03 clean consumers. | v1.0.7 already merged in [MR !5](https://code.ornl.gov/research-enablement/homebrew-xylem/-/merge_requests/5); Linux passed, macOS manual/optional. Mac runner online at review; credential-setting and clean-consumer evidence outstanding. |
+| Parallel validation | [Homebrew platform validation](features/homebrew-export.md) | High / low | Waiting on validation: BRW-01 macOS, BRW-02 required checks, BRW-03 clean consumers. | v1.0.7 already merged in [MR !5](https://code.ornl.gov/research-enablement/homebrew-xylem/-/merge_requests/5); Linux passed, macOS manual/optional. Mac runner online at review; credential-setting and clean-consumer evidence outstanding. |
 | Conditional delivery lane | [Rootless BuildKit runner](refactors/rootless-buildkit-runner.md) | High / medium | Blocked: qualify dedicated runner in RBK-01, then re-enable builds/publishers. | All four jobs remain unconditionally skipped. Host policy, administration access, and maintenance window unqualified. |
 | Conditional platform lane | [Windows acquisition](refactors/secure-module-acquisition.md) | Critical / low | Blocked: SEC-07 native Windows qualification and audit. | ACORN libraries remain pinned at 0.5.1; published CLI 0.6.3 still assumes the POSIX runner socket. Native host/support evidence missing. |
 | Conditional rollout lane | [A/P/O memory validation](features/memory-aware-scheduling.md) | High / low | Blocked: APO-01 individual then APO-02 concurrent holdout. | No expanded A/P/O rollout evidence/decision; needs corpus and credentials. Earlier one-input GO does not qualify concurrency. |
@@ -66,16 +60,14 @@ worktree.
 
 ## Recommended execution order
 
-1. Run EXP-11 combined qualification; serialize overlapping configuration,
-   script, container, plan, CLI, test, and documentation files.
-3. Run BRW-01 in parallel with disjoint repository work, then require both
+1. Run BRW-01 in parallel with disjoint repository work, then require both
    platform checks through a new tap CI change and verify clean consumers.
    The already-merged release update is not an outstanding task.
-4. Start RBK-01 only when host administration and the maintenance window are
+2. Start RBK-01 only when host administration and the maintenance window are
    confirmed. Keep the four image jobs skipped until their owning gates pass.
-5. Execute SEC-07, APO-01, or K8S-01 only when their explicit platform,
+3. Execute SEC-07, APO-01, or K8S-01 only when their explicit platform,
    rollout, or deployment prerequisites arrive. These external gates do not
-   block the ready variable work or shipped local runtime.
+   block the shipped local runtime.
 
 ## Planning gaps
 

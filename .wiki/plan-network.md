@@ -5,7 +5,8 @@ execution: coordination
 
 # Plan dependency network
 
-Rechecked on 2026-11-14 after EXP-07 and EXP-08 implementation. Arrows denote a
+Rechecked on 2026-11-16 after configuration-expansion qualification and plan
+retirement. Arrows denote a
 required contract or gate, not whole-plan serialization. Execution-plan v15,
 run-summary v14, immutable contexts, cancellation, verified acquisition,
 owned workspaces, sandbox providers, memory admission, and run storage are
@@ -15,8 +16,6 @@ accepted baselines. External evidence scope and remaining uncertainty are in
 ## Delivery paths
 
 ```text
-accepted source URI, loaded-command, template-path, environment-name, container, and mount expansion -> EXP-11 (combined qualification)
-EXP-11 (combined qualification)
 execution-plan v15 + run-summary v14 + immutable contexts -> K8S-03 onward
 operator demand + cluster/PVC/image path -> K8S-01 -> K8S-02 onward
 assigned Mac runner -> successful macOS job BRW-01 -> BRW-02 -> BRW-03
@@ -31,12 +30,6 @@ are not queued dependencies of Kubernetes worker/schema work.
 
 ## Direct dependency edges
 
-- [Configuration expansion](features/configuration-variable-expansion.md)
-  continues with ready EXP-11 combined qualification. Accepted source URI,
-  template-path, environment-name, container, and mount behavior threads
-  immutable invocation bindings through nested resolution. Separate branches in the
-  graph still serialize overlapping code, tests, and docs. Accepted acquisition
-  protections are prerequisites; SEC-07 Windows qualification is not a blocker.
 - [Secure module acquisition](refactors/secure-module-acquisition.md) owns
   only remaining Windows qualification and audit; accepted platform evidence
   remains in `security/acquisition-platform-evidence.md`.
@@ -57,17 +50,14 @@ are not queued dependencies of Kubernetes worker/schema work.
 | Boundary | Phase owners | Coordination rule |
 |---|---|---|
 | Manifests and `Cargo.lock` | K8S-02 | One dependency owner at a time; inspect feature tree and audit the accepted lockfile. |
-| `crates/xylem-lib/src/config/` | EXP-11, K8S-04 | One configuration owner at a time; preserve batching, memory, resume, source nesting, and sandbox opt-in. |
-| Script, container, and template preparation | EXP-11 | Qualification only; implementation phases hold the released command-preparation lock. |
+| `crates/xylem-lib/src/config/` | K8S-04 | One configuration owner at a time; preserve batching, memory, resume, source nesting, and sandbox opt-in. |
 | `crates/xylem-lib/src/execution.rs` and `commands/run/dispatch.rs` | K8S-03 | Preserve ordered fixed and memory-aware admission. |
 | Plan, journal, run store, projection, telemetry, reporter, and TUI | K8S-08 | Allocate schema revisions serially and update durable readers and views together. |
-| CLI roots and `commands/run/` | EXP-11, K8S-03/09/10/11/14 | One CLI integration owner at a time; preserve exit mapping and dry-run purity. |
+| CLI roots and `commands/run/` | K8S-03/09/10/11/14 | One CLI integration owner at a time; preserve exit mapping and dry-run purity. |
 | Delivery files and release images | SEC-07, RBK-02/03, BRW-02, K8S-15/16/17/18 | Serialize CI/release wiring; RBK-01 owns only the dedicated external runner. |
-| User documentation and examples | EXP-11, BRW-01/02/03, K8S-19 | Serialize shared files; document only accepted behavior and tested commands. |
+| User documentation and examples | BRW-01/02/03, K8S-19 | Serialize shared files; document only accepted behavior and tested commands. |
 
-EXP tests touch existing plan/completion projections without allocating a new
-schema version. A discovered schema change needs a separate bounded phase and
-Run state ownership. All phases serialize shared wiki reconciliation.
+All phases serialize shared wiki reconciliation.
 
 ## Handoff checklist
 

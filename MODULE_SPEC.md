@@ -311,7 +311,7 @@ runtime invocation.
 Structural interpolation uses the bounded root syntax and rejects unknown or
 cyclic names, non-scalar values, malformed placeholders, and NUL. It does not
 read the process environment or input/run-derived built-ins. The selected
-effective value is used for planning and execution.
+effective value is used for planning, execution, and GitLab export validation.
 
 ## 5. Python environments
 

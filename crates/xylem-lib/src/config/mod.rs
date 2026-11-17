@@ -410,6 +410,16 @@ impl Config {
             })
             .transpose()
     }
+    /// Expand a module source using its effective static workflow and module bindings.
+    ///
+    /// The returned location has not been rebased against its declaring configuration.
+    pub fn expanded_module_location(&self, module: &Module) -> Result<Location, ConfigurationModuleError> {
+        let mut location = match &module.module_type {
+            | ModuleType::Binary { uri, .. } | ModuleType::Configuration { uri, .. } | ModuleType::Script { uri, .. } => uri.clone(),
+        };
+        let field = format!("modules.{}.uri", module.module_path.join("::"));
+        Self::expand_location(&mut location, self.static_module_variables(module).as_ref(), &field).map(|()| location)
+    }
     /// Resolve local configuration modules into their executable leaf modules.
     pub fn resolve(self, source: &Path) -> Result<Self, ConfigurationModuleError> {
         let source = canonicalize(source).unwrap_or_else(|_| source.to_path_buf());

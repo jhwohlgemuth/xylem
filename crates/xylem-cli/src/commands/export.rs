@@ -9,6 +9,7 @@ use acorn_schema::validation::Validate;
 use alloc::collections::{BTreeMap, BTreeSet};
 use core::iter::once;
 use serde::Serialize;
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::env;
 use std::ffi::OsString;
@@ -60,33 +61,75 @@ struct GitLabRule {
 struct GitLabWorkflow {
     rules: Vec<GitLabRule>,
 }
-fn collect_sources(path: &Path, root: &Path, sources: &mut BTreeSet<PathBuf>) -> Result<(), String> {
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
+struct SourceTraversal {
+    output: Option<String>,
+    path: PathBuf,
+    variables: String,
+}
+fn collect_sources(
+    path: &Path,
+    root: &Path,
+    sources: &mut BTreeSet<PathBuf>,
+    traversals: &mut BTreeSet<SourceTraversal>,
+    inherited_variables: Option<&Map<String, Value>>,
+    inherited_output: Option<&str>,
+) -> Result<(), String> {
     canonicalize(path)
         .map_err(|error| format!("resolve {}: {error}", path.display()))
         .and_then(|path| match path.strip_prefix(root).is_ok() {
             | true => Ok(path),
             | false => Err(format!("configuration {} is outside the current repository", path.display())),
         })
-        .and_then(|path| match sources.insert(path.clone()) {
-            | false => Ok(()),
-            | true => Config::try_from(path.as_path()).map_err(|error| error.to_string()).and_then(|config| {
-                validate_source(&config, &path, sources.len()).and_then(|()| {
-                    config.modules.iter().try_for_each(|module| match &module.module_type {
-                        | ModuleType::Configuration { uri, .. } => match ModuleUri::from(uri) {
-                            | ModuleUri::File(child) => {
-                                let child = if child.is_absolute() {
-                                    child
-                                } else {
-                                    path.parent().unwrap_or(root).join(child)
-                                };
-                                collect_sources(&child, root, sources)
-                            }
-                            | _ => Err(format!("remote configuration module {} cannot be exported to GitLab CI", module.name)),
-                        },
-                        | _ => Ok(()),
+        .and_then(|path| {
+            sources.insert(path.clone());
+            Config::try_from(path.as_path())
+                .map_err(|error| error.to_string())
+                .and_then(|mut config| {
+                    validate_source(&config, &path, sources.len()).and_then(|()| {
+                        config.variables = merge_variables(inherited_variables, config.variables.as_ref());
+                        if config.output.is_none() {
+                            config.output = inherited_output.map(str::to_string);
+                        }
+                        config.expanded_output().map_err(|error| error.to_string()).map(|output| {
+                            config.output = output;
+                            config
+                        })
                     })
                 })
-            }),
+                .and_then(|config| {
+                    serde_json::to_string(&config.variables)
+                        .map_err(|error| format!("serialize source traversal variables for {}: {error}", path.display()))
+                        .map(|variables| (config, variables))
+                })
+                .and_then(|(config, variables)| {
+                    let traversal = SourceTraversal {
+                        output: config.output.clone(),
+                        path: path.clone(),
+                        variables,
+                    };
+                    match traversals.insert(traversal) {
+                        | false => Ok(()),
+                        | true => config.modules.iter().try_for_each(|module| match &module.module_type {
+                            | ModuleType::Configuration { .. } => config
+                                .expanded_module_location(module)
+                                .map_err(|error| error.to_string())
+                                .and_then(|location| match ModuleUri::from(&location) {
+                                    | ModuleUri::File(child) => {
+                                        let child = if child.is_absolute() {
+                                            child
+                                        } else {
+                                            path.parent().unwrap_or(root).join(child)
+                                        };
+                                        let variables = merge_variables(config.variables.as_ref(), module.variables.as_ref());
+                                        collect_sources(&child, root, sources, traversals, variables.as_ref(), config.output.as_deref())
+                                    }
+                                    | _ => Err(format!("remote configuration module {} cannot be exported to GitLab CI", module.name)),
+                                }),
+                            | _ => Ok(()),
+                        }),
+                    }
+                })
         })
 }
 /// Export a discoverable workflow to a GitLab CI file, or compare it with an existing file.
@@ -162,6 +205,15 @@ fn installers(config: &Config) -> Vec<String> {
     }
     before_script
 }
+fn merge_variables(parent: Option<&Map<String, Value>>, child: Option<&Map<String, Value>>) -> Option<Map<String, Value>> {
+    let variables = parent
+        .into_iter()
+        .chain(child)
+        .flat_map(|variables| variables.iter())
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect::<Map<_, _>>();
+    (!variables.is_empty()).then_some(variables)
+}
 fn persist(output_path: &Path, rendered: String, force: bool, check: bool) -> Result<(), String> {
     match read_to_string(output_path) {
         | Ok(existing) if existing == rendered => Ok(()),
@@ -232,11 +284,18 @@ fn render_from_path(root: &Path, config_path: &Path, output_relative: &Path, ima
         .map_err(|_| "workflow configuration must be inside the current repository".to_string())
         .and_then(|config_relative| {
             let mut sources = BTreeSet::new();
-            collect_sources(config_path, root, &mut sources)
+            let mut traversals = BTreeSet::new();
+            collect_sources(config_path, root, &mut sources, &mut traversals, None, None)
                 .and_then(|()| source_digest(&sources, root))
                 .and_then(|digest| {
                     Config::try_from(config_path)
                         .map_err(|error| error.to_string())
+                        .and_then(|mut config| {
+                            config.expanded_output().map_err(|error| error.to_string()).map(|output| {
+                                config.output = output;
+                                config
+                            })
+                        })
                         .and_then(|config| config.resolve(config_path).map_err(|error| error.to_string()))
                         .and_then(|config| config.validate().map_err(|error| error.to_string()).map(|()| config))
                         .and_then(|config| render(&config, config_relative, output_relative, image, root, &digest))

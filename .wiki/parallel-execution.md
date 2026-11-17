@@ -15,12 +15,11 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 | Lock | Primary owners | Rule |
 |---|---|---|
 | Configuration | K8S-04 | Preserve typed validation, batching, memory fallback, resume, source nesting, and immutable context resolution. |
-| Command preparation | None (released) | Implementation phases EXP-05 through EXP-10 are complete; EXP-11 qualification reserves the same paths serially. |
 | Run state | K8S-08 | Allocate versions serially; update plans, writers, recovery, reporters, schemas, and TUI together. |
-| CLI | EXP-11, K8S-03/09/10/11/14 | One owner changes command registration, run orchestration, cancellation, or exit mapping at a time. |
+| CLI | K8S-03/09/10/11/14 | One owner changes command registration, run orchestration, cancellation, or exit mapping at a time. |
 | Manifest | K8S-02 | Inspect the feature tree and audit the resulting lockfile. |
 | Delivery | SEC-07, RBK-02/03, BRW-02, K8S-15/16/17/18 | Serialize CI, image, and release wiring. |
-| Documentation | EXP-11, BRW-01/02/03, K8S-19 | Reserve overlapping files even when a phase has another primary lock; land verified behavior before user-facing updates. |
+| Documentation | BRW-01/02/03, K8S-19 | Reserve overlapping files even when a phase has another primary lock; land verified behavior before user-facing updates. |
 
 ## Work lanes
 
@@ -53,24 +52,10 @@ Disjoint locks are necessary for parallel work; shared files still serialize.
 External runner and measurement work can run beside repository phases while
 its write set remains disjoint from CI and documentation integration.
 
-### Lane E: configuration expansion
-
-- [EXP-11](features/configuration-variable-expansion.md): qualify the combined
-  field and invocation matrix now that source, template, environment,
-  container, and mount expansion are accepted.
-  Earlier independent dependency branches shared configuration, script, tests,
-  and docs and therefore executed serially. EXP-11 runs the library and CLI
-  suites, formats, export tests, and example, then retires the plan.
-
-Rechecked on 2026-11-14 after EXP-09 and EXP-10 implementation. Preserve the
-original immutable invocation bindings across early root application, nested
-resolution, and final leaf application.
-
 ## Ready work and conditional starts
 
 | Phase | Primary lock | Start condition |
 |---|---|---|
-| EXP-11 | CLI | Ready; reserve export, examples, and shared validation files. |
 | RBK-01 | Runner security policy | Blocked until administration access and an amd64 host maintenance window are confirmed. |
 | BRW-01 | Tap validation | Waiting on validation; runner 54626 was online at review. Recheck and pin the current formula/job before starting. |
 | APO-01 | A/P/O measurement evidence | Blocked until rollout, corpus, and credentials are supplied. |

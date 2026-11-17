@@ -95,6 +95,143 @@ fn test_export_gitlab_discovers_nested_modules_and_checks_source_changes() {
         generated
     );
 }
+#[test]
+fn test_export_gitlab_preserves_binding_specific_source_traversals() {
+    let root = fixture_root("gitlab-binding-specific-sources");
+    create_dir_all(root.join("module")).expect("create module");
+    let child = root.join("child.json");
+    let second_leaf = root.join("second.json");
+    write(
+        &child,
+        r#"{
+            "requirements": [],
+            "modules": [{
+                "name": "Leaf",
+                "type": "configuration",
+                "uri": "{{ LEAF_CONFIG }}"
+            }]
+        }"#,
+    )
+    .expect("write shared child workflow");
+    for (name, path) in [("First Probe", root.join("first.json")), ("Second Probe", second_leaf.clone())] {
+        write(
+            path,
+            serde_json::json!({
+                "requirements": [],
+                "modules": [{
+                    "name": name,
+                    "type": "script",
+                    "uri": "file:./module",
+                    "template": {"command": "true", "arguments": []}
+                }]
+            })
+            .to_string(),
+        )
+        .expect("write leaf workflow");
+    }
+    write(
+        root.join(".xylem.json"),
+        r#"{
+            "output": "./artifacts",
+            "requirements": [],
+            "modules": [{
+                "name": "First",
+                "type": "configuration",
+                "uri": "file:./child.json",
+                "variables": {"LEAF_CONFIG": "file:./first.json"}
+            }, {
+                "name": "Second",
+                "type": "configuration",
+                "uri": "file:./child.json",
+                "variables": {"LEAF_CONFIG": "file:./second.json"}
+            }]
+        }"#,
+    )
+    .expect("write root workflow");
+    let export = xylem(&root).args(["export", "--gitlab"]).output().expect("export GitLab CI");
+    assert!(export.status.success(), "{}", String::from_utf8_lossy(&export.stderr));
+    let check = xylem(&root).args(["export", "--gitlab", "--check"]).output().expect("check GitLab CI");
+    assert!(check.status.success(), "{}", String::from_utf8_lossy(&check.stderr));
+    write(
+        &second_leaf,
+        format!("{}\n", read_to_string(&second_leaf).expect("read second leaf workflow")),
+    )
+    .expect("change second leaf workflow");
+    let stale = xylem(&root)
+        .args(["export", "--gitlab", "--check"])
+        .output()
+        .expect("check stale GitLab CI");
+    assert!(
+        !stale.status.success(),
+        "second binding-specific descendant must affect the export digest"
+    );
+}
+#[test]
+fn test_export_gitlab_resolves_structural_fields_before_rendering() {
+    let root = fixture_root("gitlab-structural-fields");
+    create_dir_all(root.join("module")).expect("create module");
+    let child = root.join("child.json");
+    let root_config = root.join(".xylem.json");
+    write(
+        &child,
+        r#"{
+            "requirements": [],
+            "modules": [{
+                "name": "Probe",
+                "type": "script",
+                "uri": "file:{{ MODULE_SOURCE }}",
+                "template": {"command": "{{ PROGRAM }}", "arguments": []}
+            }]
+        }"#,
+    )
+    .expect("write child workflow");
+    write(
+        &root_config,
+        r#"{
+            "arguments": ["DATASET"],
+            "input": ["{{ DATASET }}"],
+            "output": "{{ OUTPUT_ROOT }}/artifacts",
+            "requirements": [],
+            "variables": {
+                "CHILD_CONFIG": "file:./child.json",
+                "DATASET": "sample",
+                "MODULE_SOURCE": "./module",
+                "OUTPUT_ROOT": "generated",
+                "PROGRAM": "true"
+            },
+            "modules": [{
+                "name": "Group",
+                "type": "configuration",
+                "uri": "{{ CHILD_CONFIG }}"
+            }]
+        }"#,
+    )
+    .expect("write workflow");
+    let output = xylem(&root).args(["export", "--gitlab"]).output().expect("export GitLab CI");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let generated = read_to_string(root.join(".gitlab-ci.yml")).expect("read GitLab CI");
+    let pipeline: serde_json::Value = serde_norway::from_str(&generated).expect("parse GitLab CI");
+    assert_eq!(pipeline["xylem-000-probe"]["artifacts"]["paths"][0], "generated/artifacts");
+    let check = xylem(&root).args(["export", "--gitlab", "--check"]).output().expect("check GitLab CI");
+    assert!(check.status.success(), "{}", String::from_utf8_lossy(&check.stderr));
+    write(&child, format!("{}\n", read_to_string(&child).expect("read child workflow"))).expect("change child workflow");
+    let stale = xylem(&root)
+        .args(["export", "--gitlab", "--check"])
+        .output()
+        .expect("check stale GitLab CI");
+    assert!(!stale.status.success());
+    let mut remote: serde_json::Value =
+        serde_json::from_str(&read_to_string(&root_config).expect("read root workflow")).expect("parse root workflow");
+    remote["variables"]["CHILD_CONFIG"] = "https://example.invalid/child.json".into();
+    write(&root_config, serde_json::to_vec(&remote).expect("serialize remote workflow")).expect("write remote workflow");
+    let rejected = xylem(&root)
+        .args(["export", "--gitlab", "--force"])
+        .output()
+        .expect("reject remote nested workflow");
+    assert!(!rejected.status.success());
+    let error = String::from_utf8_lossy(&rejected.stderr);
+    assert!(error.contains("remote configuration module Group"), "{error}");
+}
 #[cfg(unix)]
 #[test]
 fn test_run_module_index_executes_only_selected_module() {

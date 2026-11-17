@@ -560,8 +560,18 @@ with the same 32-level, 10,000-substitution, and 1 MiB limits as selection
 roots. Unknown names, cycles, non-scalar values, malformed placeholders, and
 NUL bytes are errors. Input and output use workflow bindings; source URIs and
 loaded template commands also use their declaring module bindings. Input/run-derived values such as `INPUT` and `RUN_ID`
-are unavailable during structural resolution. Run the combined local example
-with `xylem run crates/xylem-cli/examples/configuration-variables.json --dry-run`.
+are unavailable during structural resolution. GitLab export validates the
+same effective output and module fields before rendering its artifact paths.
+
+The combined local example exercises input, output, source, and template
+command expansion. Its `DATASET` argument can be supplied positionally while
+a named override changes another binding:
+
+```bash
+xylem run crates/xylem-cli/examples/configuration-variables.json --dry-run
+xylem run crates/xylem-cli/examples/configuration-variables.json --dry-run --var OUTPUT_ROOT=./alternate-output -- alternate-input
+xylem export --gitlab crates/xylem-cli/examples/configuration-variables.json --output .gitlab-ci.example.yml
+```
 
 ## Options
 

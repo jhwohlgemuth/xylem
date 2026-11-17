@@ -6,7 +6,8 @@
   "variables": {
     "DATASET": "sample",
     "MODULE_SOURCE": "./crates/xylem-cli/examples",
-    "OUTPUT_ROOT": "./example-output"
+    "OUTPUT_ROOT": "./example-output",
+    "PROGRAM": "printf"
   },
   "modules": [
     {
@@ -15,7 +16,7 @@
       "programmingLanguage": "generic",
       "uri": "file:{{ MODULE_SOURCE }}",
       "template": {
-        "command": "printf",
+        "command": "{{ PROGRAM }}",
         "arguments": ["Input: {{ INPUT }}\\n"]
       }
     }

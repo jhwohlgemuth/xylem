@@ -11,10 +11,12 @@
   - Code for handling user input, ingesting configuration data, running workflows, persisting versioned execution journals, and rendering console and JSON run summaries via `RunSummary`
 
 Bounded structural interpolation is centralized in `xylem-lib::interpolation`.
-Selection roots and configured input, output, and local leaf-source fields use
-this resolver before their respective discovery, normalization, or validation
-steps. Invocation bindings are carried through nested configuration resolution
-so leaf defaults cannot shadow them.
+Selection roots, input and output paths, module sources, templates,
+environment names, and container declarations use this resolver before their
+respective discovery, normalization, preparation, or validation steps.
+Invocation bindings are carried through nested configuration resolution so
+leaf defaults cannot shadow them. GitLab export expands the same effective
+output and module fields before validating and rendering a pipeline.
 
 Execution journals are append-only JSON Lines files owned by `xylem-lib`.
 They are flushed at every input and module transition and can be recovered
